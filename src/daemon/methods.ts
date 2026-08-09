@@ -35,7 +35,7 @@ export function buildMethods(
   const workspaces = new WorkspaceManager(db);
   const sessions = new SessionManager(db, adapterFactory);
   const runtime = new SessionRuntime((sessionId) => {
-    sessions.markStatus(sessionId, 'idle', null);
+    sessions.clearRunning(sessionId);
   });
   sessions.onKill = (id) => runtime.stop(id);
 

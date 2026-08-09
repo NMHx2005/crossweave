@@ -123,6 +123,20 @@ export class SessionManager {
     this.sessions.updateStatus(id, status, pid);
   }
 
+  /**
+   * The agent process ended. Called from the runtime's ASYNCHRONOUS exit handler, so
+   * it must not clobber a terminal state that a synchronous caller already wrote:
+   * `kill()` sets `dead` immediately after SIGTERM, and the pty's exit callback lands
+   * afterwards. Without this guard a killed session reads back as `idle` and
+   * `cw session list` lies about it.
+   */
+  clearRunning(id: string): void {
+    const row = this.sessions.findById(id);
+    if (!row) return;
+    if (row.status === 'dead' || row.status === 'landed') return;
+    this.sessions.updateStatus(id, 'idle', null);
+  }
+
   resolve(workspaceId: string, idOrName: string): SessionRow {
     const found =
       this.sessions.findByName(workspaceId, idOrName) ?? this.sessions.findById(idOrName);
