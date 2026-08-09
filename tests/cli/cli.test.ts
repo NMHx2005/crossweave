@@ -80,6 +80,16 @@ describe('cw CLI', () => {
     expect((await cw(['session', 'list'])).stdout).toContain('guarded');
   }, 60_000);
 
+  it('rejects an invalid session name on exactly one stderr line', async () => {
+    await cw(['init']);
+    const r = await cw(['session', 'new', '--name', 'bad name', '--agent', 'claude']);
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toContain('INVALID_SESSION_NAME:');
+    // The contract the TUI parses: every stderr line carries a CODE: prefix.
+    const lines = r.stderr.trimEnd().split('\n');
+    expect(lines).toHaveLength(1);
+  }, 30_000);
+
   it('daemon stop reports success without starting a daemon when none is running', async () => {
     const r = await cw(['daemon', 'stop']);
     expect(r.exitCode).toBe(0);

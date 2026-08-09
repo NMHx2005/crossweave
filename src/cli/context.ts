@@ -17,7 +17,11 @@ export async function withClient<T>(
 /** Every command funnels failures here so the exit code and stderr shape stay uniform. */
 export function fail(err: unknown): never {
   const code = err instanceof CrossweaveError ? err.code : 'INTERNAL';
-  process.stderr.write(`${code}: ${(err as Error).message}\n`);
+  // Collapse to exactly one line. Errors that wrap a subprocess's output carry its
+  // multi-line stderr, and those extra lines would reach the terminal with no `CODE:`
+  // prefix — the one thing a script or the TUI cannot parse.
+  const message = String((err as Error).message).replace(/\s*\n\s*/g, ' ');
+  process.stderr.write(`${code}: ${message}\n`);
   process.exit(1);
 }
 

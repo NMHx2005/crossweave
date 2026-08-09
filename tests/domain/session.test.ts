@@ -97,6 +97,36 @@ describe('SessionManager.resolve and rename', () => {
   });
 });
 
+describe('SessionManager session name validation', () => {
+  // Regression: names went straight into `cw/<name>` as a git branch. Git rejected
+  // them downstream and its own multi-line stderr reached the terminal as several
+  // lines with no CODE: prefix.
+  const rejected = ['has space', 'has\ttab', 'has\nnewline', '-leading-dash', '', 'a'.repeat(65), 'sl/ash', 'dot.ted'];
+  for (const name of rejected) {
+    it(`rejects ${JSON.stringify(name)} before it reaches git`, async () => {
+      await expect(
+        sessions.create({ workspaceId, name, agent: 'claude', worktree: true }),
+      ).rejects.toMatchObject({ code: 'INVALID_SESSION_NAME' });
+      expect(sessions.list(workspaceId)).toHaveLength(0);
+    });
+  }
+
+  it('accepts ordinary names', async () => {
+    for (const name of ['auth', 'feature-1', 'API_v2', 'a']) {
+      const s = await sessions.create({ workspaceId, name, agent: 'claude', worktree: true });
+      expect(s.name).toBe(name);
+    }
+  });
+
+  it('validates on rename too', async () => {
+    await sessions.create({ workspaceId, name: 'ok', agent: 'claude', worktree: true });
+    expect(() => sessions.rename(workspaceId, 'ok', 'not ok')).toThrowError(
+      expect.objectContaining({ code: 'INVALID_SESSION_NAME' }) as unknown as Error,
+    );
+    expect(sessions.resolve(workspaceId, 'ok').name).toBe('ok');
+  });
+});
+
 describe('SessionManager.create unwinds a half-created session', () => {
   // The row is the only thing that makes a worktree reachable. Without unwinding, a
   // failed insert strands a full checkout on disk AND leaves the branch, so the same

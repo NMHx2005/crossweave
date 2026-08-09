@@ -13,6 +13,27 @@ export interface CreateSessionOptions {
   worktree: boolean;
 }
 
+/**
+ * A session name becomes a git branch (`cw/<name>`) and a column in a tab-delimited
+ * listing the TUI parses. Letting an arbitrary string through means git rejects it
+ * downstream and its own multi-line stderr surfaces as several lines with no `CODE:`
+ * prefix, which breaks the CLI's one parseable-error contract. Dots are excluded
+ * rather than special-cased: `..` and a trailing `.lock` are both invalid refs, and
+ * no realistic session name needs one.
+ */
+const VALID_SESSION_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+const MAX_SESSION_NAME = 64;
+
+function assertValidSessionName(name: string): void {
+  if (name.length > MAX_SESSION_NAME || !VALID_SESSION_NAME.test(name)) {
+    throw new CrossweaveError(
+      'INVALID_SESSION_NAME',
+      `Session name must be 1-${MAX_SESSION_NAME} characters of letters, digits, ` +
+        `dash or underscore and start with a letter or digit, got ${JSON.stringify(name)}`,
+    );
+  }
+}
+
 export class SessionManager {
   private readonly sessions: SessionRepo;
   private readonly workspaces: WorkspaceRepo;
@@ -29,6 +50,7 @@ export class SessionManager {
   }
 
   async create(opts: CreateSessionOptions): Promise<SessionRow> {
+    assertValidSessionName(opts.name);
     const root = this.projectRoot(opts.workspaceId);
 
     if (this.sessions.findByName(opts.workspaceId, opts.name)) {
@@ -94,6 +116,7 @@ export class SessionManager {
   }
 
   rename(workspaceId: string, idOrName: string, newName: string): SessionRow {
+    assertValidSessionName(newName);
     const row = this.resolve(workspaceId, idOrName);
     // A session is allowed to keep its own name; only a DIFFERENT session holding it
     // is a collision.
