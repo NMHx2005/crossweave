@@ -3236,7 +3236,7 @@ describe('DaemonClient', () => {
   // the constructor only registered 'data' and 'close'. Node THROWS an 'error' event
   // with no listener, so a daemon dying mid-session killed the CLI with an uncaught
   // exception instead of rejecting the call.
-  it('rejects with DAEMON_GONE instead of crashing when the daemon goes away', async () => {
+  it('rejects with DAEMON_GONE instead of crashing or hanging when the daemon goes away', async () => {
     daemon = createDaemon({ socketPath, methods: buildMethods(db, fx.root) });
     await daemon.listen();
     const client = await DaemonClient.connect(socketPath);
@@ -3244,6 +3244,12 @@ describe('DaemonClient', () => {
 
     await daemon.close();
     daemon = undefined;
+
+    // Wait for the client to actually observe the disconnect rather than racing the
+    // teardown. This loop can only exit once the state under test is real, and the
+    // per-test timeout is what catches it if the client never notices — which is
+    // precisely the regression: the earlier version hung here forever.
+    while (client.isConnected) await new Promise((r) => setTimeout(r, 5));
 
     await expect(client.call('ping')).rejects.toMatchObject({ code: 'DAEMON_GONE' });
     client.close();
@@ -3295,6 +3301,7 @@ interface Pending {
 
 export class DaemonClient {
   private nextId = 1;
+  private gone = false;
   private readonly pending = new Map<number, Pending>();
 
   private constructor(private readonly socket: Socket) {
@@ -3327,10 +3334,23 @@ export class DaemonClient {
     socket.on('close', () => {
       this.failAll('Daemon connection closed');
     });
+    // 'end' is the one that actually matters. When the daemon half-closes, no
+    // response can ever arrive — but if a write is already stalled in the socket,
+    // 'close' never fires and neither does 'error', so without this a pending call
+    // hangs forever rather than failing. A hung CLI is worse than a failed one.
+    socket.on('end', () => {
+      this.failAll('Daemon closed the connection');
+    });
   }
 
-  /** Reject everything still in flight. Idempotent — 'error' is followed by 'close'. */
+  /** True until the connection is known to be gone. */
+  get isConnected(): boolean {
+    return !this.gone && !this.socket.destroyed && this.socket.writable;
+  }
+
+  /** Reject everything in flight. Idempotent — 'end', 'error' and 'close' overlap. */
   private failAll(message: string): void {
+    this.gone = true;
     for (const p of this.pending.values()) {
       p.reject(new CrossweaveError('DAEMON_GONE', message));
     }
@@ -3349,6 +3369,15 @@ export class DaemonClient {
   }
 
   call<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+    // Writing into a socket whose peer is gone succeeds locally and then waits for a
+    // response that can never come. Fail fast instead of registering a promise that
+    // nothing will ever settle.
+    if (!this.isConnected) {
+      return Promise.reject(
+        new CrossweaveError('DAEMON_GONE', `Daemon connection is gone; cannot call ${method}`),
+      );
+    }
+
     const id = this.nextId;
     this.nextId += 1;
     return new Promise<T>((resolve, reject) => {
