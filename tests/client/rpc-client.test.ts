@@ -63,7 +63,7 @@ describe('DaemonClient', () => {
   // the constructor only registered 'data' and 'close'. Node THROWS an 'error' event
   // with no listener, so a daemon dying mid-session killed the CLI with an uncaught
   // exception instead of rejecting the call.
-  it('rejects with DAEMON_GONE instead of crashing when the daemon goes away', async () => {
+  it('rejects with DAEMON_GONE instead of crashing or hanging when the daemon goes away', async () => {
     daemon = createDaemon({ socketPath, methods: buildMethods(db, fx.root) });
     await daemon.listen();
     const client = await DaemonClient.connect(socketPath);
@@ -71,6 +71,12 @@ describe('DaemonClient', () => {
 
     await daemon.close();
     daemon = undefined;
+
+    // Wait for the client to actually observe the disconnect rather than racing the
+    // teardown. This loop can only exit once the state under test is real, and the
+    // per-test timeout is what catches it if the client never notices — which is
+    // precisely the regression: the earlier version hung here forever.
+    while (client.isConnected) await new Promise((r) => setTimeout(r, 5));
 
     await expect(client.call('ping')).rejects.toMatchObject({ code: 'DAEMON_GONE' });
     client.close();
