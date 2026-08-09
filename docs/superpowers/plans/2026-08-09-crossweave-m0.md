@@ -1844,6 +1844,50 @@ describe('ClaudePtyAdapter', () => {
     proc.kill('SIGKILL');
     await expect(exited).resolves.toBeTypeOf('number');
   });
+
+  // Task 13 fans this stream out to every client attached to a session. One broken
+  // viewer must not be able to starve the others, and a bare for-loop over the
+  // listeners does exactly that — permanently, since the same subscriber throws on
+  // every later chunk too.
+  it('keeps delivering data to the other listeners when one throws', async () => {
+    const adapter = new ClaudePtyAdapter('sh', ['-c', 'echo one; echo two']);
+    const proc = adapter.spawn({ cwd: tmpdir(), env: {}, cols: 80, rows: 24 });
+    const seen: string[] = [];
+    proc.onData(() => { seen.push('first'); });
+    proc.onData(() => { throw new Error('bad subscriber'); });
+    proc.onData(() => { seen.push('third'); });
+    await new Promise<number>((res) => proc.onExit(res));
+    expect(seen).toContain('first');
+    expect(seen).toContain('third');
+  });
+
+  it('keeps calling the other exit listeners when one throws', async () => {
+    const adapter = new ClaudePtyAdapter('sh', ['-c', 'exit 0']);
+    const proc = adapter.spawn({ cwd: tmpdir(), env: {}, cols: 80, rows: 24 });
+    const seen: string[] = [];
+    proc.onExit(() => { seen.push('first'); });
+    proc.onExit(() => { throw new Error('bad subscriber'); });
+    await new Promise<void>((res) => proc.onExit(() => { seen.push('third'); res(); }));
+    expect(seen).toEqual(['first', 'third']);
+  });
+
+  // Pins a contract Task 13 depends on: the adapter buffers NOTHING, so anything
+  // emitted before a subscriber attaches is gone. Scrollback is the session
+  // runtime's job, not the adapter's. Synchronises on the data itself rather than a
+  // timer so the test stays deterministic.
+  it('does not buffer output for a listener that attaches later', async () => {
+    const adapter = new ClaudePtyAdapter('sh', ['-c', 'echo early; read x; echo late']);
+    const proc = adapter.spawn({ cwd: tmpdir(), env: {}, cols: 80, rows: 24 });
+    await new Promise<void>((res) => {
+      proc.onData((c) => { if (c.includes('early')) res(); });
+    });
+    const late: string[] = [];
+    proc.onData((c) => { late.push(c); });
+    proc.write('go\n');
+    await new Promise<number>((res) => proc.onExit(res));
+    expect(late.join('')).not.toContain('early');
+    expect(late.join('')).toContain('late');
+  });
 });
 
 describe('createAdapter', () => {
@@ -1910,6 +1954,28 @@ import type { AgentAdapter, AgentProcess, SpawnOptions } from './types.js';
 type BunTerminal = { write(data: string): void; resize(cols: number, rows: number): void; close(): void };
 type BunPtyProcess = { pid: number; exited: Promise<number>; terminal: BunTerminal; kill(signal?: number | NodeJS.Signals): void };
 
+/**
+ * Deliver to every listener even when one of them throws.
+ *
+ * A bare `for (const cb of listeners) cb(v)` aborts on the first throw, so every
+ * listener registered after the bad one stops receiving anything — and because the
+ * same subscriber throws on every subsequent emit, it never recovers. Task 13 fans
+ * this out to several attached clients at once, where one broken viewer must not be
+ * able to starve the rest.
+ *
+ * The error is swallowed rather than logged because M0 has nowhere to log it. M2
+ * adds the event ledger; subscriber failures belong there.
+ */
+function fanOut<T>(listeners: ReadonlyArray<(value: T) => void>, value: T): void {
+  for (const cb of listeners) {
+    try {
+      cb(value);
+    } catch {
+      // The subscriber owns its own failure; the stream keeps going.
+    }
+  }
+}
+
 class PtyProcess implements AgentProcess {
   private readonly dataListeners: Array<(chunk: string) => void> = [];
   private readonly exitListeners: Array<(code: number) => void> = [];
@@ -1918,13 +1984,13 @@ class PtyProcess implements AgentProcess {
   constructor(private readonly proc: BunPtyProcess) {
     void proc.exited.then((code) => {
       this.exitCode = code;
-      for (const cb of this.exitListeners) cb(code);
+      fanOut(this.exitListeners, code);
     });
   }
 
   /** Called by the adapter from Bun's single spawn-time data callback. */
   emit(chunk: string): void {
-    for (const cb of this.dataListeners) cb(chunk);
+    fanOut(this.dataListeners, chunk);
   }
 
   get pid(): number {
@@ -3484,6 +3550,17 @@ git commit -m "feat(cli): add cw init, workspace, session and daemon commands"
 Tasks 1–12 create worktrees and rows but never run an agent. This task is what
 makes M0 fulfil its promise: the daemon owns a live pty per session, and the CLI
 bridges the local terminal to it.
+
+Two properties of the Task 7 adapter this task is built on, both verified by tests
+there rather than assumed:
+
+- **The adapter buffers nothing.** Anything emitted before a subscriber attaches is
+  gone. `SessionRuntime`'s `scrollback` is therefore load-bearing, not a nicety — it
+  is the only reason a client that attaches to an already-running session sees
+  anything at all. That is also why `start()` registers its `onData` handler
+  immediately, before any client can subscribe.
+- **Fan-out is isolated.** A listener that throws no longer aborts delivery to the
+  others, so one broken attached client cannot starve the rest.
 
 **Files:**
 - Create: `src/daemon/runtime.ts`
