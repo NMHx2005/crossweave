@@ -37,13 +37,20 @@ describe('createWorktree', () => {
   });
 
   it('throws WORKTREE_FAILED on a repo with no commits', async () => {
-    const { mkdtemp } = await import('node:fs/promises');
+    const { mkdtemp, rm } = await import('node:fs/promises');
     const { tmpdir } = await import('node:os');
     const empty = await mkdtemp(join(tmpdir(), 'cw-empty-'));
-    await $`git init -q -b main`.cwd(empty).quiet();
-    await expect(createWorktree(empty, 's_x', 'cw/x')).rejects.toMatchObject({
-      code: 'WORKTREE_FAILED',
-    });
+    // Every temp directory this suite creates must be removed. An earlier version of
+    // this test leaked one per run; 52 of them accumulated in TMPDIR and the growing
+    // directory was a direct cause of the beforeEach hook timeouts elsewhere.
+    try {
+      await $`git init -q -b main`.cwd(empty).quiet();
+      await expect(createWorktree(empty, 's_x', 'cw/x')).rejects.toMatchObject({
+        code: 'WORKTREE_FAILED',
+      });
+    } finally {
+      await rm(empty, { recursive: true, force: true });
+    }
   });
 });
 
