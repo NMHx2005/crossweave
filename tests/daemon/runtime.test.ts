@@ -130,6 +130,29 @@ describe('session runtime', () => {
     expect(row?.pid).toBeNull();
   });
 
+  // Regression: neither start nor resume checked the status, so a killed session
+  // could be resumed straight back to running — which would have made `dead` and
+  // `idle` the same thing and the kill meaningless.
+  it('refuses to start or resume a killed session', async () => {
+    await client.call('session.new', { workspaceId, name: 'gone', agent: 'claude', worktree: true });
+    await client.call('session.start', { workspaceId, idOrName: 'gone' });
+    await client.call('session.kill', { workspaceId, idOrName: 'gone', removeWorktree: false });
+
+    await expect(
+      client.call('session.resume', { workspaceId, idOrName: 'gone' }),
+    ).rejects.toMatchObject({ code: 'SESSION_ENDED' });
+    await expect(
+      client.call('session.start', { workspaceId, idOrName: 'gone' }),
+    ).rejects.toMatchObject({ code: 'SESSION_ENDED' });
+
+    // Checked immediately, while the runtime may still report the pty as running —
+    // that window used to return a stale `dead` row with no error.
+    const rows = await client.call<{ name: string; status: string }[]>(
+      'session.list', { workspaceId },
+    );
+    expect(rows.find((r) => r.name === 'gone')?.status).toBe('dead');
+  });
+
   it('resume starts a stopped session again', async () => {
     await client.call('session.new', { workspaceId, name: 'auth', agent: 'claude', worktree: true });
     await client.call('session.start', { workspaceId, idOrName: 'auth' });
