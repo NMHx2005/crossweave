@@ -4079,7 +4079,7 @@ there rather than assumed:
 - Modify: `src/daemon/methods.ts` — new session runtime methods, injectable adapter factory
 - Modify: `src/domain/session.ts` — injectable adapter factory
 - Modify: `src/client/rpc-client.ts` — notification handling
-- Modify: `src/cli/index.ts` — register the attach command
+- Modify: `src/cli/commands/session.ts` — register the attach subcommand. `src/cli/index.ts` needs no change; `session` is already wired into the root command there.
 - Test: `tests/daemon/runtime.test.ts`
 
 **Interfaces:**
@@ -4121,10 +4121,11 @@ let client: DaemonClient;
 let socketPath: string;
 let workspaceId: string;
 
-async function waitFor(predicate: () => boolean, ms = 5000): Promise<void> {
+/** Accepts an async predicate — several conditions here are only observable over RPC. */
+async function waitFor(predicate: () => boolean | Promise<boolean>, ms = 5000): Promise<void> {
   const deadline = Date.now() + ms;
   while (Date.now() < deadline) {
-    if (predicate()) return;
+    if (await predicate()) return;
     await new Promise((r) => setTimeout(r, 25));
   }
   throw new Error('waitFor timed out');
@@ -4211,16 +4212,20 @@ describe('session runtime', () => {
   it('marks the session idle and clears the pid when the agent exits', async () => {
     await client.call('session.new', { workspaceId, name: 'bye', agent: 'claude', worktree: true });
     await client.call('session.start', { workspaceId, idOrName: 'bye' });
-    await client.call('session.input', { workspaceId, idOrName: 'bye', data: '' });
     await client.call('session.stop', { workspaceId, idOrName: 'bye' });
 
-    await waitFor(async () => true);
-    const rows = await client.call<{ name: string; status: string; pid: number | null }[]>(
-      'session.list', { workspaceId },
-    );
-    const row = rows.find((r) => r.name === 'bye')!;
-    expect(['idle', 'dead']).toContain(row.status);
-    expect(row.pid).toBeNull();
+    // Wait on the condition itself. The runtime's exit handler is asynchronous, so
+    // anything that does not observe the actual row is testing nothing.
+    type Row = { name: string; status: string; pid: number | null };
+    let row: Row | undefined;
+    await waitFor(async () => {
+      const rows = await client.call<Row[]>('session.list', { workspaceId });
+      row = rows.find((r) => r.name === 'bye');
+      return row !== undefined && row.pid === null && row.status !== 'running';
+    });
+
+    expect(row?.status).toBe('idle');
+    expect(row?.pid).toBeNull();
   });
 
   it('resume starts a stopped session again', async () => {
@@ -4233,12 +4238,24 @@ describe('session runtime', () => {
     expect(again.status).toBe('running');
   });
 
-  it('kill stops a running agent', async () => {
+  // Regression: kill() writes 'dead' synchronously right after SIGTERM, but the pty's
+  // exit callback arrives later and used to overwrite it with 'idle'. A killed session
+  // that reads back as idle is worse than useless — `cw session list` would lie.
+  it('kill stops a running agent and the exit handler does not resurrect it', async () => {
     await client.call('session.new', { workspaceId, name: 'auth', agent: 'claude', worktree: true });
     await client.call('session.start', { workspaceId, idOrName: 'auth' });
     await client.call('session.kill', { workspaceId, idOrName: 'auth', removeWorktree: false });
-    const rows = await client.call<{ name: string; status: string }[]>('session.list', { workspaceId });
-    expect(rows.find((r) => r.name === 'auth')!.status).toBe('dead');
+
+    type Row = { name: string; status: string };
+    const statusOf = async (): Promise<string | undefined> => {
+      const rows = await client.call<Row[]>('session.list', { workspaceId });
+      return rows.find((r) => r.name === 'auth')?.status;
+    };
+
+    expect(await statusOf()).toBe('dead');
+    // Give the pty's async exit callback time to land, then confirm it did not win.
+    await new Promise((r) => setTimeout(r, 300));
+    expect(await statusOf()).toBe('dead');
   });
 });
 ```
@@ -4440,6 +4457,20 @@ Add a public accessor so the method table can build an adapter when starting:
   markStatus(id: string, status: SessionRow['status'], pid: number | null): void {
     this.sessions.updateStatus(id, status, pid);
   }
+
+  /**
+   * The agent process ended. Called from the runtime's ASYNCHRONOUS exit handler, so
+   * it must not clobber a terminal state that a synchronous caller already wrote:
+   * `kill()` sets `dead` immediately after SIGTERM, and the pty's exit callback lands
+   * afterwards. Without this guard a killed session reads back as `idle` and
+   * `cw session list` lies about it.
+   */
+  clearRunning(id: string): void {
+    const row = this.sessions.findById(id);
+    if (!row) return;
+    if (row.status === 'dead' || row.status === 'landed') return;
+    this.sessions.updateStatus(id, 'idle', null);
+  }
 ```
 
 Add `SessionRuntime` awareness to `kill` so a running agent is stopped through the
@@ -4469,7 +4500,7 @@ export function buildMethods(
   const workspaces = new WorkspaceManager(db);
   const sessions = new SessionManager(db, adapterFactory);
   const runtime = new SessionRuntime((sessionId) => {
-    sessions.markStatus(sessionId, 'idle', null);
+    sessions.clearRunning(sessionId);
   });
   sessions.onKill = (id) => runtime.stop(id);
 
@@ -4653,10 +4684,11 @@ export const attachCommand = defineCommand({
 });
 ```
 
-- [ ] **Step 10: Register attach in `src/cli/index.ts`**
+- [ ] **Step 10: Register attach as a `session` subcommand**
 
-Import it and add it to the `session` subcommands. In `src/cli/commands/session.ts`,
-add to the `subCommands` object of `sessionCommand`:
+This is entirely in `src/cli/commands/session.ts` — `src/cli/index.ts` already wires
+`session` into the root command and needs no change. Add to the `subCommands` object
+of `sessionCommand`:
 
 ```ts
     attach: attachCommand,
