@@ -2352,6 +2352,36 @@ describe('SessionManager.resolve and rename', () => {
   });
 });
 
+describe('SessionManager session name validation', () => {
+  // Regression: names went straight into `cw/<name>` as a git branch. Git rejected
+  // them downstream and its own multi-line stderr reached the terminal as several
+  // lines with no CODE: prefix.
+  const rejected = ['has space', 'has\ttab', 'has\nnewline', '-leading-dash', '', 'a'.repeat(65), 'sl/ash', 'dot.ted'];
+  for (const name of rejected) {
+    it(`rejects ${JSON.stringify(name)} before it reaches git`, async () => {
+      await expect(
+        sessions.create({ workspaceId, name, agent: 'claude', worktree: true }),
+      ).rejects.toMatchObject({ code: 'INVALID_SESSION_NAME' });
+      expect(sessions.list(workspaceId)).toHaveLength(0);
+    });
+  }
+
+  it('accepts ordinary names', async () => {
+    for (const name of ['auth', 'feature-1', 'API_v2', 'a']) {
+      const s = await sessions.create({ workspaceId, name, agent: 'claude', worktree: true });
+      expect(s.name).toBe(name);
+    }
+  });
+
+  it('validates on rename too', async () => {
+    await sessions.create({ workspaceId, name: 'ok', agent: 'claude', worktree: true });
+    expect(() => sessions.rename(workspaceId, 'ok', 'not ok')).toThrowError(
+      expect.objectContaining({ code: 'INVALID_SESSION_NAME' }) as unknown as Error,
+    );
+    expect(sessions.resolve(workspaceId, 'ok').name).toBe('ok');
+  });
+});
+
 describe('SessionManager.create unwinds a half-created session', () => {
   // The row is the only thing that makes a worktree reachable. Without unwinding, a
   // failed insert strands a full checkout on disk AND leaves the branch, so the same
@@ -2431,6 +2461,27 @@ export interface CreateSessionOptions {
   worktree: boolean;
 }
 
+/**
+ * A session name becomes a git branch (`cw/<name>`) and a column in a tab-delimited
+ * listing the TUI parses. Letting an arbitrary string through means git rejects it
+ * downstream and its own multi-line stderr surfaces as several lines with no `CODE:`
+ * prefix, which breaks the CLI's one parseable-error contract. Dots are excluded
+ * rather than special-cased: `..` and a trailing `.lock` are both invalid refs, and
+ * no realistic session name needs one.
+ */
+const VALID_SESSION_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+const MAX_SESSION_NAME = 64;
+
+function assertValidSessionName(name: string): void {
+  if (name.length > MAX_SESSION_NAME || !VALID_SESSION_NAME.test(name)) {
+    throw new CrossweaveError(
+      'INVALID_SESSION_NAME',
+      `Session name must be 1-${MAX_SESSION_NAME} characters of letters, digits, ` +
+        `dash or underscore and start with a letter or digit, got ${JSON.stringify(name)}`,
+    );
+  }
+}
+
 export class SessionManager {
   private readonly sessions: SessionRepo;
   private readonly workspaces: WorkspaceRepo;
@@ -2447,6 +2498,7 @@ export class SessionManager {
   }
 
   async create(opts: CreateSessionOptions): Promise<SessionRow> {
+    assertValidSessionName(opts.name);
     const root = this.projectRoot(opts.workspaceId);
 
     if (this.sessions.findByName(opts.workspaceId, opts.name)) {
@@ -2513,6 +2565,7 @@ export class SessionManager {
   }
 
   rename(workspaceId: string, idOrName: string, newName: string): SessionRow {
+    assertValidSessionName(newName);
     const row = this.resolve(workspaceId, idOrName);
     // A session is allowed to keep its own name; only a DIFFERENT session holding it
     // is a collision.
@@ -3665,6 +3718,16 @@ describe('cw CLI', () => {
     expect((await cw(['session', 'list'])).stdout).toContain('guarded');
   }, 60_000);
 
+  it('rejects an invalid session name on exactly one stderr line', async () => {
+    await cw(['init']);
+    const r = await cw(['session', 'new', '--name', 'bad name', '--agent', 'claude']);
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toContain('INVALID_SESSION_NAME:');
+    // The contract the TUI parses: every stderr line carries a CODE: prefix.
+    const lines = r.stderr.trimEnd().split('\n');
+    expect(lines).toHaveLength(1);
+  }, 30_000);
+
   it('daemon stop reports success without starting a daemon when none is running', async () => {
     const r = await cw(['daemon', 'stop']);
     expect(r.exitCode).toBe(0);
@@ -3716,7 +3779,11 @@ export async function withClient<T>(
 /** Every command funnels failures here so the exit code and stderr shape stay uniform. */
 export function fail(err: unknown): never {
   const code = err instanceof CrossweaveError ? err.code : 'INTERNAL';
-  process.stderr.write(`${code}: ${(err as Error).message}\n`);
+  // Collapse to exactly one line. Errors that wrap a subprocess's output carry its
+  // multi-line stderr, and those extra lines would reach the terminal with no `CODE:`
+  // prefix — the one thing a script or the TUI cannot parse.
+  const message = String((err as Error).message).replace(/\s*\n\s*/g, ' ');
+  process.stderr.write(`${code}: ${message}\n`);
   process.exit(1);
 }
 
