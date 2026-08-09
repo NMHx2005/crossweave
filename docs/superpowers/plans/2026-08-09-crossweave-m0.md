@@ -1389,6 +1389,22 @@ export async function removeWorktree(projectRoot: string, worktreePath: string):
   }
 }
 
+/**
+ * Used to unwind a half-created session. `git worktree remove` leaves the branch
+ * behind, and a leftover branch makes every retry with the same session name fail
+ * with BRANCH_EXISTS — so the branch has to go too.
+ */
+export async function deleteBranch(projectRoot: string, branch: string): Promise<void> {
+  try {
+    await simpleGit(projectRoot).raw(['branch', '-D', branch]);
+  } catch (cause) {
+    throw new CrossweaveError(
+      'BRANCH_DELETE_FAILED',
+      `git branch -D failed for ${branch}: ${(cause as Error).message}`,
+    );
+  }
+}
+
 export async function listWorktreePaths(projectRoot: string): Promise<string[]> {
   // `git worktree list` always prints CANONICAL paths, but callers may hand us a
   // non-canonical root — on macOS `/var` is a symlink to `/private/var`, and any
@@ -2097,6 +2113,7 @@ git commit -m "feat(adapters): add agent adapter interface and Claude Code pty a
 
 **Files:**
 - Create: `src/domain/session.ts`
+- Modify: `src/isolation/worktree.ts` — add `deleteBranch`, needed to unwind a half-created session
 - Test: `tests/domain/session.test.ts`
 
 **Interfaces:**
@@ -2115,8 +2132,10 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Database } from 'bun:sqlite';
 import { openDatabase } from '../../src/db/open.js';
+import { SessionRepo } from '../../src/db/repositories/session.js';
 import { WorkspaceManager } from '../../src/domain/workspace.js';
 import { SessionManager } from '../../src/domain/session.js';
+import { listWorktreePaths } from '../../src/isolation/worktree.js';
 import { makeGitFixture, type GitFixture } from '../helpers/git-fixture.js';
 
 let fx: GitFixture;
@@ -2200,6 +2219,41 @@ describe('SessionManager.resolve and rename', () => {
       expect.objectContaining({ code: 'SESSION_NAME_TAKEN' }) as unknown as Error,
     );
   });
+
+  it('lets a session keep the name it already has', async () => {
+    await sessions.create({ workspaceId, name: 'same', agent: 'claude', worktree: true });
+    expect(sessions.rename(workspaceId, 'same', 'same').name).toBe('same');
+  });
+});
+
+describe('SessionManager.create unwinds a half-created session', () => {
+  // The row is the only thing that makes a worktree reachable. Without unwinding, a
+  // failed insert strands a full checkout on disk AND leaves the branch, so the same
+  // session name can never be created again.
+  it('removes the worktree and the branch when the row insert fails', async () => {
+    const { simpleGit } = await import('simple-git');
+    const original = SessionRepo.prototype.insert;
+    SessionRepo.prototype.insert = (): void => {
+      throw new Error('simulated insert failure');
+    };
+    try {
+      await expect(
+        sessions.create({ workspaceId, name: 'doomed', agent: 'claude', worktree: true }),
+      ).rejects.toThrow('simulated insert failure');
+    } finally {
+      SessionRepo.prototype.insert = original;
+    }
+
+    expect(sessions.list(workspaceId)).toHaveLength(0);
+    expect(await listWorktreePaths(fx.root)).toHaveLength(0);
+    expect((await simpleGit(fx.root).branch()).all).not.toContain('cw/doomed');
+
+    // The real damage was that the name became permanently unusable. Prove it is not.
+    const retry = await sessions.create({
+      workspaceId, name: 'doomed', agent: 'claude', worktree: true,
+    });
+    expect(retry.branch).toBe('cw/doomed');
+  });
 });
 
 describe('SessionManager.kill', () => {
@@ -2241,7 +2295,7 @@ import { CrossweaveError } from '../core/errors.js';
 import { newId } from '../core/ids.js';
 import { WorkspaceRepo } from '../db/repositories/workspace.js';
 import { SessionRepo, type SessionRow } from '../db/repositories/session.js';
-import { createWorktree, removeWorktree } from '../isolation/worktree.js';
+import { createWorktree, deleteBranch, removeWorktree } from '../isolation/worktree.js';
 import { createAdapter } from '../adapters/registry.js';
 
 export interface CreateSessionOptions {
@@ -2301,7 +2355,21 @@ export class SessionManager {
       enforcementTier: adapter.enforcementTier,
       pid: null,
     };
-    this.sessions.insert(row);
+
+    try {
+      this.sessions.insert(row);
+    } catch (cause) {
+      // The row is the only thing that makes the worktree reachable. If the insert
+      // fails after the worktree exists, nothing will ever point at it again — a
+      // full checkout stranded on disk, plus a branch that makes every retry with
+      // the same session name fail with BRANCH_EXISTS. Unwind, best effort, then
+      // surface the original failure rather than a cleanup error.
+      if (branch !== null) {
+        await removeWorktree(root, worktreePath).catch(() => undefined);
+        await deleteBranch(root, branch).catch(() => undefined);
+      }
+      throw cause;
+    }
     return row;
   }
 
@@ -2320,7 +2388,10 @@ export class SessionManager {
 
   rename(workspaceId: string, idOrName: string, newName: string): SessionRow {
     const row = this.resolve(workspaceId, idOrName);
-    if (this.sessions.findByName(workspaceId, newName)) {
+    // A session is allowed to keep its own name; only a DIFFERENT session holding it
+    // is a collision.
+    const clash = this.sessions.findByName(workspaceId, newName);
+    if (clash && clash.id !== row.id) {
       throw new CrossweaveError('SESSION_NAME_TAKEN', `Session already exists: ${newName}`);
     }
     this.sessions.rename(row.id, newName);
