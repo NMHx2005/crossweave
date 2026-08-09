@@ -1,6 +1,6 @@
 import { connect, type Socket } from 'node:net';
 import { spawn } from 'node:child_process';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CrossweaveError } from '../core/errors.js';
 import { crossweaveDir } from '../core/paths.js';
@@ -143,14 +143,23 @@ const DAEMON_START_TIMEOUT_MS = 10_000;
 const DAEMON_POLL_INTERVAL_MS = 100;
 
 /**
- * `daemonEntry` defaults to the sibling source entry point; Bun runs TypeScript
- * directly, so there is no build step to resolve around. The parameter stays
- * overridable because the compiled single binary (packaging task) spawns the
- * sibling `cwd` executable instead.
+ * Compiled binaries run as `cw`; from source, `process.execPath` is the bun binary.
+ * The two cases need different daemon entry points and different spawn arguments.
  */
+export function resolveDaemonEntry(): { command: string; args: string[] } {
+  const isCompiled = basename(process.execPath).startsWith('cw');
+  if (isCompiled) {
+    return { command: join(dirname(process.execPath), 'cwd'), args: [] };
+  }
+  return {
+    command: process.execPath,
+    args: [fileURLToPath(new URL('../daemon/main.ts', import.meta.url))],
+  };
+}
+
 export async function connectOrStart(
   projectRoot: string,
-  daemonEntry = fileURLToPath(new URL('../daemon/main.ts', import.meta.url)),
+  entry = resolveDaemonEntry(),
 ): Promise<DaemonClient> {
   const socketPath = join(crossweaveDir(projectRoot), 'daemon.sock');
 
@@ -160,7 +169,7 @@ export async function connectOrStart(
     // Nothing listening; start one below.
   }
 
-  const child = spawn(process.execPath, [daemonEntry], {
+  const child = spawn(entry.command, entry.args, {
     cwd: projectRoot,
     detached: true,
     stdio: 'ignore',

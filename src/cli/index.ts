@@ -2,6 +2,7 @@
 import { join } from 'node:path';
 import { defineCommand, runMain } from 'citty';
 import { crossweaveDir, findProjectRoot } from '../core/paths.js';
+import { VERSION } from '../core/version.js';
 import { DaemonClient } from '../client/rpc-client.js';
 import { initCommand, workspaceCommand } from './commands/workspace.js';
 import { sessionCommand } from './commands/session.js';
@@ -38,7 +39,7 @@ const daemonCommand = defineCommand({
 });
 
 const main = defineCommand({
-  meta: { name: 'cw', description: 'crossweave — parallel agents that stay mergeable' },
+  meta: { name: 'cw', version: VERSION, description: 'crossweave — parallel agents that stay mergeable' },
   subCommands: {
     init: initCommand,
     workspace: workspaceCommand,
