@@ -34,6 +34,22 @@ export const attachCommand = defineCommand({
         const workspaceId = await currentWorkspaceId(client);
         const target = { workspaceId, idOrName: args.target };
 
+        // Registered BEFORE session.attach, and this ordering is load-bearing: the
+        // server replays the scrollback DURING that RPC, from runtime.subscribe. A
+        // handler registered afterwards misses it entirely and re-attaching to a live
+        // session shows a blank screen.
+        let sessionExited = false;
+        let onSessionExit: (() => void) | undefined;
+        client.onNotification((method, params) => {
+          if (method === 'session.data') {
+            process.stdout.write((params as { chunk: string }).chunk);
+          } else if (method === 'session.exit') {
+            sessionExited = true;
+            process.stdout.write('\n[session exited]\n');
+            onSessionExit?.();
+          }
+        });
+
         if (args.start) await client.call('session.resume', target);
         // Subscribe exactly ONCE and await it. This used to run a second time inside
         // the promise with its failure swallowed, which both replayed the scrollback
@@ -71,20 +87,22 @@ export const attachCommand = defineCommand({
             resolve();
           }
 
-          client.onNotification((method, params) => {
-            if (method === 'session.data') {
-              process.stdout.write((params as { chunk: string }).chunk);
-            } else if (method === 'session.exit') {
-              process.stdout.write('\n[session exited]\n');
-              finish();
-            }
-          });
+          onSessionExit = finish;
+          // The session can exit during the attach RPC above, before this promise
+          // exists. Without this the notification would have nothing to call and the
+          // CLI would wait forever for an event that already happened.
+          if (sessionExited) {
+            finish();
+            return;
+          }
 
           // Without this, finish() was reachable only from session.exit or Ctrl-] —
           // neither of which can fire once the socket is gone — so a daemon that died
           // left the CLI hung with the terminal in raw mode.
           client.onClose(() => {
-            process.stdout.write('\n[daemon connection lost]\n');
+            // `withClient` closes the client in its finally, which reaches here on
+            // every ordinary exit too. Only an unexpected loss is worth reporting.
+            if (!done) process.stdout.write('\n[daemon connection lost]\n');
             finish();
           });
 

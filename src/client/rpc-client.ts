@@ -23,6 +23,10 @@ export class DaemonClient {
   }
 
   onClose(cb: () => void): void {
+    if (this.gone) {
+      cb();
+      return;
+    }
     this.closeHandlers.push(cb);
   }
 
@@ -91,7 +95,13 @@ export class DaemonClient {
     }
     this.pending.clear();
     if (!alreadyGone) {
-      for (const h of this.closeHandlers) h();
+      for (const h of this.closeHandlers) {
+        try {
+          h();
+        } catch {
+          // The handler owns its own failure; every other close handler still fires.
+        }
+      }
     }
   }
 
