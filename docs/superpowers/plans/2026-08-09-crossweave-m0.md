@@ -265,6 +265,41 @@ describe('assertContained', () => {
       expect.objectContaining({ code: 'PATH_ESCAPE' }) as unknown as Error,
     );
   });
+
+  // Regression: hand-dereferencing a symlink must re-canonicalise the target.
+  // `root` here comes from mkdtemp(tmpdir()) and is NOT realpath'd, so on macOS it
+  // reads /var/folders/... while its canonical form is /private/var/folders/... .
+  // A link storing that raw absolute target used to resolve to a path that no longer
+  // shared the canonical root prefix, and a legitimate internal link was rejected.
+  it('accepts an internal symlink whose target is absolute but not canonical', async () => {
+    const realTarget = join(root, 'real-target');
+    await mkdir(realTarget, { recursive: true });
+    await symlink(realTarget, join(root, 'internal-link'));
+    const resolved = assertContained(root, join(root, 'internal-link', 'file.ts'));
+    expect(resolved.endsWith(join('real-target', 'file.ts'))).toBe(true);
+  });
+
+  it('accepts an internal symlink with a relative target', async () => {
+    await mkdir(join(root, 'rel-target'), { recursive: true });
+    await symlink('rel-target', join(root, 'rel-link'));
+    const resolved = assertContained(root, join(root, 'rel-link', 'file.ts'));
+    expect(resolved.endsWith(join('rel-target', 'file.ts'))).toBe(true);
+  });
+
+  it('rejects a multi-hop symlink chain that ultimately lands outside the root', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'cw-outside-'));
+    await writeFile(join(outside, 'real.txt'), 'x');
+    await symlink(join(outside, 'real.txt'), join(root, 'hop3'));
+    await symlink(join(root, 'hop3'), join(root, 'hop2'));
+    await symlink(join(root, 'hop2'), join(root, 'hop1'));
+    try {
+      expect(() => assertContained(root, join(root, 'hop1'))).toThrowError(
+        expect.objectContaining({ code: 'PATH_ESCAPE' }) as unknown as Error,
+      );
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
 });
 
 async function realpathEq(a: string, b: string): Promise<boolean> {
@@ -330,6 +365,33 @@ export function crossweaveDir(projectRoot: string): string {
 const MAX_SYMLINK_HOPS = 32;
 
 /**
+ * Canonicalise the deepest ancestor of `p` that `realpathSync` can resolve, keeping
+ * the remainder lexical.
+ *
+ * A symlink target is a raw stored string. It may be absolute and recorded through a
+ * non-canonical ancestor — on macOS `/var` is itself a symlink to `/private/var`, and
+ * `tmpdir()` lives under it, so `join(root, 'x')` is exactly this shape. Substituting
+ * such a target without re-canonicalising leaves the walk's cursor non-canonical, and a
+ * legitimate *internal* symlink is then rejected because its resolved path no longer
+ * shares the canonical root prefix. `realpathSync` throws for a path that does not
+ * exist, which is what walks us up to the resolvable part.
+ */
+function canonicalExistingPrefix(p: string): string {
+  let head = resolve(p);
+  const tail: string[] = [];
+  for (;;) {
+    try {
+      return join(realpathSync(head), ...tail);
+    } catch {
+      const parent = dirname(head);
+      if (parent === head) return join(head, ...tail);
+      tail.unshift(head.slice(parent.length + 1));
+      head = parent;
+    }
+  }
+}
+
+/**
  * Resolve `candidate` one component at a time, dereferencing symlinks by hand.
  *
  * Why not walk up until `existsSync` is true and `realpathSync` that ancestor:
@@ -366,7 +428,9 @@ function resolveNoFollow(realRoot: string, candidate: string): string {
         throw new CrossweaveError('PATH_ESCAPE', `Too many symlinks resolving: ${candidate}`);
       }
       const target = readlinkSync(next);
-      next = isAbsolute(target) ? target : resolve(dirname(next), target);
+      next = canonicalExistingPrefix(
+        isAbsolute(target) ? target : resolve(dirname(next), target),
+      );
     }
     current = next;
   }
