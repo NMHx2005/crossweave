@@ -2,8 +2,10 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { join } from 'node:path';
 import type { Database } from 'bun:sqlite';
 import { openDatabase } from '../../src/db/open.js';
-import { createDaemon, type Daemon } from '../../src/daemon/server.js';
+import { createDaemon, type Daemon, type MethodContext } from '../../src/daemon/server.js';
 import { buildMethods } from '../../src/daemon/methods.js';
+import { SessionRuntime } from '../../src/daemon/runtime.js';
+import { SessionManager } from '../../src/domain/session.js';
 import { DaemonClient } from '../../src/client/rpc-client.js';
 import { ClaudePtyAdapter } from '../../src/adapters/claude-pty.js';
 import { CrossweaveError } from '../../src/core/errors.js';
@@ -22,6 +24,7 @@ let daemon: Daemon;
 let client: DaemonClient;
 let socketPath: string;
 let workspaceId: string;
+let sessions: SessionManager;
 
 /** Accepts an async predicate — several conditions here are only observable over RPC. */
 async function waitFor(predicate: () => boolean | Promise<boolean>, ms = 5000): Promise<void> {
@@ -37,6 +40,7 @@ beforeEach(async () => {
   fx = await makeGitFixture();
   socketPath = join(fx.root, '.crossweave', 'daemon.sock');
   db = openDatabase(join(fx.root, '.crossweave', 'state.db'));
+  sessions = new SessionManager(db, echoFactory);
   daemon = createDaemon({
     socketPath,
     methods: buildMethods(db, fx.root, echoFactory),
@@ -51,6 +55,51 @@ afterEach(async () => {
   await daemon.close();
   db.close();
   await fx.cleanup();
+});
+
+describe('attach detach key', () => {
+  // Regression, and the cheapest possible guard on the defect that actually shipped:
+  // the literal control byte was lost in transcription, leaving ''. With the old
+  // `includes` check that made the FIRST keystroke detach, so no input ever reached
+  // the agent — the headline feature of this milestone was completely dead, and no
+  // test noticed because the interactive path was explicitly waived.
+  it('is Ctrl-] and exactly one character', async () => {
+    const { DETACH_KEY } = await import('../../src/cli/commands/attach.js');
+    expect(DETACH_KEY).toBe('\x1d');
+    expect(DETACH_KEY).toHaveLength(1);
+    expect(DETACH_KEY).not.toBe('');
+  });
+});
+
+describe('SessionRuntime subscriber isolation', () => {
+  // Task 7 isolated the ADAPTER's fan-out; SessionRuntime has its own loops and had
+  // to be fixed separately. The exit path mattered most: a throw there skipped
+  // `running.delete` and `onExit`, wedging the session at `running` with a stale pid
+  // and making it permanently unstartable.
+  function fakeContext(onNotify: (m: string) => void): MethodContext {
+    return { notify: (m) => onNotify(m), onClose: () => undefined };
+  }
+
+  it('keeps delivering to other subscribers when one throws, and still cleans up', async () => {
+    const exits: string[] = [];
+    const runtime = new SessionRuntime((id) => exits.push(id));
+    const row = await sessions.create({
+      workspaceId, name: 'iso', agent: 'claude', worktree: true,
+    });
+
+    const seen: string[] = [];
+    runtime.start(row, new ClaudePtyAdapter('sh', ['-c', 'echo hi; exit 0']));
+    runtime.subscribe(row.id, row.name, fakeContext(() => seen.push('first')));
+    runtime.subscribe(row.id, row.name, fakeContext(() => { throw new Error('bad'); }));
+    runtime.subscribe(row.id, row.name, fakeContext(() => seen.push('third')));
+
+    await waitFor(() => exits.includes(row.id));
+
+    expect(seen).toContain('first');
+    expect(seen).toContain('third');
+    // The bookkeeping must have run despite the throw.
+    expect(runtime.isRunning(row.id)).toBe(false);
+  }, 15_000);
 });
 
 describe('session runtime', () => {
@@ -152,6 +201,61 @@ describe('session runtime', () => {
     );
     expect(rows.find((r) => r.name === 'gone')?.status).toBe('dead');
   });
+
+  // Regression, and the reason this assertion is on the PID: a reviewer replaced
+  // session.resume's body with `return row` — never restarting anything — and the
+  // entire 133-test suite still passed, because the stale pre-exit row already said
+  // "running". Asserting on status alone tested nothing.
+  it('resume after stop starts a genuinely new process', async () => {
+    await client.call('session.new', { workspaceId, name: 'again', agent: 'claude', worktree: true });
+    const first = await client.call<{ pid: number }>('session.start', {
+      workspaceId, idOrName: 'again',
+    });
+    await client.call('session.stop', { workspaceId, idOrName: 'again' });
+
+    const second = await client.call<{ pid: number; status: string }>('session.resume', {
+      workspaceId, idOrName: 'again',
+    });
+    expect(second.status).toBe('running');
+    expect(second.pid).not.toBe(first.pid);
+  });
+
+  // Regression: stop returned as soon as SIGTERM was sent, so an agent that ignores
+  // it was reported stopped while still alive — and kill then cleared the pid,
+  // leaving a stranded process nothing could ever find again.
+  it('stop waits for an agent that ignores SIGTERM, escalating to SIGKILL', async () => {
+    const stubborn = (kind: string): AgentAdapter => {
+      if (kind !== 'claude') throw new CrossweaveError('UNKNOWN_AGENT', `Unsupported: ${kind}`);
+      return new ClaudePtyAdapter('sh', ['-c', 'trap "" TERM; while true; do sleep 0.05; done']);
+    };
+    const stubbornDaemon = createDaemon({
+      socketPath: join(fx.root, '.crossweave', 'stubborn.sock'),
+      methods: buildMethods(db, fx.root, stubborn),
+    });
+    await stubbornDaemon.listen();
+    const c = await DaemonClient.connect(join(fx.root, '.crossweave', 'stubborn.sock'));
+    try {
+      const ws = await c.call<{ id: string }>('workspace.init', {});
+      await c.call('session.new', { workspaceId: ws.id, name: 'stubborn', agent: 'claude', worktree: true });
+      const started = await c.call<{ pid: number }>('session.start', {
+        workspaceId: ws.id, idOrName: 'stubborn',
+      });
+
+      await c.call('session.stop', { workspaceId: ws.id, idOrName: 'stubborn' });
+
+      // stop() resolved, so the process must be gone — not merely signalled.
+      let alive = true;
+      try {
+        process.kill(started.pid, 0);
+      } catch {
+        alive = false;
+      }
+      expect(alive).toBe(false);
+    } finally {
+      c.close();
+      await stubbornDaemon.close();
+    }
+  }, 20_000);
 
   it('resume starts a stopped session again', async () => {
     await client.call('session.new', { workspaceId, name: 'auth', agent: 'claude', worktree: true });

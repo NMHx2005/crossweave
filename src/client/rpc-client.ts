@@ -16,9 +16,14 @@ export class DaemonClient {
   private gone = false;
   private readonly pending = new Map<number, Pending>();
   private readonly notificationHandlers: Array<(method: string, params: unknown) => void> = [];
+  private readonly closeHandlers: Array<() => void> = [];
 
   onNotification(cb: (method: string, params: unknown) => void): void {
     this.notificationHandlers.push(cb);
+  }
+
+  onClose(cb: () => void): void {
+    this.closeHandlers.push(cb);
   }
 
   private constructor(private readonly socket: Socket) {
@@ -72,13 +77,22 @@ export class DaemonClient {
     return !this.gone && !this.socket.destroyed && this.socket.writable;
   }
 
-  /** Reject everything in flight. Idempotent — 'end', 'error' and 'close' overlap. */
+  /**
+   * Reject everything in flight and tell anyone watching the connection itself.
+   * Idempotent — 'end', 'error' and 'close' overlap, but `closeHandlers` must fire
+   * exactly once (an interactive `attach` relies on it to leave raw mode and exit;
+   * firing it repeatedly is harmless there but is not a contract worth relying on).
+   */
   private failAll(message: string): void {
+    const alreadyGone = this.gone;
     this.gone = true;
     for (const p of this.pending.values()) {
       p.reject(new CrossweaveError('DAEMON_GONE', message));
     }
     this.pending.clear();
+    if (!alreadyGone) {
+      for (const h of this.closeHandlers) h();
+    }
   }
 
   static connect(socketPath: string): Promise<DaemonClient> {

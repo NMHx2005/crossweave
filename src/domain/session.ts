@@ -42,7 +42,7 @@ export class SessionManager {
   private readonly workspaces: WorkspaceRepo;
 
   /** Set by the daemon so kill() can stop a live pty it does not own. */
-  onKill?: (sessionId: string) => void;
+  onKill?: (sessionId: string) => Promise<void>;
 
   constructor(
     db: Database,
@@ -167,7 +167,10 @@ export class SessionManager {
     const row = this.resolve(workspaceId, idOrName);
     const root = this.projectRoot(workspaceId);
 
-    this.onKill?.(row.id);
+    // Awaited: kill must not report success while the agent is still alive, and the
+    // pid must not be cleared until the process is confirmed gone — otherwise nothing
+    // can ever find or reap it again.
+    await this.onKill?.(row.id);
 
     // A shared session points at the project root, which must never be removed.
     const ownWorktree =

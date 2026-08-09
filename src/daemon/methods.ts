@@ -8,7 +8,9 @@ import type { SessionRow } from '../db/repositories/session.js';
 
 function str(params: Record<string, unknown>, key: string): string {
   const v = params[key];
-  if (typeof v !== 'string') throw new TypeError(`Expected string param: ${key}`);
+  if (typeof v !== 'string') {
+    throw new CrossweaveError('INVALID_PARAMS', `Expected string param: ${key}`);
+  }
   return v;
 }
 
@@ -24,7 +26,9 @@ function bool(params: Record<string, unknown>, key: string, fallback: boolean): 
 
 function num(params: Record<string, unknown>, key: string): number {
   const v = params[key];
-  if (typeof v !== 'number') throw new TypeError(`Expected number param: ${key}`);
+  if (typeof v !== 'number') {
+    throw new CrossweaveError('INVALID_PARAMS', `Expected number param: ${key}`);
+  }
   return v;
 }
 
@@ -39,6 +43,11 @@ export function buildMethods(
     sessions.clearRunning(sessionId);
   });
   sessions.onKill = (id) => runtime.stop(id);
+  // NOTE: the runtime only knows processes THIS daemon started. After a daemon
+  // restart the row can still carry a pid from the previous one, and killing such a
+  // session signals nothing. Signalling the stale pid directly is NOT safe — pids are
+  // reused, and we would be signalling an unrelated process. Reconciliation on daemon
+  // start (M2) is what closes this; it is recorded as a known M0 limitation.
 
   /**
    * `dead` and `landed` are terminal. The API already carries two distinct verbs —
@@ -124,14 +133,15 @@ export function buildMethods(
       return { ok: true };
     },
 
-    'session.stop': (p) => {
+    // Awaited, so a caller told the session stopped can trust that it actually is.
+    'session.stop': async (p) => {
       const row = sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName'));
-      runtime.stop(row.id);
+      await runtime.stop(row.id);
       return { ok: true };
     },
 
-    'daemon.shutdown': () => {
-      runtime.stopAll();
+    'daemon.shutdown': async () => {
+      await runtime.stopAll();
       setTimeout(() => process.exit(0), 10);
       return { ok: true };
     },
