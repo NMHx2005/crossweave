@@ -223,6 +223,48 @@ describe('assertContained', () => {
     const future = join(root, 'not-created-yet', 'file.ts');
     expect(assertContained(root, future)).toContain('not-created-yet');
   });
+
+  // Regression: `existsSync` follows symlinks and reports false for a dangling one,
+  // so an earlier implementation skipped the link entirely and let writes escape.
+  it('rejects a DANGLING symlink whose target is outside the root', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'cw-outside-'));
+    const link = join(root, 'dangling.txt');
+    await symlink(join(outside, 'not-created-yet.txt'), link);
+    try {
+      expect(() => assertContained(root, link)).toThrowError(
+        expect.objectContaining({ code: 'PATH_ESCAPE' }) as unknown as Error,
+      );
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a path under a DANGLING directory symlink pointing outside the root', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'cw-outside-'));
+    const link = join(root, 'dangling-dir');
+    await symlink(join(outside, 'no-such-dir'), link);
+    try {
+      expect(() => assertContained(root, join(link, 'file.ts'))).toThrowError(
+        expect.objectContaining({ code: 'PATH_ESCAPE' }) as unknown as Error,
+      );
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a symlink loop instead of hanging', async () => {
+    await symlink(join(root, 'loop-b'), join(root, 'loop-a'));
+    await symlink(join(root, 'loop-a'), join(root, 'loop-b'));
+    expect(() => assertContained(root, join(root, 'loop-a'))).toThrowError(
+      expect.objectContaining({ code: 'PATH_ESCAPE' }) as unknown as Error,
+    );
+  });
+
+  it('rejects the root itself, so it can gate deletes', () => {
+    expect(() => assertContained(root, root)).toThrowError(
+      expect.objectContaining({ code: 'PATH_ESCAPE' }) as unknown as Error,
+    );
+  });
 });
 
 async function realpathEq(a: string, b: string): Promise<boolean> {
@@ -263,7 +305,7 @@ export class CrossweaveError extends Error {
 paths that have not been created yet while still defeating symlink escapes.
 
 ```ts
-import { existsSync, realpathSync } from 'node:fs';
+import { lstatSync, readlinkSync, realpathSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { CrossweaveError } from './errors.js';
@@ -285,24 +327,65 @@ export function crossweaveDir(projectRoot: string): string {
   return join(projectRoot, '.crossweave');
 }
 
-/** Resolve the deepest existing ancestor through symlinks, then re-append the rest. */
-function resolveThroughExisting(candidate: string): string {
-  let head = resolve(candidate);
-  const tail: string[] = [];
-  while (!existsSync(head)) {
-    const parent = dirname(head);
-    if (parent === head) break;
-    tail.unshift(head.slice(parent.length + 1));
-    head = parent;
+const MAX_SYMLINK_HOPS = 32;
+
+/**
+ * Resolve `candidate` one component at a time, dereferencing symlinks by hand.
+ *
+ * Why not walk up until `existsSync` is true and `realpathSync` that ancestor:
+ * `existsSync` FOLLOWS symlinks, so it reports false for a symlink whose target
+ * does not exist yet. A dangling symlink inside the root then looks like a
+ * not-yet-created plain component, survives into the returned path unresolved,
+ * and every later write follows it straight out of the root. `lstatSync` sees the
+ * link itself, and `readlinkSync` reads its target even when that target is absent.
+ */
+function resolveNoFollow(realRoot: string, candidate: string): string {
+  const parts = relative(realRoot, resolve(candidate))
+    .split(sep)
+    .filter((p) => p !== '' && p !== '.');
+
+  let current = realRoot;
+  let hops = 0;
+
+  for (const part of parts) {
+    if (part === '..') {
+      current = dirname(current);
+      continue;
+    }
+    let next = join(current, part);
+    for (;;) {
+      let stat;
+      try {
+        stat = lstatSync(next);
+      } catch {
+        break; // Component does not exist at all; the rest stays lexical.
+      }
+      if (!stat.isSymbolicLink()) break;
+      hops += 1;
+      if (hops > MAX_SYMLINK_HOPS) {
+        throw new CrossweaveError('PATH_ESCAPE', `Too many symlinks resolving: ${candidate}`);
+      }
+      const target = readlinkSync(next);
+      next = isAbsolute(target) ? target : resolve(dirname(next), target);
+    }
+    current = next;
   }
-  const realHead = existsSync(head) ? realpathSync(head) : head;
-  return tail.length === 0 ? realHead : join(realHead, ...tail);
+
+  return current;
 }
 
+/**
+ * Returns the resolved path when it lies STRICTLY inside `root`.
+ *
+ * The root itself is deliberately rejected: callers use this to decide what is
+ * safe to write to or delete, and `removeWorktree(root, root)` must not be a
+ * legal call. This is a decision, not an accident — `tests/core/paths.test.ts`
+ * pins it.
+ */
 export function assertContained(root: string, candidate: string): string {
   const realRoot = realpathSync(resolve(root));
   const abs = isAbsolute(candidate) ? candidate : join(realRoot, candidate);
-  const resolved = resolveThroughExisting(abs);
+  const resolved = resolveNoFollow(realRoot, abs);
   const rel = relative(realRoot, resolved);
   if (rel === '' || rel.startsWith('..') || isAbsolute(rel) || rel.split(sep).includes('..')) {
     throw new CrossweaveError('PATH_ESCAPE', `Path escapes workspace root: ${candidate}`);
