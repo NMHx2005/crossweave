@@ -1,4 +1,5 @@
 import { defineCommand } from 'citty';
+import { CrossweaveError } from '../../core/errors.js';
 import { withClient, fail, currentWorkspaceId } from '../context.js';
 
 interface Session {
@@ -87,11 +88,14 @@ export const sessionCommand = defineCommand({
       },
       async run({ args }) {
         try {
+          // Goes through fail() like every other error path. A guard that printed its
+          // own format would be the one place a script could not parse, and this is
+          // the destructive one.
           if (args['rm-worktree'] && !args.yes) {
-            process.stderr.write(
-              'Refusing to remove a worktree without confirmation. Re-run with --yes.\n',
+            throw new CrossweaveError(
+              'CONFIRMATION_REQUIRED',
+              'Refusing to remove a worktree without confirmation. Re-run with --yes.',
             );
-            process.exit(1);
           }
           await withClient(async (client) => {
             const workspaceId = await currentWorkspaceId(client);

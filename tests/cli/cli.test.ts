@@ -70,6 +70,25 @@ describe('cw CLI', () => {
     expect(r.stderr).toContain('SESSION_NOT_FOUND');
   }, 30_000);
 
+  it('refuses --rm-worktree without --yes, in the same CODE: format as every other error', async () => {
+    await cw(['init']);
+    await cw(['session', 'new', '--name', 'guarded', '--agent', 'claude']);
+    const r = await cw(['session', 'kill', 'guarded', '--rm-worktree']);
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toContain('CONFIRMATION_REQUIRED:');
+    // The session must still be alive — a refused command changes nothing.
+    expect((await cw(['session', 'list'])).stdout).toContain('guarded');
+  }, 60_000);
+
+  it('daemon stop reports success without starting a daemon when none is running', async () => {
+    const r = await cw(['daemon', 'stop']);
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain('no daemon running');
+    // And it must not have spawned one on the way out.
+    const { existsSync } = await import('node:fs');
+    expect(existsSync(join(fx.root, '.crossweave', 'daemon.sock'))).toBe(false);
+  }, 30_000);
+
   it('exits non-zero outside a git repository', async () => {
     const { mkdtemp, rm } = await import('node:fs/promises');
     const { tmpdir } = await import('node:os');
