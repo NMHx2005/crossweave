@@ -1776,7 +1776,9 @@ Create `tests/adapters/claude-pty.test.ts`:
 
 ```ts
 import { describe, it, expect } from 'bun:test';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { basename, join } from 'node:path';
 import { ClaudePtyAdapter } from '../../src/adapters/claude-pty.js';
 import { createAdapter } from '../../src/adapters/registry.js';
 
@@ -1793,14 +1795,21 @@ describe('ClaudePtyAdapter', () => {
     expect(a.enforcementTier).toBe('T3');
   });
 
+  // Assert on the directory's unique basename, never on a substring of the temp path.
+  // `tmpdir()` is `/private/var/folders/…/T` on macOS and contains no "tmp" at all.
   it('spawns a process in the requested cwd and streams its output', async () => {
-    const adapter = new ClaudePtyAdapter('sh', ['-c', 'pwd']);
-    const proc = adapter.spawn({ cwd: tmpdir(), env: {}, cols: 80, rows: 24 });
-    const read = collect(proc);
-    const code = await new Promise<number>((res) => proc.onExit(res));
-    expect(code).toBe(0);
-    expect(read()).toContain('tmp');
-    expect(proc.pid).toBeGreaterThan(0);
+    const dir = await mkdtemp(join(tmpdir(), 'cw-adapter-'));
+    try {
+      const adapter = new ClaudePtyAdapter('sh', ['-c', 'pwd']);
+      const proc = adapter.spawn({ cwd: dir, env: {}, cols: 80, rows: 24 });
+      const read = collect(proc);
+      const code = await new Promise<number>((res) => proc.onExit(res));
+      expect(code).toBe(0);
+      expect(read()).toContain(basename(dir));
+      expect(proc.pid).toBeGreaterThan(0);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it('allocates a real tty so the child sees an interactive terminal', async () => {
