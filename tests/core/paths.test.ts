@@ -75,6 +75,48 @@ describe('assertContained', () => {
     const future = join(root, 'not-created-yet', 'file.ts');
     expect(assertContained(root, future)).toContain('not-created-yet');
   });
+
+  // Regression: `existsSync` follows symlinks and reports false for a dangling one,
+  // so an earlier implementation skipped the link entirely and let writes escape.
+  it('rejects a DANGLING symlink whose target is outside the root', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'cw-outside-'));
+    const link = join(root, 'dangling.txt');
+    await symlink(join(outside, 'not-created-yet.txt'), link);
+    try {
+      expect(() => assertContained(root, link)).toThrowError(
+        expect.objectContaining({ code: 'PATH_ESCAPE' }) as unknown as Error,
+      );
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a path under a DANGLING directory symlink pointing outside the root', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'cw-outside-'));
+    const link = join(root, 'dangling-dir');
+    await symlink(join(outside, 'no-such-dir'), link);
+    try {
+      expect(() => assertContained(root, join(link, 'file.ts'))).toThrowError(
+        expect.objectContaining({ code: 'PATH_ESCAPE' }) as unknown as Error,
+      );
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a symlink loop instead of hanging', async () => {
+    await symlink(join(root, 'loop-b'), join(root, 'loop-a'));
+    await symlink(join(root, 'loop-a'), join(root, 'loop-b'));
+    expect(() => assertContained(root, join(root, 'loop-a'))).toThrowError(
+      expect.objectContaining({ code: 'PATH_ESCAPE' }) as unknown as Error,
+    );
+  });
+
+  it('rejects the root itself, so it can gate deletes', () => {
+    expect(() => assertContained(root, root)).toThrowError(
+      expect.objectContaining({ code: 'PATH_ESCAPE' }) as unknown as Error,
+    );
+  });
 });
 
 async function realpathEq(a: string, b: string): Promise<boolean> {
