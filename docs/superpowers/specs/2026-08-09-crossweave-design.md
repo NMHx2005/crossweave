@@ -35,7 +35,7 @@ crossweave targets exactly these four.
 
 ## 2. Architecture
 
-### 2.1 Three founding decisions
+### 2.1 Four founding decisions
 
 **D1 — A daemon owns all state.**
 Collision Radar and the Convergence Engine need a process that outlives any single CLI invocation. `cwd` (the crossweave daemon) is the sole owner of the SQLite database. CLI, TUI, and any future desktop client are thin clients speaking JSON-RPC 2.0 over a unix domain socket at `.crossweave/daemon.sock`. This also delivers, from day one, the "desktop app talks to the same core" property that would otherwise require a painful refactor.
@@ -44,7 +44,10 @@ Collision Radar and the Convergence Engine need a process that outlives any sing
 - *Control plane*: the daemon. Single source of truth. Owns SQLite, worktrees, leases, processes.
 - *Agent plane*: one MCP server instance per session. Agents read and write through it. **No agent ever touches SQLite or another session's worktree directly.**
 
-**D3 — Safe Mode has three enforcement tiers, and the tier is always disclosed.**
+**D3 — The daemon's RPC surface is schema-first, from M2 onward.**
+crossweave has three known clients before it has one user: the TUI (M6), the per-session MCP server (M2), and a future desktop app. opencode publishes an OpenAPI 3.1 document and generates its official SDK from it, so every client speaks one contract. crossweave does the same — the method table is described by a schema that generates the TypeScript client, rather than each consumer hand-rolling calls. M0 hard-codes the method table because there is only one client; M2 is where the schema lands, before the MCP server becomes a second consumer. Retrofitting this after three clients exist is far more expensive than writing it before the second.
+
+**D4 — Safe Mode has three enforcement tiers, and the tier is always disclosed.**
 
 | Tier | Condition | Guarantee |
 |---|---|---|
@@ -258,7 +261,7 @@ Per-session token and cost accounting from adapter-reported usage, with an optio
 
 ### 4.12 TUI
 
-Ink. Square borders, neutral palette with a single accent, short purposeful transitions. Panes: session list with status and enforcement tier, live Radar feed, convergence matrix, and a status bar carrying workspace, active sessions, disk, and burn.
+OpenTUI. Square borders, neutral palette with a single accent, short purposeful transitions. Panes: session list with status and enforcement tier, live Radar feed, convergence matrix, and a status bar carrying workspace, active sessions, disk, and burn.
 
 ---
 
@@ -277,11 +280,17 @@ Mitigations, all mandatory:
 - Radar notifications, being daemon-generated, carry `trust="system"` and must render visually distinct from agent-authored messages.
 - Size caps: 8 KB per message, 64 KB per context-share, both configurable.
 
-### 5.2 Filesystem containment
+### 5.2 Daemon access control
+
+The daemon spawns processes, writes files and holds every session's context on the user's behalf. Anyone who can open its socket owns all of that. Unix socket permissions follow the umask by default, which on many systems leaves the socket group- and world-readable — so the daemon sets them explicitly: the socket is `0600` and `.crossweave/` is `0700`, both asserted by a test rather than assumed.
+
+There is no network listener and no authentication token, by design: the trust boundary is the operating-system user account, and it is enforced by file permissions rather than by a secret that could leak into a log or a process listing.
+
+### 5.3 Filesystem containment
 
 Every path from an agent is resolved with `realpath` and asserted to lie under that session's worktree root; symlink escapes are rejected. The per-session MCP server is scoped so a session can read its own private context and the workspace shared context, and nothing belonging to another session.
 
-### 5.3 Destructive operations
+### 5.4 Destructive operations
 
 Deleting workspaces, killing sessions with worktree removal, and `cw gc` all require confirmation unless `--yes` is passed or the workspace is in trusted mode.
 
@@ -299,7 +308,7 @@ Each milestone ships something usable on its own.
 | **M3** | **Collision Radar** — file+symbol index, contracts and subscriptions, noise control, **plus the `PreToolUse` hook plumbing in advisory mode** | 🔑 The differentiator | 2 wk |
 | **M4** | **Convergence Engine** — trial-merge daemon, merge ordering, intent-aware resolver, **`cw land` / `cw land --all`** | 🔑 The moat; the loop actually closes | 2 wk |
 | **M5** | ACP client + **upgrade the M3 hook from advisory to blocking** → Safe Mode tiers T1/T2/T3 + Cursor + `--trusted` | Broad agent support; real enforcement | 1.5 wk |
-| **M6** | TUI + budget/burn meter + polish | 1.0 | 1.5 wk |
+| **M6** | TUI (OpenTUI) + budget/burn meter + polish | 1.0 | 1.5 wk |
 
 **Total ≈ 10.5 weeks.** M0–M2 (3.5 weeks) is already usable daily. M3 is the decision point: if Radar does not change how the work feels, stop before M4.
 
@@ -309,11 +318,19 @@ Radar precedes Convergence deliberately — Radar pays off on every single sessi
 
 ## 7. Stack
 
-TypeScript · Node 24+ · `node:sqlite` (avoids the `better-sqlite3` native-build problem when publishing to npm) · `node-pty` · `execa` · `simple-git` · `citty` · `tree-sitter` (Radar) · `@modelcontextprotocol/sdk` · Ink (M6) · vitest.
+TypeScript · **Bun 1.3.5+** · `bun:sqlite` · `Bun.spawn({terminal})` · `bun test` · `bun build --compile` · `simple-git` · `citty` · `tree-sitter` (Radar) · `@modelcontextprotocol/sdk` (M2) · **OpenTUI** (M6).
 
-The Node floor is 24, not 22: `node:sqlite` requires `--experimental-sqlite` on 22.x and is unflagged from 24, and no runtime flag should ever be needed to start the daemon.
+**Two runtime dependencies total.** Bun supplies the pty, the database, the test runner and the bundler as built-ins, which is what takes the native-module count to **zero**.
 
-`node-pty` is the single permitted native dependency. Claude Code inspects `isTTY` and degrades to non-interactive output without a real pty, so session attach does not work without it. It ships prebuilds for macOS, Linux and Windows.
+That zero is a security property, not a convenience: with no native module there is no compile-or-download step at install time, so **no `postinstall` script ever runs on a user's machine** — the most realistic supply-chain vector for a developer tool. A dependency shipping a `.node` binary is grounds for rejecting a change.
+
+`bun build --compile` produces standalone `cw` and `cwd` binaries, so users install crossweave without installing a runtime. Competing tools ship binaries; requiring a runtime first is an adoption tax.
+
+**M6 uses OpenTUI, not Ink.** Ink is the incumbent (Claude Code, Copilot CLI, Gemini CLI all use it) but carries a hardcoded ~30 FPS cap and a >50 MB baseline. crossweave's TUI renders a live Radar feed and a continuously updating convergence matrix — precisely the real-time case OpenTUI's Zig core was built for, and precisely where Ink's ceiling shows.
+
+**POSIX only (macOS, Linux).** Bun's pty support is POSIX-only and the daemon is built on unix domain sockets. Windows is not a V1 target and will not be half-supported.
+
+The runtime stays a reversible decision because exactly three seams touch it: the pty behind `AgentAdapter`, sqlite behind the repository classes, and the socket behind `node:net` — which Bun implements — rather than `Bun.listen`. No other module may reference a `Bun.*` global.
 
 Package `crossweave`, binary `cw`. Name verified free on npm with no colliding GitHub project as of 2026-08-09.
 
@@ -339,3 +356,4 @@ Tests are deterministic: no real network, no wall-clock dependence, git fixtures
 - **Vendor absorption.** Claude Code and Cursor could ship collision detection natively. Mitigation: Radar and Convergence are cross-agent by construction; a single vendor solving it for its own agent does not solve it for a mixed fleet.
 - **ACP coverage uncertainty.** If the major agents are not natively ACP, M5 grows a bridge layer. This is why M5 sits after the differentiating work rather than before it.
 - **tree-sitter language coverage.** Radar degrades to file-level granularity for unsupported languages. This is a documented degradation, not a failure.
+- **Bun runtime maturity.** Bun reaches roughly 99.4% Node API compatibility, and crossweave's daemon is exactly the workload where the remaining fraction bites: long-lived, holding ptys, a sqlite handle and a unix socket for hours. Two things make this acceptable rather than reckless. First, opencode runs the same shape of workload — server, sqlite, long sessions — on Bun in production. Second, the runtime is deliberately reversible: only three seams touch it, so a retreat to Node costs three files rather than a rewrite. The exit criterion is concrete — if daemon stability problems trace to the runtime rather than to our own code, take the retreat.

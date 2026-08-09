@@ -6,14 +6,17 @@
 
 **Architecture:** A long-lived daemon (`cwd`) is the sole owner of `.crossweave/state.db`. The `cw` CLI is a thin client speaking newline-delimited JSON-RPC 2.0 over a unix domain socket, auto-starting the daemon when absent. Domain managers (workspace, session) sit between the RPC method table and the repository layer; the isolation layer wraps `git worktree`; the adapter layer wraps the agent process behind a `AgentAdapter` interface so ACP can slot in at M5 without touching callers.
 
-**Tech Stack:** TypeScript · Node 24+ · `node:sqlite` · `node-pty` · `execa` · `simple-git` · `citty` · `vitest`
+**Tech Stack:** TypeScript · **Bun 1.3+** · `bun:sqlite` · `Bun.spawn({terminal})` · `bun test` · `simple-git` · `citty`
 
 ## Global Constraints
 
-- **Node >= 24.0.0.** The spec said 22+; `node:sqlite` requires `--experimental-sqlite` on 22.x and is unflagged from 24. The floor is raised so no runtime flag is ever needed. `package.json` must declare `"engines": { "node": ">=24.0.0" }`. Node 26 is Current as of 2026-08 but 24 is the active LTS, so 24 is the floor and the type target.
+- **Bun >= 1.3.5.** Not Node. Bun supplies the pty (`Bun.spawn({terminal})`), the database (`bun:sqlite`), the test runner (`bun test`) and the bundler (`bun build --compile`) as built-ins. That is what takes the dependency count to two and the native-module count to zero.
+- **ZERO native dependencies. Non-negotiable.** This is the security property the runtime was chosen for: with no native module there is no compile-or-download step at install time, so no `postinstall` script ever runs on a user's machine. A dependency that ships a `.node` binary is grounds for rejecting the change, not for adding an exception.
+- **Only two runtime dependencies are permitted: `simple-git` and `citty`.** Both are pure JavaScript. Anything else must be built on a Bun or Web standard API.
+- **POSIX only for M0 (macOS, Linux).** Bun's pty support is POSIX-only, and the daemon is built on unix domain sockets. `package.json` declares `"os": ["darwin", "linux"]`. Windows is not a V1 target and must not be half-supported.
+- **Isolate the three runtime-specific seams** so the runtime stays a reversible decision: the pty behind `AgentAdapter` (Task 7), sqlite behind the repository classes (Tasks 3–4), and the socket behind `node:net` — which Bun implements — rather than `Bun.listen`. Nothing else in the codebase may import a `Bun.*` global.
 - **Dependency versions in Task 1's `package.json` were verified against the npm registry on 2026-08-09.** Install exactly what is written. If a package's API has moved and the code in this plan does not compile against it, fix the code and say so in the commit body — do not silently downgrade the dependency to make the plan's code compile unchanged.
-- **ESM only.** `"type": "module"`, `"module": "nodenext"` in tsconfig. Every relative import carries a `.js` extension.
-- **`node-pty` is the only permitted native dependency.** Justification: Claude Code inspects `isTTY` and degrades to non-interactive output without a real pty, so M0's core deliverable does not work without it. It ships prebuilds for macOS/Linux/Windows. No other native dependency may be added.
+- **ESM only.** `"type": "module"`. Relative imports keep their `.js` specifiers throughout — Bun resolves those to the `.ts` sources, and keeping the convention means the code stays valid under a plain `tsc` build if the runtime decision is ever reversed.
 - **TypeScript `strict: true`.** No `any`, no `!` non-null assertions, no `@ts-ignore`.
 - **All timestamps are ISO 8601 UTC strings** (`new Date().toISOString()`), stored as `TEXT`.
 - **Every path originating outside the process is passed through `assertContained` before use.** No exceptions.
@@ -26,7 +29,7 @@
 ### Task 1: Project scaffold and path containment
 
 **Files:**
-- Create: `package.json`, `tsconfig.json`, `vitest.config.ts`, `.gitignore`
+- Create: `package.json`, `tsconfig.json`, `.gitignore`
 - Create: `src/core/errors.ts`
 - Create: `src/core/paths.ts`
 - Test: `tests/core/paths.test.ts`
@@ -48,70 +51,54 @@
   "description": "Make N parallel AI coding agents on one repo safe and mergeable",
   "license": "MIT",
   "type": "module",
-  "engines": { "node": ">=24.0.0" },
-  "bin": { "cw": "./dist/cli/index.js", "cwd": "./dist/daemon/main.js" },
+  "engines": { "bun": ">=1.3.5" },
+  "os": ["darwin", "linux"],
+  "bin": { "cw": "./src/cli/index.ts", "cwd": "./src/daemon/main.ts" },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "build": "bun build ./src/cli/index.ts --compile --outfile dist/cw",
+    "build:daemon": "bun build ./src/daemon/main.ts --compile --outfile dist/cwd"
   },
   "dependencies": {
     "citty": "^0.2.2",
-    "execa": "^10.0.1",
-    "node-pty": "^1.1.0",
     "simple-git": "^3.36.0"
   },
   "devDependencies": {
-    "@types/node": "^24.0.0",
-    "typescript": "^7.0.2",
-    "vitest": "^4.1.10"
+    "@types/bun": "^1.3.5",
+    "typescript": "^7.0.2"
   }
 }
 ```
 
-Two of these pins are deliberate and must not be "helpfully" bumped:
+Note what is *absent* and must stay absent: no `node-pty`, no `execa`, no `vitest`,
+no `better-sqlite3`, no `@types/node`. Bun provides the pty, the subprocess API, the
+test runner and the database. `@types/bun` already carries the Node type surface Bun
+implements, so adding `@types/node` alongside it only creates conflicting declarations.
 
-- **`@types/node` stays on `^24`** even though `^26` exists. The types must match the
-  runtime floor declared in `engines`, not the newest Node. Pinning 26 would let code
-  compile against APIs that do not exist on the Node 24 we support.
-- **`typescript` is `^7`**, the native compiler. If `npm run build` or
-  `npm run typecheck` misbehaves under it in Step 8, do not work around it — drop to
-  `typescript@^5.9`, note the reason in the commit body, and carry on. Everything in
-  this plan is plain strict TypeScript with no exotic type-level work, so either
-  compiler is fine.
+`typescript` is `^7`, the native compiler, and is used **only** for `bun run typecheck`.
+Bun runs and bundles the TypeScript directly, so there is no `tsc` build step that can
+break. If typechecking misbehaves under 7, drop to `typescript@^5.9` and say why in the
+commit body.
 
-- [ ] **Step 2: Create `tsconfig.json`, `vitest.config.ts`, `.gitignore`**
+- [ ] **Step 2: Create `tsconfig.json` and `.gitignore`**
 
-`tsconfig.json`:
+`tsconfig.json` — `noEmit` throughout, since Bun does the running and the bundling:
 
 ```json
 {
   "compilerOptions": {
-    "target": "es2023",
-    "module": "nodenext",
-    "moduleResolution": "nodenext",
+    "target": "esnext",
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "types": ["bun"],
     "strict": true,
     "noUncheckedIndexedAccess": true,
-    "outDir": "dist",
-    "rootDir": "src",
     "skipLibCheck": true,
-    "declaration": true
+    "noEmit": true
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts", "tests/**/*.ts"]
 }
-```
-
-`vitest.config.ts`:
-
-```ts
-import { defineConfig } from 'vitest/config';
-
-export default defineConfig({
-  test: {
-    include: ['tests/**/*.test.ts'],
-    testTimeout: 20_000,
-  },
-});
 ```
 
 `.gitignore`:
@@ -122,21 +109,23 @@ dist/
 .crossweave/
 ```
 
-- [ ] **Step 3: Install dependencies**
+- [ ] **Step 3: Install dependencies and confirm the runtime**
 
-Run: `npm install`
-Expected: completes, `node-pty` resolves a prebuild without invoking a compiler.
+Run: `bun --version && bun install`
+Expected: version >= 1.3.5; install completes with exactly two packages, **invoking no
+compiler and running no postinstall script**. If any dependency triggers a build step,
+stop — that breaks the zero-native-dependency constraint this runtime was chosen for.
 
 - [ ] **Step 4: Write the failing test**
 
 Create `tests/core/paths.test.ts`:
 
 ```ts
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtemp, rm, mkdir, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { execa } from 'execa';
+import { $ } from 'bun';
 import { findProjectRoot, crossweaveDir, assertContained } from '../../src/core/paths.js';
 import { CrossweaveError } from '../../src/core/errors.js';
 
@@ -144,7 +133,7 @@ let root: string;
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'cw-paths-'));
-  await execa('git', ['init', '-q', '-b', 'main'], { cwd: root });
+  await $`git init -q -b main`.cwd(root).quiet();
   await writeFile(join(root, 'README.md'), '# fixture\n');
 });
 
@@ -226,7 +215,7 @@ it('CrossweaveError carries a code', () => {
 
 - [ ] **Step 5: Run test to verify it fails**
 
-Run: `npx vitest run tests/core/paths.test.ts`
+Run: `bun test tests/core/paths.test.ts`
 Expected: FAIL — cannot resolve `../../src/core/paths.js`.
 
 - [ ] **Step 6: Implement `src/core/errors.ts`**
@@ -299,13 +288,13 @@ export function assertContained(root: string, candidate: string): string {
 
 - [ ] **Step 8: Run tests and typecheck**
 
-Run: `npx vitest run tests/core/paths.test.ts && npm run typecheck`
+Run: `bun test tests/core/paths.test.ts && bun run typecheck`
 Expected: all PASS, 0 type errors.
 
 - [ ] **Step 9: Commit**
 
 ```bash
-git add package.json package-lock.json tsconfig.json vitest.config.ts .gitignore src/core tests/core
+git add package.json bun.lock tsconfig.json .gitignore src/core tests/core
 git commit -m "feat(core): scaffold project and add path containment guard"
 ```
 
@@ -325,18 +314,18 @@ git commit -m "feat(core): scaffold project and add path containment guard"
   - `newId(prefix: IdPrefix): string` where `type IdPrefix = 'ws' | 's' | 'ev' | 'msg'`
   - `SCHEMA_VERSION: number` (value `1`)
   - `MIGRATIONS: readonly string[]`
-  - `openDatabase(dbPath: string): DatabaseSync`
+  - `openDatabase(dbPath: string): Database`
 
 - [ ] **Step 1: Write the failing test**
 
 Create `tests/db/open.test.ts`:
 
 ```ts
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
+import { Database } from 'bun:sqlite';
 import { openDatabase, SCHEMA_VERSION } from '../../src/db/open.js';
 import { newId } from '../../src/core/ids.js';
 
@@ -375,7 +364,7 @@ describe('openDatabase', () => {
   it('refuses to open a database newer than this build knows', () => {
     const p = join(dir, 'state.db');
     openDatabase(p).close();
-    const raw = new DatabaseSync(p);
+    const raw = new Database(p);
     raw.exec(`UPDATE schema_meta SET version = ${SCHEMA_VERSION + 1}`);
     raw.close();
     expect(() => openDatabase(p)).toThrowError(
@@ -401,7 +390,7 @@ describe('newId', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npx vitest run tests/db/open.test.ts`
+Run: `bun test tests/db/open.test.ts`
 Expected: FAIL — cannot resolve `../../src/db/open.js`.
 
 - [ ] **Step 3: Implement `src/core/ids.ts`**
@@ -447,22 +436,26 @@ Only the M0 tables. Later milestones append migrations; they never edit these st
 ```ts
 export const SCHEMA_VERSION = 1;
 
-export const MIGRATIONS: readonly string[] = [
-  `
-  CREATE TABLE schema_meta (
+/**
+ * Each migration is a list of single statements, never one multi-statement blob.
+ * Whether a given sqlite binding executes several statements from one `exec` call
+ * is exactly the kind of detail that differs between drivers, so the dependency is
+ * removed rather than assumed.
+ */
+export const MIGRATIONS: readonly (readonly string[])[] = [
+  [
+    `CREATE TABLE schema_meta (
     version INTEGER NOT NULL
-  );
-
-  CREATE TABLE workspace (
+  )`,
+    `CREATE TABLE workspace (
     id                TEXT PRIMARY KEY,
     name              TEXT NOT NULL,
     root_path         TEXT NOT NULL UNIQUE,
     created_at        TEXT NOT NULL,
     default_isolation TEXT NOT NULL CHECK (default_isolation IN ('worktree','shared')),
     safe_mode_tier    TEXT NOT NULL CHECK (safe_mode_tier IN ('T1','T2','T3'))
-  );
-
-  CREATE TABLE session (
+  )`,
+    `CREATE TABLE session (
     id               TEXT PRIMARY KEY,
     workspace_id     TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
     name             TEXT NOT NULL,
@@ -478,17 +471,16 @@ export const MIGRATIONS: readonly string[] = [
     enforcement_tier TEXT NOT NULL CHECK (enforcement_tier IN ('T1','T2','T3')),
     pid              INTEGER,
     UNIQUE (workspace_id, name)
-  );
-
-  CREATE INDEX session_by_workspace ON session (workspace_id, status);
-  `,
+  )`,
+    `CREATE INDEX session_by_workspace ON session (workspace_id, status)`,
+  ],
 ];
 ```
 
 - [ ] **Step 5: Implement `src/db/open.ts`**
 
 ```ts
-import { DatabaseSync } from 'node:sqlite';
+import { Database } from 'bun:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { CrossweaveError } from '../core/errors.js';
@@ -496,19 +488,19 @@ import { MIGRATIONS, SCHEMA_VERSION } from './schema.js';
 
 export { SCHEMA_VERSION };
 
-export function openDatabase(dbPath: string): DatabaseSync {
+export function openDatabase(dbPath: string): Database {
   mkdirSync(dirname(dbPath), { recursive: true });
-  const db = new DatabaseSync(dbPath);
-  db.exec('PRAGMA journal_mode = WAL');
-  db.exec('PRAGMA foreign_keys = ON');
+  const db = new Database(dbPath, { create: true });
+  db.run('PRAGMA journal_mode = WAL');
+  db.run('PRAGMA foreign_keys = ON');
 
   const hasMeta = db
-    .prepare("SELECT count(*) AS n FROM sqlite_master WHERE type='table' AND name='schema_meta'")
-    .get() as { n: number };
+    .query("SELECT count(*) AS n FROM sqlite_master WHERE type='table' AND name='schema_meta'")
+    .get() as { n: number } | null;
 
   let current = 0;
-  if (hasMeta.n > 0) {
-    const row = db.prepare('SELECT version FROM schema_meta').get() as { version: number } | undefined;
+  if (hasMeta !== null && hasMeta.n > 0) {
+    const row = db.query('SELECT version FROM schema_meta').get() as { version: number } | null;
     current = row?.version ?? 0;
   }
 
@@ -521,21 +513,27 @@ export function openDatabase(dbPath: string): DatabaseSync {
   }
 
   for (let v = current; v < SCHEMA_VERSION; v += 1) {
-    db.exec(MIGRATIONS[v]!);
+    for (const statement of MIGRATIONS[v]!) db.run(statement);
   }
 
   if (current < SCHEMA_VERSION) {
-    db.exec('DELETE FROM schema_meta');
-    db.prepare('INSERT INTO schema_meta (version) VALUES (?)').run(SCHEMA_VERSION);
+    db.run('DELETE FROM schema_meta');
+    db.query('INSERT INTO schema_meta (version) VALUES (?)').run(SCHEMA_VERSION);
   }
 
   return db;
 }
 ```
 
+Two `bun:sqlite` behaviours the rest of the plan relies on: `.get()` returns **`null`**
+for no row where `node:sqlite` returned `undefined`, and `.query()` caches the prepared
+statement. Every repository in Tasks 3–4 tests the result for truthiness rather than
+comparing to `undefined`, so both are handled — do not "fix" those checks into
+`=== undefined`.
+
 - [ ] **Step 6: Run tests and typecheck**
 
-Run: `npx vitest run tests/db/open.test.ts && npm run typecheck`
+Run: `bun test tests/db/open.test.ts && bun run typecheck`
 Expected: all PASS, 0 type errors.
 
 - [ ] **Step 7: Commit**
@@ -564,17 +562,17 @@ git commit -m "feat(db): add sqlite open with forward-only migrations and sortab
 Create `tests/db/workspace-repo.test.ts`:
 
 ```ts
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { DatabaseSync } from 'node:sqlite';
+import type { Database } from 'bun:sqlite';
 import { openDatabase } from '../../src/db/open.js';
 import { WorkspaceRepo, type WorkspaceRow } from '../../src/db/repositories/workspace.js';
 import { newId } from '../../src/core/ids.js';
 
 let dir: string;
-let db: DatabaseSync;
+let db: Database;
 let repo: WorkspaceRepo;
 
 function makeRow(overrides: Partial<WorkspaceRow> = {}): WorkspaceRow {
@@ -640,13 +638,13 @@ describe('WorkspaceRepo', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npx vitest run tests/db/workspace-repo.test.ts`
+Run: `bun test tests/db/workspace-repo.test.ts`
 Expected: FAIL — cannot resolve `../../src/db/repositories/workspace.js`.
 
 - [ ] **Step 3: Implement `src/db/repositories/workspace.ts`**
 
 ```ts
-import type { DatabaseSync } from 'node:sqlite';
+import type { Database } from 'bun:sqlite';
 
 export interface WorkspaceRow {
   id: string;
@@ -680,7 +678,7 @@ function toRow(r: WorkspaceRecord): WorkspaceRow {
 const COLUMNS = 'id, name, root_path, created_at, default_isolation, safe_mode_tier';
 
 export class WorkspaceRepo {
-  constructor(private readonly db: DatabaseSync) {}
+  constructor(private readonly db: Database) {}
 
   insert(row: WorkspaceRow): void {
     this.db
@@ -691,21 +689,21 @@ export class WorkspaceRepo {
   findById(id: string): WorkspaceRow | undefined {
     const r = this.db.prepare(`SELECT ${COLUMNS} FROM workspace WHERE id = ?`).get(id) as
       | WorkspaceRecord
-      | undefined;
+      | null;
     return r ? toRow(r) : undefined;
   }
 
   findByRoot(rootPath: string): WorkspaceRow | undefined {
     const r = this.db.prepare(`SELECT ${COLUMNS} FROM workspace WHERE root_path = ?`).get(rootPath) as
       | WorkspaceRecord
-      | undefined;
+      | null;
     return r ? toRow(r) : undefined;
   }
 
   findByName(name: string): WorkspaceRow | undefined {
     const r = this.db.prepare(`SELECT ${COLUMNS} FROM workspace WHERE name = ?`).get(name) as
       | WorkspaceRecord
-      | undefined;
+      | null;
     return r ? toRow(r) : undefined;
   }
 
@@ -724,7 +722,7 @@ export class WorkspaceRepo {
 
 - [ ] **Step 4: Run tests and typecheck**
 
-Run: `npx vitest run tests/db/workspace-repo.test.ts && npm run typecheck`
+Run: `bun test tests/db/workspace-repo.test.ts && bun run typecheck`
 Expected: all PASS, 0 type errors.
 
 - [ ] **Step 5: Commit**
@@ -755,18 +753,18 @@ git commit -m "feat(db): add workspace repository"
 Create `tests/db/session-repo.test.ts`:
 
 ```ts
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { DatabaseSync } from 'node:sqlite';
+import type { Database } from 'bun:sqlite';
 import { openDatabase } from '../../src/db/open.js';
 import { WorkspaceRepo } from '../../src/db/repositories/workspace.js';
 import { SessionRepo, type SessionRow } from '../../src/db/repositories/session.js';
 import { newId } from '../../src/core/ids.js';
 
 let dir: string;
-let db: DatabaseSync;
+let db: Database;
 let repo: SessionRepo;
 let workspaceId: string;
 
@@ -865,13 +863,13 @@ describe('SessionRepo', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npx vitest run tests/db/session-repo.test.ts`
+Run: `bun test tests/db/session-repo.test.ts`
 Expected: FAIL — cannot resolve `../../src/db/repositories/session.js`.
 
 - [ ] **Step 3: Implement `src/db/repositories/session.ts`**
 
 ```ts
-import type { DatabaseSync } from 'node:sqlite';
+import type { Database } from 'bun:sqlite';
 
 export type SessionStatus = 'idle' | 'running' | 'waiting' | 'dead' | 'landed';
 export type EnforcementTier = 'T1' | 'T2' | 'T3';
@@ -936,7 +934,7 @@ function toRow(r: SessionRecord): SessionRow {
 }
 
 export class SessionRepo {
-  constructor(private readonly db: DatabaseSync) {}
+  constructor(private readonly db: Database) {}
 
   insert(row: SessionRow): void {
     this.db
@@ -951,14 +949,14 @@ export class SessionRepo {
   findById(id: string): SessionRow | undefined {
     const r = this.db.prepare(`SELECT ${COLUMNS} FROM session WHERE id = ?`).get(id) as
       | SessionRecord
-      | undefined;
+      | null;
     return r ? toRow(r) : undefined;
   }
 
   findByName(workspaceId: string, name: string): SessionRow | undefined {
     const r = this.db
       .prepare(`SELECT ${COLUMNS} FROM session WHERE workspace_id = ? AND name = ?`)
-      .get(workspaceId, name) as SessionRecord | undefined;
+      .get(workspaceId, name) as SessionRecord | null;
     return r ? toRow(r) : undefined;
   }
 
@@ -998,7 +996,7 @@ export class SessionRepo {
 
 - [ ] **Step 4: Run tests and typecheck**
 
-Run: `npx vitest run tests/db/session-repo.test.ts && npm run typecheck`
+Run: `bun test tests/db/session-repo.test.ts && bun run typecheck`
 Expected: all PASS, 0 type errors.
 
 - [ ] **Step 5: Commit**
@@ -1035,7 +1033,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { realpathSync } from 'node:fs';
-import { execa } from 'execa';
+import { $ } from 'bun';
 
 export interface GitFixture {
   root: string;
@@ -1045,12 +1043,12 @@ export interface GitFixture {
 /** A temp git repo with one commit on `main`. */
 export async function makeGitFixture(): Promise<GitFixture> {
   const root = realpathSync(await mkdtemp(join(tmpdir(), 'cw-git-')));
-  await execa('git', ['init', '-q', '-b', 'main'], { cwd: root });
-  await execa('git', ['config', 'user.email', 'test@crossweave.dev'], { cwd: root });
-  await execa('git', ['config', 'user.name', 'crossweave test'], { cwd: root });
+  await $`git init -q -b main`.cwd(root).quiet();
+  await $`git config user.email test@crossweave.dev`.cwd(root).quiet();
+  await $`git config user.name ${'crossweave test'}`.cwd(root).quiet();
   await writeFile(join(root, 'README.md'), '# fixture\n');
-  await execa('git', ['add', '.'], { cwd: root });
-  await execa('git', ['commit', '-q', '-m', 'init'], { cwd: root });
+  await $`git add .`.cwd(root).quiet();
+  await $`git commit -q -m init`.cwd(root).quiet();
   return { root, cleanup: () => rm(root, { recursive: true, force: true }) };
 }
 ```
@@ -1060,10 +1058,10 @@ export async function makeGitFixture(): Promise<GitFixture> {
 Create `tests/isolation/worktree.test.ts`:
 
 ```ts
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { execa } from 'execa';
+import { $ } from 'bun';
 import { makeGitFixture, type GitFixture } from '../helpers/git-fixture.js';
 import { createWorktree, removeWorktree, listWorktreePaths } from '../../src/isolation/worktree.js';
 
@@ -1078,8 +1076,8 @@ describe('createWorktree', () => {
     expect(h.branch).toBe('cw/one');
     expect(existsSync(join(h.path, 'README.md'))).toBe(true);
 
-    const { stdout } = await execa('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: h.path });
-    expect(stdout.trim()).toBe('cw/one');
+    const branch = await $`git rev-parse --abbrev-ref HEAD`.cwd(h.path).text();
+    expect(branch.trim()).toBe('cw/one');
   });
 
   it('isolates writes between two worktrees', async () => {
@@ -1102,7 +1100,7 @@ describe('createWorktree', () => {
     const { mkdtemp } = await import('node:fs/promises');
     const { tmpdir } = await import('node:os');
     const empty = await mkdtemp(join(tmpdir(), 'cw-empty-'));
-    await execa('git', ['init', '-q', '-b', 'main'], { cwd: empty });
+    await $`git init -q -b main`.cwd(empty).quiet();
     await expect(createWorktree(empty, 's_x', 'cw/x')).rejects.toMatchObject({
       code: 'WORKTREE_FAILED',
     });
@@ -1126,7 +1124,7 @@ describe('removeWorktree and listWorktreePaths', () => {
 
 - [ ] **Step 3: Run test to verify it fails**
 
-Run: `npx vitest run tests/isolation/worktree.test.ts`
+Run: `bun test tests/isolation/worktree.test.ts`
 Expected: FAIL — cannot resolve `../../src/isolation/worktree.js`.
 
 - [ ] **Step 4: Implement `src/isolation/worktree.ts`**
@@ -1196,7 +1194,7 @@ export async function listWorktreePaths(projectRoot: string): Promise<string[]> 
 
 - [ ] **Step 5: Run tests and typecheck**
 
-Run: `npx vitest run tests/isolation/worktree.test.ts && npm run typecheck`
+Run: `bun test tests/isolation/worktree.test.ts && bun run typecheck`
 Expected: all PASS, 0 type errors.
 
 - [ ] **Step 6: Commit**
@@ -1218,25 +1216,25 @@ git commit -m "feat(isolation): add git worktree create, remove and list"
 - Consumes: `WorkspaceRepo`, `SessionRepo`, `newId`, `findProjectRoot`, `CrossweaveError`
 - Produces:
   - `interface WorkspaceInfo { workspace: WorkspaceRow; sessions: SessionRow[] }`
-  - `class WorkspaceManager` with constructor `(db: DatabaseSync)` and methods `init(projectRoot: string, name?: string): WorkspaceRow`, `list(): WorkspaceRow[]`, `info(id: string): WorkspaceInfo`, `resolve(nameOrId: string): WorkspaceRow`, `delete(id: string, opts: { force?: boolean }): void`
+  - `class WorkspaceManager` with constructor `(db: Database)` and methods `init(projectRoot: string, name?: string): WorkspaceRow`, `list(): WorkspaceRow[]`, `info(id: string): WorkspaceInfo`, `resolve(nameOrId: string): WorkspaceRow`, `delete(id: string, opts: { force?: boolean }): void`
 
 - [ ] **Step 1: Write the failing test**
 
 Create `tests/domain/workspace.test.ts`:
 
 ```ts
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { DatabaseSync } from 'node:sqlite';
+import type { Database } from 'bun:sqlite';
 import { openDatabase } from '../../src/db/open.js';
 import { SessionRepo } from '../../src/db/repositories/session.js';
 import { WorkspaceManager } from '../../src/domain/workspace.js';
 import { newId } from '../../src/core/ids.js';
 
 let dir: string;
-let db: DatabaseSync;
+let db: Database;
 let mgr: WorkspaceManager;
 
 beforeEach(async () => {
@@ -1329,14 +1327,14 @@ describe('WorkspaceManager.info', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npx vitest run tests/domain/workspace.test.ts`
+Run: `bun test tests/domain/workspace.test.ts`
 Expected: FAIL — cannot resolve `../../src/domain/workspace.js`.
 
 - [ ] **Step 3: Implement `src/domain/workspace.ts`**
 
 ```ts
 import { basename } from 'node:path';
-import type { DatabaseSync } from 'node:sqlite';
+import type { Database } from 'bun:sqlite';
 import { CrossweaveError } from '../core/errors.js';
 import { newId } from '../core/ids.js';
 import { WorkspaceRepo, type WorkspaceRow } from '../db/repositories/workspace.js';
@@ -1351,7 +1349,7 @@ export class WorkspaceManager {
   private readonly workspaces: WorkspaceRepo;
   private readonly sessions: SessionRepo;
 
-  constructor(db: DatabaseSync) {
+  constructor(db: Database) {
     this.workspaces = new WorkspaceRepo(db);
     this.sessions = new SessionRepo(db);
   }
@@ -1406,7 +1404,7 @@ export class WorkspaceManager {
 
 - [ ] **Step 4: Run tests and typecheck**
 
-Run: `npx vitest run tests/domain/workspace.test.ts && npm run typecheck`
+Run: `bun test tests/domain/workspace.test.ts && bun run typecheck`
 Expected: all PASS, 0 type errors.
 
 - [ ] **Step 5: Commit**
@@ -1444,7 +1442,7 @@ Claude Code being installed.
 Create `tests/adapters/claude-pty.test.ts`:
 
 ```ts
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'bun:test';
 import { tmpdir } from 'node:os';
 import { ClaudePtyAdapter } from '../../src/adapters/claude-pty.js';
 import { createAdapter } from '../../src/adapters/registry.js';
@@ -1522,7 +1520,7 @@ describe('createAdapter', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npx vitest run tests/adapters/claude-pty.test.ts`
+Run: `bun test tests/adapters/claude-pty.test.ts`
 Expected: FAIL — cannot resolve `../../src/adapters/claude-pty.js`.
 
 - [ ] **Step 3: Implement `src/adapters/types.ts`**
@@ -1555,36 +1553,62 @@ export interface AgentAdapter {
 
 - [ ] **Step 4: Implement `src/adapters/claude-pty.ts`**
 
+Two shape mismatches between `Bun.spawn`'s pty and the `AgentProcess` interface have
+to be bridged here, and this is the only file allowed to know about either:
+
+1. Bun takes **one** `data(terminal, chunk)` callback fixed at spawn time, while
+   `AgentProcess.onData` lets callers subscribe later and more than once. The class
+   below fans out to a listener list.
+2. Bun signals exit through the `proc.exited` **promise**, not a callback.
+
 ```ts
-import * as pty from 'node-pty';
 import type { EnforcementTier } from '../db/repositories/session.js';
 import type { AgentAdapter, AgentProcess, SpawnOptions } from './types.js';
 
+type BunTerminal = { write(data: string): void; resize(cols: number, rows: number): void; close(): void };
+type BunPtyProcess = { pid: number; exited: Promise<number>; terminal: BunTerminal; kill(signal?: number | NodeJS.Signals): void };
+
 class PtyProcess implements AgentProcess {
-  constructor(private readonly term: pty.IPty) {}
+  private readonly dataListeners: Array<(chunk: string) => void> = [];
+  private readonly exitListeners: Array<(code: number) => void> = [];
+  private exitCode: number | null = null;
+
+  constructor(private readonly proc: BunPtyProcess) {
+    void proc.exited.then((code) => {
+      this.exitCode = code;
+      for (const cb of this.exitListeners) cb(code);
+    });
+  }
+
+  /** Called by the adapter from Bun's single spawn-time data callback. */
+  emit(chunk: string): void {
+    for (const cb of this.dataListeners) cb(chunk);
+  }
 
   get pid(): number {
-    return this.term.pid;
+    return this.proc.pid;
   }
 
   onData(cb: (chunk: string) => void): void {
-    this.term.onData(cb);
+    this.dataListeners.push(cb);
   }
 
   onExit(cb: (code: number) => void): void {
-    this.term.onExit(({ exitCode }) => cb(exitCode));
+    // A listener registered after the process already exited must still fire.
+    if (this.exitCode !== null) cb(this.exitCode);
+    else this.exitListeners.push(cb);
   }
 
   write(data: string): void {
-    this.term.write(data);
+    this.proc.terminal.write(data);
   }
 
   resize(cols: number, rows: number): void {
-    this.term.resize(cols, rows);
+    this.proc.terminal.resize(cols, rows);
   }
 
   kill(signal?: NodeJS.Signals): void {
-    this.term.kill(signal);
+    this.proc.kill(signal);
   }
 }
 
@@ -1602,17 +1626,30 @@ export class ClaudePtyAdapter implements AgentAdapter {
   ) {}
 
   spawn(opts: SpawnOptions): AgentProcess {
-    const term = pty.spawn(this.command, this.args, {
-      name: 'xterm-256color',
+    let wrapper: PtyProcess | undefined;
+
+    const proc = Bun.spawn([this.command, ...this.args], {
       cwd: opts.cwd,
-      cols: opts.cols,
-      rows: opts.rows,
-      env: { ...process.env, ...opts.env } as Record<string, string>,
-    });
-    return new PtyProcess(term);
+      env: { ...process.env, ...opts.env, TERM: 'xterm-256color' },
+      terminal: {
+        cols: opts.cols,
+        rows: opts.rows,
+        data(_terminal: unknown, chunk: string | Uint8Array) {
+          const text = typeof chunk === 'string' ? chunk : new TextDecoder().decode(chunk);
+          wrapper?.emit(text);
+        },
+      },
+    }) as unknown as BunPtyProcess;
+
+    wrapper = new PtyProcess(proc);
+    return wrapper;
   }
 }
 ```
+
+The `wrapper` is assigned after `Bun.spawn` returns but the `data` callback only fires
+on the event loop, so it is always defined by the time a chunk arrives. The `?.` is
+there for the pathological case, not as a routine path.
 
 `createAdapter` deliberately lives only in `registry.ts`. Re-exporting it from here
 would create an import cycle, since the registry imports this class.
@@ -1636,7 +1673,7 @@ export function createAdapter(kind: string): AgentAdapter {
 
 - [ ] **Step 6: Run tests and typecheck**
 
-Run: `npx vitest run tests/adapters/claude-pty.test.ts && npm run typecheck`
+Run: `bun test tests/adapters/claude-pty.test.ts && bun run typecheck`
 Expected: all PASS, 0 type errors.
 
 - [ ] **Step 7: Commit**
@@ -1658,24 +1695,24 @@ git commit -m "feat(adapters): add agent adapter interface and Claude Code pty a
 - Consumes: `SessionRepo` (Task 4), `WorkspaceRepo` (Task 3), `createWorktree` / `removeWorktree` (Task 5), `createAdapter` (Task 7)
 - Produces:
   - `interface CreateSessionOptions { workspaceId: string; name: string; agent: string; worktree: boolean }`
-  - `class SessionManager` with constructor `(db: DatabaseSync)` and methods `create(opts: CreateSessionOptions): Promise<SessionRow>`, `list(workspaceId: string): SessionRow[]`, `resolve(workspaceId: string, idOrName: string): SessionRow`, `rename(workspaceId: string, idOrName: string, newName: string): SessionRow`, `kill(workspaceId: string, idOrName: string, opts: { removeWorktree: boolean }): Promise<void>`
+  - `class SessionManager` with constructor `(db: Database)` and methods `create(opts: CreateSessionOptions): Promise<SessionRow>`, `list(workspaceId: string): SessionRow[]`, `resolve(workspaceId: string, idOrName: string): SessionRow`, `rename(workspaceId: string, idOrName: string, newName: string): SessionRow`, `kill(workspaceId: string, idOrName: string, opts: { removeWorktree: boolean }): Promise<void>`
 
 - [ ] **Step 1: Write the failing test**
 
 Create `tests/domain/session.test.ts`:
 
 ```ts
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import type { DatabaseSync } from 'node:sqlite';
+import type { Database } from 'bun:sqlite';
 import { openDatabase } from '../../src/db/open.js';
 import { WorkspaceManager } from '../../src/domain/workspace.js';
 import { SessionManager } from '../../src/domain/session.js';
 import { makeGitFixture, type GitFixture } from '../helpers/git-fixture.js';
 
 let fx: GitFixture;
-let db: DatabaseSync;
+let db: Database;
 let sessions: SessionManager;
 let workspaceId: string;
 
@@ -1782,7 +1819,7 @@ describe('SessionManager.kill', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npx vitest run tests/domain/session.test.ts`
+Run: `bun test tests/domain/session.test.ts`
 Expected: FAIL — cannot resolve `../../src/domain/session.js`.
 
 - [ ] **Step 3: Implement `src/domain/session.ts`**
@@ -1791,7 +1828,7 @@ Ordering matters: the agent kind is validated and the worktree is created
 *before* the row is inserted, so a failure can never leave an orphan session row.
 
 ```ts
-import type { DatabaseSync } from 'node:sqlite';
+import type { Database } from 'bun:sqlite';
 import { CrossweaveError } from '../core/errors.js';
 import { newId } from '../core/ids.js';
 import { WorkspaceRepo } from '../db/repositories/workspace.js';
@@ -1810,7 +1847,7 @@ export class SessionManager {
   private readonly sessions: SessionRepo;
   private readonly workspaces: WorkspaceRepo;
 
-  constructor(db: DatabaseSync) {
+  constructor(db: Database) {
     this.sessions = new SessionRepo(db);
     this.workspaces = new WorkspaceRepo(db);
   }
@@ -1933,7 +1970,7 @@ Add its test to `tests/db/session-repo.test.ts`:
 
 - [ ] **Step 5: Run tests and typecheck**
 
-Run: `npx vitest run tests/domain/session.test.ts tests/db/session-repo.test.ts && npm run typecheck`
+Run: `bun test tests/domain/session.test.ts tests/db/session-repo.test.ts && bun run typecheck`
 Expected: all PASS, 0 type errors.
 
 - [ ] **Step 6: Commit**
@@ -1966,7 +2003,7 @@ git commit -m "feat(domain): add session manager with worktree lifecycle"
 Create `tests/daemon/rpc.test.ts`:
 
 ```ts
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'bun:test';
 import { encodeFrame, createFrameDecoder, RPC_ERROR_CODES } from '../../src/daemon/rpc.js';
 
 describe('encodeFrame', () => {
@@ -2032,7 +2069,7 @@ describe('RPC_ERROR_CODES', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npx vitest run tests/daemon/rpc.test.ts`
+Run: `bun test tests/daemon/rpc.test.ts`
 Expected: FAIL — cannot resolve `../../src/daemon/rpc.js`.
 
 - [ ] **Step 3: Implement `src/daemon/rpc.ts`**
@@ -2095,7 +2132,7 @@ export function createFrameDecoder(
 
 - [ ] **Step 4: Run tests and typecheck**
 
-Run: `npx vitest run tests/daemon/rpc.test.ts && npm run typecheck`
+Run: `bun test tests/daemon/rpc.test.ts && bun run typecheck`
 Expected: all PASS, 0 type errors.
 
 - [ ] **Step 5: Commit**
@@ -2121,18 +2158,18 @@ git commit -m "feat(daemon): add newline-delimited json-rpc framing"
   - `type MethodHandler = (params: Record<string, unknown>) => Promise<unknown> | unknown`
   - `interface Daemon { listen(): Promise<void>; close(): Promise<void> }`
   - `createDaemon(opts: { socketPath: string; methods: Record<string, MethodHandler> }): Daemon`
-  - `buildMethods(db: DatabaseSync, projectRoot: string): Record<string, MethodHandler>` exposing `ping`, `workspace.init`, `workspace.list`, `workspace.info`, `workspace.delete`, `session.new`, `session.list`, `session.rename`, `session.kill`
+  - `buildMethods(db: Database, projectRoot: string): Record<string, MethodHandler>` exposing `ping`, `workspace.init`, `workspace.list`, `workspace.info`, `workspace.delete`, `session.new`, `session.list`, `session.rename`, `session.kill`
 
 - [ ] **Step 1: Write the failing test**
 
 Create `tests/daemon/server.test.ts`:
 
 ```ts
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { connect, type Socket } from 'node:net';
 import { join } from 'node:path';
 import { existsSync } from 'node:fs';
-import type { DatabaseSync } from 'node:sqlite';
+import type { Database } from 'bun:sqlite';
 import { openDatabase } from '../../src/db/open.js';
 import { createDaemon, type Daemon } from '../../src/daemon/server.js';
 import { buildMethods } from '../../src/daemon/methods.js';
@@ -2140,7 +2177,7 @@ import { encodeFrame, createFrameDecoder, RPC_ERROR_CODES } from '../../src/daem
 import { makeGitFixture, type GitFixture } from '../helpers/git-fixture.js';
 
 let fx: GitFixture;
-let db: DatabaseSync;
+let db: Database;
 let daemon: Daemon;
 let socketPath: string;
 
@@ -2212,6 +2249,13 @@ describe('daemon server', () => {
     expect(existsSync(s.worktreePath)).toBe(false);
   });
 
+  it('creates the socket owner-only and the state directory 0700', async () => {
+    const { statSync } = await import('node:fs');
+    const { dirname } = await import('node:path');
+    expect(statSync(socketPath).mode & 0o777).toBe(0o600);
+    expect(statSync(dirname(socketPath)).mode & 0o777).toBe(0o700);
+  });
+
   it('removes a stale socket file on listen', async () => {
     await daemon.close();
     const { writeFile } = await import('node:fs/promises');
@@ -2232,14 +2276,14 @@ describe('daemon server', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npx vitest run tests/daemon/server.test.ts`
+Run: `bun test tests/daemon/server.test.ts`
 Expected: FAIL — cannot resolve `../../src/daemon/server.js`.
 
 - [ ] **Step 3: Implement `src/daemon/server.ts`**
 
 ```ts
 import { createServer, type Server, type Socket } from 'node:net';
-import { existsSync, mkdirSync, unlinkSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, unlinkSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { CrossweaveError } from '../core/errors.js';
 import {
@@ -2312,7 +2356,9 @@ export function createDaemon(opts: {
 
   return {
     listen(): Promise<void> {
-      mkdirSync(dirname(opts.socketPath), { recursive: true });
+      // 0o700: the daemon spawns processes and writes files on the user's behalf,
+      // so nothing outside this account may reach its directory or its socket.
+      mkdirSync(dirname(opts.socketPath), { recursive: true, mode: 0o700 });
       // A socket file left by a crashed daemon would block bind.
       if (existsSync(opts.socketPath)) unlinkSync(opts.socketPath);
 
@@ -2325,7 +2371,13 @@ export function createDaemon(opts: {
 
       return new Promise((resolve, reject) => {
         server!.once('error', reject);
-        server!.listen(opts.socketPath, () => resolve());
+        server!.listen(opts.socketPath, () => {
+          // Unix socket permissions follow umask by default, which on many systems
+          // leaves the socket group- and world-readable. Anyone able to connect can
+          // drive the daemon, so tighten it explicitly rather than trusting umask.
+          chmodSync(opts.socketPath, 0o600);
+          resolve();
+        });
       });
     },
 
@@ -2351,7 +2403,7 @@ export function createDaemon(opts: {
 - [ ] **Step 4: Implement `src/daemon/methods.ts`**
 
 ```ts
-import type { DatabaseSync } from 'node:sqlite';
+import type { Database } from 'bun:sqlite';
 import { WorkspaceManager } from '../domain/workspace.js';
 import { SessionManager } from '../domain/session.js';
 import type { MethodHandler } from './server.js';
@@ -2373,7 +2425,7 @@ function bool(params: Record<string, unknown>, key: string, fallback: boolean): 
 }
 
 export function buildMethods(
-  db: DatabaseSync,
+  db: Database,
   projectRoot: string,
 ): Record<string, MethodHandler> {
   const workspaces = new WorkspaceManager(db);
@@ -2448,7 +2500,7 @@ void main();
 
 - [ ] **Step 6: Run tests and typecheck**
 
-Run: `npx vitest run tests/daemon/server.test.ts && npm run typecheck`
+Run: `bun test tests/daemon/server.test.ts && bun run typecheck`
 Expected: all PASS, 0 type errors.
 
 - [ ] **Step 7: Commit**
@@ -2477,9 +2529,9 @@ git commit -m "feat(daemon): add unix-socket rpc server, method table and entry 
 Create `tests/client/rpc-client.test.ts`:
 
 ```ts
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { join } from 'node:path';
-import type { DatabaseSync } from 'node:sqlite';
+import type { Database } from 'bun:sqlite';
 import { openDatabase } from '../../src/db/open.js';
 import { createDaemon, type Daemon } from '../../src/daemon/server.js';
 import { buildMethods } from '../../src/daemon/methods.js';
@@ -2487,7 +2539,7 @@ import { DaemonClient, connectOrStart } from '../../src/client/rpc-client.js';
 import { makeGitFixture, type GitFixture } from '../helpers/git-fixture.js';
 
 let fx: GitFixture;
-let db: DatabaseSync;
+let db: Database;
 let daemon: Daemon | undefined;
 let socketPath: string;
 
@@ -2541,9 +2593,7 @@ describe('DaemonClient', () => {
 
 describe('connectOrStart', () => {
   it('starts a daemon when none is running, then answers', async () => {
-    const { fileURLToPath } = await import('node:url');
-    const entry = fileURLToPath(new URL('../../dist/daemon/main.js', import.meta.url));
-    const client = await connectOrStart(fx.root, entry);
+    const client = await connectOrStart(fx.root);
     expect(await client.call('ping')).toEqual({ ok: true });
     await client.call('daemon.shutdown').catch(() => undefined);
     client.close();
@@ -2565,7 +2615,7 @@ Add to the returned object in `src/daemon/methods.ts` (inside `buildMethods`):
 
 - [ ] **Step 3: Run test to verify it fails**
 
-Run: `npx vitest run tests/client/rpc-client.test.ts`
+Run: `bun test tests/client/rpc-client.test.ts`
 Expected: FAIL — cannot resolve `../../src/client/rpc-client.js`.
 
 - [ ] **Step 4: Implement `src/client/rpc-client.ts`**
@@ -2645,14 +2695,14 @@ const DAEMON_START_TIMEOUT_MS = 10_000;
 const DAEMON_POLL_INTERVAL_MS = 100;
 
 /**
- * `daemonEntry` defaults to the sibling compiled entry point, which is correct
- * when running from `dist/`. Tests run the TypeScript sources directly, where
- * that path does not exist, so they pass the built `dist/daemon/main.js`
- * explicitly.
+ * `daemonEntry` defaults to the sibling source entry point; Bun runs TypeScript
+ * directly, so there is no build step to resolve around. The parameter stays
+ * overridable because the compiled single binary (packaging task) spawns the
+ * sibling `cwd` executable instead.
  */
 export async function connectOrStart(
   projectRoot: string,
-  daemonEntry = fileURLToPath(new URL('../daemon/main.js', import.meta.url)),
+  daemonEntry = fileURLToPath(new URL('../daemon/main.ts', import.meta.url)),
 ): Promise<DaemonClient> {
   const socketPath = join(crossweaveDir(projectRoot), 'daemon.sock');
 
@@ -2685,11 +2735,9 @@ export async function connectOrStart(
 }
 ```
 
-- [ ] **Step 5: Build, then run tests and typecheck**
+- [ ] **Step 5: Run tests and typecheck**
 
-`connectOrStart` spawns the compiled `dist/daemon/main.js`, so the build must run first.
-
-Run: `npm run build && npx vitest run tests/client/rpc-client.test.ts && npm run typecheck`
+Run: `bun test tests/client/rpc-client.test.ts && bun run typecheck`
 Expected: all PASS, 0 type errors.
 
 - [ ] **Step 6: Commit**
@@ -2721,18 +2769,33 @@ git commit -m "feat(client): add daemon rpc client with auto-start"
 Create `tests/cli/cli.test.ts`:
 
 ```ts
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { execa } from 'execa';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { $ } from 'bun';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { makeGitFixture, type GitFixture } from '../helpers/git-fixture.js';
 
-const CLI = fileURLToPath(new URL('../../dist/cli/index.js', import.meta.url));
+const CLI = fileURLToPath(new URL('../../src/cli/index.ts', import.meta.url));
 let fx: GitFixture;
 
-function cw(args: string[]) {
-  return execa(process.execPath, [CLI, ...args], { cwd: fx.root, reject: false });
+interface CwResult { exitCode: number; stdout: string; stderr: string }
+
+async function run(cwd: string, args: string[]): Promise<CwResult> {
+  const proc = Bun.spawn([process.execPath, CLI, ...args], {
+    cwd,
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+  const [stdout, stderr] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
+  return { exitCode: await proc.exited, stdout, stderr };
+}
+
+function cw(args: string[]): Promise<CwResult> {
+  return run(fx.root, args);
 }
 
 beforeEach(async () => { fx = await makeGitFixture(); });
@@ -2783,7 +2846,7 @@ describe('cw CLI', () => {
     const { tmpdir } = await import('node:os');
     const bare = await mkdtemp(join(tmpdir(), 'cw-nogit-'));
     try {
-      const r = await execa(process.execPath, [CLI, 'init'], { cwd: bare, reject: false });
+      const r = await run(bare, ['init']);
       expect(r.exitCode).toBe(1);
       expect(r.stderr).toContain('NOT_A_REPO');
     } finally {
@@ -2795,8 +2858,8 @@ describe('cw CLI', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npm run build && npx vitest run tests/cli/cli.test.ts`
-Expected: FAIL — `dist/cli/index.js` does not exist.
+Run: `bun test tests/cli/cli.test.ts`
+Expected: FAIL — `src/cli/index.ts` does not exist.
 
 - [ ] **Step 3: Implement `src/cli/context.ts`**
 
@@ -3060,7 +3123,7 @@ void runMain(main);
 
 - [ ] **Step 7: Build, then run the full suite and typecheck**
 
-Run: `npm run build && npx vitest run && npm run typecheck`
+Run: `bun test && bun run typecheck`
 Expected: all PASS across every test file, 0 type errors.
 
 - [ ] **Step 8: Commit**
@@ -3102,9 +3165,9 @@ bridges the local terminal to it.
 Create `tests/daemon/runtime.test.ts`:
 
 ```ts
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { join } from 'node:path';
-import type { DatabaseSync } from 'node:sqlite';
+import type { Database } from 'bun:sqlite';
 import { openDatabase } from '../../src/db/open.js';
 import { createDaemon, type Daemon } from '../../src/daemon/server.js';
 import { buildMethods } from '../../src/daemon/methods.js';
@@ -3121,7 +3184,7 @@ function echoFactory(kind: string): AgentAdapter {
 }
 
 let fx: GitFixture;
-let db: DatabaseSync;
+let db: Database;
 let daemon: Daemon;
 let client: DaemonClient;
 let socketPath: string;
@@ -3251,7 +3314,7 @@ describe('session runtime', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npx vitest run tests/daemon/runtime.test.ts`
+Run: `bun test tests/daemon/runtime.test.ts`
 Expected: FAIL — `buildMethods` takes two arguments, and `session.start` does not exist.
 
 - [ ] **Step 3: Add `MethodContext` to `src/daemon/server.ts`**
@@ -3419,7 +3482,7 @@ export type AdapterFactory = (kind: string) => AgentAdapter;
 
 ```ts
   constructor(
-    db: DatabaseSync,
+    db: Database,
     private readonly adapterFactory: AdapterFactory = defaultCreateAdapter,
   ) {
     this.sessions = new SessionRepo(db);
@@ -3465,7 +3528,7 @@ Replace the signature and add the runtime methods:
 
 ```ts
 export function buildMethods(
-  db: DatabaseSync,
+  db: Database,
   projectRoot: string,
   adapterFactory?: AdapterFactory,
 ): Record<string, MethodHandler> {
@@ -3577,7 +3640,7 @@ In the constructor's frame handler, dispatch id-less frames before the pending l
 
 - [ ] **Step 8: Run the runtime tests and typecheck**
 
-Run: `npx vitest run tests/daemon/runtime.test.ts && npm run typecheck`
+Run: `bun test tests/daemon/runtime.test.ts && bun run typecheck`
 Expected: all PASS, 0 type errors.
 
 - [ ] **Step 9: Implement `src/cli/commands/attach.ts`**
@@ -3687,7 +3750,7 @@ complexity without adding coverage of the logic, so it is deliberately not teste
 
 - [ ] **Step 12: Build, run the full suite and typecheck**
 
-Run: `npm run build && npx vitest run && npm run typecheck`
+Run: `bun test && bun run typecheck`
 Expected: all PASS, 0 type errors.
 
 - [ ] **Step 13: Commit**
@@ -3699,14 +3762,213 @@ git commit -m "feat(runtime): run agents in daemon-owned ptys with attach, resum
 
 ---
 
+### Task 14: Single-binary packaging
+
+The reason this project is on Bun. Competing tools ship a binary; requiring users to
+install a runtime first is an adoption tax, so distribution is built in M0 rather than
+left as polish.
+
+**Files:**
+- Create: `scripts/build.ts`
+- Create: `src/core/version.ts`
+- Modify: `src/client/rpc-client.ts` — locate the sibling `cwd` binary when compiled
+- Modify: `src/cli/index.ts` — `--version`
+- Test: `tests/packaging/binary.test.ts`
+
+**Interfaces:**
+- Consumes: `connectOrStart` (Task 11)
+- Produces: `VERSION: string`, `resolveDaemonEntry(): string`
+
+- [ ] **Step 1: Write the failing test**
+
+Create `tests/packaging/binary.test.ts`:
+
+```ts
+import { describe, it, expect, beforeAll } from 'bun:test';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { makeGitFixture } from '../helpers/git-fixture.js';
+
+const root = fileURLToPath(new URL('../..', import.meta.url));
+const cwBin = join(root, 'dist', 'cw');
+const cwdBin = join(root, 'dist', 'cwd');
+
+beforeAll(async () => {
+  const proc = Bun.spawn(['bun', 'run', 'scripts/build.ts'], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
+  const code = await proc.exited;
+  if (code !== 0) throw new Error(await new Response(proc.stderr).text());
+}, 180_000);
+
+describe('compiled binaries', () => {
+  it('produces both executables', () => {
+    expect(existsSync(cwBin)).toBe(true);
+    expect(existsSync(cwdBin)).toBe(true);
+  });
+
+  it('reports its version without any runtime installed alongside it', async () => {
+    const proc = Bun.spawn([cwBin, '--version'], { stdout: 'pipe', stderr: 'pipe' });
+    const out = await new Response(proc.stdout).text();
+    expect(await proc.exited).toBe(0);
+    expect(out.trim()).toMatch(/^\d+\.\d+\.\d+/);
+  });
+
+  it('runs a real workspace lifecycle from the binary alone', async () => {
+    const fx = await makeGitFixture();
+    try {
+      const init = Bun.spawn([cwBin, 'init'], { cwd: fx.root, stdout: 'pipe', stderr: 'pipe' });
+      expect(await init.exited).toBe(0);
+      expect(existsSync(join(fx.root, '.crossweave', 'state.db'))).toBe(true);
+
+      const list = Bun.spawn([cwBin, 'session', 'list'], { cwd: fx.root, stdout: 'pipe', stderr: 'pipe' });
+      expect(await new Response(list.stdout).text()).toContain('no sessions');
+      expect(await list.exited).toBe(0);
+
+      Bun.spawn([cwBin, 'daemon', 'stop'], { cwd: fx.root, stdout: 'ignore', stderr: 'ignore' });
+    } finally {
+      await fx.cleanup();
+    }
+  }, 120_000);
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `bun test tests/packaging/binary.test.ts`
+Expected: FAIL — `scripts/build.ts` does not exist.
+
+- [ ] **Step 3: Implement `src/core/version.ts`**
+
+```ts
+import pkg from '../../package.json' with { type: 'json' };
+
+export const VERSION: string = pkg.version;
+```
+
+- [ ] **Step 4: Implement `scripts/build.ts`**
+
+```ts
+import { rm, mkdir } from 'node:fs/promises';
+
+const targets = [
+  { entry: './src/cli/index.ts', out: './dist/cw' },
+  { entry: './src/daemon/main.ts', out: './dist/cwd' },
+];
+
+await rm('./dist', { recursive: true, force: true });
+await mkdir('./dist', { recursive: true });
+
+for (const t of targets) {
+  const proc = Bun.spawn(
+    ['bun', 'build', t.entry, '--compile', '--minify', '--outfile', t.out],
+    { stdout: 'inherit', stderr: 'inherit' },
+  );
+  const code = await proc.exited;
+  if (code !== 0) {
+    console.error(`build failed for ${t.entry}`);
+    process.exit(code);
+  }
+}
+
+console.log('built dist/cw and dist/cwd');
+```
+
+- [ ] **Step 5: Teach the client to find the daemon when compiled**
+
+In `src/client/rpc-client.ts`, replace the default parameter with an explicit resolver.
+A compiled `cw` cannot spawn `../daemon/main.ts` — that source path does not exist on a
+user's machine — so it spawns the `cwd` binary sitting next to it instead.
+
+```ts
+import { basename, dirname, join } from 'node:path';
+
+/**
+ * Compiled binaries run as `cw`; from source, `process.execPath` is the bun binary.
+ * The two cases need different daemon entry points and different spawn arguments.
+ */
+export function resolveDaemonEntry(): { command: string; args: string[] } {
+  const isCompiled = basename(process.execPath).startsWith('cw');
+  if (isCompiled) {
+    return { command: join(dirname(process.execPath), 'cwd'), args: [] };
+  }
+  return {
+    command: process.execPath,
+    args: [fileURLToPath(new URL('../daemon/main.ts', import.meta.url))],
+  };
+}
+```
+
+Change `connectOrStart` to use it:
+
+```ts
+export async function connectOrStart(
+  projectRoot: string,
+  entry = resolveDaemonEntry(),
+): Promise<DaemonClient> {
+  const socketPath = join(crossweaveDir(projectRoot), 'daemon.sock');
+
+  try {
+    return await DaemonClient.connect(socketPath);
+  } catch {
+    // Nothing listening; start one below.
+  }
+
+  const child = spawn(entry.command, entry.args, {
+    cwd: projectRoot,
+    detached: true,
+    stdio: 'ignore',
+  });
+  child.unref();
+```
+
+The rest of the function is unchanged. Update the one call site in
+`tests/client/rpc-client.test.ts` that passed a path — it now passes nothing, since the
+default already resolves correctly from source.
+
+- [ ] **Step 6: Add `--version` to `src/cli/index.ts`**
+
+```ts
+import { VERSION } from './core/version.js';
+```
+
+and in the `main` command definition:
+
+```ts
+  meta: { name: 'cw', version: VERSION, description: 'crossweave — parallel agents that stay mergeable' },
+```
+
+- [ ] **Step 7: Run the packaging test**
+
+Run: `bun test tests/packaging/binary.test.ts && bun run typecheck`
+Expected: all PASS, 0 type errors. Note the binary sizes printed by the build — a
+crossweave binary should land in the tens of megabytes; a sharp jump would mean
+something native crept into the dependency graph.
+
+- [ ] **Step 8: Run the whole suite**
+
+Run: `bun test && bun run typecheck`
+Expected: all PASS across every test file, 0 type errors.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add scripts src/core/version.ts src/client/rpc-client.ts src/cli/index.ts tests/packaging
+git commit -m "feat(packaging): compile cw and cwd to standalone binaries"
+```
+
+---
+
 ## M0 Definition of Done
 
-- `npm run build && npx vitest run && npm run typecheck` is green.
+- `bun run build && bun test && bun run typecheck` is green.
 - In a real repository: `cw init`, `cw session new --name auth --agent claude`, `cw session list`, `cw session attach auth`, `cw session kill auth --rm-worktree --yes` all work.
 - `cw session attach` puts you in a live Claude Code session running inside that session's worktree, and Ctrl-] detaches without killing the agent.
 - Two sessions get two worktrees and writes in one are invisible in the other.
 - Every error path exits non-zero with a stable `CODE: message` line on stderr.
 - The daemon starts on demand and stops cleanly with `cw daemon stop`, killing any agents it owns.
+- `bun install` pulls exactly two packages, runs no postinstall script and invokes no compiler.
+- `bun run build` produces `dist/cw` and `dist/cwd`, and `dist/cw init` works on a machine with no Bun and no Node installed.
+- The daemon socket is `0600` and `.crossweave/` is `0700`.
 
 ## Deferred to later milestones (explicitly not in M0)
 
