@@ -5087,6 +5087,56 @@ with `import { attachCommand } from './attach.js';` at the top of that file.
 Append to `tests/cli/cli.test.ts`:
 
 ```ts
+  // Regression, and it MUST drive the real CLI through a pty. The wire-level
+  // scrollback test in tests/daemon/runtime.test.ts passes even with attach.ts's fix
+  // reverted, because it never calls into attach.ts — the defect was purely the order
+  // of registration inside the CLI, and only a test that runs the CLI can see it.
+  it('replays scrollback when re-attaching to a live session', async () => {
+    const { mkdtemp, rm, writeFile, chmod } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const binDir = await mkdtemp(join(tmpdir(), 'cw-fakebin-'));
+    try {
+      const fake = join(binDir, 'claude');
+      await writeFile(fake, '#!/bin/sh\necho MARKER_XYZ\nwhile IFS= read -r l; do echo "got:$l"; done\n');
+      await chmod(fake, 0o755);
+      const env = { ...process.env, PATH: `${binDir}:${process.env.PATH ?? ''}` };
+
+      await cw(['init']);
+      await cw(['session', 'new', '--name', 'replay', '--agent', 'claude']);
+
+      const attachOnce = async (): Promise<string> => {
+        let out = '';
+        const proc = Bun.spawn([process.execPath, CLI, 'session', 'attach', 'replay'], {
+          cwd: fx.root,
+          env,
+          terminal: {
+            cols: 80,
+            rows: 24,
+            data(_t: unknown, chunk: string | Uint8Array) {
+              out += typeof chunk === 'string' ? chunk : new TextDecoder().decode(chunk);
+            },
+          },
+        }) as unknown as { terminal: { write(s: string): void }; exited: Promise<number> };
+
+        await Bun.sleep(1500);
+        proc.terminal.write('\x1d'); // Ctrl-] detaches
+        await proc.exited;
+        return out;
+      };
+
+      const first = await attachOnce();
+      expect(first).toContain('MARKER_XYZ');
+
+      // The session is still running. Re-attaching must replay what it already printed.
+      const second = await attachOnce();
+      expect(second).toContain('MARKER_XYZ');
+
+      await cw(['session', 'kill', 'replay', '--yes']);
+    } finally {
+      await rm(binDir, { recursive: true, force: true });
+    }
+  }, 60_000);
+
   it('attach reports a clear error for an unknown session', async () => {
     await cw(['init']);
     const r = await cw(['session', 'attach', 'ghost']);
