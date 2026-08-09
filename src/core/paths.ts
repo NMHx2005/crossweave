@@ -23,6 +23,33 @@ export function crossweaveDir(projectRoot: string): string {
 const MAX_SYMLINK_HOPS = 32;
 
 /**
+ * Canonicalise the deepest ancestor of `p` that `realpathSync` can resolve, keeping
+ * the remainder lexical.
+ *
+ * A symlink target is a raw stored string. It may be absolute and recorded through a
+ * non-canonical ancestor — on macOS `/var` is itself a symlink to `/private/var`, and
+ * `tmpdir()` lives under it, so `join(root, 'x')` is exactly this shape. Substituting
+ * such a target without re-canonicalising leaves the walk's cursor non-canonical, and a
+ * legitimate *internal* symlink is then rejected because its resolved path no longer
+ * shares the canonical root prefix. `realpathSync` throws for a path that does not
+ * exist, which is what walks us up to the resolvable part.
+ */
+function canonicalExistingPrefix(p: string): string {
+  let head = resolve(p);
+  const tail: string[] = [];
+  for (;;) {
+    try {
+      return join(realpathSync(head), ...tail);
+    } catch {
+      const parent = dirname(head);
+      if (parent === head) return join(head, ...tail);
+      tail.unshift(head.slice(parent.length + 1));
+      head = parent;
+    }
+  }
+}
+
+/**
  * Resolve `candidate` one component at a time, dereferencing symlinks by hand.
  *
  * Why not walk up until `existsSync` is true and `realpathSync` that ancestor:
@@ -59,7 +86,9 @@ function resolveNoFollow(realRoot: string, candidate: string): string {
         throw new CrossweaveError('PATH_ESCAPE', `Too many symlinks resolving: ${candidate}`);
       }
       const target = readlinkSync(next);
-      next = isAbsolute(target) ? target : resolve(dirname(next), target);
+      next = canonicalExistingPrefix(
+        isAbsolute(target) ? target : resolve(dirname(next), target),
+      );
     }
     current = next;
   }
