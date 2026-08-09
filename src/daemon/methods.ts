@@ -28,6 +28,10 @@ export function buildMethods(
 
   return {
     ping: () => ({ ok: true }),
+    'daemon.shutdown': () => {
+      setTimeout(() => process.exit(0), 10);
+      return { ok: true };
+    },
 
     'workspace.init': (p) => workspaces.init(projectRoot, optionalStr(p, 'name')),
     'workspace.list': () => workspaces.list(),
