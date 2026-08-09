@@ -3655,6 +3655,25 @@ describe('cw CLI', () => {
     expect(r.stderr).toContain('SESSION_NOT_FOUND');
   }, 30_000);
 
+  it('refuses --rm-worktree without --yes, in the same CODE: format as every other error', async () => {
+    await cw(['init']);
+    await cw(['session', 'new', '--name', 'guarded', '--agent', 'claude']);
+    const r = await cw(['session', 'kill', 'guarded', '--rm-worktree']);
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toContain('CONFIRMATION_REQUIRED:');
+    // The session must still be alive — a refused command changes nothing.
+    expect((await cw(['session', 'list'])).stdout).toContain('guarded');
+  }, 60_000);
+
+  it('daemon stop reports success without starting a daemon when none is running', async () => {
+    const r = await cw(['daemon', 'stop']);
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain('no daemon running');
+    // And it must not have spawned one on the way out.
+    const { existsSync } = await import('node:fs');
+    expect(existsSync(join(fx.root, '.crossweave', 'daemon.sock'))).toBe(false);
+  }, 30_000);
+
   it('exits non-zero outside a git repository', async () => {
     const { mkdtemp, rm } = await import('node:fs/promises');
     const { tmpdir } = await import('node:os');
@@ -3788,6 +3807,7 @@ export const workspaceCommand = defineCommand({
 
 ```ts
 import { defineCommand } from 'citty';
+import { CrossweaveError } from '../../core/errors.js';
 import { withClient, fail, currentWorkspaceId } from '../context.js';
 
 interface Session {
@@ -3876,11 +3896,14 @@ export const sessionCommand = defineCommand({
       },
       async run({ args }) {
         try {
+          // Goes through fail() like every other error path. A guard that printed its
+          // own format would be the one place a script could not parse, and this is
+          // the destructive one.
           if (args['rm-worktree'] && !args.yes) {
-            process.stderr.write(
-              'Refusing to remove a worktree without confirmation. Re-run with --yes.\n',
+            throw new CrossweaveError(
+              'CONFIRMATION_REQUIRED',
+              'Refusing to remove a worktree without confirmation. Re-run with --yes.',
             );
-            process.exit(1);
           }
           await withClient(async (client) => {
             const workspaceId = await currentWorkspaceId(client);
@@ -3899,11 +3922,14 @@ export const sessionCommand = defineCommand({
 - [ ] **Step 6: Implement `src/cli/index.ts`**
 
 ```ts
-#!/usr/bin/env node
+#!/usr/bin/env bun
+import { join } from 'node:path';
 import { defineCommand, runMain } from 'citty';
+import { crossweaveDir, findProjectRoot } from '../core/paths.js';
+import { DaemonClient } from '../client/rpc-client.js';
 import { initCommand, workspaceCommand } from './commands/workspace.js';
 import { sessionCommand } from './commands/session.js';
-import { withClient, fail } from './context.js';
+import { fail } from './context.js';
 
 const daemonCommand = defineCommand({
   meta: { name: 'daemon', description: 'Manage the crossweave daemon' },
@@ -3912,10 +3938,23 @@ const daemonCommand = defineCommand({
       meta: { name: 'stop', description: 'Stop the daemon for this repository' },
       async run() {
         try {
-          await withClient(async (client) => {
-            await client.call('daemon.shutdown').catch(() => undefined);
-            process.stdout.write('daemon stopped\n');
-          });
+          // Deliberately connects rather than using withClient: connectOrStart would
+          // spawn a daemon just to shut it down. Nothing listening means the daemon is
+          // already stopped, which is the outcome asked for, so it exits 0.
+          const projectRoot = findProjectRoot(process.cwd());
+          const socketPath = join(crossweaveDir(projectRoot), 'daemon.sock');
+
+          let client: DaemonClient;
+          try {
+            client = await DaemonClient.connect(socketPath);
+          } catch {
+            process.stdout.write('no daemon running\n');
+            return;
+          }
+
+          await client.call('daemon.shutdown').catch(() => undefined);
+          client.close();
+          process.stdout.write('daemon stopped\n');
         } catch (err) { fail(err); }
       },
     }),
