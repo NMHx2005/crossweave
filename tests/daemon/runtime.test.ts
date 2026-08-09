@@ -223,39 +223,46 @@ describe('session runtime', () => {
   // Regression: stop returned as soon as SIGTERM was sent, so an agent that ignores
   // it was reported stopped while still alive — and kill then cleared the pid,
   // leaving a stranded process nothing could ever find again.
-  it('stop waits for an agent that ignores SIGTERM, escalating to SIGKILL', async () => {
-    const stubborn = (kind: string): AgentAdapter => {
-      if (kind !== 'claude') throw new CrossweaveError('UNKNOWN_AGENT', `Unsupported: ${kind}`);
-      return new ClaudePtyAdapter('sh', ['-c', 'trap "" TERM; while true; do sleep 0.05; done']);
-    };
-    const stubbornDaemon = createDaemon({
-      socketPath: join(fx.root, '.crossweave', 'stubborn.sock'),
-      methods: buildMethods(db, fx.root, stubborn),
+  //
+  // Tested directly against SessionRuntime with a short grace period, and it waits
+  // for the trap to be INSTALLED before signalling. An earlier version of this test
+  // signalled immediately and the agent died from the raw SIGTERM before its trap
+  // existed — so it passed in 0.14s without ever reaching the SIGKILL branch it
+  // claimed to cover. Asserting on elapsed time is what keeps it honest.
+  it('escalates to SIGKILL when the agent ignores SIGTERM', async () => {
+    const runtime = new SessionRuntime(() => undefined);
+    const row = await sessions.create({
+      workspaceId, name: 'stubborn', agent: 'claude', worktree: true,
     });
-    await stubbornDaemon.listen();
-    const c = await DaemonClient.connect(join(fx.root, '.crossweave', 'stubborn.sock'));
+    const pid = runtime.start(
+      row,
+      new ClaudePtyAdapter('sh', ['-c', 'trap "" TERM; echo TRAPPED; while true; do sleep 0.05; done']),
+    );
+
+    let out = '';
+    runtime.subscribe(row.id, row.name, {
+      notify: (_m, p) => { out += (p as { chunk?: string }).chunk ?? ''; },
+      onClose: () => undefined,
+    });
+    await waitFor(() => out.includes('TRAPPED'));
+
+    const startedAt = Date.now();
+    await runtime.stop(row.id, 200);
+    const elapsed = Date.now() - startedAt;
+
+    expect(runtime.isRunning(row.id)).toBe(false);
+    // Proof the escalation branch actually ran rather than the process dying on the
+    // first signal: it cannot have returned before the grace period elapsed.
+    expect(elapsed).toBeGreaterThanOrEqual(200);
+
+    let alive = true;
     try {
-      const ws = await c.call<{ id: string }>('workspace.init', {});
-      await c.call('session.new', { workspaceId: ws.id, name: 'stubborn', agent: 'claude', worktree: true });
-      const started = await c.call<{ pid: number }>('session.start', {
-        workspaceId: ws.id, idOrName: 'stubborn',
-      });
-
-      await c.call('session.stop', { workspaceId: ws.id, idOrName: 'stubborn' });
-
-      // stop() resolved, so the process must be gone — not merely signalled.
-      let alive = true;
-      try {
-        process.kill(started.pid, 0);
-      } catch {
-        alive = false;
-      }
-      expect(alive).toBe(false);
-    } finally {
-      c.close();
-      await stubbornDaemon.close();
+      process.kill(pid, 0);
+    } catch {
+      alive = false;
     }
-  }, 20_000);
+    expect(alive).toBe(false);
+  }, 15_000);
 
   it('resume starts a stopped session again', async () => {
     await client.call('session.new', { workspaceId, name: 'auth', agent: 'claude', worktree: true });
