@@ -2462,7 +2462,7 @@ git commit -m "feat(domain): add session manager with worktree lifecycle"
 - Test: `tests/daemon/rpc.test.ts`
 
 **Interfaces:**
-- Consumes: nothing
+- Consumes: nothing from this codebase. It does import `StringDecoder` from `node:string_decoder`, which Bun implements — that is a platform builtin, not a dependency, and it is load-bearing (see the decoder's comment).
 - Produces:
   - `interface RpcRequest { jsonrpc: '2.0'; id: number; method: string; params?: unknown }`
   - `interface RpcError { code: number; message: string; data?: unknown }`
@@ -2538,6 +2538,43 @@ describe('RPC_ERROR_CODES', () => {
     expect(RPC_ERROR_CODES.APPLICATION).toBe(-32000);
   });
 });
+
+describe('createFrameDecoder byte-level robustness', () => {
+  // Regression: decoding each chunk independently turns either half of a UTF-8
+  // character that straddles a chunk boundary into U+FFFD. The result is still
+  // valid JSON, so nothing throws and the payload is silently wrong.
+  it('never corrupts a multi-byte character split across chunks', () => {
+    const text = 'hello 😀 world 你好 こんにちは';
+    const frame = Buffer.from(
+      encodeFrame({ jsonrpc: '2.0', id: 1, method: 'x', params: { text } }),
+      'utf8',
+    );
+
+    // Every possible split point, not just one — the bug only shows at some offsets.
+    for (let i = 1; i < frame.length; i += 1) {
+      const seen: unknown[] = [];
+      const decode = createFrameDecoder((m) => seen.push(m));
+      decode(frame.subarray(0, i));
+      decode(frame.subarray(i));
+      expect(seen).toHaveLength(1);
+      expect((seen[0] as { params: { text: string } }).params.text).toBe(text);
+    }
+  });
+
+  it('discards an over-long line and resynchronises at the next newline', () => {
+    const seen: unknown[] = [];
+    const decode = createFrameDecoder((m) => seen.push(m));
+
+    decode('x'.repeat(17 * 1024 * 1024));
+    expect(seen).toHaveLength(0);
+
+    decode('tail-of-the-oversized-line\n');
+    expect(seen).toHaveLength(0);
+
+    decode(encodeFrame({ jsonrpc: '2.0', id: 9, method: 'after' }));
+    expect(seen.map((m) => (m as { id: number }).id)).toEqual([9]);
+  });
+});
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -2548,6 +2585,8 @@ Expected: FAIL — cannot resolve `../../src/daemon/rpc.js`.
 - [ ] **Step 3: Implement `src/daemon/rpc.ts`**
 
 ```ts
+import { StringDecoder } from 'node:string_decoder';
+
 export interface RpcRequest {
   jsonrpc: '2.0';
   id: number;
@@ -2580,17 +2619,37 @@ export function encodeFrame(msg: RpcRequest | RpcResponse): string {
   return `${JSON.stringify(msg)}\n`;
 }
 
+/**
+ * A line longer than this is corrupt or hostile. The daemon accepts connections, so
+ * a buffer that grows without limit is a memory-exhaustion vector. Set far above any
+ * legitimate frame — session scrollback and diffs are the largest payloads.
+ */
+const MAX_LINE_LENGTH = 16 * 1024 * 1024;
+
 export function createFrameDecoder(
   onMessage: (msg: unknown) => void,
 ): (chunk: Buffer | string) => void {
+  /**
+   * `StringDecoder` carries partial multi-byte state between calls. Calling
+   * `chunk.toString('utf8')` per chunk instead decodes each half of a UTF-8
+   * character split across a chunk boundary independently, baking U+FFFD into the
+   * payload: still valid JSON, silently wrong content, and no error to catch. Real
+   * sockets split anywhere, so this is reachable in normal operation.
+   */
+  const decoder = new StringDecoder('utf8');
   let buffer = '';
+  let discarding = false;
+
   return (chunk) => {
-    buffer += typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+    buffer += typeof chunk === 'string' ? chunk : decoder.write(chunk);
+
     let index = buffer.indexOf('\n');
     while (index !== -1) {
       const line = buffer.slice(0, index).trim();
       buffer = buffer.slice(index + 1);
-      if (line.length > 0) {
+      if (discarding) {
+        discarding = false; // This newline ends the over-long line we dropped.
+      } else if (line.length > 0) {
         try {
           onMessage(JSON.parse(line));
         } catch {
@@ -2598,6 +2657,11 @@ export function createFrameDecoder(
         }
       }
       index = buffer.indexOf('\n');
+    }
+
+    if (buffer.length > MAX_LINE_LENGTH) {
+      buffer = '';
+      discarding = true;
     }
   };
 }
