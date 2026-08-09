@@ -3,8 +3,10 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Database } from 'bun:sqlite';
 import { openDatabase } from '../../src/db/open.js';
+import { SessionRepo } from '../../src/db/repositories/session.js';
 import { WorkspaceManager } from '../../src/domain/workspace.js';
 import { SessionManager } from '../../src/domain/session.js';
+import { listWorktreePaths } from '../../src/isolation/worktree.js';
 import { makeGitFixture, type GitFixture } from '../helpers/git-fixture.js';
 
 let fx: GitFixture;
@@ -87,6 +89,41 @@ describe('SessionManager.resolve and rename', () => {
     expect(() => sessions.rename(workspaceId, 'c', 'a')).toThrowError(
       expect.objectContaining({ code: 'SESSION_NAME_TAKEN' }) as unknown as Error,
     );
+  });
+
+  it('lets a session keep the name it already has', async () => {
+    await sessions.create({ workspaceId, name: 'same', agent: 'claude', worktree: true });
+    expect(sessions.rename(workspaceId, 'same', 'same').name).toBe('same');
+  });
+});
+
+describe('SessionManager.create unwinds a half-created session', () => {
+  // The row is the only thing that makes a worktree reachable. Without unwinding, a
+  // failed insert strands a full checkout on disk AND leaves the branch, so the same
+  // session name can never be created again.
+  it('removes the worktree and the branch when the row insert fails', async () => {
+    const { simpleGit } = await import('simple-git');
+    const original = SessionRepo.prototype.insert;
+    SessionRepo.prototype.insert = (): void => {
+      throw new Error('simulated insert failure');
+    };
+    try {
+      await expect(
+        sessions.create({ workspaceId, name: 'doomed', agent: 'claude', worktree: true }),
+      ).rejects.toThrow('simulated insert failure');
+    } finally {
+      SessionRepo.prototype.insert = original;
+    }
+
+    expect(sessions.list(workspaceId)).toHaveLength(0);
+    expect(await listWorktreePaths(fx.root)).toHaveLength(0);
+    expect((await simpleGit(fx.root).branch()).all).not.toContain('cw/doomed');
+
+    // The real damage was that the name became permanently unusable. Prove it is not.
+    const retry = await sessions.create({
+      workspaceId, name: 'doomed', agent: 'claude', worktree: true,
+    });
+    expect(retry.branch).toBe('cw/doomed');
   });
 });
 

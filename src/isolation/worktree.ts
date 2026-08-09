@@ -64,6 +64,17 @@ export async function removeWorktree(projectRoot: string, worktreePath: string):
   }
 }
 
+export async function deleteBranch(projectRoot: string, branch: string): Promise<void> {
+  try {
+    await simpleGit(projectRoot).raw(['branch', '-D', branch]);
+  } catch (cause) {
+    throw new CrossweaveError(
+      'BRANCH_DELETE_FAILED',
+      `git branch -D failed for ${branch}: ${(cause as Error).message}`,
+    );
+  }
+}
+
 export async function listWorktreePaths(projectRoot: string): Promise<string[]> {
   // `git worktree list` always prints CANONICAL paths, but callers may hand us a
   // non-canonical root — on macOS `/var` is a symlink to `/private/var`, and any
