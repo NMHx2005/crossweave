@@ -82,8 +82,7 @@ starts at Task 1 instead of re-deriving all of it.
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "bun test",
-    "build": "bun build ./src/cli/index.ts --compile --outfile dist/cw",
-    "build:daemon": "bun build ./src/daemon/main.ts --compile --outfile dist/cwd"
+    "build": "bun run scripts/build.ts"
   },
   "dependencies": {
     "citty": "^0.2.2",
@@ -5226,7 +5225,11 @@ describe('compiled binaries', () => {
       expect(await new Response(list.stdout).text()).toContain('no sessions');
       expect(await list.exited).toBe(0);
 
-      Bun.spawn([cwBin, 'daemon', 'stop'], { cwd: fx.root, stdout: 'ignore', stderr: 'ignore' });
+      // Awaited, not fire-and-forget: racing fx.cleanup() left a detached `cwd`
+      // process alive on every run of this test.
+      await Bun.spawn([cwBin, 'daemon', 'stop'], {
+        cwd: fx.root, stdout: 'ignore', stderr: 'ignore',
+      }).exited;
     } finally {
       await fx.cleanup();
     }
@@ -5246,6 +5249,9 @@ import pkg from '../../package.json' with { type: 'json' };
 
 export const VERSION: string = pkg.version;
 ```
+
+Imported from `src/cli/index.ts` as `../core/version.js` — `src/core` is a sibling of
+`src/cli`, not a child.
 
 - [ ] **Step 4: Implement `scripts/build.ts`**
 
