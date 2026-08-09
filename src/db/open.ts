@@ -7,7 +7,7 @@ import { MIGRATIONS, SCHEMA_VERSION } from './schema.js';
 export { SCHEMA_VERSION };
 
 export function openDatabase(dbPath: string): Database {
-  mkdirSync(dirname(dbPath), { recursive: true });
+  mkdirSync(dirname(dbPath), { recursive: true, mode: 0o700 });
   const db = new Database(dbPath, { create: true });
   db.run('PRAGMA journal_mode = WAL');
   db.run('PRAGMA foreign_keys = ON');

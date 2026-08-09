@@ -98,6 +98,31 @@ describe('daemon server', () => {
     expect(await rpc('ping')).toEqual({ ok: true });
   });
 
+  // Regression: unlinking unconditionally let a second daemon silently steal the
+  // socket from a live one. The first kept running, holding agent ptys, while every
+  // client reached the second — and neither process was told.
+  it('refuses to steal the socket from a daemon that is still live', async () => {
+    const second = createDaemon({ socketPath, methods: buildMethods(db, fx.root) });
+    await expect(second.listen()).rejects.toMatchObject({ code: 'DAEMON_ALREADY_RUNNING' });
+    // The original is untouched and still serving.
+    expect(await rpc('ping')).toEqual({ ok: true });
+    await second.close();
+  });
+
+  it('creates the state directory owner-only from openDatabase alone', async () => {
+    const { mkdtemp, rm } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const { statSync } = await import('node:fs');
+    const dir = await mkdtemp(join(tmpdir(), 'cw-mode-'));
+    try {
+      const fresh = openDatabase(join(dir, '.crossweave', 'state.db'));
+      expect(statSync(join(dir, '.crossweave')).mode & 0o777).toBe(0o700);
+      fresh.close();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it('unlinks the socket on close', async () => {
     await daemon.close();
     expect(existsSync(socketPath)).toBe(false);

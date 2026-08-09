@@ -1,4 +1,4 @@
-import { createServer, type Server, type Socket } from 'node:net';
+import { connect, createServer, type Server, type Socket } from 'node:net';
 import { chmodSync, existsSync, mkdirSync, unlinkSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { CrossweaveError } from '../core/errors.js';
@@ -14,6 +14,24 @@ export type MethodHandler = (params: Record<string, unknown>) => Promise<unknown
 export interface Daemon {
   listen(): Promise<void>;
   close(): Promise<void>;
+}
+
+/**
+ * True when a daemon is still bound to this socket path. A leftover socket FILE and
+ * a live listener are indistinguishable on disk, so the only reliable test is to try
+ * to connect: a crashed daemon's file refuses with ECONNREFUSED.
+ */
+function isSocketLive(socketPath: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const probe = connect(socketPath);
+    const settle = (live: boolean): void => {
+      probe.removeAllListeners();
+      probe.destroy();
+      resolve(live);
+    };
+    probe.once('connect', () => settle(true));
+    probe.once('error', () => settle(false));
+  });
 }
 
 export function createDaemon(opts: {
@@ -71,17 +89,27 @@ export function createDaemon(opts: {
   }
 
   return {
-    listen(): Promise<void> {
+    async listen(): Promise<void> {
       // 0o700: the daemon spawns processes and writes files on the user's behalf,
       // so nothing outside this account may reach its directory or its socket.
-      // `mkdirSync`'s `mode` is a no-op when the directory already exists (e.g. created
-      // earlier by `openDatabase` without a restrictive mode) and is itself subject to
-      // umask, so chmod explicitly rather than trust either path.
-      const stateDir = dirname(opts.socketPath);
-      mkdirSync(stateDir, { recursive: true, mode: 0o700 });
-      chmodSync(stateDir, 0o700);
-      // A socket file left by a crashed daemon would block bind.
-      if (existsSync(opts.socketPath)) unlinkSync(opts.socketPath);
+      // The chmod is not redundant — `mode` on mkdirSync applies only at creation,
+      // and openDatabase has usually made this directory already.
+      mkdirSync(dirname(opts.socketPath), { recursive: true, mode: 0o700 });
+      chmodSync(dirname(opts.socketPath), 0o700);
+
+      if (existsSync(opts.socketPath)) {
+        // Only a socket left by a CRASHED daemon may be removed. Unlinking one a live
+        // daemon is still bound to steals its clients while it keeps running with live
+        // agent ptys — every session it owns becomes unreachable and neither process
+        // is told. Task 11 auto-starts daemons, so this race is reachable.
+        if (await isSocketLive(opts.socketPath)) {
+          throw new CrossweaveError(
+            'DAEMON_ALREADY_RUNNING',
+            `Another crossweave daemon is already listening at ${opts.socketPath}`,
+          );
+        }
+        unlinkSync(opts.socketPath);
+      }
 
       const instance = createServer((sock) => {
         sockets.add(sock);
