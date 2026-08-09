@@ -60,3 +60,40 @@ describe('RPC_ERROR_CODES', () => {
     expect(RPC_ERROR_CODES.APPLICATION).toBe(-32000);
   });
 });
+
+describe('createFrameDecoder byte-level robustness', () => {
+  // Regression: decoding each chunk independently turns either half of a UTF-8
+  // character that straddles a chunk boundary into U+FFFD. The result is still
+  // valid JSON, so nothing throws and the payload is silently wrong.
+  it('never corrupts a multi-byte character split across chunks', () => {
+    const text = 'hello 😀 world 你好 こんにちは';
+    const frame = Buffer.from(
+      encodeFrame({ jsonrpc: '2.0', id: 1, method: 'x', params: { text } }),
+      'utf8',
+    );
+
+    // Every possible split point, not just one — the bug only shows at some offsets.
+    for (let i = 1; i < frame.length; i += 1) {
+      const seen: unknown[] = [];
+      const decode = createFrameDecoder((m) => seen.push(m));
+      decode(frame.subarray(0, i));
+      decode(frame.subarray(i));
+      expect(seen).toHaveLength(1);
+      expect((seen[0] as { params: { text: string } }).params.text).toBe(text);
+    }
+  });
+
+  it('discards an over-long line and resynchronises at the next newline', () => {
+    const seen: unknown[] = [];
+    const decode = createFrameDecoder((m) => seen.push(m));
+
+    decode('x'.repeat(17 * 1024 * 1024));
+    expect(seen).toHaveLength(0);
+
+    decode('tail-of-the-oversized-line\n');
+    expect(seen).toHaveLength(0);
+
+    decode(encodeFrame({ jsonrpc: '2.0', id: 9, method: 'after' }));
+    expect(seen.map((m) => (m as { id: number }).id)).toEqual([9]);
+  });
+});

@@ -1,3 +1,5 @@
+import { StringDecoder } from 'node:string_decoder';
+
 export interface RpcRequest {
   jsonrpc: '2.0';
   id: number;
@@ -30,17 +32,37 @@ export function encodeFrame(msg: RpcRequest | RpcResponse): string {
   return `${JSON.stringify(msg)}\n`;
 }
 
+/**
+ * A line longer than this is corrupt or hostile. The daemon accepts connections, so
+ * a buffer that grows without limit is a memory-exhaustion vector. Set far above any
+ * legitimate frame — session scrollback and diffs are the largest payloads.
+ */
+const MAX_LINE_LENGTH = 16 * 1024 * 1024;
+
 export function createFrameDecoder(
   onMessage: (msg: unknown) => void,
 ): (chunk: Buffer | string) => void {
+  /**
+   * `StringDecoder` carries partial multi-byte state between calls. Calling
+   * `chunk.toString('utf8')` per chunk instead decodes each half of a UTF-8
+   * character split across a chunk boundary independently, baking U+FFFD into the
+   * payload: still valid JSON, silently wrong content, and no error to catch. Real
+   * sockets split anywhere, so this is reachable in normal operation.
+   */
+  const decoder = new StringDecoder('utf8');
   let buffer = '';
+  let discarding = false;
+
   return (chunk) => {
-    buffer += typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+    buffer += typeof chunk === 'string' ? chunk : decoder.write(chunk);
+
     let index = buffer.indexOf('\n');
     while (index !== -1) {
       const line = buffer.slice(0, index).trim();
       buffer = buffer.slice(index + 1);
-      if (line.length > 0) {
+      if (discarding) {
+        discarding = false; // This newline ends the over-long line we dropped.
+      } else if (line.length > 0) {
         try {
           onMessage(JSON.parse(line));
         } catch {
@@ -48,6 +70,11 @@ export function createFrameDecoder(
         }
       }
       index = buffer.indexOf('\n');
+    }
+
+    if (buffer.length > MAX_LINE_LENGTH) {
+      buffer = '';
+      discarding = true;
     }
   };
 }
