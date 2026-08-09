@@ -3408,6 +3408,41 @@ describe('DaemonClient', () => {
   // the constructor only registered 'data' and 'close'. Node THROWS an 'error' event
   // with no listener, so a daemon dying mid-session killed the CLI with an uncaught
   // exception instead of rejecting the call.
+  // Regression: onClose only pushed onto the handler list. `cw session attach`
+  // registers it after two awaited RPCs, so a daemon dying in that window left the
+  // CLI hung in raw mode — the very symptom onClose exists to prevent.
+  it('onClose fires immediately when registered after the connection is already gone', async () => {
+    daemon = createDaemon({ socketPath, methods: buildMethods(db, fx.root) });
+    await daemon.listen();
+    const client = await DaemonClient.connect(socketPath);
+    await daemon.close();
+    daemon = undefined;
+    while (client.isConnected) await new Promise((r) => setTimeout(r, 5));
+
+    let fired = false;
+    client.onClose(() => { fired = true; });
+    expect(fired).toBe(true);
+    client.close();
+  });
+
+  it('one throwing close handler does not starve the others', async () => {
+    daemon = createDaemon({ socketPath, methods: buildMethods(db, fx.root) });
+    await daemon.listen();
+    const client = await DaemonClient.connect(socketPath);
+
+    const seen: string[] = [];
+    client.onClose(() => { seen.push('first'); });
+    client.onClose(() => { throw new Error('bad close handler'); });
+    client.onClose(() => { seen.push('third'); });
+
+    await daemon.close();
+    daemon = undefined;
+    while (client.isConnected) await new Promise((r) => setTimeout(r, 5));
+
+    expect(seen).toEqual(['first', 'third']);
+    client.close();
+  });
+
   it('rejects with DAEMON_GONE instead of crashing or hanging when the daemon goes away', async () => {
     daemon = createDaemon({ socketPath, methods: buildMethods(db, fx.root) });
     await daemon.listen();
@@ -4201,24 +4236,49 @@ describe('SessionRuntime subscriber isolation', () => {
     return { notify: (m) => onNotify(m), onClose: () => undefined };
   }
 
-  it('keeps delivering to other subscribers when one throws, and still cleans up', async () => {
+  // The data and exit fan-outs are tested SEPARATELY and each asserts on its own
+  // notification kind. A combined test masks a regression: whichever loop is still
+  // isolated keeps delivering, and the adapter's own fanOut swallows the throw, so
+  // reverting either call site alone left the test green.
+  it('a throwing DATA subscriber does not starve later data subscribers', async () => {
+    const runtime = new SessionRuntime(() => undefined);
+    const row = await sessions.create({
+      workspaceId, name: 'isodata', agent: 'claude', worktree: true,
+    });
+    const seen: string[] = [];
+    runtime.start(row, new ClaudePtyAdapter('sh', ['-c', 'echo hi; sleep 2']));
+
+    const onData = (tag: string) => (m: string): void => { if (m === 'session.data') seen.push(tag); };
+    runtime.subscribe(row.id, row.name, fakeContext(onData('first')));
+    runtime.subscribe(row.id, row.name, fakeContext((m) => {
+      if (m === 'session.data') throw new Error('bad data subscriber');
+    }));
+    runtime.subscribe(row.id, row.name, fakeContext(onData('third')));
+
+    await waitFor(() => seen.includes('third'));
+    expect(seen).toContain('first');
+    await runtime.stop(row.id, 200);
+  }, 15_000);
+
+  it('a throwing EXIT subscriber does not starve the others, nor block cleanup', async () => {
     const exits: string[] = [];
     const runtime = new SessionRuntime((id) => exits.push(id));
     const row = await sessions.create({
-      workspaceId, name: 'iso', agent: 'claude', worktree: true,
+      workspaceId, name: 'isoexit', agent: 'claude', worktree: true,
     });
-
     const seen: string[] = [];
-    runtime.start(row, new ClaudePtyAdapter('sh', ['-c', 'echo hi; exit 0']));
-    runtime.subscribe(row.id, row.name, fakeContext(() => seen.push('first')));
-    runtime.subscribe(row.id, row.name, fakeContext(() => { throw new Error('bad'); }));
-    runtime.subscribe(row.id, row.name, fakeContext(() => seen.push('third')));
+    runtime.start(row, new ClaudePtyAdapter('sh', ['-c', 'exit 0']));
+
+    const onExit = (tag: string) => (m: string): void => { if (m === 'session.exit') seen.push(tag); };
+    runtime.subscribe(row.id, row.name, fakeContext(onExit('first')));
+    runtime.subscribe(row.id, row.name, fakeContext((m) => {
+      if (m === 'session.exit') throw new Error('bad exit subscriber');
+    }));
+    runtime.subscribe(row.id, row.name, fakeContext(onExit('third')));
 
     await waitFor(() => exits.includes(row.id));
-
-    expect(seen).toContain('first');
-    expect(seen).toContain('third');
-    // The bookkeeping must have run despite the throw.
+    expect(seen).toEqual(['first', 'third']);
+    // Bookkeeping runs before notification, so a throw cannot wedge the session.
     expect(runtime.isRunning(row.id)).toBe(false);
   }, 15_000);
 });
@@ -4272,6 +4332,47 @@ describe('session runtime', () => {
     await expect(client.call('session.start', { workspaceId, idOrName: 'auth' })).rejects.toMatchObject(
       { code: 'SESSION_ALREADY_RUNNING' },
     );
+  });
+
+  // Regression: the scrollback replay is written DURING the session.attach call, so a
+  // client that registers its handler afterwards silently receives nothing. That is
+  // exactly how `cw session attach` came to show a blank screen on re-attach.
+  it('delivers scrollback during the attach call, so handlers must be registered first', async () => {
+    await client.call('session.new', { workspaceId, name: 'order', agent: 'claude', worktree: true });
+    await client.call('session.start', { workspaceId, idOrName: 'order' });
+    await client.call('session.attach', { workspaceId, idOrName: 'order' });
+    await client.call('session.input', { workspaceId, idOrName: 'order', data: 'MARKER\n' });
+    await new Promise((r) => setTimeout(r, 300));
+
+    const late = await DaemonClient.connect(socketPath);
+    let lateSeen = '';
+    await late.call('session.attach', { workspaceId, idOrName: 'order' });
+    late.onNotification((m, p) => {
+      if (m === 'session.data') lateSeen += (p as { chunk: string }).chunk;
+    });
+    await new Promise((r) => setTimeout(r, 300));
+    expect(lateSeen).not.toContain('echo:MARKER');
+    late.close();
+
+    const early = await DaemonClient.connect(socketPath);
+    let earlySeen = '';
+    early.onNotification((m, p) => {
+      if (m === 'session.data') earlySeen += (p as { chunk: string }).chunk;
+    });
+    await early.call('session.attach', { workspaceId, idOrName: 'order' });
+    await waitFor(() => earlySeen.includes('echo:MARKER'));
+    early.close();
+  }, 20_000);
+
+  it('reports malformed params as a client error, not an internal one', async () => {
+    await expect(client.call('session.list', {})).rejects.toMatchObject({
+      code: 'INVALID_PARAMS',
+    });
+    await client.call('session.new', { workspaceId, name: 'params', agent: 'claude', worktree: true });
+    await client.call('session.start', { workspaceId, idOrName: 'params' });
+    await expect(
+      client.call('session.resize', { workspaceId, idOrName: 'params', rows: 24 }),
+    ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
   });
 
   it('refuses to attach to a session that is not running', async () => {
@@ -4885,6 +4986,22 @@ export const attachCommand = defineCommand({
         const workspaceId = await currentWorkspaceId(client);
         const target = { workspaceId, idOrName: args.target };
 
+        // Registered BEFORE session.attach, and this ordering is load-bearing: the
+        // server replays the scrollback DURING that RPC, from runtime.subscribe. A
+        // handler registered afterwards misses it entirely and re-attaching to a live
+        // session shows a blank screen.
+        let sessionExited = false;
+        let onSessionExit: (() => void) | undefined;
+        client.onNotification((method, params) => {
+          if (method === 'session.data') {
+            process.stdout.write((params as { chunk: string }).chunk);
+          } else if (method === 'session.exit') {
+            sessionExited = true;
+            process.stdout.write('\n[session exited]\n');
+            onSessionExit?.();
+          }
+        });
+
         if (args.start) await client.call('session.resume', target);
         // Subscribe exactly ONCE and await it. This used to run a second time inside
         // the promise with its failure swallowed, which both replayed the scrollback
@@ -4922,20 +5039,22 @@ export const attachCommand = defineCommand({
             resolve();
           }
 
-          client.onNotification((method, params) => {
-            if (method === 'session.data') {
-              process.stdout.write((params as { chunk: string }).chunk);
-            } else if (method === 'session.exit') {
-              process.stdout.write('\n[session exited]\n');
-              finish();
-            }
-          });
+          onSessionExit = finish;
+          // The session can exit during the attach RPC above, before this promise
+          // exists. Without this the notification would have nothing to call and the
+          // CLI would wait forever for an event that already happened.
+          if (sessionExited) {
+            finish();
+            return;
+          }
 
           // Without this, finish() was reachable only from session.exit or Ctrl-] —
           // neither of which can fire once the socket is gone — so a daemon that died
           // left the CLI hung with the terminal in raw mode.
           client.onClose(() => {
-            process.stdout.write('\n[daemon connection lost]\n');
+            // `withClient` closes the client in its finally, which reaches here on
+            // every ordinary exit too. Only an unexpected loss is worth reporting.
+            if (!done) process.stdout.write('\n[daemon connection lost]\n');
             finish();
           });
 
