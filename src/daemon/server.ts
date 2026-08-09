@@ -34,6 +34,23 @@ function isSocketLive(socketPath: string): Promise<boolean> {
   });
 }
 
+/** One bind attempt, as a promise that rejects with the raw errno error. */
+function bindOnce(instance: Server, socketPath: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const onError = (err: Error): void => {
+      instance.removeListener('listening', onListening);
+      reject(err);
+    };
+    const onListening = (): void => {
+      instance.removeListener('error', onError);
+      resolve();
+    };
+    instance.once('error', onError);
+    instance.once('listening', onListening);
+    instance.listen(socketPath);
+  });
+}
+
 export function createDaemon(opts: {
   socketPath: string;
   methods: Record<string, MethodHandler>;
@@ -97,20 +114,6 @@ export function createDaemon(opts: {
       mkdirSync(dirname(opts.socketPath), { recursive: true, mode: 0o700 });
       chmodSync(dirname(opts.socketPath), 0o700);
 
-      if (existsSync(opts.socketPath)) {
-        // Only a socket left by a CRASHED daemon may be removed. Unlinking one a live
-        // daemon is still bound to steals its clients while it keeps running with live
-        // agent ptys — every session it owns becomes unreachable and neither process
-        // is told. Task 11 auto-starts daemons, so this race is reachable.
-        if (await isSocketLive(opts.socketPath)) {
-          throw new CrossweaveError(
-            'DAEMON_ALREADY_RUNNING',
-            `Another crossweave daemon is already listening at ${opts.socketPath}`,
-          );
-        }
-        unlinkSync(opts.socketPath);
-      }
-
       const instance = createServer((sock) => {
         sockets.add(sock);
         sock.on('data', createFrameDecoder((msg) => void handle(sock, msg)));
@@ -119,16 +122,47 @@ export function createDaemon(opts: {
       });
       server = instance;
 
-      return new Promise((resolve, reject) => {
-        instance.once('error', reject);
-        instance.listen(opts.socketPath, () => {
-          // Unix socket permissions follow umask by default, which on many systems
-          // leaves the socket group- and world-readable. Anyone able to connect can
-          // drive the daemon, so tighten it explicitly rather than trusting umask.
-          chmodSync(opts.socketPath, 0o600);
-          resolve();
-        });
-      });
+      // Bind FIRST and recover, rather than checking the path and then acting on it.
+      // `bind()` is atomic in the kernel, so it — not us — decides who owns the
+      // socket. Checking `isSocketLive` before unlinking left a window where two
+      // starting daemons could each conclude "it's dead" and both unlink and bind,
+      // which is the same silent-steal outcome in a narrower form. `listen` reports
+      // EADDRINUSE identically for a live socket, a stale socket, and a plain file,
+      // so there is no cheaper signal being given up here.
+      try {
+        await bindOnce(instance, opts.socketPath);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw err;
+
+        // Something holds the path. Only crash debris may be cleared: if a daemon
+        // answers, it owns the socket and taking it would orphan its live sessions.
+        if (await isSocketLive(opts.socketPath)) {
+          throw new CrossweaveError(
+            'DAEMON_ALREADY_RUNNING',
+            `Another crossweave daemon is already listening at ${opts.socketPath}`,
+          );
+        }
+
+        unlinkSync(opts.socketPath);
+        try {
+          await bindOnce(instance, opts.socketPath);
+        } catch (retry) {
+          if ((retry as NodeJS.ErrnoException).code === 'EADDRINUSE') {
+            // Another starter won between our unlink and our retry. Losing this way
+            // is safe and retryable — it never steals a socket.
+            throw new CrossweaveError(
+              'DAEMON_ALREADY_RUNNING',
+              `Another crossweave daemon took ${opts.socketPath} first`,
+            );
+          }
+          throw retry;
+        }
+      }
+
+      // Unix socket permissions follow umask by default, which on many systems
+      // leaves the socket group- and world-readable. Anyone able to connect can
+      // drive the daemon, so tighten it explicitly rather than trusting umask.
+      chmodSync(opts.socketPath, 0o600);
     },
 
     close(): Promise<void> {
