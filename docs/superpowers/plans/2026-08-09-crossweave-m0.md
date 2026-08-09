@@ -545,6 +545,42 @@ describe('openDatabase', () => {
   });
 });
 
+describe('openDatabase under concurrency', () => {
+  // Regression: two daemons cold-starting at once both died with SQLITE_BUSY before
+  // either reached its socket bind, so the auto-start race ended with no winner and
+  // both clients timed out. Reproduced at roughly 1 in 10 attempts before the fix.
+  // Real processes, not in-process calls — SQLite's locking is per-connection and a
+  // single-process test would not exercise it.
+  it('survives several processes opening the same fresh database at once', async () => {
+    const { fileURLToPath } = await import('node:url');
+    const raceDir = await mkdtemp(join(tmpdir(), 'cw-race-'));
+    try {
+      const dbPath = join(raceDir, '.crossweave', 'state.db');
+      const openModule = fileURLToPath(new URL('../../src/db/open.ts', import.meta.url));
+      const script =
+        `const { openDatabase } = await import(${JSON.stringify(openModule)});` +
+        `openDatabase(${JSON.stringify(dbPath)}).close();`;
+
+      const procs = Array.from({ length: 6 }, () =>
+        Bun.spawn(['bun', '-e', script], { stdout: 'pipe', stderr: 'pipe' }),
+      );
+      const results = await Promise.all(
+        procs.map(async (p) => ({
+          code: await p.exited,
+          err: await new Response(p.stderr).text(),
+        })),
+      );
+
+      const failed = results.filter((r) => r.code !== 0);
+      // Surface the real stderr in the failure message rather than a bare count.
+      expect(failed.map((f) => f.err).join('\n---\n')).toBe('');
+      expect(failed).toHaveLength(0);
+    } finally {
+      await rm(raceDir, { recursive: true, force: true });
+    }
+  }, 30_000);
+});
+
 describe('newId', () => {
   it('prefixes the id and stays unique across a tight loop', () => {
     const ids = new Set(Array.from({ length: 1000 }, () => newId('s')));
@@ -668,37 +704,70 @@ export function openDatabase(dbPath: string): Database {
   // the database without starting a daemon (the CLI does) must not leave it open.
   mkdirSync(dirname(dbPath), { recursive: true, mode: 0o700 });
   const db = new Database(dbPath, { create: true });
+
+  // Several processes open this file at once — the daemon starting up, and any CLI
+  // invocation racing it. Without busy_timeout SQLite fails a contended lock
+  // INSTANTLY with SQLITE_BUSY rather than waiting, and switching to WAL needs an
+  // exclusive lock. Two cold starts could therefore both die here, before either one
+  // reached its socket bind, leaving the auto-start race with no winner at all.
+  db.run('PRAGMA busy_timeout = 5000');
   db.run('PRAGMA journal_mode = WAL');
   db.run('PRAGMA foreign_keys = ON');
 
+  migrate(db);
+  return db;
+}
+
+function readVersion(db: Database): number {
   const hasMeta = db
     .query("SELECT count(*) AS n FROM sqlite_master WHERE type='table' AND name='schema_meta'")
     .get() as { n: number } | null;
+  if (hasMeta === null || hasMeta.n === 0) return 0;
+  const row = db.query('SELECT version FROM schema_meta').get() as { version: number } | null;
+  return row?.version ?? 0;
+}
 
-  let current = 0;
-  if (hasMeta !== null && hasMeta.n > 0) {
-    const row = db.query('SELECT version FROM schema_meta').get() as { version: number } | null;
-    current = row?.version ?? 0;
-  }
+/**
+ * Migrate inside BEGIN IMMEDIATE, reading the current version INSIDE that
+ * transaction.
+ *
+ * busy_timeout alone is not enough. Reading the version first and then migrating is
+ * a check-then-act: two processes can both observe version 0 and both replay
+ * migration 0, and the loser dies on "table schema_meta already exists" rather than
+ * on a lock. BEGIN IMMEDIATE takes the write lock up front, so the second process
+ * waits, then re-reads a version that is already current and does nothing.
+ */
+function migrate(db: Database): void {
+  try {
+    db.run('BEGIN IMMEDIATE');
+    const current = readVersion(db);
 
-  if (current > SCHEMA_VERSION) {
+    if (current > SCHEMA_VERSION) {
+      throw new CrossweaveError(
+        'SCHEMA_TOO_NEW',
+        `Database schema v${current} is newer than this build (v${SCHEMA_VERSION}). Upgrade crossweave.`,
+      );
+    }
+
+    for (const migration of MIGRATIONS.slice(current, SCHEMA_VERSION)) {
+      for (const statement of migration) db.run(statement);
+    }
+
+    if (current < SCHEMA_VERSION) {
+      db.run('DELETE FROM schema_meta');
+      db.query('INSERT INTO schema_meta (version) VALUES (?)').run(SCHEMA_VERSION);
+    }
+
+    db.run('COMMIT');
+  } catch (cause) {
+    try {
+      db.run('ROLLBACK');
+    } catch {
+      // BEGIN itself may have failed, leaving nothing to roll back.
+    }
     db.close();
-    throw new CrossweaveError(
-      'SCHEMA_TOO_NEW',
-      `Database schema v${current} is newer than this build (v${SCHEMA_VERSION}). Upgrade crossweave.`,
-    );
+    throw cause;
   }
-
-  for (const migration of MIGRATIONS.slice(current, SCHEMA_VERSION)) {
-    for (const statement of migration) db.run(statement);
-  }
-
-  if (current < SCHEMA_VERSION) {
-    db.run('DELETE FROM schema_meta');
-    db.query('INSERT INTO schema_meta (version) VALUES (?)').run(SCHEMA_VERSION);
-  }
-
-  return db;
 }
 ```
 
