@@ -15,6 +15,11 @@ export class DaemonClient {
   private nextId = 1;
   private gone = false;
   private readonly pending = new Map<number, Pending>();
+  private readonly notificationHandlers: Array<(method: string, params: unknown) => void> = [];
+
+  onNotification(cb: (method: string, params: unknown) => void): void {
+    this.notificationHandlers.push(cb);
+  }
 
   private constructor(private readonly socket: Socket) {
     socket.on(
@@ -22,10 +27,17 @@ export class DaemonClient {
       createFrameDecoder((msg) => {
         const r = msg as {
           id?: number;
+          method?: string;
+          params?: unknown;
           result?: unknown;
           error?: { message: string; data?: { code?: string } };
         };
-        if (typeof r.id !== 'number') return;
+        if (typeof r.id !== 'number') {
+          if (typeof r.method === 'string') {
+            for (const h of this.notificationHandlers) h(r.method, r.params);
+          }
+          return;
+        }
         const p = this.pending.get(r.id);
         if (!p) return;
         this.pending.delete(r.id);

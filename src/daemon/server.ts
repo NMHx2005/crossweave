@@ -9,7 +9,15 @@ import {
   type RpcResponse,
 } from './rpc.js';
 
-export type MethodHandler = (params: Record<string, unknown>) => Promise<unknown> | unknown;
+export interface MethodContext {
+  notify(method: string, params: unknown): void;
+  onClose(cb: () => void): void;
+}
+
+export type MethodHandler = (
+  params: Record<string, unknown>,
+  ctx: MethodContext,
+) => Promise<unknown> | unknown;
 
 export interface Daemon {
   listen(): Promise<void>;
@@ -62,7 +70,7 @@ export function createDaemon(opts: {
     if (!sock.destroyed) sock.write(encodeFrame(res));
   }
 
-  async function handle(sock: Socket, msg: unknown): Promise<void> {
+  async function handle(sock: Socket, msg: unknown, ctx: MethodContext): Promise<void> {
     const req = msg as { id?: number; method?: string; params?: Record<string, unknown> };
     const id = typeof req.id === 'number' ? req.id : 0;
 
@@ -84,7 +92,7 @@ export function createDaemon(opts: {
     }
 
     try {
-      const result = await handler(req.params ?? {});
+      const result = await handler(req.params ?? {}, ctx);
       respond(sock, { jsonrpc: '2.0', id, result });
     } catch (err) {
       if (err instanceof CrossweaveError) {
@@ -116,9 +124,25 @@ export function createDaemon(opts: {
 
       const instance = createServer((sock) => {
         sockets.add(sock);
-        sock.on('data', createFrameDecoder((msg) => void handle(sock, msg)));
-        sock.on('close', () => sockets.delete(sock));
-        sock.on('error', () => sockets.delete(sock));
+        const closeCallbacks: Array<() => void> = [];
+        const ctx: MethodContext = {
+          notify(method, params) {
+            if (!sock.destroyed) {
+              sock.write(`${JSON.stringify({ jsonrpc: '2.0', method, params })}\n`);
+            }
+          },
+          onClose(cb) {
+            closeCallbacks.push(cb);
+          },
+        };
+        const cleanup = (): void => {
+          sockets.delete(sock);
+          for (const cb of closeCallbacks) cb();
+          closeCallbacks.length = 0;
+        };
+        sock.on('data', createFrameDecoder((msg) => void handle(sock, msg, ctx)));
+        sock.on('close', cleanup);
+        sock.on('error', cleanup);
       });
       server = instance;
 

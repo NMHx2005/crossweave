@@ -99,6 +99,13 @@ describe('cw CLI', () => {
     expect(existsSync(join(fx.root, '.crossweave', 'daemon.sock'))).toBe(false);
   }, 30_000);
 
+  it('attach reports a clear error for an unknown session', async () => {
+    await cw(['init']);
+    const r = await cw(['session', 'attach', 'ghost']);
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toContain('SESSION_NOT_FOUND');
+  }, 30_000);
+
   it('exits non-zero outside a git repository', async () => {
     const { mkdtemp, rm } = await import('node:fs/promises');
     const { tmpdir } = await import('node:os');

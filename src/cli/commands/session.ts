@@ -1,6 +1,7 @@
 import { defineCommand } from 'citty';
 import { CrossweaveError } from '../../core/errors.js';
 import { withClient, fail, currentWorkspaceId } from '../context.js';
+import { attachCommand } from './attach.js';
 
 interface Session {
   id: string; name: string; status: string; agentKind: string;
@@ -10,6 +11,8 @@ interface Session {
 export const sessionCommand = defineCommand({
   meta: { name: 'session', description: 'Manage sessions' },
   subCommands: {
+    attach: attachCommand,
+
     new: defineCommand({
       meta: { name: 'new', description: 'Create a session' },
       // citty derives `--no-worktree` automatically from a boolean named `worktree`,

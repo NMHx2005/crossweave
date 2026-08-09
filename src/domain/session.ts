@@ -4,7 +4,10 @@ import { newId } from '../core/ids.js';
 import { WorkspaceRepo } from '../db/repositories/workspace.js';
 import { SessionRepo, type SessionRow } from '../db/repositories/session.js';
 import { createWorktree, deleteBranch, removeWorktree } from '../isolation/worktree.js';
-import { createAdapter } from '../adapters/registry.js';
+import { createAdapter as defaultCreateAdapter } from '../adapters/registry.js';
+import type { AgentAdapter } from '../adapters/types.js';
+
+export type AdapterFactory = (kind: string) => AgentAdapter;
 
 export interface CreateSessionOptions {
   workspaceId: string;
@@ -38,7 +41,13 @@ export class SessionManager {
   private readonly sessions: SessionRepo;
   private readonly workspaces: WorkspaceRepo;
 
-  constructor(db: Database) {
+  /** Set by the daemon so kill() can stop a live pty it does not own. */
+  onKill?: (sessionId: string) => void;
+
+  constructor(
+    db: Database,
+    private readonly adapterFactory: AdapterFactory = defaultCreateAdapter,
+  ) {
     this.sessions = new SessionRepo(db);
     this.workspaces = new WorkspaceRepo(db);
   }
@@ -57,7 +66,7 @@ export class SessionManager {
       throw new CrossweaveError('SESSION_NAME_TAKEN', `Session already exists: ${opts.name}`);
     }
 
-    const adapter = createAdapter(opts.agent);
+    const adapter = this.adapterFactory(opts.agent);
     const id = newId('s');
 
     let worktreePath = root;
@@ -106,6 +115,14 @@ export class SessionManager {
     return this.sessions.listByWorkspace(workspaceId);
   }
 
+  adapterFor(kind: string): AgentAdapter {
+    return this.adapterFactory(kind);
+  }
+
+  markStatus(id: string, status: SessionRow['status'], pid: number | null): void {
+    this.sessions.updateStatus(id, status, pid);
+  }
+
   resolve(workspaceId: string, idOrName: string): SessionRow {
     const found =
       this.sessions.findByName(workspaceId, idOrName) ?? this.sessions.findById(idOrName);
@@ -136,13 +153,7 @@ export class SessionManager {
     const row = this.resolve(workspaceId, idOrName);
     const root = this.projectRoot(workspaceId);
 
-    if (row.pid !== null) {
-      try {
-        process.kill(row.pid, 'SIGTERM');
-      } catch {
-        // Already gone; reconciliation handles the bookkeeping.
-      }
-    }
+    this.onKill?.(row.id);
 
     // A shared session points at the project root, which must never be removed.
     const ownWorktree =
