@@ -21,11 +21,56 @@ export function openDatabase(dbPath: string): Database {
   // exclusive lock. Two cold starts could therefore both die here, before either one
   // reached its socket bind, leaving the auto-start race with no winner at all.
   db.run('PRAGMA busy_timeout = 5000');
-  db.run('PRAGMA journal_mode = WAL');
+  enableWal(db);
   db.run('PRAGMA foreign_keys = ON');
 
   migrate(db);
   return db;
+}
+
+const WAL_SWITCH_ATTEMPTS = 20;
+const WAL_SWITCH_DELAY_MS = 25;
+
+/**
+ * Synchronous sleep. `openDatabase` is synchronous and this is the only place in the
+ * codebase that waits; `Atomics.wait` is the portable way to do it without pulling in
+ * a runtime-specific API.
+ */
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function journalMode(db: Database): string {
+  const row = db.query('PRAGMA journal_mode').get() as { journal_mode: string } | null;
+  return row?.journal_mode ?? '';
+}
+
+/**
+ * Switching to WAL takes an exclusive lock, and SQLite answers SQLITE_BUSY for that
+ * particular pragma **without honouring busy_timeout** — measured at a ~4% failure
+ * rate under six-way contention even with busy_timeout already set.
+ *
+ * Reading the mode first means the ordinary case never contends at all: only the
+ * process that creates the file has to switch anything, and every later opener sees
+ * `wal` and returns immediately. The bounded retry exists purely for the creation
+ * race, and converges as soon as any one process wins.
+ */
+function enableWal(db: Database): void {
+  for (let attempt = 0; attempt < WAL_SWITCH_ATTEMPTS; attempt += 1) {
+    if (journalMode(db) === 'wal') return;
+    try {
+      db.run('PRAGMA journal_mode = WAL');
+      if (journalMode(db) === 'wal') return;
+    } catch {
+      // Contended: another process is mid-switch. Wait and re-check.
+    }
+    sleepSync(WAL_SWITCH_DELAY_MS);
+  }
+  db.close();
+  throw new CrossweaveError(
+    'DB_WAL_FAILED',
+    `Could not switch the database to WAL mode after ${WAL_SWITCH_ATTEMPTS} attempts`,
+  );
 }
 
 function readVersion(db: Database): number {
