@@ -3217,9 +3217,14 @@ import { WorkspaceManager } from '../domain/workspace.js';
 import { SessionManager } from '../domain/session.js';
 import type { MethodHandler } from './server.js';
 
+// A malformed request is the caller's fault, not an internal failure. Throwing a bare
+// TypeError made the server map it to INTERNAL and hand the client a raw internal
+// message it could not branch on.
 function str(params: Record<string, unknown>, key: string): string {
   const v = params[key];
-  if (typeof v !== 'string') throw new TypeError(`Expected string param: ${key}`);
+  if (typeof v !== 'string') {
+    throw new CrossweaveError('INVALID_PARAMS', `Expected string param: ${key}`);
+  }
   return v;
 }
 
@@ -3515,6 +3520,20 @@ export class DaemonClient {
     return !this.gone && !this.socket.destroyed && this.socket.writable;
   }
 
+  /**
+   * Fires once when the connection is known gone. Registering after the fact fires
+   * immediately, so a caller cannot miss it by racing the disconnect. `cw session
+   * attach` needs this: without it the CLI hung forever with the terminal in raw
+   * mode when the daemon died.
+   */
+  onClose(cb: () => void): void {
+    if (this.gone) {
+      cb();
+      return;
+    }
+    this.closeHandlers.push(cb);
+  }
+
   /** Reject everything in flight. Idempotent — 'end', 'error' and 'close' overlap. */
   private failAll(message: string): void {
     this.gone = true;
@@ -3522,6 +3541,14 @@ export class DaemonClient {
       p.reject(new CrossweaveError('DAEMON_GONE', message));
     }
     this.pending.clear();
+
+    for (const cb of this.closeHandlers.splice(0)) {
+      try {
+        cb();
+      } catch {
+        // One handler's failure must not stop the others from restoring their state.
+      }
+    }
   }
 
   static connect(socketPath: string): Promise<DaemonClient> {
@@ -4151,6 +4178,51 @@ afterEach(async () => {
   await fx.cleanup();
 });
 
+describe('attach detach key', () => {
+  // Regression, and the cheapest possible guard on the defect that actually shipped:
+  // the literal control byte was lost in transcription, leaving ''. With the old
+  // `includes` check that made the FIRST keystroke detach, so no input ever reached
+  // the agent — the headline feature of this milestone was completely dead, and no
+  // test noticed because the interactive path was explicitly waived.
+  it('is Ctrl-] and exactly one character', async () => {
+    const { DETACH_KEY } = await import('../../src/cli/commands/attach.js');
+    expect(DETACH_KEY).toBe('\x1d');
+    expect(DETACH_KEY).toHaveLength(1);
+    expect(DETACH_KEY).not.toBe('');
+  });
+});
+
+describe('SessionRuntime subscriber isolation', () => {
+  // Task 7 isolated the ADAPTER's fan-out; SessionRuntime has its own loops and had
+  // to be fixed separately. The exit path mattered most: a throw there skipped
+  // `running.delete` and `onExit`, wedging the session at `running` with a stale pid
+  // and making it permanently unstartable.
+  function fakeContext(onNotify: (m: string) => void): MethodContext {
+    return { notify: (m) => onNotify(m), onClose: () => undefined };
+  }
+
+  it('keeps delivering to other subscribers when one throws, and still cleans up', async () => {
+    const exits: string[] = [];
+    const runtime = new SessionRuntime((id) => exits.push(id));
+    const row = await sessions.create({
+      workspaceId, name: 'iso', agent: 'claude', worktree: true,
+    });
+
+    const seen: string[] = [];
+    runtime.start(row, new ClaudePtyAdapter('sh', ['-c', 'echo hi; exit 0']));
+    runtime.subscribe(row.id, row.name, fakeContext(() => seen.push('first')));
+    runtime.subscribe(row.id, row.name, fakeContext(() => { throw new Error('bad'); }));
+    runtime.subscribe(row.id, row.name, fakeContext(() => seen.push('third')));
+
+    await waitFor(() => exits.includes(row.id));
+
+    expect(seen).toContain('first');
+    expect(seen).toContain('third');
+    // The bookkeeping must have run despite the throw.
+    expect(runtime.isRunning(row.id)).toBe(false);
+  }, 15_000);
+});
+
 describe('session runtime', () => {
   it('starts an agent and marks the session running with a pid', async () => {
     await client.call('session.new', { workspaceId, name: 'auth', agent: 'claude', worktree: true });
@@ -4250,6 +4322,61 @@ describe('session runtime', () => {
     );
     expect(rows.find((r) => r.name === 'gone')?.status).toBe('dead');
   });
+
+  // Regression, and the reason this assertion is on the PID: a reviewer replaced
+  // session.resume's body with `return row` — never restarting anything — and the
+  // entire 133-test suite still passed, because the stale pre-exit row already said
+  // "running". Asserting on status alone tested nothing.
+  it('resume after stop starts a genuinely new process', async () => {
+    await client.call('session.new', { workspaceId, name: 'again', agent: 'claude', worktree: true });
+    const first = await client.call<{ pid: number }>('session.start', {
+      workspaceId, idOrName: 'again',
+    });
+    await client.call('session.stop', { workspaceId, idOrName: 'again' });
+
+    const second = await client.call<{ pid: number; status: string }>('session.resume', {
+      workspaceId, idOrName: 'again',
+    });
+    expect(second.status).toBe('running');
+    expect(second.pid).not.toBe(first.pid);
+  });
+
+  // Regression: stop returned as soon as SIGTERM was sent, so an agent that ignores
+  // it was reported stopped while still alive — and kill then cleared the pid,
+  // leaving a stranded process nothing could ever find again.
+  it('stop waits for an agent that ignores SIGTERM, escalating to SIGKILL', async () => {
+    const stubborn = (kind: string): AgentAdapter => {
+      if (kind !== 'claude') throw new CrossweaveError('UNKNOWN_AGENT', `Unsupported: ${kind}`);
+      return new ClaudePtyAdapter('sh', ['-c', 'trap "" TERM; while true; do sleep 0.05; done']);
+    };
+    const stubbornDaemon = createDaemon({
+      socketPath: join(fx.root, '.crossweave', 'stubborn.sock'),
+      methods: buildMethods(db, fx.root, stubborn),
+    });
+    await stubbornDaemon.listen();
+    const c = await DaemonClient.connect(join(fx.root, '.crossweave', 'stubborn.sock'));
+    try {
+      const ws = await c.call<{ id: string }>('workspace.init', {});
+      await c.call('session.new', { workspaceId: ws.id, name: 'stubborn', agent: 'claude', worktree: true });
+      const started = await c.call<{ pid: number }>('session.start', {
+        workspaceId: ws.id, idOrName: 'stubborn',
+      });
+
+      await c.call('session.stop', { workspaceId: ws.id, idOrName: 'stubborn' });
+
+      // stop() resolved, so the process must be gone — not merely signalled.
+      let alive = true;
+      try {
+        process.kill(started.pid, 0);
+      } catch {
+        alive = false;
+      }
+      expect(alive).toBe(false);
+    } finally {
+      c.close();
+      await stubbornDaemon.close();
+    }
+  }, 20_000);
 
   it('resume starts a stopped session again', async () => {
     await client.call('session.new', { workspaceId, name: 'auth', agent: 'claude', worktree: true });
@@ -4355,6 +4482,27 @@ import type { MethodContext } from './server.js';
 
 const SCROLLBACK_LIMIT = 64 * 1024;
 
+/** How long an agent gets to honour SIGTERM before SIGKILL. */
+const STOP_GRACE_MS = 3000;
+
+/**
+ * One broken subscriber must not starve the others, and must never be able to stop
+ * the runtime's own bookkeeping from running.
+ */
+function notifyAll(
+  subscribers: Iterable<MethodContext>,
+  method: string,
+  params: unknown,
+): void {
+  for (const sub of subscribers) {
+    try {
+      sub.notify(method, params);
+    } catch {
+      // The subscriber owns its failure; the stream keeps going.
+    }
+  }
+}
+
 interface RunningSession {
   proc: AgentProcess;
   scrollback: string;
@@ -4386,17 +4534,18 @@ export class SessionRuntime {
 
     proc.onData((chunk) => {
       entry.scrollback = (entry.scrollback + chunk).slice(-SCROLLBACK_LIMIT);
-      for (const sub of entry.subscribers) {
-        sub.notify('session.data', { sessionId: session.id, chunk });
-      }
+      notifyAll(entry.subscribers, 'session.data', { sessionId: session.id, chunk });
     });
 
     proc.onExit((code) => {
-      for (const sub of entry.subscribers) {
-        sub.notify('session.exit', { sessionId: session.id, code });
-      }
+      // Bookkeeping BEFORE notifying, deliberately. A throwing subscriber used to
+      // abort this callback, so `running` never lost its entry and `onExit` never
+      // ran: the session stayed wedged at `running` with a stale pid and could never
+      // be started again. Task 7 isolated the ADAPTER's fan-out; this loop is a
+      // second one and needed the same treatment.
       this.running.delete(session.id);
       this.onExit(session.id, code);
+      notifyAll(entry.subscribers, 'session.exit', { sessionId: session.id, code });
     });
 
     return proc.pid;
@@ -4431,14 +4580,37 @@ export class SessionRuntime {
     }
   }
 
-  stop(sessionId: string): void {
+  /**
+   * Signal the agent and wait until it is actually gone, escalating if it ignores
+   * SIGTERM.
+   *
+   * Returning before the process has died is what let `resume` immediately after
+   * `stop` see a still-live pty, short-circuit on `isRunning`, and report success
+   * carrying a pid that was already dead — with the whole suite passing even when
+   * `resume`'s restart path was gutted. It is the same gap that let `kill` clear the
+   * pid while the process survived, stranding an agent with no record of it.
+   */
+  async stop(sessionId: string, graceMs = STOP_GRACE_MS): Promise<void> {
     const entry = this.running.get(sessionId);
     if (!entry) return;
+
+    // A listener registered after the process already exited still fires, so this
+    // cannot miss the event (proven by Task 7's late-onExit test).
+    const exited = new Promise<void>((resolve) => {
+      entry.proc.onExit(() => resolve());
+    });
+
     entry.proc.kill('SIGTERM');
+    const escalate = setTimeout(() => entry.proc.kill('SIGKILL'), graceMs);
+    try {
+      await exited;
+    } finally {
+      clearTimeout(escalate);
+    }
   }
 
-  stopAll(): void {
-    for (const id of [...this.running.keys()]) this.stop(id);
+  async stopAll(): Promise<void> {
+    await Promise.all([...this.running.keys()].map((id) => this.stop(id)));
   }
 }
 ```
@@ -4500,14 +4672,17 @@ Add `SessionRuntime` awareness to `kill` so a running agent is stopped through t
 runtime rather than a bare `process.kill`. Replace the `if (row.pid !== null)` block with:
 
 ```ts
-    this.onKill?.(row.id);
+    // Awaited: kill must not report success while the agent is still alive, and the
+    // pid must not be cleared until the process is confirmed gone — otherwise nothing
+    // can ever find or reap it again.
+    await this.onKill?.(row.id);
 ```
 
 and add to the class:
 
 ```ts
   /** Set by the daemon so kill() can stop a live pty it does not own. */
-  onKill?: (sessionId: string) => void;
+  onKill?: (sessionId: string) => Promise<void>;
 ```
 
 - [ ] **Step 6: Extend `src/daemon/methods.ts`**
@@ -4526,6 +4701,11 @@ export function buildMethods(
     sessions.clearRunning(sessionId);
   });
   sessions.onKill = (id) => runtime.stop(id);
+  // NOTE: the runtime only knows processes THIS daemon started. After a daemon
+  // restart the row can still carry a pid from the previous one, and killing such a
+  // session signals nothing. Signalling the stale pid directly is NOT safe — pids are
+  // reused, and we would be signalling an unrelated process. Reconciliation on daemon
+  // start (M2) is what closes this; it is recorded as a known M0 limitation.
 
   /**
    * `dead` and `landed` are terminal. The API already carries two distinct verbs —
@@ -4586,14 +4766,15 @@ export function buildMethods(
       return { ok: true };
     },
 
-    'session.stop': (p) => {
+    // Awaited, so a caller told the session stopped can trust that it actually is.
+    'session.stop': async (p) => {
       const row = sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName'));
-      runtime.stop(row.id);
+      await runtime.stop(row.id);
       return { ok: true };
     },
 
-    'daemon.shutdown': () => {
-      runtime.stopAll();
+    'daemon.shutdown': async () => {
+      await runtime.stopAll();
       setTimeout(() => process.exit(0), 10);
       return { ok: true };
     },
@@ -4606,7 +4787,9 @@ Add the numeric param helper alongside `str`/`bool`:
 ```ts
 function num(params: Record<string, unknown>, key: string): number {
   const v = params[key];
-  if (typeof v !== 'number') throw new TypeError(`Expected number param: ${key}`);
+  if (typeof v !== 'number') {
+    throw new CrossweaveError('INVALID_PARAMS', `Expected number param: ${key}`);
+  }
   return v;
 }
 ```
@@ -4626,6 +4809,7 @@ Add a field and method to `DaemonClient`:
 
 ```ts
   private readonly notificationHandlers: Array<(method: string, params: unknown) => void> = [];
+  private readonly closeHandlers: Array<() => void> = [];
 
   onNotification(cb: (method: string, params: unknown) => void): void {
     this.notificationHandlers.push(cb);
@@ -4661,7 +4845,16 @@ Expected: all PASS, 0 type errors.
 import { defineCommand } from 'citty';
 import { withClient, fail, currentWorkspaceId } from '../context.js';
 
-const DETACH_KEY = ''; // Ctrl-]
+/**
+ * Ctrl-]. Written as an escape, never as a literal control byte: an invisible 0x1D
+ * in a code block does not survive transcription, and when it was lost this became
+ * an empty string — `''.includes('')` is true, so the first keystroke detached and
+ * no input ever reached the agent.
+ *
+ * Compared with `===` rather than `includes` so a 0x1D inside a paste does not
+ * detach; a real keypress arrives as its own chunk.
+ */
+export const DETACH_KEY = '\x1d';
 
 export const attachCommand = defineCommand({
   meta: { name: 'attach', description: 'Attach the terminal to a running session (Ctrl-] to detach)' },
@@ -4670,27 +4863,29 @@ export const attachCommand = defineCommand({
     start: { type: 'boolean', default: true, description: 'Start the agent if it is not running' },
   },
   async run({ args }) {
+    const stdin = process.stdin;
+    const isTty = stdin.isTTY === true;
+
+    // Last-resort guard, registered before anything can fail. A terminal left in raw
+    // mode gives the user a shell that neither echoes nor answers Ctrl-C, recoverable
+    // only from another window with `stty sane`.
+    process.once('exit', () => {
+      if (isTty) stdin.setRawMode(false);
+    });
+
     try {
       await withClient(async (client) => {
         const workspaceId = await currentWorkspaceId(client);
         const target = { workspaceId, idOrName: args.target };
 
         if (args.start) await client.call('session.resume', target);
-        else await client.call('session.attach', target);
-
-        const stdin = process.stdin;
-        const isTty = stdin.isTTY === true;
+        // Subscribe exactly ONCE and await it. This used to run a second time inside
+        // the promise with its failure swallowed, which both replayed the scrollback
+        // twice and could leave the terminal raw and attached to nothing.
+        await client.call('session.attach', target);
 
         await new Promise<void>((resolve) => {
           let done = false;
-          const finish = (): void => {
-            if (done) return;
-            done = true;
-            if (isTty) stdin.setRawMode(false);
-            stdin.pause();
-            process.removeListener('SIGWINCH', onResize);
-            resolve();
-          };
 
           const onResize = (): void => {
             void client.call('session.resize', {
@@ -4699,6 +4894,26 @@ export const attachCommand = defineCommand({
               rows: process.stdout.rows ?? 24,
             }).catch(() => undefined);
           };
+
+          const onInput = (buf: Buffer): void => {
+            const data = buf.toString('utf8');
+            if (data === DETACH_KEY) {
+              process.stdout.write('\n[detached]\n');
+              finish();
+              return;
+            }
+            void client.call('session.input', { ...target, data }).catch(() => undefined);
+          };
+
+          function finish(): void {
+            if (done) return;
+            done = true;
+            if (isTty) stdin.setRawMode(false);
+            stdin.pause();
+            stdin.removeListener('data', onInput);
+            process.removeListener('SIGWINCH', onResize);
+            resolve();
+          }
 
           client.onNotification((method, params) => {
             if (method === 'session.data') {
@@ -4709,21 +4924,19 @@ export const attachCommand = defineCommand({
             }
           });
 
-          void client.call('session.attach', target).catch(() => undefined);
+          // Without this, finish() was reachable only from session.exit or Ctrl-] —
+          // neither of which can fire once the socket is gone — so a daemon that died
+          // left the CLI hung with the terminal in raw mode.
+          client.onClose(() => {
+            process.stdout.write('\n[daemon connection lost]\n');
+            finish();
+          });
+
           onResize();
           process.on('SIGWINCH', onResize);
-
           if (isTty) stdin.setRawMode(true);
           stdin.resume();
-          stdin.on('data', (buf: Buffer) => {
-            const data = buf.toString('utf8');
-            if (data.includes(DETACH_KEY)) {
-              process.stdout.write('\n[detached]\n');
-              finish();
-              return;
-            }
-            void client.call('session.input', { ...target, data }).catch(() => undefined);
-          });
+          stdin.on('data', onInput);
         });
       });
     } catch (err) { fail(err); }
