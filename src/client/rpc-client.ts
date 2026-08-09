@@ -35,12 +35,24 @@ export class DaemonClient {
         }
       }),
     );
-    socket.on('close', () => {
-      for (const p of this.pending.values()) {
-        p.reject(new CrossweaveError('DAEMON_GONE', 'Daemon connection closed'));
-      }
-      this.pending.clear();
+    // Node THROWS an 'error' event that has no listener, so without this the CLI
+    // dies with an uncaught exception when the daemon goes away mid-call instead of
+    // the caller getting a clean rejection. `connect` strips its own temporary error
+    // listener once connected, which is exactly why one has to be re-registered here.
+    socket.on('error', (err: Error) => {
+      this.failAll(`Daemon connection failed: ${err.message}`);
     });
+    socket.on('close', () => {
+      this.failAll('Daemon connection closed');
+    });
+  }
+
+  /** Reject everything still in flight. Idempotent — 'error' is followed by 'close'. */
+  private failAll(message: string): void {
+    for (const p of this.pending.values()) {
+      p.reject(new CrossweaveError('DAEMON_GONE', message));
+    }
+    this.pending.clear();
   }
 
   static connect(socketPath: string): Promise<DaemonClient> {

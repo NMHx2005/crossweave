@@ -30,7 +30,7 @@ describe('DaemonClient', () => {
     daemon = createDaemon({ socketPath, methods: buildMethods(db, fx.root) });
     await daemon.listen();
     const client = await DaemonClient.connect(socketPath);
-    expect(await client.call('ping')).toEqual({ ok: true });
+    expect(await client.call<{ ok: boolean }>('ping')).toEqual({ ok: true });
     client.close();
   });
 
@@ -39,7 +39,7 @@ describe('DaemonClient', () => {
     await daemon.listen();
     const client = await DaemonClient.connect(socketPath);
     const results = await Promise.all([
-      client.call('ping'), client.call('ping'), client.call('ping'),
+      client.call<{ ok: boolean }>('ping'), client.call<{ ok: boolean }>('ping'), client.call<{ ok: boolean }>('ping'),
     ]);
     expect(results).toEqual([{ ok: true }, { ok: true }, { ok: true }]);
     client.close();
@@ -58,12 +58,29 @@ describe('DaemonClient', () => {
   it('fails to connect when nothing is listening', async () => {
     await expect(DaemonClient.connect(socketPath)).rejects.toBeTruthy();
   });
+
+  // Regression: `connect` strips its temporary 'error' listener once connected, and
+  // the constructor only registered 'data' and 'close'. Node THROWS an 'error' event
+  // with no listener, so a daemon dying mid-session killed the CLI with an uncaught
+  // exception instead of rejecting the call.
+  it('rejects with DAEMON_GONE instead of crashing when the daemon goes away', async () => {
+    daemon = createDaemon({ socketPath, methods: buildMethods(db, fx.root) });
+    await daemon.listen();
+    const client = await DaemonClient.connect(socketPath);
+    expect(await client.call<{ ok: boolean }>('ping')).toEqual({ ok: true });
+
+    await daemon.close();
+    daemon = undefined;
+
+    await expect(client.call('ping')).rejects.toMatchObject({ code: 'DAEMON_GONE' });
+    client.close();
+  });
 });
 
 describe('connectOrStart', () => {
   it('starts a daemon when none is running, then answers', async () => {
     const client = await connectOrStart(fx.root);
-    expect(await client.call('ping')).toEqual({ ok: true });
+    expect(await client.call<{ ok: boolean }>('ping')).toEqual({ ok: true });
     await client.call('daemon.shutdown').catch(() => undefined);
     client.close();
   }, 30_000);
