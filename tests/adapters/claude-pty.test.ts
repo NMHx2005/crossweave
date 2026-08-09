@@ -67,6 +67,50 @@ describe('ClaudePtyAdapter', () => {
     proc.kill('SIGKILL');
     await expect(exited).resolves.toBeTypeOf('number');
   });
+
+  // Task 13 fans this stream out to every client attached to a session. One broken
+  // viewer must not be able to starve the others, and a bare for-loop over the
+  // listeners does exactly that — permanently, since the same subscriber throws on
+  // every later chunk too.
+  it('keeps delivering data to the other listeners when one throws', async () => {
+    const adapter = new ClaudePtyAdapter('sh', ['-c', 'echo one; echo two']);
+    const proc = adapter.spawn({ cwd: tmpdir(), env: {}, cols: 80, rows: 24 });
+    const seen: string[] = [];
+    proc.onData(() => { seen.push('first'); });
+    proc.onData(() => { throw new Error('bad subscriber'); });
+    proc.onData(() => { seen.push('third'); });
+    await new Promise<number>((res) => proc.onExit(res));
+    expect(seen).toContain('first');
+    expect(seen).toContain('third');
+  });
+
+  it('keeps calling the other exit listeners when one throws', async () => {
+    const adapter = new ClaudePtyAdapter('sh', ['-c', 'exit 0']);
+    const proc = adapter.spawn({ cwd: tmpdir(), env: {}, cols: 80, rows: 24 });
+    const seen: string[] = [];
+    proc.onExit(() => { seen.push('first'); });
+    proc.onExit(() => { throw new Error('bad subscriber'); });
+    await new Promise<void>((res) => proc.onExit(() => { seen.push('third'); res(); }));
+    expect(seen).toEqual(['first', 'third']);
+  });
+
+  // Pins a contract Task 13 depends on: the adapter buffers NOTHING, so anything
+  // emitted before a subscriber attaches is gone. Scrollback is the session
+  // runtime's job, not the adapter's. Synchronises on the data itself rather than a
+  // timer so the test stays deterministic.
+  it('does not buffer output for a listener that attaches later', async () => {
+    const adapter = new ClaudePtyAdapter('sh', ['-c', 'echo early; read x; echo late']);
+    const proc = adapter.spawn({ cwd: tmpdir(), env: {}, cols: 80, rows: 24 });
+    await new Promise<void>((res) => {
+      proc.onData((c) => { if (c.includes('early')) res(); });
+    });
+    const late: string[] = [];
+    proc.onData((c) => { late.push(c); });
+    proc.write('go\n');
+    await new Promise<number>((res) => proc.onExit(res));
+    expect(late.join('')).not.toContain('early');
+    expect(late.join('')).toContain('late');
+  });
 });
 
 describe('createAdapter', () => {
