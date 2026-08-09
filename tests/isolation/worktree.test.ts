@@ -59,4 +59,24 @@ describe('removeWorktree and listWorktreePaths', () => {
   it('refuses to remove a path outside the project root', async () => {
     await expect(removeWorktree(fx.root, '/tmp')).rejects.toMatchObject({ code: 'PATH_ESCAPE' });
   });
+
+  // Regression: `makeGitFixture` realpaths its root, which hides this. Reaching the
+  // same repo through a symlink is the portable way to hand in a non-canonical root —
+  // it is the same situation as macOS's /var -> /private/var.
+  it('excludes the main worktree even when given a non-canonical root', async () => {
+    const { mkdtemp, rm, symlink } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const h = await createWorktree(fx.root, 's_one', 'cw/one');
+    const linkDir = await mkdtemp(join(tmpdir(), 'cw-alias-'));
+    const aliasRoot = join(linkDir, 'alias');
+    await symlink(fx.root, aliasRoot);
+    try {
+      const paths = await listWorktreePaths(aliasRoot);
+      expect(paths).toContain(h.path);
+      expect(paths).not.toContain(fx.root);
+      expect(paths).toHaveLength(1);
+    } finally {
+      await rm(linkDir, { recursive: true, force: true });
+    }
+  });
 });

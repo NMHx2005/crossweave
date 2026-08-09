@@ -1,3 +1,4 @@
+import { realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { simpleGit } from 'simple-git';
 import { CrossweaveError } from '../core/errors.js';
@@ -25,6 +26,10 @@ export async function createWorktree(
     throw new CrossweaveError('BRANCH_EXISTS', `Branch already exists: ${branch}`);
   }
 
+  // Modern git infers `--orphan` when there is no commit to branch from, so
+  // `worktree add` SUCCEEDS on an empty repository. Checking HEAD explicitly is what
+  // turns that into the WORKTREE_FAILED the contract promises. Keep it after the
+  // branch check so BRANCH_EXISTS still wins on a normal repo.
   try {
     await git.raw(['rev-parse', '--verify', 'HEAD']);
   } catch (cause) {
@@ -60,10 +65,15 @@ export async function removeWorktree(projectRoot: string, worktreePath: string):
 }
 
 export async function listWorktreePaths(projectRoot: string): Promise<string[]> {
+  // `git worktree list` always prints CANONICAL paths, but callers may hand us a
+  // non-canonical root — on macOS `/var` is a symlink to `/private/var`, and any
+  // path round-tripped through config or the database can arrive that way. Comparing
+  // raw strings then fails to exclude the main worktree and leaks it into the result.
+  const realRoot = realpathSync(projectRoot);
   const out = await simpleGit(projectRoot).raw(['worktree', 'list', '--porcelain']);
   return out
     .split('\n')
     .filter((l) => l.startsWith('worktree '))
     .map((l) => l.slice('worktree '.length).trim())
-    .filter((p) => p !== projectRoot);
+    .filter((p) => p !== realRoot);
 }
