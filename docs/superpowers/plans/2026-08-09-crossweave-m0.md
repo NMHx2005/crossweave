@@ -17,12 +17,37 @@
 - **Isolate the three runtime-specific seams** so the runtime stays a reversible decision: the pty behind `AgentAdapter` (Task 7), sqlite behind the repository classes (Tasks 3–4), and the socket behind `node:net` — which Bun implements — rather than `Bun.listen`. Nothing else in the codebase may import a `Bun.*` global.
 - **Dependency versions in Task 1's `package.json` were verified against the npm registry on 2026-08-09.** Install exactly what is written. If a package's API has moved and the code in this plan does not compile against it, fix the code and say so in the commit body — do not silently downgrade the dependency to make the plan's code compile unchanged.
 - **ESM only.** `"type": "module"`. Relative imports keep their `.js` specifiers throughout — Bun resolves those to the `.ts` sources, and keeping the convention means the code stays valid under a plain `tsc` build if the runtime decision is ever reversed.
-- **TypeScript `strict: true`.** No `any`, no `!` non-null assertions, no `@ts-ignore`.
+- **TypeScript `strict: true`.** No `any` and no `@ts-ignore`, anywhere.
+- **Non-null assertions (`!`) are forbidden in `src/` and permitted in `tests/`.** In production code every `!` in this plan was avoidable by narrowing to a local, and they have been rewritten that way. In tests, a `!` that follows an explicit existence assertion is idiomatic and keeps the assertion readable; reviewers must not flag those.
 - **All timestamps are ISO 8601 UTC strings** (`new Date().toISOString()`), stored as `TEXT`.
 - **Every path originating outside the process is passed through `assertContained` before use.** No exceptions.
 - **Tests are deterministic:** no network, no reliance on wall-clock ordering, git fixtures built per test in `fs.mkdtemp` directories and removed in teardown.
 - **Package name `crossweave`, binary `cw`, daemon binary `cwd`. License MIT.**
 - Commit messages follow Conventional Commits.
+
+## Pre-flight — already completed, do not repeat
+
+Done on 2026-08-09 before execution began. Recorded here so the executing session
+starts at Task 1 instead of re-deriving all of it.
+
+**Environment verified on the target machine:**
+- Bun 1.3.14 installed via Homebrew (satisfies the >= 1.3.5 floor).
+- `bun:sqlite`: `.get()` returns **`null`** for a missing row, `PRAGMA foreign_keys = ON`
+  takes effect, and `ON DELETE CASCADE` works. All three were run, not assumed.
+- `Bun.spawn({terminal})`: allocates a real TTY (`test -t 1` → `TTY`), `proc.pid` is a
+  number, `proc.terminal.write()` exists, `proc.exited` is a promise, and the
+  `data(terminal, chunk)` callback delivers output.
+- **pty output uses `\r\n`, not `\n`.** Every assertion in this plan uses `.includes()`,
+  so none of them need changing — do not "fix" them to compare whole lines.
+
+**Plan conflicts found and ruled on by the human partner:**
+- The `!` ban originally applied everywhere while the plan mandated `!` in 11 places.
+  Ruling: forbidden in `src/`, permitted in `tests/`. The four `src/` occurrences have
+  been rewritten (`MIGRATIONS.slice`, `ownWorktree` local, `instance` local ×2); the
+  Global Constraints entry above now states the scoped rule. Reviewers must not flag a
+  `!` in a test that follows an existence assertion.
+- `expect(after?.lastActiveAt >= row.lastActiveAt)` in Task 4 could not typecheck under
+  `strict` (`string | undefined` with `>=`). Rewritten to assert `toBeDefined()` first.
 
 ---
 
@@ -512,8 +537,8 @@ export function openDatabase(dbPath: string): Database {
     );
   }
 
-  for (let v = current; v < SCHEMA_VERSION; v += 1) {
-    for (const statement of MIGRATIONS[v]!) db.run(statement);
+  for (const migration of MIGRATIONS.slice(current, SCHEMA_VERSION)) {
+    for (const statement of migration) db.run(statement);
   }
 
   if (current < SCHEMA_VERSION) {
@@ -832,9 +857,10 @@ describe('SessionRepo', () => {
     repo.insert(row);
     repo.updateStatus(row.id, 'running', 4242);
     const after = repo.findById(row.id);
-    expect(after?.status).toBe('running');
-    expect(after?.pid).toBe(4242);
-    expect(after?.lastActiveAt >= row.lastActiveAt).toBe(true);
+    expect(after).toBeDefined();
+    expect(after!.status).toBe('running');
+    expect(after!.pid).toBe(4242);
+    expect(after!.lastActiveAt >= row.lastActiveAt).toBe(true);
   });
 
   it('lists only live sessions', () => {
@@ -1936,9 +1962,10 @@ export class SessionManager {
     }
 
     // A shared session points at the project root, which must never be removed.
-    const isOwnWorktree = row.worktreePath !== null && row.worktreePath !== root;
-    if (opts.removeWorktree && isOwnWorktree) {
-      await removeWorktree(root, row.worktreePath!);
+    const ownWorktree =
+      row.worktreePath !== null && row.worktreePath !== root ? row.worktreePath : null;
+    if (opts.removeWorktree && ownWorktree !== null) {
+      await removeWorktree(root, ownWorktree);
       this.sessions.clearWorktree(row.id);
     }
 
@@ -2362,16 +2389,17 @@ export function createDaemon(opts: {
       // A socket file left by a crashed daemon would block bind.
       if (existsSync(opts.socketPath)) unlinkSync(opts.socketPath);
 
-      server = createServer((sock) => {
+      const instance = createServer((sock) => {
         sockets.add(sock);
         sock.on('data', createFrameDecoder((msg) => void handle(sock, msg)));
         sock.on('close', () => sockets.delete(sock));
         sock.on('error', () => sockets.delete(sock));
       });
+      server = instance;
 
       return new Promise((resolve, reject) => {
-        server!.once('error', reject);
-        server!.listen(opts.socketPath, () => {
+        instance.once('error', reject);
+        instance.listen(opts.socketPath, () => {
           // Unix socket permissions follow umask by default, which on many systems
           // leaves the socket group- and world-readable. Anyone able to connect can
           // drive the daemon, so tighten it explicitly rather than trusting umask.
@@ -3336,8 +3364,11 @@ export type MethodHandler = (
 
 In `createDaemon`, replace the connection handler body with:
 
+Keep the `const instance = …; server = instance;` shape from Task 10 — the local is
+what lets `listen` avoid a non-null assertion, which `src/` forbids.
+
 ```ts
-      server = createServer((sock) => {
+      const instance = createServer((sock) => {
         sockets.add(sock);
         const closeCallbacks: Array<() => void> = [];
         const ctx: MethodContext = {
