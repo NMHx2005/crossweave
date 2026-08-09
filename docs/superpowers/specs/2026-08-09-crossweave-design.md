@@ -309,7 +309,11 @@ Radar precedes Convergence deliberately — Radar pays off on every single sessi
 
 ## 7. Stack
 
-TypeScript · Node 22+ · `node:sqlite` (avoids the `better-sqlite3` native-build problem when publishing to npm) · `execa` · `simple-git` · `citty` · `tree-sitter` (Radar) · `@modelcontextprotocol/sdk` · Ink (M6) · vitest.
+TypeScript · Node 24+ · `node:sqlite` (avoids the `better-sqlite3` native-build problem when publishing to npm) · `node-pty` · `execa` · `simple-git` · `citty` · `tree-sitter` (Radar) · `@modelcontextprotocol/sdk` · Ink (M6) · vitest.
+
+The Node floor is 24, not 22: `node:sqlite` requires `--experimental-sqlite` on 22.x and is unflagged from 24, and no runtime flag should ever be needed to start the daemon.
+
+`node-pty` is the single permitted native dependency. Claude Code inspects `isTTY` and degrades to non-interactive output without a real pty, so session attach does not work without it. It ships prebuilds for macOS, Linux and Windows.
 
 Package `crossweave`, binary `cw`. Name verified free on npm with no colliding GitHub project as of 2026-08-09.
 
