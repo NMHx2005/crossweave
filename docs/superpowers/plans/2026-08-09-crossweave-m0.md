@@ -661,7 +661,12 @@ import { MIGRATIONS, SCHEMA_VERSION } from './schema.js';
 export { SCHEMA_VERSION };
 
 export function openDatabase(dbPath: string): Database {
-  mkdirSync(dirname(dbPath), { recursive: true });
+  // 0700 at the source. The database sits beside the daemon socket and holds every
+  // session's state, and `mode` on mkdirSync applies only at CREATION — so whichever
+  // caller makes the directory first is the one that decides its permissions. The
+  // daemon re-chmods defensively for the already-exists case, but a caller that opens
+  // the database without starting a daemon (the CLI does) must not leave it open.
+  mkdirSync(dirname(dbPath), { recursive: true, mode: 0o700 });
   const db = new Database(dbPath, { create: true });
   db.run('PRAGMA journal_mode = WAL');
   db.run('PRAGMA foreign_keys = ON');
@@ -2802,6 +2807,31 @@ describe('daemon server', () => {
     expect(await rpc('ping')).toEqual({ ok: true });
   });
 
+  // Regression: unlinking unconditionally let a second daemon silently steal the
+  // socket from a live one. The first kept running, holding agent ptys, while every
+  // client reached the second — and neither process was told.
+  it('refuses to steal the socket from a daemon that is still live', async () => {
+    const second = createDaemon({ socketPath, methods: buildMethods(db, fx.root) });
+    await expect(second.listen()).rejects.toMatchObject({ code: 'DAEMON_ALREADY_RUNNING' });
+    // The original is untouched and still serving.
+    expect(await rpc('ping')).toEqual({ ok: true });
+    await second.close();
+  });
+
+  it('creates the state directory owner-only from openDatabase alone', async () => {
+    const { mkdtemp, rm } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const { statSync } = await import('node:fs');
+    const dir = await mkdtemp(join(tmpdir(), 'cw-mode-'));
+    try {
+      const fresh = openDatabase(join(dir, '.crossweave', 'state.db'));
+      expect(statSync(join(dir, '.crossweave')).mode & 0o777).toBe(0o700);
+      fresh.close();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it('unlinks the socket on close', async () => {
     await daemon.close();
     expect(existsSync(socketPath)).toBe(false);
@@ -2819,7 +2849,7 @@ Expected: FAIL — cannot resolve `../../src/daemon/server.js`.
 - [ ] **Step 3: Implement `src/daemon/server.ts`**
 
 ```ts
-import { createServer, type Server, type Socket } from 'node:net';
+import { connect, createServer, type Server, type Socket } from 'node:net';
 import { chmodSync, existsSync, mkdirSync, unlinkSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { CrossweaveError } from '../core/errors.js';
@@ -2835,6 +2865,24 @@ export type MethodHandler = (params: Record<string, unknown>) => Promise<unknown
 export interface Daemon {
   listen(): Promise<void>;
   close(): Promise<void>;
+}
+
+/**
+ * True when a daemon is still bound to this socket path. A leftover socket FILE and
+ * a live listener are indistinguishable on disk, so the only reliable test is to try
+ * to connect: a crashed daemon's file refuses with ECONNREFUSED.
+ */
+function isSocketLive(socketPath: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const probe = connect(socketPath);
+    const settle = (live: boolean): void => {
+      probe.removeAllListeners();
+      probe.destroy();
+      resolve(live);
+    };
+    probe.once('connect', () => settle(true));
+    probe.once('error', () => settle(false));
+  });
 }
 
 export function createDaemon(opts: {
@@ -2892,12 +2940,27 @@ export function createDaemon(opts: {
   }
 
   return {
-    listen(): Promise<void> {
+    async listen(): Promise<void> {
       // 0o700: the daemon spawns processes and writes files on the user's behalf,
       // so nothing outside this account may reach its directory or its socket.
+      // The chmod is not redundant — `mode` on mkdirSync applies only at creation,
+      // and openDatabase has usually made this directory already.
       mkdirSync(dirname(opts.socketPath), { recursive: true, mode: 0o700 });
-      // A socket file left by a crashed daemon would block bind.
-      if (existsSync(opts.socketPath)) unlinkSync(opts.socketPath);
+      chmodSync(dirname(opts.socketPath), 0o700);
+
+      if (existsSync(opts.socketPath)) {
+        // Only a socket left by a CRASHED daemon may be removed. Unlinking one a live
+        // daemon is still bound to steals its clients while it keeps running with live
+        // agent ptys — every session it owns becomes unreachable and neither process
+        // is told. Task 11 auto-starts daemons, so this race is reachable.
+        if (await isSocketLive(opts.socketPath)) {
+          throw new CrossweaveError(
+            'DAEMON_ALREADY_RUNNING',
+            `Another crossweave daemon is already listening at ${opts.socketPath}`,
+          );
+        }
+        unlinkSync(opts.socketPath);
+      }
 
       const instance = createServer((sock) => {
         sockets.add(sock);
