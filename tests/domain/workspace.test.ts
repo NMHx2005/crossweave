@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Database } from 'bun:sqlite';
 import { openDatabase } from '../../src/db/open.js';
 import { SessionRepo } from '../../src/db/repositories/session.js';
+import { WorkspaceRepo, type WorkspaceRow } from '../../src/db/repositories/workspace.js';
 import { WorkspaceManager } from '../../src/domain/workspace.js';
 import { newId } from '../../src/core/ids.js';
 
@@ -96,5 +97,73 @@ describe('WorkspaceManager.info', () => {
   it('returns the workspace with its sessions', () => {
     const ws = mgr.init('/tmp/projects/app');
     expect(mgr.info(ws.id)).toEqual({ workspace: ws, sessions: [] });
+  });
+});
+
+describe('WorkspaceManager identity and ambiguity', () => {
+  // Regression: root_path is a workspace's identity, so it must be compared in one
+  // spelling. Reaching the same directory through a symlink used to create a second
+  // workspace for it.
+  it('treats a symlinked root as the same workspace', async () => {
+    const real = await mkdtemp(join(tmpdir(), 'cw-real-'));
+    const linkDir = await mkdtemp(join(tmpdir(), 'cw-link-'));
+    const alias = join(linkDir, 'alias');
+    await symlink(real, alias);
+    try {
+      const a = mgr.init(real);
+      const b = mgr.init(alias);
+      expect(b.id).toBe(a.id);
+      expect(mgr.list()).toHaveLength(1);
+    } finally {
+      await rm(real, { recursive: true, force: true });
+      await rm(linkDir, { recursive: true, force: true });
+    }
+  });
+
+  it('leaves a path that does not exist exactly as given', () => {
+    expect(mgr.init('/tmp/projects/never-created').rootPath).toBe('/tmp/projects/never-created');
+  });
+
+  it('returns the existing row and ignores a different name for the same root', () => {
+    const first = mgr.init('/tmp/projects/app', 'original');
+    const second = mgr.init('/tmp/projects/app', 'renamed');
+    expect(second.id).toBe(first.id);
+    expect(second.name).toBe('original');
+  });
+
+  // Regression: a concurrent writer between init's read and its write used to
+  // surface a raw SQLiteError naming a table column. Stubbing findByRoot to miss
+  // once reproduces exactly that window.
+  it('returns the winner when a concurrent writer takes the root first', () => {
+    const root = '/tmp/projects/raced';
+    new WorkspaceRepo(db).insert({
+      id: newId('ws'), name: 'winner', rootPath: root,
+      createdAt: '2026-08-09T00:00:00.000Z',
+      defaultIsolation: 'worktree', safeModeTier: 'T3',
+    });
+
+    const internals = mgr as unknown as { workspaces: WorkspaceRepo };
+    const real = internals.workspaces.findByRoot.bind(internals.workspaces);
+    let missed = false;
+    internals.workspaces.findByRoot = (p: string): WorkspaceRow | undefined => {
+      if (!missed) { missed = true; return undefined; }
+      return real(p);
+    };
+
+    expect(mgr.init(root, 'loser').name).toBe('winner');
+  });
+
+  it('refuses to resolve an ambiguous name instead of guessing', () => {
+    mgr.init('/tmp/projects/one', 'shared');
+    mgr.init('/tmp/projects/two', 'shared');
+    expect(() => mgr.resolve('shared')).toThrowError(
+      expect.objectContaining({ code: 'WORKSPACE_NAME_AMBIGUOUS' }) as unknown as Error,
+    );
+  });
+
+  it('still resolves a unique name, and id always wins', () => {
+    const only = mgr.init('/tmp/projects/solo', 'solo');
+    expect(mgr.resolve('solo').id).toBe(only.id);
+    expect(mgr.resolve(only.id).id).toBe(only.id);
   });
 });
