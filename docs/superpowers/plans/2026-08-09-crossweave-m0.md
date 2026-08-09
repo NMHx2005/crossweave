@@ -10,7 +10,8 @@
 
 ## Global Constraints
 
-- **Node >= 24.0.0.** The spec said 22+; `node:sqlite` requires `--experimental-sqlite` on 22.x and is unflagged from 24. The floor is raised so no runtime flag is ever needed. `package.json` must declare `"engines": { "node": ">=24.0.0" }`.
+- **Node >= 24.0.0.** The spec said 22+; `node:sqlite` requires `--experimental-sqlite` on 22.x and is unflagged from 24. The floor is raised so no runtime flag is ever needed. `package.json` must declare `"engines": { "node": ">=24.0.0" }`. Node 26 is Current as of 2026-08 but 24 is the active LTS, so 24 is the floor and the type target.
+- **Dependency versions in Task 1's `package.json` were verified against the npm registry on 2026-08-09.** Install exactly what is written. If a package's API has moved and the code in this plan does not compile against it, fix the code and say so in the commit body — do not silently downgrade the dependency to make the plan's code compile unchanged.
 - **ESM only.** `"type": "module"`, `"module": "nodenext"` in tsconfig. Every relative import carries a `.js` extension.
 - **`node-pty` is the only permitted native dependency.** Justification: Claude Code inspects `isTTY` and degrades to non-interactive output without a real pty, so M0's core deliverable does not work without it. It ships prebuilds for macOS/Linux/Windows. No other native dependency may be added.
 - **TypeScript `strict: true`.** No `any`, no `!` non-null assertions, no `@ts-ignore`.
@@ -55,18 +56,29 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "citty": "^0.1.6",
-    "execa": "^9.5.2",
-    "node-pty": "^1.0.0",
-    "simple-git": "^3.27.0"
+    "citty": "^0.2.2",
+    "execa": "^10.0.1",
+    "node-pty": "^1.1.0",
+    "simple-git": "^3.36.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
-    "typescript": "^5.7.0",
-    "vitest": "^2.1.0"
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
   }
 }
 ```
+
+Two of these pins are deliberate and must not be "helpfully" bumped:
+
+- **`@types/node` stays on `^24`** even though `^26` exists. The types must match the
+  runtime floor declared in `engines`, not the newest Node. Pinning 26 would let code
+  compile against APIs that do not exist on the Node 24 we support.
+- **`typescript` is `^7`**, the native compiler. If `npm run build` or
+  `npm run typecheck` misbehaves under it in Step 8, do not work around it — drop to
+  `typescript@^5.9`, note the reason in the commit body, and carry on. Everything in
+  this plan is plain strict TypeScript with no exotic type-level work, so either
+  compiler is fine.
 
 - [ ] **Step 2: Create `tsconfig.json`, `vitest.config.ts`, `.gitignore`**
 
