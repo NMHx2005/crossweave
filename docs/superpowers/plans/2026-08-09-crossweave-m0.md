@@ -2356,26 +2356,19 @@ export class SessionManager {
 }
 ```
 
-- [ ] **Step 4: Add the `clearWorktree` method used above**
+- [ ] **Step 4: Verify `clearWorktree` already exists — do NOT add it**
 
-Append to `src/db/repositories/session.ts` inside `class SessionRepo`:
+`SessionRepo.clearWorktree` and its test landed with Task 4, not here. Confirm both are
+present and leave them alone; appending a second copy is a defect, not a no-op.
 
-```ts
-  clearWorktree(id: string): void {
-    this.db.prepare('UPDATE session SET worktree_path = NULL WHERE id = ?').run(id);
-  }
+```bash
+grep -n 'clearWorktree' src/db/repositories/session.ts tests/db/session-repo.test.ts
 ```
 
-Add its test to `tests/db/session-repo.test.ts`:
-
-```ts
-  it('clears the worktree path', () => {
-    const row = makeRow();
-    repo.insert(row);
-    repo.clearWorktree(row.id);
-    expect(repo.findById(row.id)?.worktreePath).toBeNull();
-  });
-```
+Expected: one method definition in the repository and one test named
+`'clears the worktree path'`. If either is missing, stop and report it rather than
+adding it here — that would mean Task 4 regressed and the cause matters more than the
+symptom.
 
 - [ ] **Step 5: Run tests and typecheck**
 
