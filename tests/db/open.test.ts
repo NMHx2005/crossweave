@@ -50,6 +50,42 @@ describe('openDatabase', () => {
   });
 });
 
+describe('openDatabase under concurrency', () => {
+  // Regression: two daemons cold-starting at once both died with SQLITE_BUSY before
+  // either reached its socket bind, so the auto-start race ended with no winner and
+  // both clients timed out. Reproduced at roughly 1 in 10 attempts before the fix.
+  // Real processes, not in-process calls — SQLite's locking is per-connection and a
+  // single-process test would not exercise it.
+  it('survives several processes opening the same fresh database at once', async () => {
+    const { fileURLToPath } = await import('node:url');
+    const raceDir = await mkdtemp(join(tmpdir(), 'cw-race-'));
+    try {
+      const dbPath = join(raceDir, '.crossweave', 'state.db');
+      const openModule = fileURLToPath(new URL('../../src/db/open.ts', import.meta.url));
+      const script =
+        `const { openDatabase } = await import(${JSON.stringify(openModule)});` +
+        `openDatabase(${JSON.stringify(dbPath)}).close();`;
+
+      const procs = Array.from({ length: 6 }, () =>
+        Bun.spawn(['bun', '-e', script], { stdout: 'pipe', stderr: 'pipe' }),
+      );
+      const results = await Promise.all(
+        procs.map(async (p) => ({
+          code: await p.exited,
+          err: await new Response(p.stderr).text(),
+        })),
+      );
+
+      const failed = results.filter((r) => r.code !== 0);
+      // Surface the real stderr in the failure message rather than a bare count.
+      expect(failed.map((f) => f.err).join('\n---\n')).toBe('');
+      expect(failed).toHaveLength(0);
+    } finally {
+      await rm(raceDir, { recursive: true, force: true });
+    }
+  }, 30_000);
+});
+
 describe('newId', () => {
   it('prefixes the id and stays unique across a tight loop', () => {
     const ids = new Set(Array.from({ length: 1000 }, () => newId('s')));
