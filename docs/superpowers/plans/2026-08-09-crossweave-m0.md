@@ -1425,7 +1425,7 @@ git commit -m "feat(isolation): add git worktree create, remove and list"
 - Test: `tests/domain/workspace.test.ts`
 
 **Interfaces:**
-- Consumes: `WorkspaceRepo`, `SessionRepo`, `newId`, `findProjectRoot`, `CrossweaveError`
+- Consumes: `WorkspaceRepo`, `SessionRepo`, `newId`, `CrossweaveError`, and `realpathSync` from `node:fs`. It does NOT consume `findProjectRoot` — resolving the git root is the caller's job (the daemon does it in Task 10); `init` only normalises whatever root it is handed.
 - Produces:
   - `interface WorkspaceInfo { workspace: WorkspaceRow; sessions: SessionRow[] }`
   - `class WorkspaceManager` with constructor `(db: Database)` and methods `init(projectRoot: string, name?: string): WorkspaceRow`, `list(): WorkspaceRow[]`, `info(id: string): WorkspaceInfo`, `resolve(nameOrId: string): WorkspaceRow`, `delete(id: string, opts: { force?: boolean }): void`
@@ -1436,12 +1436,13 @@ Create `tests/domain/workspace.test.ts`:
 
 ```ts
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Database } from 'bun:sqlite';
 import { openDatabase } from '../../src/db/open.js';
 import { SessionRepo } from '../../src/db/repositories/session.js';
+import { WorkspaceRepo, type WorkspaceRow } from '../../src/db/repositories/workspace.js';
 import { WorkspaceManager } from '../../src/domain/workspace.js';
 import { newId } from '../../src/core/ids.js';
 
@@ -1535,6 +1536,74 @@ describe('WorkspaceManager.info', () => {
     expect(mgr.info(ws.id)).toEqual({ workspace: ws, sessions: [] });
   });
 });
+
+describe('WorkspaceManager identity and ambiguity', () => {
+  // Regression: root_path is a workspace's identity, so it must be compared in one
+  // spelling. Reaching the same directory through a symlink used to create a second
+  // workspace for it.
+  it('treats a symlinked root as the same workspace', async () => {
+    const real = await mkdtemp(join(tmpdir(), 'cw-real-'));
+    const linkDir = await mkdtemp(join(tmpdir(), 'cw-link-'));
+    const alias = join(linkDir, 'alias');
+    await symlink(real, alias);
+    try {
+      const a = mgr.init(real);
+      const b = mgr.init(alias);
+      expect(b.id).toBe(a.id);
+      expect(mgr.list()).toHaveLength(1);
+    } finally {
+      await rm(real, { recursive: true, force: true });
+      await rm(linkDir, { recursive: true, force: true });
+    }
+  });
+
+  it('leaves a path that does not exist exactly as given', () => {
+    expect(mgr.init('/tmp/projects/never-created').rootPath).toBe('/tmp/projects/never-created');
+  });
+
+  it('returns the existing row and ignores a different name for the same root', () => {
+    const first = mgr.init('/tmp/projects/app', 'original');
+    const second = mgr.init('/tmp/projects/app', 'renamed');
+    expect(second.id).toBe(first.id);
+    expect(second.name).toBe('original');
+  });
+
+  // Regression: a concurrent writer between init's read and its write used to
+  // surface a raw SQLiteError naming a table column. Stubbing findByRoot to miss
+  // once reproduces exactly that window.
+  it('returns the winner when a concurrent writer takes the root first', () => {
+    const root = '/tmp/projects/raced';
+    new WorkspaceRepo(db).insert({
+      id: newId('ws'), name: 'winner', rootPath: root,
+      createdAt: '2026-08-09T00:00:00.000Z',
+      defaultIsolation: 'worktree', safeModeTier: 'T3',
+    });
+
+    const internals = mgr as unknown as { workspaces: WorkspaceRepo };
+    const real = internals.workspaces.findByRoot.bind(internals.workspaces);
+    let missed = false;
+    internals.workspaces.findByRoot = (p: string): WorkspaceRow | undefined => {
+      if (!missed) { missed = true; return undefined; }
+      return real(p);
+    };
+
+    expect(mgr.init(root, 'loser').name).toBe('winner');
+  });
+
+  it('refuses to resolve an ambiguous name instead of guessing', () => {
+    mgr.init('/tmp/projects/one', 'shared');
+    mgr.init('/tmp/projects/two', 'shared');
+    expect(() => mgr.resolve('shared')).toThrowError(
+      expect.objectContaining({ code: 'WORKSPACE_NAME_AMBIGUOUS' }) as unknown as Error,
+    );
+  });
+
+  it('still resolves a unique name, and id always wins', () => {
+    const only = mgr.init('/tmp/projects/solo', 'solo');
+    expect(mgr.resolve('solo').id).toBe(only.id);
+    expect(mgr.resolve(only.id).id).toBe(only.id);
+  });
+});
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1545,6 +1614,7 @@ Expected: FAIL — cannot resolve `../../src/domain/workspace.js`.
 - [ ] **Step 3: Implement `src/domain/workspace.ts`**
 
 ```ts
+import { realpathSync } from 'node:fs';
 import { basename } from 'node:path';
 import type { Database } from 'bun:sqlite';
 import { CrossweaveError } from '../core/errors.js';
@@ -1566,19 +1636,53 @@ export class WorkspaceManager {
     this.sessions = new SessionRepo(db);
   }
 
+  /**
+   * `root_path` is the identity of a workspace, so it has to be compared in one
+   * spelling. A path that exists on disk gets canonicalised; one that does not cannot
+   * be a symlink alias for anything, so it is used as written — which is also what
+   * keeps this function filesystem-free for callers that pass a path that is not
+   * there yet.
+   */
+  private static canonicalRoot(projectRoot: string): string {
+    try {
+      return realpathSync(projectRoot);
+    } catch {
+      return projectRoot;
+    }
+  }
+
+  /**
+   * Idempotent for a given root. Passing a different `name` for a root that already
+   * exists returns the existing row unchanged rather than renaming it — rename is
+   * `workspace rename`'s job, not init's.
+   */
   init(projectRoot: string, name?: string): WorkspaceRow {
-    const existing = this.workspaces.findByRoot(projectRoot);
+    const root = WorkspaceManager.canonicalRoot(projectRoot);
+    const existing = this.workspaces.findByRoot(root);
     if (existing) return existing;
 
     const row: WorkspaceRow = {
       id: newId('ws'),
-      name: name ?? basename(projectRoot),
-      rootPath: projectRoot,
+      name: name ?? basename(root),
+      rootPath: root,
       createdAt: new Date().toISOString(),
       defaultIsolation: 'worktree',
       safeModeTier: 'T3',
     };
-    this.workspaces.insert(row);
+
+    try {
+      this.workspaces.insert(row);
+    } catch (cause) {
+      // Another process inserted this root between our read and our write. The
+      // UNIQUE constraint on root_path is what makes that safe to recover from;
+      // without this the caller would get a raw SQLiteError naming a table column.
+      const raced = this.workspaces.findByRoot(root);
+      if (raced) return raced;
+      throw new CrossweaveError(
+        'WORKSPACE_INIT_FAILED',
+        `Could not create workspace at ${root}: ${(cause as Error).message}`,
+      );
+    }
     return row;
   }
 
@@ -1586,8 +1690,25 @@ export class WorkspaceManager {
     return this.workspaces.list();
   }
 
+  /**
+   * Id wins over name. Names are NOT unique in the schema, and `delete` is built on
+   * this — silently picking the first of several same-named workspaces would delete
+   * one the caller did not mean. Ambiguity therefore fails closed and demands an id.
+   */
   resolve(nameOrId: string): WorkspaceRow {
-    const found = this.workspaces.findById(nameOrId) ?? this.workspaces.findByName(nameOrId);
+    const byId = this.workspaces.findById(nameOrId);
+    if (byId) return byId;
+
+    const byName = this.workspaces.list().filter((w) => w.name === nameOrId);
+    if (byName.length > 1) {
+      throw new CrossweaveError(
+        'WORKSPACE_NAME_AMBIGUOUS',
+        `${byName.length} workspaces are named ${nameOrId}: ` +
+          `${byName.map((w) => `${w.id} (${w.rootPath})`).join(', ')}. Use the id instead.`,
+      );
+    }
+
+    const found = byName[0];
     if (!found) {
       throw new CrossweaveError('WORKSPACE_NOT_FOUND', `No such workspace: ${nameOrId}`);
     }
