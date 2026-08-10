@@ -112,7 +112,8 @@ for M3 or another near-term milestone rather than assumed to already exist.
 | Fix | Why the gap is accepted |
 |---|---|
 | `session.mcpInfo`'s `listening()` check is a latch that doesn't reset when a server closes. In the brief window between the runtime's exit callback calling `handle.close()` and the map entry actually being deleted, `session.mcpInfo` can still hand back a path nothing is listening on. | Confirmed observable in a tight probe loop (2/27), not just theoretical — but it's a narrower version of a window that existed before this milestone's fix, not a new one, and the fix already closed the much larger "server never bound at all" case. One-line follow-up: read `netServer.listening` directly instead of a latch. |
-| The message-handling `.catch()` added to prevent an unhandled rejection from killing the daemon (`src/mcp/server.ts`) is fully silent — a genuine bug in that path now produces no response and no log, and the client waits forever on that request id. | Crash-prevention was the explicit priority; a `process.stderr.write` inside the catch would restore debuggability at zero additional crash risk, but wasn't required by the finding that motivated the fix. |
+| `context_entry.scope` allows `'private'`, but nothing ever writes it: `ContextStore.publish` hardcodes `'shared'` and there is no private-context tool. | The column and its CHECK constraint are the schema half of a feature whose write path arrives later; a shipped `'private'` scope with no way to create or read it would be the worse choice. `cw_read_context` deliberately refuses to resolve a non-shared entry by id, so the scope is enforced rather than merely unused. |
+| A session created before schema v4 has no recorded fork point, so `blame()` skips it entirely — no attribution at all for its commits, rather than the pre-v4 attribution. | Deliberate: the whole point of the fork point is that a dynamically derived base is sometimes wrong and, because the event table is append-only, wrongly-attributed rows are permanent. No attribution is recoverable; a wrong one is not. Only affects databases created during M2 development. |
 | `MessageBus.broadcast`'s live-session filter hardcodes `['idle','running','waiting']` instead of reusing `SessionRepo`'s `LIVE_STATUSES` constant (module-private; `SessionManager` doesn't expose a `listLive()` accessor `MessageBus` could call). | Currently consistent (verified identical values); no compiler or test signal if the two ever drift apart. Would need a small `SessionManager` API addition to close, out of this task's file scope. |
 | `reconcile()`'s two-condition split (Section 2 above) was found and fixed, but its fix round also self-corrected a genuine race the implementer introduced mid-fix (`session.mcpInfo` returning a socket path before the MCP server had finished attempting to bind). | The final state was independently re-verified race-free by a second reviewer with fresh behavioral probes (15/15 consecutive session starts immediately followed by a real socket connect, all reachable) — not just re-read. Noted here only so the fix's history is on record. |
 | MCP server socket files (`cw-mcp-*.sock` under `os.tmpdir()`) are not cleaned up on `SIGINT`/`SIGTERM` — the daemon's signal handler closes only the RPC socket, not tracked MCP servers or running sessions. | Harmless in practice (session ids never repeat, so no collision risk; a stale socket file is unlinked automatically on the next attempt to bind that exact name, which never happens) but leaves files accumulating in `$TMPDIR` across ungraceful daemon exits. `daemon.shutdown` (the graceful RPC path) does close everything correctly. |
@@ -120,7 +121,28 @@ for M3 or another near-term milestone rather than assumed to already exist.
 
 ---
 
-## 7. Process note for whoever picks up M3
+## 7. What the final whole-branch review caught
+
+Four defects survived every task-scoped review and were only visible from the whole
+branch. All four are fixed and behaviorally re-verified; they are recorded here because
+each is a class of bug worth looking for again in M3.
+
+1. **Nothing ever marked a message delivered.** `MessageBus.deliver` had no production
+   caller at all — Task 3 specified it, Task 7's tool set never called it, and each half
+   was individually correct. `cw_inbox` re-surfaced every message a session had ever
+   received on every poll, forever. Neither task's own review could see it.
+2. **`syncCommits` derived its attribution boundary at blame time** from whatever branch
+   was checked out in the user's own checkout, so switching branches there attributed
+   their commits to a session — permanently, the event table being append-only. Fixed by
+   capturing the fork point when the worktree is created (schema v4, `session.forked`).
+3. **The MCP framer lost its max-line-length cap** when it was hand-rolled from the RPC
+   decoder's. Both now share `src/core/framing.ts` so the safety property cannot drift
+   apart again — the general lesson for any second copy of hardened code.
+4. **A stale `close()` could unlink a newer MCP server's socket** and delete its map
+   entry, leaving it running, unreachable and untracked. Both the file (inode identity)
+   and the map entry (handle identity) are now owned rather than addressed by name.
+
+## 8. Process note for whoever picks up M3
 
 Both of this milestone's most serious defects — the `cw blame` early-return bug and the
 daemon-restart-destroys-running-sessions bug — were caught by careful task-scoped review
