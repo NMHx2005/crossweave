@@ -11,7 +11,11 @@
 ## Global Constraints
 
 - **Bun >= 1.3.5.** Not Node. Bun supplies the pty (`Bun.spawn({terminal})`), the database (`bun:sqlite`), the test runner (`bun test`) and the bundler (`bun build --compile`) as built-ins. That is what takes the dependency count to two and the native-module count to zero.
-- **ZERO native dependencies. Non-negotiable.** This is the security property the runtime was chosen for: with no native module there is no compile-or-download step at install time, so no `postinstall` script ever runs on a user's machine. A dependency that ships a `.node` binary is grounds for rejecting the change, not for adding an exception.
+- **No native RUNTIME dependency, and nothing that compiles or downloads at install time.** This is the security property the runtime was chosen for, and it is worth stating precisely rather than as a slogan, because the slogan is not literally true: `bun install` places a 24 MB prebuilt native `tsc` in `node_modules`, arriving as an optional dependency of TypeScript 7.
+
+  The rule that actually matters: **no dependency may run an install script, and nothing that reaches a user may be a native module.** A prebuilt binary belonging to a devDependency, which executes no install hook and never ships inside `dist/cw`, does not violate it. A `.node` addon in the runtime dependency graph does, and is grounds for rejecting the change.
+
+  Verify with `bun pm ls` plus a check that no dependency declares `preinstall`/`install`/`postinstall` — not by assuming a package count.
 - **Only two runtime dependencies are permitted: `simple-git` and `citty`.** Both are pure JavaScript. Anything else must be built on a Bun or Web standard API.
 - **POSIX only for M0 (macOS, Linux).** Bun's pty support is POSIX-only, and the daemon is built on unix domain sockets. `package.json` declares `"os": ["darwin", "linux"]`. Windows is not a V1 target and must not be half-supported.
 - **Isolate the three runtime-specific seams** so the runtime stays a reversible decision: the pty behind `AgentAdapter` (Task 7), sqlite behind the repository classes (Tasks 3–4), and the socket behind `node:net` — which Bun implements — rather than `Bun.listen`. Nothing else in the codebase may import a `Bun.*` global.
@@ -699,8 +703,9 @@ export function openDatabase(dbPath: string): Database {
   // 0700 at the source. The database sits beside the daemon socket and holds every
   // session's state, and `mode` on mkdirSync applies only at CREATION — so whichever
   // caller makes the directory first is the one that decides its permissions. The
-  // daemon re-chmods defensively for the already-exists case, but a caller that opens
-  // the database without starting a daemon (the CLI does) must not leave it open.
+  // daemon is currently the only caller, and it re-chmods defensively for the
+  // already-exists case; setting the mode here means a future caller that opens the
+  // database without starting a daemon cannot silently widen it.
   mkdirSync(dirname(dbPath), { recursive: true, mode: 0o700 });
   const db = new Database(dbPath, { create: true });
 
@@ -1320,7 +1325,7 @@ git commit -m "feat(db): add session repository"
 Create `tests/helpers/git-fixture.ts`:
 
 ```ts
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { realpathSync } from 'node:fs';
@@ -1331,15 +1336,37 @@ export interface GitFixture {
   cleanup: () => Promise<void>;
 }
 
-/** A temp git repo with one commit on `main`. */
-export async function makeGitFixture(): Promise<GitFixture> {
-  const root = realpathSync(await mkdtemp(join(tmpdir(), 'cw-git-')));
+let template: string | undefined;
+
+/**
+ * Built once per process, then copied per fixture.
+ *
+ * Creating it per test meant six git subprocesses inside `beforeEach`, against Bun's
+ * 5s default hook timeout. Under load that chain exceeded it: the same seven
+ * isolation tests measured 934ms, 1112ms and 7.43s across three consecutive runs, and
+ * a gate run failed outright with "a beforeEach/afterEach hook timed out". A
+ * directory copy is one syscall-bound operation instead.
+ */
+async function gitTemplate(): Promise<string> {
+  if (template !== undefined) return template;
+  const root = realpathSync(await mkdtemp(join(tmpdir(), 'cw-template-')));
   await $`git init -q -b main`.cwd(root).quiet();
   await $`git config user.email test@crossweave.dev`.cwd(root).quiet();
   await $`git config user.name ${'crossweave test'}`.cwd(root).quiet();
   await writeFile(join(root, 'README.md'), '# fixture\n');
   await $`git add .`.cwd(root).quiet();
   await $`git commit -q -m init`.cwd(root).quiet();
+  template = root;
+  return root;
+}
+
+/** A temp git repo with one commit on `main`. */
+export async function makeGitFixture(): Promise<GitFixture> {
+  const src = await gitTemplate();
+  const root = realpathSync(await mkdtemp(join(tmpdir(), 'cw-git-')));
+  // The template has no worktrees, so its .git holds no absolute paths and copies
+  // cleanly. Anything that adds a worktree to the TEMPLATE would break that.
+  await cp(src, root, { recursive: true });
   return { root, cleanup: () => rm(root, { recursive: true, force: true }) };
 }
 ```
@@ -2798,9 +2825,11 @@ export function encodeFrame(msg: RpcRequest | RpcResponse): string {
 }
 
 /**
- * A line longer than this is corrupt or hostile. The daemon accepts connections, so
- * a buffer that grows without limit is a memory-exhaustion vector. Set far above any
- * legitimate frame — session scrollback and diffs are the largest payloads.
+ * Bounds an UNTERMINATED line that keeps growing — the memory-exhaustion vector,
+ * since the daemon accepts connections. It does NOT bound a complete oversized frame
+ * that arrives with its own newline: the loop drains that as an ordinary line before
+ * the length check runs. Set far above any legitimate frame; session scrollback and
+ * diffs are the largest payloads.
  */
 const MAX_LINE_LENGTH = 16 * 1024 * 1024;
 
@@ -3424,6 +3453,32 @@ describe('DaemonClient', () => {
     client.close();
   });
 
+  // Regression: `connect` strips its temporary 'error' listener once connected, and
+  // without re-registering one a socket error is THROWN by Node as an uncaught
+  // exception — a raw stack trace with internal $bunfs paths, killing the CLI instead
+  // of failing the call. Removing that listener left the whole suite green.
+  it('a socket error does not escape as an uncaught exception', async () => {
+    daemon = createDaemon({ socketPath, methods: buildMethods(db, fx.root) });
+    await daemon.listen();
+    const client = await DaemonClient.connect(socketPath);
+
+    let uncaught: unknown;
+    const onUncaught = (err: unknown): void => { uncaught = err; };
+    process.once('uncaughtException', onUncaught);
+    try {
+      await daemon.close();
+      daemon = undefined;
+      while (client.isConnected) await new Promise((r) => setTimeout(r, 5));
+      // Writing into the dead socket is what raises the error event.
+      await expect(client.call('ping')).rejects.toMatchObject({ code: 'DAEMON_GONE' });
+      await new Promise((r) => setTimeout(r, 50));
+    } finally {
+      process.removeListener('uncaughtException', onUncaught);
+    }
+    expect(uncaught).toBeUndefined();
+    client.close();
+  });
+
   it('one throwing close handler does not starve the others', async () => {
     daemon = createDaemon({ socketPath, methods: buildMethods(db, fx.root) });
     await daemon.listen();
@@ -3843,7 +3898,10 @@ export function fail(err: unknown): never {
   // Collapse to exactly one line. Errors that wrap a subprocess's output carry its
   // multi-line stderr, and those extra lines would reach the terminal with no `CODE:`
   // prefix — the one thing a script or the TUI cannot parse.
-  const message = String((err as Error).message).replace(/\s*\n\s*/g, ' ');
+  // [\r\n] not just \n: a lone carriage return can overwrite the line in a terminal.
+  // Trimmed because a wrapped message that ended in a newline otherwise leaves a
+  // stray trailing space.
+  const message = String((err as Error).message).replace(/\s*[\r\n]+\s*/g, ' ').trim();
   process.stderr.write(`${code}: ${message}\n`);
   process.exit(1);
 }
@@ -4010,6 +4068,23 @@ export const sessionCommand = defineCommand({
               workspaceId, idOrName: args.target, newName: args.newName,
             });
             process.stdout.write(`${s.name}\n`);
+          });
+        } catch (err) { fail(err); }
+      },
+    }),
+
+    // Without this the stop/kill distinction exists only over RPC, and the decision
+    // that `kill` is terminal has no escape hatch a user can reach — SESSION_ENDED
+    // would be advising a command that does not exist.
+    stop: defineCommand({
+      meta: { name: 'stop', description: 'Stop the agent but keep the session resumable' },
+      args: { target: { type: 'positional', description: 'Session name or id' } },
+      async run({ args }) {
+        try {
+          await withClient(async (client) => {
+            const workspaceId = await currentWorkspaceId(client);
+            await client.call('session.stop', { workspaceId, idOrName: args.target });
+            process.stdout.write(`stopped ${args.target}\n`);
           });
         } catch (err) { fail(err); }
       },
@@ -4762,10 +4837,13 @@ Add a public accessor so the method table can build an adapter when starting:
 
   /**
    * The agent process ended. Called from the runtime's ASYNCHRONOUS exit handler, so
-   * it must not clobber a terminal state that a synchronous caller already wrote:
-   * `kill()` sets `dead` immediately after SIGTERM, and the pty's exit callback lands
-   * afterwards. Without this guard a killed session reads back as `idle` and
-   * `cw session list` lies about it.
+   * it must not clobber a terminal state.
+   *
+   * The original race is no longer reachable — `kill()` now awaits `onKill` before
+   * writing `dead`, so the exit callback has already run by then. The guard stays as
+   * defence in depth: any future caller that writes a terminal state without awaiting
+   * the reap would reintroduce it, and the failure mode is `cw session list` reporting
+   * a killed session as `idle`.
    */
   clearRunning(id: string): void {
     const row = this.sessions.findById(id);
@@ -5230,6 +5308,11 @@ describe('compiled binaries', () => {
       await Bun.spawn([cwBin, 'daemon', 'stop'], {
         cwd: fx.root, stdout: 'ignore', stderr: 'ignore',
       }).exited;
+
+      // And ASSERTED, because the await alone guarded nothing: reverting it to
+      // fire-and-forget still passed 3/3 while daemons accumulated 1, 2, 3.
+      const survivors = Bun.spawnSync(['pgrep', '-f', cwdBin]);
+      expect(survivors.stdout.toString().trim()).toBe('');
     } finally {
       await fx.cleanup();
     }
@@ -5381,7 +5464,7 @@ git commit -m "feat(packaging): compile cw and cwd to standalone binaries"
 - Two sessions get two worktrees and writes in one are invisible in the other.
 - Every error path exits non-zero with a stable `CODE: message` line on stderr.
 - The daemon starts on demand and stops cleanly with `cw daemon stop`, killing any agents it owns.
-- `bun install` pulls exactly two packages, runs no postinstall script and invokes no compiler.
+- `bun install` pulls exactly **two direct runtime dependencies** (`citty`, `simple-git`); the full tree is larger because of devDependencies and transitives. What must hold is that **no dependency runs an install script and no compiler is invoked**.
 - `bun run build` produces `dist/cw` and `dist/cwd`, and `dist/cw init` works on a machine with no Bun and no Node installed.
 - The daemon socket is `0600` and `.crossweave/` is `0700`.
 
