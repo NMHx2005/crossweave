@@ -504,7 +504,13 @@ For each of `WorkspaceRepo.findByName`, `listWorktreePaths`, `SessionRepo.delete
 grep -rn "<symbol>" src/ tests/
 ```
 
-**`SessionRepo.delete` now has callers** — Task 1 added them. Keep it. `listWorktreePaths` is used by Task 1's tests; keep it and delete only its `src/` claim to being unused. Report what you find for each rather than assuming this list is current.
+This list is from M0's review and is **already out of date by the time you reach it** — that is the point of running the greps rather than trusting it:
+
+- `SessionRepo.delete` — Task 1 added callers. **Keep.**
+- `listWorktreePaths` — Task 11's gc calls it to sweep orphaned worktrees. **Keep.**
+- `SessionRepo.findByWorktreePath` — added by Task 11, so it will exist by then. **Keep.**
+
+Report what you actually find for each symbol. If a grep contradicts this list, the grep is right.
 
 - [ ] **Step 2: Remove the ones with no caller at all**
 
