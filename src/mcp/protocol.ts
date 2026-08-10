@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { StringDecoder } from 'node:string_decoder';
+import { createLineFramer } from '../core/framing.js';
 
 export interface McpToolResult {
   content: { type: 'text'; text: string }[];
@@ -20,26 +20,15 @@ export interface McpTool {
  * data in arbitrary chunks — a message can arrive split across two `data` events,
  * or two messages can arrive in one. This buffers the tail of an incomplete line
  * between calls and calls `onMessage` once per complete line.
+ *
+ * The reassembly, and the `MAX_LINE_LENGTH` cap that stops an MCP client from
+ * growing the daemon's heap by never sending a newline, both live in the shared
+ * framer — the same one `src/daemon/rpc.ts` uses, so the two transports cannot end
+ * up with different safety properties again.
  */
 export function framedLines(onMessage: (line: string) => void): { feed(chunk: Buffer | string): void } {
-  let buffer = '';
-  // One decoder per framer instance, reused across every `feed()` call: a multi-byte
-  // UTF-8 codepoint can straddle two socket chunks, and `StringDecoder` buffers the
-  // dangling partial sequence internally until the rest arrives, instead of the
-  // corruption that `chunk.toString('utf8')` on each chunk independently would produce.
-  const decoder = new StringDecoder('utf8');
-  return {
-    feed(chunk: Buffer | string): void {
-      buffer += typeof chunk === 'string' ? chunk : decoder.write(chunk);
-      let newlineIndex = buffer.indexOf('\n');
-      while (newlineIndex !== -1) {
-        const line = buffer.slice(0, newlineIndex).trim();
-        buffer = buffer.slice(newlineIndex + 1);
-        if (line.length > 0) onMessage(line);
-        newlineIndex = buffer.indexOf('\n');
-      }
-    },
-  };
+  const feed = createLineFramer(onMessage);
+  return { feed };
 }
 
 const SOCKET_PATH_SAFE_MAX = 90; // margin under macOS's ~104 / Linux's ~108 byte AF_UNIX cap

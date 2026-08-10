@@ -24,6 +24,24 @@ describe('framedLines', () => {
     expect(lines).toEqual(['real']);
   });
 
+  it('discards an over-long line and resynchronises at the next newline', () => {
+    // Same property (and same assertions) as tests/daemon/rpc.test.ts's decoder test:
+    // an MCP client that writes without ever sending a newline must not be able to
+    // grow the daemon's heap without limit. The 8 KB / 64 KB body caps downstream
+    // only run once a full line has been buffered and parsed — far too late.
+    const lines: string[] = [];
+    const framer = framedLines((line) => lines.push(line));
+
+    framer.feed('x'.repeat(17 * 1024 * 1024));
+    expect(lines).toHaveLength(0);
+
+    framer.feed('tail-of-the-oversized-line\n');
+    expect(lines).toHaveLength(0);
+
+    framer.feed('{"jsonrpc":"2.0","id":9,"method":"after"}\n');
+    expect(lines).toEqual(['{"jsonrpc":"2.0","id":9,"method":"after"}']);
+  });
+
   it('reassembles a UTF-8 multi-byte character split mid-codepoint across chunks', () => {
     const lines: string[] = [];
     const framer = framedLines((line) => lines.push(line));
