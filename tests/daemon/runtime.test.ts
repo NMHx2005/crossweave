@@ -415,4 +415,29 @@ describe('session runtime', () => {
     });
     await waitFor(() => seen.includes('M=from-client'));
   }, 20_000);
+
+  // Regression: `start` used to await `leaseManager.acquire` BEFORE `runtime.start`
+  // registered the session as running, and the server dispatches each socket message
+  // via `void handle(...)` without serializing them. Two `session.start` calls fired
+  // without awaiting the first — not a sequential `await` pair, which never creates
+  // the race — could both pass their pre-checks, both land in that gap, and both
+  // acquire a full lease block before the second `runtime.start` finally noticed the
+  // session was already running.
+  it('rejects a concurrent second start for the same session before it can double-acquire leases', async () => {
+    await client.call('session.new', { workspaceId, name: 'racer', agent: 'claude', worktree: true });
+
+    const results = await Promise.allSettled([
+      client.call('session.start', { workspaceId, idOrName: 'racer' }),
+      client.call('session.start', { workspaceId, idOrName: 'racer' }),
+    ]);
+
+    const fulfilled = results.filter((r) => r.status === 'fulfilled');
+    const rejected = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0]?.reason).toMatchObject({ code: 'SESSION_ALREADY_RUNNING' });
+
+    const leases = new LeaseRepo(db);
+    expect(leases.listActive('port')).toHaveLength(1);
+  }, 20_000);
 });

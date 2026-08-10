@@ -69,6 +69,18 @@ export function buildMethods(
     leaseManager.release(sessionId);
   });
   sessions.onKill = (id) => runtime.stop(id);
+
+  // `start` awaits `leaseManager.acquire` before `runtime.start` registers the
+  // session as running, so two rapid `session.start`/`session.resume` RPCs for the
+  // SAME session (the server dispatches each socket message via `void handle(...)`,
+  // unserialized) can both pass their pre-checks and both land in that gap, each
+  // acquiring a full lease block before the second `runtime.start` finally throws
+  // SESSION_ALREADY_RUNNING. The check-and-mark below runs entirely synchronously,
+  // before `start`'s first `await` — JS/Bun's single-threaded execution makes that
+  // atomic, so no lock is needed, only removing the entry in `finally` so a throw
+  // from either `acquire` or `runtime.start` cannot leave the session stuck
+  // "starting" forever.
+  const starting = new Set<string>();
   // NOTE: the runtime only knows processes THIS daemon started. After a daemon
   // restart the row can still carry a pid from the previous one, and killing such a
   // session signals nothing. Signalling the stale pid directly is NOT safe — pids are
@@ -96,12 +108,22 @@ export function buildMethods(
   async function start(p: Record<string, unknown>): Promise<SessionRow> {
     const row = sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName'));
     assertResumable(row);
-    // A lease must win over the client's shell, or a session's port would depend on
-    // what the user happened to export.
-    const env = { ...clientEnv(p), ...(await leaseManager.acquire(row.id)) };
-    const pid = runtime.start(row, sessions.adapterFor(row.agentKind), env);
-    sessions.markStatus(row.id, 'running', pid);
-    return sessions.resolve(row.workspaceId, row.id);
+    // Synchronous check-and-mark, before the first `await` below: see the comment
+    // on `starting` above for why this closes the concurrent-start race.
+    if (starting.has(row.id)) {
+      throw new CrossweaveError('SESSION_ALREADY_RUNNING', `Session already starting: ${row.name}`);
+    }
+    starting.add(row.id);
+    try {
+      // A lease must win over the client's shell, or a session's port would depend
+      // on what the user happened to export.
+      const env = { ...clientEnv(p), ...(await leaseManager.acquire(row.id)) };
+      const pid = runtime.start(row, sessions.adapterFor(row.agentKind), env);
+      sessions.markStatus(row.id, 'running', pid);
+      return sessions.resolve(row.workspaceId, row.id);
+    } finally {
+      starting.delete(row.id);
+    }
   }
 
   return {
