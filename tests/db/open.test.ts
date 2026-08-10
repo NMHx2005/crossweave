@@ -63,6 +63,17 @@ describe('openDatabase', () => {
     expect(lease.n).toBe(0);
     db2.close();
   });
+
+  it('migrates to schema version 3 with event, message and context_entry tables', () => {
+    const db = openDatabase(join(dir, 'state.db'));
+    const tables = (
+      db.query("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[]
+    ).map((r) => r.name);
+    expect(tables).toContain('event');
+    expect(tables).toContain('message');
+    expect(tables).toContain('context_entry');
+    db.close();
+  });
 });
 
 describe('openDatabase under concurrency', () => {

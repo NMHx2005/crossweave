@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 /**
  * Each migration is a list of single statements, never one multi-statement blob.
@@ -49,5 +49,43 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
   )`,
     `CREATE INDEX lease_active ON lease (kind, released_at)`,
     `CREATE INDEX lease_by_session ON lease (session_id)`,
+  ],
+  [
+    `CREATE TABLE event (
+    id           TEXT PRIMARY KEY,
+    session_id   TEXT NOT NULL REFERENCES session(id) ON DELETE CASCADE,
+    workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+    ts           TEXT NOT NULL,
+    kind         TEXT NOT NULL CHECK (kind IN ('session.started', 'commit.made')),
+    payload      TEXT NOT NULL
+  )`,
+    `CREATE INDEX event_by_session ON event (session_id, ts)`,
+    `CREATE INDEX event_by_workspace_kind ON event (workspace_id, kind, ts)`,
+
+    `CREATE TABLE message (
+    id           TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+    from_session TEXT NOT NULL REFERENCES session(id) ON DELETE CASCADE,
+    to_session   TEXT NOT NULL REFERENCES session(id) ON DELETE CASCADE,
+    type         TEXT NOT NULL CHECK (type IN ('direct','broadcast','handoff')),
+    body         TEXT NOT NULL,
+    context_ref  TEXT,
+    created_at   TEXT NOT NULL,
+    delivered_at TEXT,
+    trust        TEXT NOT NULL CHECK (trust IN ('system','user','agent'))
+  )`,
+    `CREATE INDEX message_pending ON message (to_session, delivered_at)`,
+
+    `CREATE TABLE context_entry (
+    id           TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+    session_id   TEXT NOT NULL REFERENCES session(id) ON DELETE CASCADE,
+    scope        TEXT NOT NULL CHECK (scope IN ('private','shared')),
+    key          TEXT NOT NULL,
+    body         TEXT NOT NULL,
+    created_at   TEXT NOT NULL,
+    UNIQUE (workspace_id, session_id, key)
+  )`,
+    `CREATE INDEX context_shared ON context_entry (workspace_id, scope)`,
   ],
 ];
