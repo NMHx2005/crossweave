@@ -1,6 +1,9 @@
+import { realpathSync } from 'node:fs';
+import { relative, resolve } from 'node:path';
 import { defineCommand } from 'citty';
 import { withClient, fail, currentWorkspaceId } from '../context.js';
 import { CrossweaveError } from '../../core/errors.js';
+import { assertContained } from '../../core/paths.js';
 
 interface BlameResult {
   sessionId: string;
@@ -29,9 +32,19 @@ export const blameCommand = defineCommand({
         throw new CrossweaveError('INVALID_ARGUMENTS', `Expected a positive line number, got: ${lineText}`);
       }
 
-      await withClient(async (client) => {
+      await withClient(async (client, projectRoot) => {
         const workspaceId = await currentWorkspaceId(client);
-        const result = await client.call<BlameResult | null>('blame', { workspaceId, file, line });
+        // The daemon runs `git blame` from the project root, so the path it is sent
+        // must be repo-relative. Resolving the user's argument against THEIR cwd
+        // first is what makes `cw blame foo.ts:1` work from a subdirectory instead
+        // of silently reporting "no attribution found" for a path that was never
+        // theirs; a target outside the repo fails with PATH_ESCAPE rather than
+        // quietly finding nothing.
+        const root = realpathSync(projectRoot);
+        const repoRelative = relative(root, assertContained(root, resolve(process.cwd(), file)));
+        const result = await client.call<BlameResult | null>('blame', {
+          workspaceId, file: repoRelative, line,
+        });
         if (result === null) {
           process.stdout.write(`no attribution found for ${file}:${line}\n`);
           return;
