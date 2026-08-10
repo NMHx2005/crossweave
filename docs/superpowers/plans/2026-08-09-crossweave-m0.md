@@ -11,7 +11,11 @@
 ## Global Constraints
 
 - **Bun >= 1.3.5.** Not Node. Bun supplies the pty (`Bun.spawn({terminal})`), the database (`bun:sqlite`), the test runner (`bun test`) and the bundler (`bun build --compile`) as built-ins. That is what takes the dependency count to two and the native-module count to zero.
-- **ZERO native dependencies. Non-negotiable.** This is the security property the runtime was chosen for: with no native module there is no compile-or-download step at install time, so no `postinstall` script ever runs on a user's machine. A dependency that ships a `.node` binary is grounds for rejecting the change, not for adding an exception.
+- **No native RUNTIME dependency, and nothing that compiles or downloads at install time.** This is the security property the runtime was chosen for, and it is worth stating precisely rather than as a slogan, because the slogan is not literally true: `bun install` places a 24 MB prebuilt native `tsc` in `node_modules`, arriving as an optional dependency of TypeScript 7.
+
+  The rule that actually matters: **no dependency may run an install script, and nothing that reaches a user may be a native module.** A prebuilt binary belonging to a devDependency, which executes no install hook and never ships inside `dist/cw`, does not violate it. A `.node` addon in the runtime dependency graph does, and is grounds for rejecting the change.
+
+  Verify with `bun pm ls` plus a check that no dependency declares `preinstall`/`install`/`postinstall` — not by assuming a package count.
 - **Only two runtime dependencies are permitted: `simple-git` and `citty`.** Both are pure JavaScript. Anything else must be built on a Bun or Web standard API.
 - **POSIX only for M0 (macOS, Linux).** Bun's pty support is POSIX-only, and the daemon is built on unix domain sockets. `package.json` declares `"os": ["darwin", "linux"]`. Windows is not a V1 target and must not be half-supported.
 - **Isolate the three runtime-specific seams** so the runtime stays a reversible decision: the pty behind `AgentAdapter` (Task 7), sqlite behind the repository classes (Tasks 3–4), and the socket behind `node:net` — which Bun implements — rather than `Bun.listen`. Nothing else in the codebase may import a `Bun.*` global.
@@ -82,8 +86,7 @@ starts at Task 1 instead of re-deriving all of it.
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "bun test",
-    "build": "bun build ./src/cli/index.ts --compile --outfile dist/cw",
-    "build:daemon": "bun build ./src/daemon/main.ts --compile --outfile dist/cwd"
+    "build": "bun run scripts/build.ts"
   },
   "dependencies": {
     "citty": "^0.2.2",
@@ -223,6 +226,83 @@ describe('assertContained', () => {
     const future = join(root, 'not-created-yet', 'file.ts');
     expect(assertContained(root, future)).toContain('not-created-yet');
   });
+
+  // Regression: `existsSync` follows symlinks and reports false for a dangling one,
+  // so an earlier implementation skipped the link entirely and let writes escape.
+  it('rejects a DANGLING symlink whose target is outside the root', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'cw-outside-'));
+    const link = join(root, 'dangling.txt');
+    await symlink(join(outside, 'not-created-yet.txt'), link);
+    try {
+      expect(() => assertContained(root, link)).toThrowError(
+        expect.objectContaining({ code: 'PATH_ESCAPE' }) as unknown as Error,
+      );
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a path under a DANGLING directory symlink pointing outside the root', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'cw-outside-'));
+    const link = join(root, 'dangling-dir');
+    await symlink(join(outside, 'no-such-dir'), link);
+    try {
+      expect(() => assertContained(root, join(link, 'file.ts'))).toThrowError(
+        expect.objectContaining({ code: 'PATH_ESCAPE' }) as unknown as Error,
+      );
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a symlink loop instead of hanging', async () => {
+    await symlink(join(root, 'loop-b'), join(root, 'loop-a'));
+    await symlink(join(root, 'loop-a'), join(root, 'loop-b'));
+    expect(() => assertContained(root, join(root, 'loop-a'))).toThrowError(
+      expect.objectContaining({ code: 'PATH_ESCAPE' }) as unknown as Error,
+    );
+  });
+
+  it('rejects the root itself, so it can gate deletes', () => {
+    expect(() => assertContained(root, root)).toThrowError(
+      expect.objectContaining({ code: 'PATH_ESCAPE' }) as unknown as Error,
+    );
+  });
+
+  // Regression: hand-dereferencing a symlink must re-canonicalise the target.
+  // `root` here comes from mkdtemp(tmpdir()) and is NOT realpath'd, so on macOS it
+  // reads /var/folders/... while its canonical form is /private/var/folders/... .
+  // A link storing that raw absolute target used to resolve to a path that no longer
+  // shared the canonical root prefix, and a legitimate internal link was rejected.
+  it('accepts an internal symlink whose target is absolute but not canonical', async () => {
+    const realTarget = join(root, 'real-target');
+    await mkdir(realTarget, { recursive: true });
+    await symlink(realTarget, join(root, 'internal-link'));
+    const resolved = assertContained(root, join(root, 'internal-link', 'file.ts'));
+    expect(resolved.endsWith(join('real-target', 'file.ts'))).toBe(true);
+  });
+
+  it('accepts an internal symlink with a relative target', async () => {
+    await mkdir(join(root, 'rel-target'), { recursive: true });
+    await symlink('rel-target', join(root, 'rel-link'));
+    const resolved = assertContained(root, join(root, 'rel-link', 'file.ts'));
+    expect(resolved.endsWith(join('rel-target', 'file.ts'))).toBe(true);
+  });
+
+  it('rejects a multi-hop symlink chain that ultimately lands outside the root', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'cw-outside-'));
+    await writeFile(join(outside, 'real.txt'), 'x');
+    await symlink(join(outside, 'real.txt'), join(root, 'hop3'));
+    await symlink(join(root, 'hop3'), join(root, 'hop2'));
+    await symlink(join(root, 'hop2'), join(root, 'hop1'));
+    try {
+      expect(() => assertContained(root, join(root, 'hop1'))).toThrowError(
+        expect.objectContaining({ code: 'PATH_ESCAPE' }) as unknown as Error,
+      );
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
 });
 
 async function realpathEq(a: string, b: string): Promise<boolean> {
@@ -263,7 +343,7 @@ export class CrossweaveError extends Error {
 paths that have not been created yet while still defeating symlink escapes.
 
 ```ts
-import { existsSync, realpathSync } from 'node:fs';
+import { lstatSync, readlinkSync, realpathSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { CrossweaveError } from './errors.js';
@@ -285,24 +365,94 @@ export function crossweaveDir(projectRoot: string): string {
   return join(projectRoot, '.crossweave');
 }
 
-/** Resolve the deepest existing ancestor through symlinks, then re-append the rest. */
-function resolveThroughExisting(candidate: string): string {
-  let head = resolve(candidate);
+const MAX_SYMLINK_HOPS = 32;
+
+/**
+ * Canonicalise the deepest ancestor of `p` that `realpathSync` can resolve, keeping
+ * the remainder lexical.
+ *
+ * A symlink target is a raw stored string. It may be absolute and recorded through a
+ * non-canonical ancestor — on macOS `/var` is itself a symlink to `/private/var`, and
+ * `tmpdir()` lives under it, so `join(root, 'x')` is exactly this shape. Substituting
+ * such a target without re-canonicalising leaves the walk's cursor non-canonical, and a
+ * legitimate *internal* symlink is then rejected because its resolved path no longer
+ * shares the canonical root prefix. `realpathSync` throws for a path that does not
+ * exist, which is what walks us up to the resolvable part.
+ */
+function canonicalExistingPrefix(p: string): string {
+  let head = resolve(p);
   const tail: string[] = [];
-  while (!existsSync(head)) {
-    const parent = dirname(head);
-    if (parent === head) break;
-    tail.unshift(head.slice(parent.length + 1));
-    head = parent;
+  for (;;) {
+    try {
+      return join(realpathSync(head), ...tail);
+    } catch {
+      const parent = dirname(head);
+      if (parent === head) return join(head, ...tail);
+      tail.unshift(head.slice(parent.length + 1));
+      head = parent;
+    }
   }
-  const realHead = existsSync(head) ? realpathSync(head) : head;
-  return tail.length === 0 ? realHead : join(realHead, ...tail);
 }
 
+/**
+ * Resolve `candidate` one component at a time, dereferencing symlinks by hand.
+ *
+ * Why not walk up until `existsSync` is true and `realpathSync` that ancestor:
+ * `existsSync` FOLLOWS symlinks, so it reports false for a symlink whose target
+ * does not exist yet. A dangling symlink inside the root then looks like a
+ * not-yet-created plain component, survives into the returned path unresolved,
+ * and every later write follows it straight out of the root. `lstatSync` sees the
+ * link itself, and `readlinkSync` reads its target even when that target is absent.
+ */
+function resolveNoFollow(realRoot: string, candidate: string): string {
+  const parts = relative(realRoot, resolve(candidate))
+    .split(sep)
+    .filter((p) => p !== '' && p !== '.');
+
+  let current = realRoot;
+  let hops = 0;
+
+  for (const part of parts) {
+    if (part === '..') {
+      current = dirname(current);
+      continue;
+    }
+    let next = join(current, part);
+    for (;;) {
+      let stat;
+      try {
+        stat = lstatSync(next);
+      } catch {
+        break; // Component does not exist at all; the rest stays lexical.
+      }
+      if (!stat.isSymbolicLink()) break;
+      hops += 1;
+      if (hops > MAX_SYMLINK_HOPS) {
+        throw new CrossweaveError('PATH_ESCAPE', `Too many symlinks resolving: ${candidate}`);
+      }
+      const target = readlinkSync(next);
+      next = canonicalExistingPrefix(
+        isAbsolute(target) ? target : resolve(dirname(next), target),
+      );
+    }
+    current = next;
+  }
+
+  return current;
+}
+
+/**
+ * Returns the resolved path when it lies STRICTLY inside `root`.
+ *
+ * The root itself is deliberately rejected: callers use this to decide what is
+ * safe to write to or delete, and `removeWorktree(root, root)` must not be a
+ * legal call. This is a decision, not an accident — `tests/core/paths.test.ts`
+ * pins it.
+ */
 export function assertContained(root: string, candidate: string): string {
   const realRoot = realpathSync(resolve(root));
   const abs = isAbsolute(candidate) ? candidate : join(realRoot, candidate);
-  const resolved = resolveThroughExisting(abs);
+  const resolved = resolveNoFollow(realRoot, abs);
   const rel = relative(realRoot, resolved);
   if (rel === '' || rel.startsWith('..') || isAbsolute(rel) || rel.split(sep).includes('..')) {
     throw new CrossweaveError('PATH_ESCAPE', `Path escapes workspace root: ${candidate}`);
@@ -396,6 +546,42 @@ describe('openDatabase', () => {
       expect.objectContaining({ code: 'SCHEMA_TOO_NEW' }) as unknown as Error,
     );
   });
+});
+
+describe('openDatabase under concurrency', () => {
+  // Regression: two daemons cold-starting at once both died with SQLITE_BUSY before
+  // either reached its socket bind, so the auto-start race ended with no winner and
+  // both clients timed out. Reproduced at roughly 1 in 10 attempts before the fix.
+  // Real processes, not in-process calls — SQLite's locking is per-connection and a
+  // single-process test would not exercise it.
+  it('survives several processes opening the same fresh database at once', async () => {
+    const { fileURLToPath } = await import('node:url');
+    const raceDir = await mkdtemp(join(tmpdir(), 'cw-race-'));
+    try {
+      const dbPath = join(raceDir, '.crossweave', 'state.db');
+      const openModule = fileURLToPath(new URL('../../src/db/open.ts', import.meta.url));
+      const script =
+        `const { openDatabase } = await import(${JSON.stringify(openModule)});` +
+        `openDatabase(${JSON.stringify(dbPath)}).close();`;
+
+      const procs = Array.from({ length: 6 }, () =>
+        Bun.spawn(['bun', '-e', script], { stdout: 'pipe', stderr: 'pipe' }),
+      );
+      const results = await Promise.all(
+        procs.map(async (p) => ({
+          code: await p.exited,
+          err: await new Response(p.stderr).text(),
+        })),
+      );
+
+      const failed = results.filter((r) => r.code !== 0);
+      // Surface the real stderr in the failure message rather than a bare count.
+      expect(failed.map((f) => f.err).join('\n---\n')).toBe('');
+      expect(failed).toHaveLength(0);
+    } finally {
+      await rm(raceDir, { recursive: true, force: true });
+    }
+  }, 30_000);
 });
 
 describe('newId', () => {
@@ -514,39 +700,123 @@ import { MIGRATIONS, SCHEMA_VERSION } from './schema.js';
 export { SCHEMA_VERSION };
 
 export function openDatabase(dbPath: string): Database {
-  mkdirSync(dirname(dbPath), { recursive: true });
+  // 0700 at the source. The database sits beside the daemon socket and holds every
+  // session's state, and `mode` on mkdirSync applies only at CREATION — so whichever
+  // caller makes the directory first is the one that decides its permissions. The
+  // daemon is currently the only caller, and it re-chmods defensively for the
+  // already-exists case; setting the mode here means a future caller that opens the
+  // database without starting a daemon cannot silently widen it.
+  mkdirSync(dirname(dbPath), { recursive: true, mode: 0o700 });
   const db = new Database(dbPath, { create: true });
-  db.run('PRAGMA journal_mode = WAL');
+
+  // Several processes open this file at once — the daemon starting up, and any CLI
+  // invocation racing it. Without busy_timeout SQLite fails a contended lock
+  // INSTANTLY with SQLITE_BUSY rather than waiting, and switching to WAL needs an
+  // exclusive lock. Two cold starts could therefore both die here, before either one
+  // reached its socket bind, leaving the auto-start race with no winner at all.
+  db.run('PRAGMA busy_timeout = 5000');
+  enableWal(db);
   db.run('PRAGMA foreign_keys = ON');
 
+  migrate(db);
+  return db;
+}
+
+const WAL_SWITCH_ATTEMPTS = 20;
+const WAL_SWITCH_DELAY_MS = 25;
+
+/**
+ * Synchronous sleep. `openDatabase` is synchronous and this is the only place in the
+ * codebase that waits; `Atomics.wait` is the portable way to do it without pulling in
+ * a runtime-specific API.
+ */
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function journalMode(db: Database): string {
+  const row = db.query('PRAGMA journal_mode').get() as { journal_mode: string } | null;
+  return row?.journal_mode ?? '';
+}
+
+/**
+ * Switching to WAL takes an exclusive lock, and SQLite answers SQLITE_BUSY for that
+ * particular pragma **without honouring busy_timeout** — measured at a ~4% failure
+ * rate under six-way contention even with busy_timeout already set.
+ *
+ * Reading the mode first means the ordinary case never contends at all: only the
+ * process that creates the file has to switch anything, and every later opener sees
+ * `wal` and returns immediately. The bounded retry exists purely for the creation
+ * race, and converges as soon as any one process wins.
+ */
+function enableWal(db: Database): void {
+  for (let attempt = 0; attempt < WAL_SWITCH_ATTEMPTS; attempt += 1) {
+    if (journalMode(db) === 'wal') return;
+    try {
+      db.run('PRAGMA journal_mode = WAL');
+      if (journalMode(db) === 'wal') return;
+    } catch {
+      // Contended: another process is mid-switch. Wait and re-check.
+    }
+    sleepSync(WAL_SWITCH_DELAY_MS);
+  }
+  db.close();
+  throw new CrossweaveError(
+    'DB_WAL_FAILED',
+    `Could not switch the database to WAL mode after ${WAL_SWITCH_ATTEMPTS} attempts`,
+  );
+}
+
+function readVersion(db: Database): number {
   const hasMeta = db
     .query("SELECT count(*) AS n FROM sqlite_master WHERE type='table' AND name='schema_meta'")
     .get() as { n: number } | null;
+  if (hasMeta === null || hasMeta.n === 0) return 0;
+  const row = db.query('SELECT version FROM schema_meta').get() as { version: number } | null;
+  return row?.version ?? 0;
+}
 
-  let current = 0;
-  if (hasMeta !== null && hasMeta.n > 0) {
-    const row = db.query('SELECT version FROM schema_meta').get() as { version: number } | null;
-    current = row?.version ?? 0;
-  }
+/**
+ * Migrate inside BEGIN IMMEDIATE, reading the current version INSIDE that
+ * transaction.
+ *
+ * busy_timeout alone is not enough. Reading the version first and then migrating is
+ * a check-then-act: two processes can both observe version 0 and both replay
+ * migration 0, and the loser dies on "table schema_meta already exists" rather than
+ * on a lock. BEGIN IMMEDIATE takes the write lock up front, so the second process
+ * waits, then re-reads a version that is already current and does nothing.
+ */
+function migrate(db: Database): void {
+  try {
+    db.run('BEGIN IMMEDIATE');
+    const current = readVersion(db);
 
-  if (current > SCHEMA_VERSION) {
+    if (current > SCHEMA_VERSION) {
+      throw new CrossweaveError(
+        'SCHEMA_TOO_NEW',
+        `Database schema v${current} is newer than this build (v${SCHEMA_VERSION}). Upgrade crossweave.`,
+      );
+    }
+
+    for (const migration of MIGRATIONS.slice(current, SCHEMA_VERSION)) {
+      for (const statement of migration) db.run(statement);
+    }
+
+    if (current < SCHEMA_VERSION) {
+      db.run('DELETE FROM schema_meta');
+      db.query('INSERT INTO schema_meta (version) VALUES (?)').run(SCHEMA_VERSION);
+    }
+
+    db.run('COMMIT');
+  } catch (cause) {
+    try {
+      db.run('ROLLBACK');
+    } catch {
+      // BEGIN itself may have failed, leaving nothing to roll back.
+    }
     db.close();
-    throw new CrossweaveError(
-      'SCHEMA_TOO_NEW',
-      `Database schema v${current} is newer than this build (v${SCHEMA_VERSION}). Upgrade crossweave.`,
-    );
+    throw cause;
   }
-
-  for (const migration of MIGRATIONS.slice(current, SCHEMA_VERSION)) {
-    for (const statement of migration) db.run(statement);
-  }
-
-  if (current < SCHEMA_VERSION) {
-    db.run('DELETE FROM schema_meta');
-    db.query('INSERT INTO schema_meta (version) VALUES (?)').run(SCHEMA_VERSION);
-  }
-
-  return db;
 }
 ```
 
@@ -1055,7 +1325,7 @@ git commit -m "feat(db): add session repository"
 Create `tests/helpers/git-fixture.ts`:
 
 ```ts
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { realpathSync } from 'node:fs';
@@ -1066,15 +1336,37 @@ export interface GitFixture {
   cleanup: () => Promise<void>;
 }
 
-/** A temp git repo with one commit on `main`. */
-export async function makeGitFixture(): Promise<GitFixture> {
-  const root = realpathSync(await mkdtemp(join(tmpdir(), 'cw-git-')));
+let template: string | undefined;
+
+/**
+ * Built once per process, then copied per fixture.
+ *
+ * Creating it per test meant six git subprocesses inside `beforeEach`, against Bun's
+ * 5s default hook timeout. Under load that chain exceeded it: the same seven
+ * isolation tests measured 934ms, 1112ms and 7.43s across three consecutive runs, and
+ * a gate run failed outright with "a beforeEach/afterEach hook timed out". A
+ * directory copy is one syscall-bound operation instead.
+ */
+async function gitTemplate(): Promise<string> {
+  if (template !== undefined) return template;
+  const root = realpathSync(await mkdtemp(join(tmpdir(), 'cw-template-')));
   await $`git init -q -b main`.cwd(root).quiet();
   await $`git config user.email test@crossweave.dev`.cwd(root).quiet();
   await $`git config user.name ${'crossweave test'}`.cwd(root).quiet();
   await writeFile(join(root, 'README.md'), '# fixture\n');
   await $`git add .`.cwd(root).quiet();
   await $`git commit -q -m init`.cwd(root).quiet();
+  template = root;
+  return root;
+}
+
+/** A temp git repo with one commit on `main`. */
+export async function makeGitFixture(): Promise<GitFixture> {
+  const src = await gitTemplate();
+  const root = realpathSync(await mkdtemp(join(tmpdir(), 'cw-git-')));
+  // The template has no worktrees, so its .git holds no absolute paths and copies
+  // cleanly. Anything that adds a worktree to the TEMPLATE would break that.
+  await cp(src, root, { recursive: true });
   return { root, cleanup: () => rm(root, { recursive: true, force: true }) };
 }
 ```
@@ -1123,13 +1415,20 @@ describe('createWorktree', () => {
   });
 
   it('throws WORKTREE_FAILED on a repo with no commits', async () => {
-    const { mkdtemp } = await import('node:fs/promises');
+    const { mkdtemp, rm } = await import('node:fs/promises');
     const { tmpdir } = await import('node:os');
     const empty = await mkdtemp(join(tmpdir(), 'cw-empty-'));
-    await $`git init -q -b main`.cwd(empty).quiet();
-    await expect(createWorktree(empty, 's_x', 'cw/x')).rejects.toMatchObject({
-      code: 'WORKTREE_FAILED',
-    });
+    // Every temp directory this suite creates must be removed. An earlier version of
+    // this test leaked one per run; 52 of them accumulated in TMPDIR and the growing
+    // directory was a direct cause of the beforeEach hook timeouts elsewhere.
+    try {
+      await $`git init -q -b main`.cwd(empty).quiet();
+      await expect(createWorktree(empty, 's_x', 'cw/x')).rejects.toMatchObject({
+        code: 'WORKTREE_FAILED',
+      });
+    } finally {
+      await rm(empty, { recursive: true, force: true });
+    }
   });
 });
 
@@ -1145,6 +1444,26 @@ describe('removeWorktree and listWorktreePaths', () => {
   it('refuses to remove a path outside the project root', async () => {
     await expect(removeWorktree(fx.root, '/tmp')).rejects.toMatchObject({ code: 'PATH_ESCAPE' });
   });
+
+  // Regression: `makeGitFixture` realpaths its root, which hides this. Reaching the
+  // same repo through a symlink is the portable way to hand in a non-canonical root —
+  // it is the same situation as macOS's /var -> /private/var.
+  it('excludes the main worktree even when given a non-canonical root', async () => {
+    const { mkdtemp, rm, symlink } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const h = await createWorktree(fx.root, 's_one', 'cw/one');
+    const linkDir = await mkdtemp(join(tmpdir(), 'cw-alias-'));
+    const aliasRoot = join(linkDir, 'alias');
+    await symlink(fx.root, aliasRoot);
+    try {
+      const paths = await listWorktreePaths(aliasRoot);
+      expect(paths).toContain(h.path);
+      expect(paths).not.toContain(fx.root);
+      expect(paths).toHaveLength(1);
+    } finally {
+      await rm(linkDir, { recursive: true, force: true });
+    }
+  });
 });
 ```
 
@@ -1156,6 +1475,7 @@ Expected: FAIL — cannot resolve `../../src/isolation/worktree.js`.
 - [ ] **Step 4: Implement `src/isolation/worktree.ts`**
 
 ```ts
+import { realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { simpleGit } from 'simple-git';
 import { CrossweaveError } from '../core/errors.js';
@@ -1183,6 +1503,19 @@ export async function createWorktree(
     throw new CrossweaveError('BRANCH_EXISTS', `Branch already exists: ${branch}`);
   }
 
+  // Modern git infers `--orphan` when there is no commit to branch from, so
+  // `worktree add` SUCCEEDS on an empty repository. Checking HEAD explicitly is what
+  // turns that into the WORKTREE_FAILED the contract promises. Keep it after the
+  // branch check so BRANCH_EXISTS still wins on a normal repo.
+  try {
+    await git.raw(['rev-parse', '--verify', 'HEAD']);
+  } catch (cause) {
+    throw new CrossweaveError(
+      'WORKTREE_FAILED',
+      `repository has no commits, cannot create worktree for ${branch}: ${(cause as Error).message}`,
+    );
+  }
+
   try {
     await git.raw(['worktree', 'add', '-b', branch, path]);
   } catch (cause) {
@@ -1208,13 +1541,34 @@ export async function removeWorktree(projectRoot: string, worktreePath: string):
   }
 }
 
+/**
+ * Used to unwind a half-created session. `git worktree remove` leaves the branch
+ * behind, and a leftover branch makes every retry with the same session name fail
+ * with BRANCH_EXISTS — so the branch has to go too.
+ */
+export async function deleteBranch(projectRoot: string, branch: string): Promise<void> {
+  try {
+    await simpleGit(projectRoot).raw(['branch', '-D', branch]);
+  } catch (cause) {
+    throw new CrossweaveError(
+      'BRANCH_DELETE_FAILED',
+      `git branch -D failed for ${branch}: ${(cause as Error).message}`,
+    );
+  }
+}
+
 export async function listWorktreePaths(projectRoot: string): Promise<string[]> {
+  // `git worktree list` always prints CANONICAL paths, but callers may hand us a
+  // non-canonical root — on macOS `/var` is a symlink to `/private/var`, and any
+  // path round-tripped through config or the database can arrive that way. Comparing
+  // raw strings then fails to exclude the main worktree and leaks it into the result.
+  const realRoot = realpathSync(projectRoot);
   const out = await simpleGit(projectRoot).raw(['worktree', 'list', '--porcelain']);
   return out
     .split('\n')
     .filter((l) => l.startsWith('worktree '))
     .map((l) => l.slice('worktree '.length).trim())
-    .filter((p) => p !== projectRoot);
+    .filter((p) => p !== realRoot);
 }
 ```
 
@@ -1239,7 +1593,7 @@ git commit -m "feat(isolation): add git worktree create, remove and list"
 - Test: `tests/domain/workspace.test.ts`
 
 **Interfaces:**
-- Consumes: `WorkspaceRepo`, `SessionRepo`, `newId`, `findProjectRoot`, `CrossweaveError`
+- Consumes: `WorkspaceRepo`, `SessionRepo`, `newId`, `CrossweaveError`, and `realpathSync` from `node:fs`. It does NOT consume `findProjectRoot` — resolving the git root is the caller's job (the daemon does it in Task 10); `init` only normalises whatever root it is handed.
 - Produces:
   - `interface WorkspaceInfo { workspace: WorkspaceRow; sessions: SessionRow[] }`
   - `class WorkspaceManager` with constructor `(db: Database)` and methods `init(projectRoot: string, name?: string): WorkspaceRow`, `list(): WorkspaceRow[]`, `info(id: string): WorkspaceInfo`, `resolve(nameOrId: string): WorkspaceRow`, `delete(id: string, opts: { force?: boolean }): void`
@@ -1250,12 +1604,13 @@ Create `tests/domain/workspace.test.ts`:
 
 ```ts
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Database } from 'bun:sqlite';
 import { openDatabase } from '../../src/db/open.js';
 import { SessionRepo } from '../../src/db/repositories/session.js';
+import { WorkspaceRepo, type WorkspaceRow } from '../../src/db/repositories/workspace.js';
 import { WorkspaceManager } from '../../src/domain/workspace.js';
 import { newId } from '../../src/core/ids.js';
 
@@ -1349,6 +1704,74 @@ describe('WorkspaceManager.info', () => {
     expect(mgr.info(ws.id)).toEqual({ workspace: ws, sessions: [] });
   });
 });
+
+describe('WorkspaceManager identity and ambiguity', () => {
+  // Regression: root_path is a workspace's identity, so it must be compared in one
+  // spelling. Reaching the same directory through a symlink used to create a second
+  // workspace for it.
+  it('treats a symlinked root as the same workspace', async () => {
+    const real = await mkdtemp(join(tmpdir(), 'cw-real-'));
+    const linkDir = await mkdtemp(join(tmpdir(), 'cw-link-'));
+    const alias = join(linkDir, 'alias');
+    await symlink(real, alias);
+    try {
+      const a = mgr.init(real);
+      const b = mgr.init(alias);
+      expect(b.id).toBe(a.id);
+      expect(mgr.list()).toHaveLength(1);
+    } finally {
+      await rm(real, { recursive: true, force: true });
+      await rm(linkDir, { recursive: true, force: true });
+    }
+  });
+
+  it('leaves a path that does not exist exactly as given', () => {
+    expect(mgr.init('/tmp/projects/never-created').rootPath).toBe('/tmp/projects/never-created');
+  });
+
+  it('returns the existing row and ignores a different name for the same root', () => {
+    const first = mgr.init('/tmp/projects/app', 'original');
+    const second = mgr.init('/tmp/projects/app', 'renamed');
+    expect(second.id).toBe(first.id);
+    expect(second.name).toBe('original');
+  });
+
+  // Regression: a concurrent writer between init's read and its write used to
+  // surface a raw SQLiteError naming a table column. Stubbing findByRoot to miss
+  // once reproduces exactly that window.
+  it('returns the winner when a concurrent writer takes the root first', () => {
+    const root = '/tmp/projects/raced';
+    new WorkspaceRepo(db).insert({
+      id: newId('ws'), name: 'winner', rootPath: root,
+      createdAt: '2026-08-09T00:00:00.000Z',
+      defaultIsolation: 'worktree', safeModeTier: 'T3',
+    });
+
+    const internals = mgr as unknown as { workspaces: WorkspaceRepo };
+    const real = internals.workspaces.findByRoot.bind(internals.workspaces);
+    let missed = false;
+    internals.workspaces.findByRoot = (p: string): WorkspaceRow | undefined => {
+      if (!missed) { missed = true; return undefined; }
+      return real(p);
+    };
+
+    expect(mgr.init(root, 'loser').name).toBe('winner');
+  });
+
+  it('refuses to resolve an ambiguous name instead of guessing', () => {
+    mgr.init('/tmp/projects/one', 'shared');
+    mgr.init('/tmp/projects/two', 'shared');
+    expect(() => mgr.resolve('shared')).toThrowError(
+      expect.objectContaining({ code: 'WORKSPACE_NAME_AMBIGUOUS' }) as unknown as Error,
+    );
+  });
+
+  it('still resolves a unique name, and id always wins', () => {
+    const only = mgr.init('/tmp/projects/solo', 'solo');
+    expect(mgr.resolve('solo').id).toBe(only.id);
+    expect(mgr.resolve(only.id).id).toBe(only.id);
+  });
+});
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1359,6 +1782,7 @@ Expected: FAIL — cannot resolve `../../src/domain/workspace.js`.
 - [ ] **Step 3: Implement `src/domain/workspace.ts`**
 
 ```ts
+import { realpathSync } from 'node:fs';
 import { basename } from 'node:path';
 import type { Database } from 'bun:sqlite';
 import { CrossweaveError } from '../core/errors.js';
@@ -1380,19 +1804,53 @@ export class WorkspaceManager {
     this.sessions = new SessionRepo(db);
   }
 
+  /**
+   * `root_path` is the identity of a workspace, so it has to be compared in one
+   * spelling. A path that exists on disk gets canonicalised; one that does not cannot
+   * be a symlink alias for anything, so it is used as written — which is also what
+   * keeps this function filesystem-free for callers that pass a path that is not
+   * there yet.
+   */
+  private static canonicalRoot(projectRoot: string): string {
+    try {
+      return realpathSync(projectRoot);
+    } catch {
+      return projectRoot;
+    }
+  }
+
+  /**
+   * Idempotent for a given root. Passing a different `name` for a root that already
+   * exists returns the existing row unchanged rather than renaming it — rename is
+   * `workspace rename`'s job, not init's.
+   */
   init(projectRoot: string, name?: string): WorkspaceRow {
-    const existing = this.workspaces.findByRoot(projectRoot);
+    const root = WorkspaceManager.canonicalRoot(projectRoot);
+    const existing = this.workspaces.findByRoot(root);
     if (existing) return existing;
 
     const row: WorkspaceRow = {
       id: newId('ws'),
-      name: name ?? basename(projectRoot),
-      rootPath: projectRoot,
+      name: name ?? basename(root),
+      rootPath: root,
       createdAt: new Date().toISOString(),
       defaultIsolation: 'worktree',
       safeModeTier: 'T3',
     };
-    this.workspaces.insert(row);
+
+    try {
+      this.workspaces.insert(row);
+    } catch (cause) {
+      // Another process inserted this root between our read and our write. The
+      // UNIQUE constraint on root_path is what makes that safe to recover from;
+      // without this the caller would get a raw SQLiteError naming a table column.
+      const raced = this.workspaces.findByRoot(root);
+      if (raced) return raced;
+      throw new CrossweaveError(
+        'WORKSPACE_INIT_FAILED',
+        `Could not create workspace at ${root}: ${(cause as Error).message}`,
+      );
+    }
     return row;
   }
 
@@ -1400,8 +1858,25 @@ export class WorkspaceManager {
     return this.workspaces.list();
   }
 
+  /**
+   * Id wins over name. Names are NOT unique in the schema, and `delete` is built on
+   * this — silently picking the first of several same-named workspaces would delete
+   * one the caller did not mean. Ambiguity therefore fails closed and demands an id.
+   */
   resolve(nameOrId: string): WorkspaceRow {
-    const found = this.workspaces.findById(nameOrId) ?? this.workspaces.findByName(nameOrId);
+    const byId = this.workspaces.findById(nameOrId);
+    if (byId) return byId;
+
+    const byName = this.workspaces.list().filter((w) => w.name === nameOrId);
+    if (byName.length > 1) {
+      throw new CrossweaveError(
+        'WORKSPACE_NAME_AMBIGUOUS',
+        `${byName.length} workspaces are named ${nameOrId}: ` +
+          `${byName.map((w) => `${w.id} (${w.rootPath})`).join(', ')}. Use the id instead.`,
+      );
+    }
+
+    const found = byName[0];
     if (!found) {
       throw new CrossweaveError('WORKSPACE_NOT_FOUND', `No such workspace: ${nameOrId}`);
     }
@@ -1469,7 +1944,9 @@ Create `tests/adapters/claude-pty.test.ts`:
 
 ```ts
 import { describe, it, expect } from 'bun:test';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { basename, join } from 'node:path';
 import { ClaudePtyAdapter } from '../../src/adapters/claude-pty.js';
 import { createAdapter } from '../../src/adapters/registry.js';
 
@@ -1486,14 +1963,21 @@ describe('ClaudePtyAdapter', () => {
     expect(a.enforcementTier).toBe('T3');
   });
 
+  // Assert on the directory's unique basename, never on a substring of the temp path.
+  // `tmpdir()` is `/private/var/folders/…/T` on macOS and contains no "tmp" at all.
   it('spawns a process in the requested cwd and streams its output', async () => {
-    const adapter = new ClaudePtyAdapter('sh', ['-c', 'pwd']);
-    const proc = adapter.spawn({ cwd: tmpdir(), env: {}, cols: 80, rows: 24 });
-    const read = collect(proc);
-    const code = await new Promise<number>((res) => proc.onExit(res));
-    expect(code).toBe(0);
-    expect(read()).toContain('tmp');
-    expect(proc.pid).toBeGreaterThan(0);
+    const dir = await mkdtemp(join(tmpdir(), 'cw-adapter-'));
+    try {
+      const adapter = new ClaudePtyAdapter('sh', ['-c', 'pwd']);
+      const proc = adapter.spawn({ cwd: dir, env: {}, cols: 80, rows: 24 });
+      const read = collect(proc);
+      const code = await new Promise<number>((res) => proc.onExit(res));
+      expect(code).toBe(0);
+      expect(read()).toContain(basename(dir));
+      expect(proc.pid).toBeGreaterThan(0);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it('allocates a real tty so the child sees an interactive terminal', async () => {
@@ -1527,6 +2011,50 @@ describe('ClaudePtyAdapter', () => {
     const exited = new Promise<number>((res) => proc.onExit(res));
     proc.kill('SIGKILL');
     await expect(exited).resolves.toBeTypeOf('number');
+  });
+
+  // Task 13 fans this stream out to every client attached to a session. One broken
+  // viewer must not be able to starve the others, and a bare for-loop over the
+  // listeners does exactly that — permanently, since the same subscriber throws on
+  // every later chunk too.
+  it('keeps delivering data to the other listeners when one throws', async () => {
+    const adapter = new ClaudePtyAdapter('sh', ['-c', 'echo one; echo two']);
+    const proc = adapter.spawn({ cwd: tmpdir(), env: {}, cols: 80, rows: 24 });
+    const seen: string[] = [];
+    proc.onData(() => { seen.push('first'); });
+    proc.onData(() => { throw new Error('bad subscriber'); });
+    proc.onData(() => { seen.push('third'); });
+    await new Promise<number>((res) => proc.onExit(res));
+    expect(seen).toContain('first');
+    expect(seen).toContain('third');
+  });
+
+  it('keeps calling the other exit listeners when one throws', async () => {
+    const adapter = new ClaudePtyAdapter('sh', ['-c', 'exit 0']);
+    const proc = adapter.spawn({ cwd: tmpdir(), env: {}, cols: 80, rows: 24 });
+    const seen: string[] = [];
+    proc.onExit(() => { seen.push('first'); });
+    proc.onExit(() => { throw new Error('bad subscriber'); });
+    await new Promise<void>((res) => proc.onExit(() => { seen.push('third'); res(); }));
+    expect(seen).toEqual(['first', 'third']);
+  });
+
+  // Pins a contract Task 13 depends on: the adapter buffers NOTHING, so anything
+  // emitted before a subscriber attaches is gone. Scrollback is the session
+  // runtime's job, not the adapter's. Synchronises on the data itself rather than a
+  // timer so the test stays deterministic.
+  it('does not buffer output for a listener that attaches later', async () => {
+    const adapter = new ClaudePtyAdapter('sh', ['-c', 'echo early; read x; echo late']);
+    const proc = adapter.spawn({ cwd: tmpdir(), env: {}, cols: 80, rows: 24 });
+    await new Promise<void>((res) => {
+      proc.onData((c) => { if (c.includes('early')) res(); });
+    });
+    const late: string[] = [];
+    proc.onData((c) => { late.push(c); });
+    proc.write('go\n');
+    await new Promise<number>((res) => proc.onExit(res));
+    expect(late.join('')).not.toContain('early');
+    expect(late.join('')).toContain('late');
   });
 });
 
@@ -1594,6 +2122,28 @@ import type { AgentAdapter, AgentProcess, SpawnOptions } from './types.js';
 type BunTerminal = { write(data: string): void; resize(cols: number, rows: number): void; close(): void };
 type BunPtyProcess = { pid: number; exited: Promise<number>; terminal: BunTerminal; kill(signal?: number | NodeJS.Signals): void };
 
+/**
+ * Deliver to every listener even when one of them throws.
+ *
+ * A bare `for (const cb of listeners) cb(v)` aborts on the first throw, so every
+ * listener registered after the bad one stops receiving anything — and because the
+ * same subscriber throws on every subsequent emit, it never recovers. Task 13 fans
+ * this out to several attached clients at once, where one broken viewer must not be
+ * able to starve the rest.
+ *
+ * The error is swallowed rather than logged because M0 has nowhere to log it. M2
+ * adds the event ledger; subscriber failures belong there.
+ */
+function fanOut<T>(listeners: ReadonlyArray<(value: T) => void>, value: T): void {
+  for (const cb of listeners) {
+    try {
+      cb(value);
+    } catch {
+      // The subscriber owns its own failure; the stream keeps going.
+    }
+  }
+}
+
 class PtyProcess implements AgentProcess {
   private readonly dataListeners: Array<(chunk: string) => void> = [];
   private readonly exitListeners: Array<(code: number) => void> = [];
@@ -1602,13 +2152,13 @@ class PtyProcess implements AgentProcess {
   constructor(private readonly proc: BunPtyProcess) {
     void proc.exited.then((code) => {
       this.exitCode = code;
-      for (const cb of this.exitListeners) cb(code);
+      fanOut(this.exitListeners, code);
     });
   }
 
   /** Called by the adapter from Bun's single spawn-time data callback. */
   emit(chunk: string): void {
-    for (const cb of this.dataListeners) cb(chunk);
+    fanOut(this.dataListeners, chunk);
   }
 
   get pid(): number {
@@ -1715,6 +2265,7 @@ git commit -m "feat(adapters): add agent adapter interface and Claude Code pty a
 
 **Files:**
 - Create: `src/domain/session.ts`
+- Modify: `src/isolation/worktree.ts` — add `deleteBranch`, needed to unwind a half-created session
 - Test: `tests/domain/session.test.ts`
 
 **Interfaces:**
@@ -1733,8 +2284,10 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Database } from 'bun:sqlite';
 import { openDatabase } from '../../src/db/open.js';
+import { SessionRepo } from '../../src/db/repositories/session.js';
 import { WorkspaceManager } from '../../src/domain/workspace.js';
 import { SessionManager } from '../../src/domain/session.js';
+import { listWorktreePaths } from '../../src/isolation/worktree.js';
 import { makeGitFixture, type GitFixture } from '../helpers/git-fixture.js';
 
 let fx: GitFixture;
@@ -1818,6 +2371,71 @@ describe('SessionManager.resolve and rename', () => {
       expect.objectContaining({ code: 'SESSION_NAME_TAKEN' }) as unknown as Error,
     );
   });
+
+  it('lets a session keep the name it already has', async () => {
+    await sessions.create({ workspaceId, name: 'same', agent: 'claude', worktree: true });
+    expect(sessions.rename(workspaceId, 'same', 'same').name).toBe('same');
+  });
+});
+
+describe('SessionManager session name validation', () => {
+  // Regression: names went straight into `cw/<name>` as a git branch. Git rejected
+  // them downstream and its own multi-line stderr reached the terminal as several
+  // lines with no CODE: prefix.
+  const rejected = ['has space', 'has\ttab', 'has\nnewline', '-leading-dash', '', 'a'.repeat(65), 'sl/ash', 'dot.ted'];
+  for (const name of rejected) {
+    it(`rejects ${JSON.stringify(name)} before it reaches git`, async () => {
+      await expect(
+        sessions.create({ workspaceId, name, agent: 'claude', worktree: true }),
+      ).rejects.toMatchObject({ code: 'INVALID_SESSION_NAME' });
+      expect(sessions.list(workspaceId)).toHaveLength(0);
+    });
+  }
+
+  it('accepts ordinary names', async () => {
+    for (const name of ['auth', 'feature-1', 'API_v2', 'a']) {
+      const s = await sessions.create({ workspaceId, name, agent: 'claude', worktree: true });
+      expect(s.name).toBe(name);
+    }
+  });
+
+  it('validates on rename too', async () => {
+    await sessions.create({ workspaceId, name: 'ok', agent: 'claude', worktree: true });
+    expect(() => sessions.rename(workspaceId, 'ok', 'not ok')).toThrowError(
+      expect.objectContaining({ code: 'INVALID_SESSION_NAME' }) as unknown as Error,
+    );
+    expect(sessions.resolve(workspaceId, 'ok').name).toBe('ok');
+  });
+});
+
+describe('SessionManager.create unwinds a half-created session', () => {
+  // The row is the only thing that makes a worktree reachable. Without unwinding, a
+  // failed insert strands a full checkout on disk AND leaves the branch, so the same
+  // session name can never be created again.
+  it('removes the worktree and the branch when the row insert fails', async () => {
+    const { simpleGit } = await import('simple-git');
+    const original = SessionRepo.prototype.insert;
+    SessionRepo.prototype.insert = (): void => {
+      throw new Error('simulated insert failure');
+    };
+    try {
+      await expect(
+        sessions.create({ workspaceId, name: 'doomed', agent: 'claude', worktree: true }),
+      ).rejects.toThrow('simulated insert failure');
+    } finally {
+      SessionRepo.prototype.insert = original;
+    }
+
+    expect(sessions.list(workspaceId)).toHaveLength(0);
+    expect(await listWorktreePaths(fx.root)).toHaveLength(0);
+    expect((await simpleGit(fx.root).branch()).all).not.toContain('cw/doomed');
+
+    // The real damage was that the name became permanently unusable. Prove it is not.
+    const retry = await sessions.create({
+      workspaceId, name: 'doomed', agent: 'claude', worktree: true,
+    });
+    expect(retry.branch).toBe('cw/doomed');
+  });
 });
 
 describe('SessionManager.kill', () => {
@@ -1859,7 +2477,7 @@ import { CrossweaveError } from '../core/errors.js';
 import { newId } from '../core/ids.js';
 import { WorkspaceRepo } from '../db/repositories/workspace.js';
 import { SessionRepo, type SessionRow } from '../db/repositories/session.js';
-import { createWorktree, removeWorktree } from '../isolation/worktree.js';
+import { createWorktree, deleteBranch, removeWorktree } from '../isolation/worktree.js';
 import { createAdapter } from '../adapters/registry.js';
 
 export interface CreateSessionOptions {
@@ -1867,6 +2485,27 @@ export interface CreateSessionOptions {
   name: string;
   agent: string;
   worktree: boolean;
+}
+
+/**
+ * A session name becomes a git branch (`cw/<name>`) and a column in a tab-delimited
+ * listing the TUI parses. Letting an arbitrary string through means git rejects it
+ * downstream and its own multi-line stderr surfaces as several lines with no `CODE:`
+ * prefix, which breaks the CLI's one parseable-error contract. Dots are excluded
+ * rather than special-cased: `..` and a trailing `.lock` are both invalid refs, and
+ * no realistic session name needs one.
+ */
+const VALID_SESSION_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+const MAX_SESSION_NAME = 64;
+
+function assertValidSessionName(name: string): void {
+  if (name.length > MAX_SESSION_NAME || !VALID_SESSION_NAME.test(name)) {
+    throw new CrossweaveError(
+      'INVALID_SESSION_NAME',
+      `Session name must be 1-${MAX_SESSION_NAME} characters of letters, digits, ` +
+        `dash or underscore and start with a letter or digit, got ${JSON.stringify(name)}`,
+    );
+  }
 }
 
 export class SessionManager {
@@ -1885,6 +2524,7 @@ export class SessionManager {
   }
 
   async create(opts: CreateSessionOptions): Promise<SessionRow> {
+    assertValidSessionName(opts.name);
     const root = this.projectRoot(opts.workspaceId);
 
     if (this.sessions.findByName(opts.workspaceId, opts.name)) {
@@ -1919,7 +2559,21 @@ export class SessionManager {
       enforcementTier: adapter.enforcementTier,
       pid: null,
     };
-    this.sessions.insert(row);
+
+    try {
+      this.sessions.insert(row);
+    } catch (cause) {
+      // The row is the only thing that makes the worktree reachable. If the insert
+      // fails after the worktree exists, nothing will ever point at it again — a
+      // full checkout stranded on disk, plus a branch that makes every retry with
+      // the same session name fail with BRANCH_EXISTS. Unwind, best effort, then
+      // surface the original failure rather than a cleanup error.
+      if (branch !== null) {
+        await removeWorktree(root, worktreePath).catch(() => undefined);
+        await deleteBranch(root, branch).catch(() => undefined);
+      }
+      throw cause;
+    }
     return row;
   }
 
@@ -1937,8 +2591,12 @@ export class SessionManager {
   }
 
   rename(workspaceId: string, idOrName: string, newName: string): SessionRow {
+    assertValidSessionName(newName);
     const row = this.resolve(workspaceId, idOrName);
-    if (this.sessions.findByName(workspaceId, newName)) {
+    // A session is allowed to keep its own name; only a DIFFERENT session holding it
+    // is a collision.
+    const clash = this.sessions.findByName(workspaceId, newName);
+    if (clash && clash.id !== row.id) {
       throw new CrossweaveError('SESSION_NAME_TAKEN', `Session already exists: ${newName}`);
     }
     this.sessions.rename(row.id, newName);
@@ -1974,26 +2632,19 @@ export class SessionManager {
 }
 ```
 
-- [ ] **Step 4: Add the `clearWorktree` method used above**
+- [ ] **Step 4: Verify `clearWorktree` already exists — do NOT add it**
 
-Append to `src/db/repositories/session.ts` inside `class SessionRepo`:
+`SessionRepo.clearWorktree` and its test landed with Task 4, not here. Confirm both are
+present and leave them alone; appending a second copy is a defect, not a no-op.
 
-```ts
-  clearWorktree(id: string): void {
-    this.db.prepare('UPDATE session SET worktree_path = NULL WHERE id = ?').run(id);
-  }
+```bash
+grep -n 'clearWorktree' src/db/repositories/session.ts tests/db/session-repo.test.ts
 ```
 
-Add its test to `tests/db/session-repo.test.ts`:
-
-```ts
-  it('clears the worktree path', () => {
-    const row = makeRow();
-    repo.insert(row);
-    repo.clearWorktree(row.id);
-    expect(repo.findById(row.id)?.worktreePath).toBeNull();
-  });
-```
+Expected: one method definition in the repository and one test named
+`'clears the worktree path'`. If either is missing, stop and report it rather than
+adding it here — that would mean Task 4 regressed and the cause matters more than the
+symptom.
 
 - [ ] **Step 5: Run tests and typecheck**
 
@@ -2016,7 +2667,7 @@ git commit -m "feat(domain): add session manager with worktree lifecycle"
 - Test: `tests/daemon/rpc.test.ts`
 
 **Interfaces:**
-- Consumes: nothing
+- Consumes: nothing from this codebase. It does import `StringDecoder` from `node:string_decoder`, which Bun implements — that is a platform builtin, not a dependency, and it is load-bearing (see the decoder's comment).
 - Produces:
   - `interface RpcRequest { jsonrpc: '2.0'; id: number; method: string; params?: unknown }`
   - `interface RpcError { code: number; message: string; data?: unknown }`
@@ -2092,6 +2743,43 @@ describe('RPC_ERROR_CODES', () => {
     expect(RPC_ERROR_CODES.APPLICATION).toBe(-32000);
   });
 });
+
+describe('createFrameDecoder byte-level robustness', () => {
+  // Regression: decoding each chunk independently turns either half of a UTF-8
+  // character that straddles a chunk boundary into U+FFFD. The result is still
+  // valid JSON, so nothing throws and the payload is silently wrong.
+  it('never corrupts a multi-byte character split across chunks', () => {
+    const text = 'hello 😀 world 你好 こんにちは';
+    const frame = Buffer.from(
+      encodeFrame({ jsonrpc: '2.0', id: 1, method: 'x', params: { text } }),
+      'utf8',
+    );
+
+    // Every possible split point, not just one — the bug only shows at some offsets.
+    for (let i = 1; i < frame.length; i += 1) {
+      const seen: unknown[] = [];
+      const decode = createFrameDecoder((m) => seen.push(m));
+      decode(frame.subarray(0, i));
+      decode(frame.subarray(i));
+      expect(seen).toHaveLength(1);
+      expect((seen[0] as { params: { text: string } }).params.text).toBe(text);
+    }
+  });
+
+  it('discards an over-long line and resynchronises at the next newline', () => {
+    const seen: unknown[] = [];
+    const decode = createFrameDecoder((m) => seen.push(m));
+
+    decode('x'.repeat(17 * 1024 * 1024));
+    expect(seen).toHaveLength(0);
+
+    decode('tail-of-the-oversized-line\n');
+    expect(seen).toHaveLength(0);
+
+    decode(encodeFrame({ jsonrpc: '2.0', id: 9, method: 'after' }));
+    expect(seen.map((m) => (m as { id: number }).id)).toEqual([9]);
+  });
+});
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -2102,6 +2790,8 @@ Expected: FAIL — cannot resolve `../../src/daemon/rpc.js`.
 - [ ] **Step 3: Implement `src/daemon/rpc.ts`**
 
 ```ts
+import { StringDecoder } from 'node:string_decoder';
+
 export interface RpcRequest {
   jsonrpc: '2.0';
   id: number;
@@ -2134,17 +2824,39 @@ export function encodeFrame(msg: RpcRequest | RpcResponse): string {
   return `${JSON.stringify(msg)}\n`;
 }
 
+/**
+ * Bounds an UNTERMINATED line that keeps growing — the memory-exhaustion vector,
+ * since the daemon accepts connections. It does NOT bound a complete oversized frame
+ * that arrives with its own newline: the loop drains that as an ordinary line before
+ * the length check runs. Set far above any legitimate frame; session scrollback and
+ * diffs are the largest payloads.
+ */
+const MAX_LINE_LENGTH = 16 * 1024 * 1024;
+
 export function createFrameDecoder(
   onMessage: (msg: unknown) => void,
 ): (chunk: Buffer | string) => void {
+  /**
+   * `StringDecoder` carries partial multi-byte state between calls. Calling
+   * `chunk.toString('utf8')` per chunk instead decodes each half of a UTF-8
+   * character split across a chunk boundary independently, baking U+FFFD into the
+   * payload: still valid JSON, silently wrong content, and no error to catch. Real
+   * sockets split anywhere, so this is reachable in normal operation.
+   */
+  const decoder = new StringDecoder('utf8');
   let buffer = '';
+  let discarding = false;
+
   return (chunk) => {
-    buffer += typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+    buffer += typeof chunk === 'string' ? chunk : decoder.write(chunk);
+
     let index = buffer.indexOf('\n');
     while (index !== -1) {
       const line = buffer.slice(0, index).trim();
       buffer = buffer.slice(index + 1);
-      if (line.length > 0) {
+      if (discarding) {
+        discarding = false; // This newline ends the over-long line we dropped.
+      } else if (line.length > 0) {
         try {
           onMessage(JSON.parse(line));
         } catch {
@@ -2152,6 +2864,11 @@ export function createFrameDecoder(
         }
       }
       index = buffer.indexOf('\n');
+    }
+
+    if (buffer.length > MAX_LINE_LENGTH) {
+      buffer = '';
+      discarding = true;
     }
   };
 }
@@ -2292,6 +3009,31 @@ describe('daemon server', () => {
     expect(await rpc('ping')).toEqual({ ok: true });
   });
 
+  // Regression: unlinking unconditionally let a second daemon silently steal the
+  // socket from a live one. The first kept running, holding agent ptys, while every
+  // client reached the second — and neither process was told.
+  it('refuses to steal the socket from a daemon that is still live', async () => {
+    const second = createDaemon({ socketPath, methods: buildMethods(db, fx.root) });
+    await expect(second.listen()).rejects.toMatchObject({ code: 'DAEMON_ALREADY_RUNNING' });
+    // The original is untouched and still serving.
+    expect(await rpc('ping')).toEqual({ ok: true });
+    await second.close();
+  });
+
+  it('creates the state directory owner-only from openDatabase alone', async () => {
+    const { mkdtemp, rm } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const { statSync } = await import('node:fs');
+    const dir = await mkdtemp(join(tmpdir(), 'cw-mode-'));
+    try {
+      const fresh = openDatabase(join(dir, '.crossweave', 'state.db'));
+      expect(statSync(join(dir, '.crossweave')).mode & 0o777).toBe(0o700);
+      fresh.close();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it('unlinks the socket on close', async () => {
     await daemon.close();
     expect(existsSync(socketPath)).toBe(false);
@@ -2309,7 +3051,7 @@ Expected: FAIL — cannot resolve `../../src/daemon/server.js`.
 - [ ] **Step 3: Implement `src/daemon/server.ts`**
 
 ```ts
-import { createServer, type Server, type Socket } from 'node:net';
+import { connect, createServer, type Server, type Socket } from 'node:net';
 import { chmodSync, existsSync, mkdirSync, unlinkSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { CrossweaveError } from '../core/errors.js';
@@ -2325,6 +3067,41 @@ export type MethodHandler = (params: Record<string, unknown>) => Promise<unknown
 export interface Daemon {
   listen(): Promise<void>;
   close(): Promise<void>;
+}
+
+/**
+ * True when a daemon is still bound to this socket path. A leftover socket FILE and
+ * a live listener are indistinguishable on disk, so the only reliable test is to try
+ * to connect: a crashed daemon's file refuses with ECONNREFUSED.
+ */
+function isSocketLive(socketPath: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const probe = connect(socketPath);
+    const settle = (live: boolean): void => {
+      probe.removeAllListeners();
+      probe.destroy();
+      resolve(live);
+    };
+    probe.once('connect', () => settle(true));
+    probe.once('error', () => settle(false));
+  });
+}
+
+/** One bind attempt, as a promise that rejects with the raw errno error. */
+function bindOnce(instance: Server, socketPath: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const onError = (err: Error): void => {
+      instance.removeListener('listening', onListening);
+      reject(err);
+    };
+    const onListening = (): void => {
+      instance.removeListener('error', onError);
+      resolve();
+    };
+    instance.once('error', onError);
+    instance.once('listening', onListening);
+    instance.listen(socketPath);
+  });
 }
 
 export function createDaemon(opts: {
@@ -2382,12 +3159,13 @@ export function createDaemon(opts: {
   }
 
   return {
-    listen(): Promise<void> {
+    async listen(): Promise<void> {
       // 0o700: the daemon spawns processes and writes files on the user's behalf,
       // so nothing outside this account may reach its directory or its socket.
+      // The chmod is not redundant — `mode` on mkdirSync applies only at creation,
+      // and openDatabase has usually made this directory already.
       mkdirSync(dirname(opts.socketPath), { recursive: true, mode: 0o700 });
-      // A socket file left by a crashed daemon would block bind.
-      if (existsSync(opts.socketPath)) unlinkSync(opts.socketPath);
+      chmodSync(dirname(opts.socketPath), 0o700);
 
       const instance = createServer((sock) => {
         sockets.add(sock);
@@ -2397,16 +3175,47 @@ export function createDaemon(opts: {
       });
       server = instance;
 
-      return new Promise((resolve, reject) => {
-        instance.once('error', reject);
-        instance.listen(opts.socketPath, () => {
-          // Unix socket permissions follow umask by default, which on many systems
-          // leaves the socket group- and world-readable. Anyone able to connect can
-          // drive the daemon, so tighten it explicitly rather than trusting umask.
-          chmodSync(opts.socketPath, 0o600);
-          resolve();
-        });
-      });
+      // Bind FIRST and recover, rather than checking the path and then acting on it.
+      // `bind()` is atomic in the kernel, so it — not us — decides who owns the
+      // socket. Checking `isSocketLive` before unlinking left a window where two
+      // starting daemons could each conclude "it's dead" and both unlink and bind,
+      // which is the same silent-steal outcome in a narrower form. `listen` reports
+      // EADDRINUSE identically for a live socket, a stale socket, and a plain file,
+      // so there is no cheaper signal being given up here.
+      try {
+        await bindOnce(instance, opts.socketPath);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw err;
+
+        // Something holds the path. Only crash debris may be cleared: if a daemon
+        // answers, it owns the socket and taking it would orphan its live sessions.
+        if (await isSocketLive(opts.socketPath)) {
+          throw new CrossweaveError(
+            'DAEMON_ALREADY_RUNNING',
+            `Another crossweave daemon is already listening at ${opts.socketPath}`,
+          );
+        }
+
+        unlinkSync(opts.socketPath);
+        try {
+          await bindOnce(instance, opts.socketPath);
+        } catch (retry) {
+          if ((retry as NodeJS.ErrnoException).code === 'EADDRINUSE') {
+            // Another starter won between our unlink and our retry. Losing this way
+            // is safe and retryable — it never steals a socket.
+            throw new CrossweaveError(
+              'DAEMON_ALREADY_RUNNING',
+              `Another crossweave daemon took ${opts.socketPath} first`,
+            );
+          }
+          throw retry;
+        }
+      }
+
+      // Unix socket permissions follow umask by default, which on many systems
+      // leaves the socket group- and world-readable. Anyone able to connect can
+      // drive the daemon, so tighten it explicitly rather than trusting umask.
+      chmodSync(opts.socketPath, 0o600);
     },
 
     close(): Promise<void> {
@@ -2436,9 +3245,14 @@ import { WorkspaceManager } from '../domain/workspace.js';
 import { SessionManager } from '../domain/session.js';
 import type { MethodHandler } from './server.js';
 
+// A malformed request is the caller's fault, not an internal failure. Throwing a bare
+// TypeError made the server map it to INTERNAL and hand the client a raw internal
+// message it could not branch on.
 function str(params: Record<string, unknown>, key: string): string {
   const v = params[key];
-  if (typeof v !== 'string') throw new TypeError(`Expected string param: ${key}`);
+  if (typeof v !== 'string') {
+    throw new CrossweaveError('INVALID_PARAMS', `Expected string param: ${key}`);
+  }
   return v;
 }
 
@@ -2589,7 +3403,7 @@ describe('DaemonClient', () => {
     daemon = createDaemon({ socketPath, methods: buildMethods(db, fx.root) });
     await daemon.listen();
     const client = await DaemonClient.connect(socketPath);
-    expect(await client.call('ping')).toEqual({ ok: true });
+    expect(await client.call<{ ok: boolean }>('ping')).toEqual({ ok: true });
     client.close();
   });
 
@@ -2598,7 +3412,7 @@ describe('DaemonClient', () => {
     await daemon.listen();
     const client = await DaemonClient.connect(socketPath);
     const results = await Promise.all([
-      client.call('ping'), client.call('ping'), client.call('ping'),
+      client.call<{ ok: boolean }>('ping'), client.call<{ ok: boolean }>('ping'), client.call<{ ok: boolean }>('ping'),
     ]);
     expect(results).toEqual([{ ok: true }, { ok: true }, { ok: true }]);
     client.close();
@@ -2617,12 +3431,96 @@ describe('DaemonClient', () => {
   it('fails to connect when nothing is listening', async () => {
     await expect(DaemonClient.connect(socketPath)).rejects.toBeTruthy();
   });
+
+  // Regression: `connect` strips its temporary 'error' listener once connected, and
+  // the constructor only registered 'data' and 'close'. Node THROWS an 'error' event
+  // with no listener, so a daemon dying mid-session killed the CLI with an uncaught
+  // exception instead of rejecting the call.
+  // Regression: onClose only pushed onto the handler list. `cw session attach`
+  // registers it after two awaited RPCs, so a daemon dying in that window left the
+  // CLI hung in raw mode — the very symptom onClose exists to prevent.
+  it('onClose fires immediately when registered after the connection is already gone', async () => {
+    daemon = createDaemon({ socketPath, methods: buildMethods(db, fx.root) });
+    await daemon.listen();
+    const client = await DaemonClient.connect(socketPath);
+    await daemon.close();
+    daemon = undefined;
+    while (client.isConnected) await new Promise((r) => setTimeout(r, 5));
+
+    let fired = false;
+    client.onClose(() => { fired = true; });
+    expect(fired).toBe(true);
+    client.close();
+  });
+
+  // Regression: `connect` strips its temporary 'error' listener once connected, and
+  // without re-registering one a socket error is THROWN by Node as an uncaught
+  // exception — a raw stack trace with internal $bunfs paths, killing the CLI instead
+  // of failing the call. Removing that listener left the whole suite green.
+  it('a socket error does not escape as an uncaught exception', async () => {
+    daemon = createDaemon({ socketPath, methods: buildMethods(db, fx.root) });
+    await daemon.listen();
+    const client = await DaemonClient.connect(socketPath);
+
+    let uncaught: unknown;
+    const onUncaught = (err: unknown): void => { uncaught = err; };
+    process.once('uncaughtException', onUncaught);
+    try {
+      await daemon.close();
+      daemon = undefined;
+      while (client.isConnected) await new Promise((r) => setTimeout(r, 5));
+      // Writing into the dead socket is what raises the error event.
+      await expect(client.call('ping')).rejects.toMatchObject({ code: 'DAEMON_GONE' });
+      await new Promise((r) => setTimeout(r, 50));
+    } finally {
+      process.removeListener('uncaughtException', onUncaught);
+    }
+    expect(uncaught).toBeUndefined();
+    client.close();
+  });
+
+  it('one throwing close handler does not starve the others', async () => {
+    daemon = createDaemon({ socketPath, methods: buildMethods(db, fx.root) });
+    await daemon.listen();
+    const client = await DaemonClient.connect(socketPath);
+
+    const seen: string[] = [];
+    client.onClose(() => { seen.push('first'); });
+    client.onClose(() => { throw new Error('bad close handler'); });
+    client.onClose(() => { seen.push('third'); });
+
+    await daemon.close();
+    daemon = undefined;
+    while (client.isConnected) await new Promise((r) => setTimeout(r, 5));
+
+    expect(seen).toEqual(['first', 'third']);
+    client.close();
+  });
+
+  it('rejects with DAEMON_GONE instead of crashing or hanging when the daemon goes away', async () => {
+    daemon = createDaemon({ socketPath, methods: buildMethods(db, fx.root) });
+    await daemon.listen();
+    const client = await DaemonClient.connect(socketPath);
+    expect(await client.call<{ ok: boolean }>('ping')).toEqual({ ok: true });
+
+    await daemon.close();
+    daemon = undefined;
+
+    // Wait for the client to actually observe the disconnect rather than racing the
+    // teardown. This loop can only exit once the state under test is real, and the
+    // per-test timeout is what catches it if the client never notices — which is
+    // precisely the regression: the earlier version hung here forever.
+    while (client.isConnected) await new Promise((r) => setTimeout(r, 5));
+
+    await expect(client.call('ping')).rejects.toMatchObject({ code: 'DAEMON_GONE' });
+    client.close();
+  });
 });
 
 describe('connectOrStart', () => {
   it('starts a daemon when none is running, then answers', async () => {
     const client = await connectOrStart(fx.root);
-    expect(await client.call('ping')).toEqual({ ok: true });
+    expect(await client.call<{ ok: boolean }>('ping')).toEqual({ ok: true });
     await client.call('daemon.shutdown').catch(() => undefined);
     client.close();
   }, 30_000);
@@ -2664,6 +3562,7 @@ interface Pending {
 
 export class DaemonClient {
   private nextId = 1;
+  private gone = false;
   private readonly pending = new Map<number, Pending>();
 
   private constructor(private readonly socket: Socket) {
@@ -2686,12 +3585,59 @@ export class DaemonClient {
         }
       }),
     );
-    socket.on('close', () => {
-      for (const p of this.pending.values()) {
-        p.reject(new CrossweaveError('DAEMON_GONE', 'Daemon connection closed'));
-      }
-      this.pending.clear();
+    // Node THROWS an 'error' event that has no listener, so without this the CLI
+    // dies with an uncaught exception when the daemon goes away mid-call instead of
+    // the caller getting a clean rejection. `connect` strips its own temporary error
+    // listener once connected, which is exactly why one has to be re-registered here.
+    socket.on('error', (err: Error) => {
+      this.failAll(`Daemon connection failed: ${err.message}`);
     });
+    socket.on('close', () => {
+      this.failAll('Daemon connection closed');
+    });
+    // 'end' is the one that actually matters. When the daemon half-closes, no
+    // response can ever arrive — but if a write is already stalled in the socket,
+    // 'close' never fires and neither does 'error', so without this a pending call
+    // hangs forever rather than failing. A hung CLI is worse than a failed one.
+    socket.on('end', () => {
+      this.failAll('Daemon closed the connection');
+    });
+  }
+
+  /** True until the connection is known to be gone. */
+  get isConnected(): boolean {
+    return !this.gone && !this.socket.destroyed && this.socket.writable;
+  }
+
+  /**
+   * Fires once when the connection is known gone. Registering after the fact fires
+   * immediately, so a caller cannot miss it by racing the disconnect. `cw session
+   * attach` needs this: without it the CLI hung forever with the terminal in raw
+   * mode when the daemon died.
+   */
+  onClose(cb: () => void): void {
+    if (this.gone) {
+      cb();
+      return;
+    }
+    this.closeHandlers.push(cb);
+  }
+
+  /** Reject everything in flight. Idempotent — 'end', 'error' and 'close' overlap. */
+  private failAll(message: string): void {
+    this.gone = true;
+    for (const p of this.pending.values()) {
+      p.reject(new CrossweaveError('DAEMON_GONE', message));
+    }
+    this.pending.clear();
+
+    for (const cb of this.closeHandlers.splice(0)) {
+      try {
+        cb();
+      } catch {
+        // One handler's failure must not stop the others from restoring their state.
+      }
+    }
   }
 
   static connect(socketPath: string): Promise<DaemonClient> {
@@ -2706,6 +3652,15 @@ export class DaemonClient {
   }
 
   call<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+    // Writing into a socket whose peer is gone succeeds locally and then waits for a
+    // response that can never come. Fail fast instead of registering a promise that
+    // nothing will ever settle.
+    if (!this.isConnected) {
+      return Promise.reject(
+        new CrossweaveError('DAEMON_GONE', `Daemon connection is gone; cannot call ${method}`),
+      );
+    }
+
     const id = this.nextId;
     this.nextId += 1;
     return new Promise<T>((resolve, reject) => {
@@ -2869,6 +3824,35 @@ describe('cw CLI', () => {
     expect(r.stderr).toContain('SESSION_NOT_FOUND');
   }, 30_000);
 
+  it('refuses --rm-worktree without --yes, in the same CODE: format as every other error', async () => {
+    await cw(['init']);
+    await cw(['session', 'new', '--name', 'guarded', '--agent', 'claude']);
+    const r = await cw(['session', 'kill', 'guarded', '--rm-worktree']);
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toContain('CONFIRMATION_REQUIRED:');
+    // The session must still be alive — a refused command changes nothing.
+    expect((await cw(['session', 'list'])).stdout).toContain('guarded');
+  }, 60_000);
+
+  it('rejects an invalid session name on exactly one stderr line', async () => {
+    await cw(['init']);
+    const r = await cw(['session', 'new', '--name', 'bad name', '--agent', 'claude']);
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toContain('INVALID_SESSION_NAME:');
+    // The contract the TUI parses: every stderr line carries a CODE: prefix.
+    const lines = r.stderr.trimEnd().split('\n');
+    expect(lines).toHaveLength(1);
+  }, 30_000);
+
+  it('daemon stop reports success without starting a daemon when none is running', async () => {
+    const r = await cw(['daemon', 'stop']);
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain('no daemon running');
+    // And it must not have spawned one on the way out.
+    const { existsSync } = await import('node:fs');
+    expect(existsSync(join(fx.root, '.crossweave', 'daemon.sock'))).toBe(false);
+  }, 30_000);
+
   it('exits non-zero outside a git repository', async () => {
     const { mkdtemp, rm } = await import('node:fs/promises');
     const { tmpdir } = await import('node:os');
@@ -2911,7 +3895,14 @@ export async function withClient<T>(
 /** Every command funnels failures here so the exit code and stderr shape stay uniform. */
 export function fail(err: unknown): never {
   const code = err instanceof CrossweaveError ? err.code : 'INTERNAL';
-  process.stderr.write(`${code}: ${(err as Error).message}\n`);
+  // Collapse to exactly one line. Errors that wrap a subprocess's output carry its
+  // multi-line stderr, and those extra lines would reach the terminal with no `CODE:`
+  // prefix — the one thing a script or the TUI cannot parse.
+  // [\r\n] not just \n: a lone carriage return can overwrite the line in a terminal.
+  // Trimmed because a wrapped message that ended in a newline otherwise leaves a
+  // stray trailing space.
+  const message = String((err as Error).message).replace(/\s*[\r\n]+\s*/g, ' ').trim();
+  process.stderr.write(`${code}: ${message}\n`);
   process.exit(1);
 }
 
@@ -3002,6 +3993,7 @@ export const workspaceCommand = defineCommand({
 
 ```ts
 import { defineCommand } from 'citty';
+import { CrossweaveError } from '../../core/errors.js';
 import { withClient, fail, currentWorkspaceId } from '../context.js';
 
 interface Session {
@@ -3081,6 +4073,23 @@ export const sessionCommand = defineCommand({
       },
     }),
 
+    // Without this the stop/kill distinction exists only over RPC, and the decision
+    // that `kill` is terminal has no escape hatch a user can reach — SESSION_ENDED
+    // would be advising a command that does not exist.
+    stop: defineCommand({
+      meta: { name: 'stop', description: 'Stop the agent but keep the session resumable' },
+      args: { target: { type: 'positional', description: 'Session name or id' } },
+      async run({ args }) {
+        try {
+          await withClient(async (client) => {
+            const workspaceId = await currentWorkspaceId(client);
+            await client.call('session.stop', { workspaceId, idOrName: args.target });
+            process.stdout.write(`stopped ${args.target}\n`);
+          });
+        } catch (err) { fail(err); }
+      },
+    }),
+
     kill: defineCommand({
       meta: { name: 'kill', description: 'Kill a session' },
       args: {
@@ -3090,11 +4099,14 @@ export const sessionCommand = defineCommand({
       },
       async run({ args }) {
         try {
+          // Goes through fail() like every other error path. A guard that printed its
+          // own format would be the one place a script could not parse, and this is
+          // the destructive one.
           if (args['rm-worktree'] && !args.yes) {
-            process.stderr.write(
-              'Refusing to remove a worktree without confirmation. Re-run with --yes.\n',
+            throw new CrossweaveError(
+              'CONFIRMATION_REQUIRED',
+              'Refusing to remove a worktree without confirmation. Re-run with --yes.',
             );
-            process.exit(1);
           }
           await withClient(async (client) => {
             const workspaceId = await currentWorkspaceId(client);
@@ -3113,11 +4125,14 @@ export const sessionCommand = defineCommand({
 - [ ] **Step 6: Implement `src/cli/index.ts`**
 
 ```ts
-#!/usr/bin/env node
+#!/usr/bin/env bun
+import { join } from 'node:path';
 import { defineCommand, runMain } from 'citty';
+import { crossweaveDir, findProjectRoot } from '../core/paths.js';
+import { DaemonClient } from '../client/rpc-client.js';
 import { initCommand, workspaceCommand } from './commands/workspace.js';
 import { sessionCommand } from './commands/session.js';
-import { withClient, fail } from './context.js';
+import { fail } from './context.js';
 
 const daemonCommand = defineCommand({
   meta: { name: 'daemon', description: 'Manage the crossweave daemon' },
@@ -3126,10 +4141,32 @@ const daemonCommand = defineCommand({
       meta: { name: 'stop', description: 'Stop the daemon for this repository' },
       async run() {
         try {
-          await withClient(async (client) => {
-            await client.call('daemon.shutdown').catch(() => undefined);
-            process.stdout.write('daemon stopped\n');
-          });
+          // Deliberately connects rather than using withClient: connectOrStart would
+          // spawn a daemon just to shut it down. Nothing listening means the daemon is
+          // already stopped, which is the outcome asked for, so it exits 0.
+          const projectRoot = findProjectRoot(process.cwd());
+          const socketPath = join(crossweaveDir(projectRoot), 'daemon.sock');
+
+          let client: DaemonClient;
+          try {
+            client = await DaemonClient.connect(socketPath);
+          } catch {
+            process.stdout.write('no daemon running\n');
+            return;
+          }
+
+          await client.call('daemon.shutdown').catch(() => undefined);
+          // The RPC acks before the daemon's own `process.exit(0)` timer fires, so
+          // returning right after the ack races ahead of the process actually being
+          // gone — a caller (or a test asserting no `cwd` survives) could observe
+          // "daemon stopped" while it is still exiting. Wait for the socket to close,
+          // which only happens once the daemon process has actually gone away.
+          const deadline = Date.now() + 2000;
+          while (client.isConnected && Date.now() < deadline) {
+            await new Promise((r) => setTimeout(r, 10));
+          }
+          client.close();
+          process.stdout.write('daemon stopped\n');
         } catch (err) { fail(err); }
       },
     }),
@@ -3169,6 +4206,17 @@ Tasks 1–12 create worktrees and rows but never run an agent. This task is what
 makes M0 fulfil its promise: the daemon owns a live pty per session, and the CLI
 bridges the local terminal to it.
 
+Two properties of the Task 7 adapter this task is built on, both verified by tests
+there rather than assumed:
+
+- **The adapter buffers nothing.** Anything emitted before a subscriber attaches is
+  gone. `SessionRuntime`'s `scrollback` is therefore load-bearing, not a nicety — it
+  is the only reason a client that attaches to an already-running session sees
+  anything at all. That is also why `start()` registers its `onData` handler
+  immediately, before any client can subscribe.
+- **Fan-out is isolated.** A listener that throws no longer aborts delivery to the
+  others, so one broken attached client cannot starve the rest.
+
 **Files:**
 - Create: `src/daemon/runtime.ts`
 - Create: `src/cli/commands/attach.ts`
@@ -3176,7 +4224,7 @@ bridges the local terminal to it.
 - Modify: `src/daemon/methods.ts` — new session runtime methods, injectable adapter factory
 - Modify: `src/domain/session.ts` — injectable adapter factory
 - Modify: `src/client/rpc-client.ts` — notification handling
-- Modify: `src/cli/index.ts` — register the attach command
+- Modify: `src/cli/commands/session.ts` — register the attach subcommand. `src/cli/index.ts` needs no change; `session` is already wired into the root command there.
 - Test: `tests/daemon/runtime.test.ts`
 
 **Interfaces:**
@@ -3218,10 +4266,11 @@ let client: DaemonClient;
 let socketPath: string;
 let workspaceId: string;
 
-async function waitFor(predicate: () => boolean, ms = 5000): Promise<void> {
+/** Accepts an async predicate — several conditions here are only observable over RPC. */
+async function waitFor(predicate: () => boolean | Promise<boolean>, ms = 5000): Promise<void> {
   const deadline = Date.now() + ms;
   while (Date.now() < deadline) {
-    if (predicate()) return;
+    if (await predicate()) return;
     await new Promise((r) => setTimeout(r, 25));
   }
   throw new Error('waitFor timed out');
@@ -3245,6 +4294,76 @@ afterEach(async () => {
   await daemon.close();
   db.close();
   await fx.cleanup();
+});
+
+describe('attach detach key', () => {
+  // Regression, and the cheapest possible guard on the defect that actually shipped:
+  // the literal control byte was lost in transcription, leaving ''. With the old
+  // `includes` check that made the FIRST keystroke detach, so no input ever reached
+  // the agent — the headline feature of this milestone was completely dead, and no
+  // test noticed because the interactive path was explicitly waived.
+  it('is Ctrl-] and exactly one character', async () => {
+    const { DETACH_KEY } = await import('../../src/cli/commands/attach.js');
+    expect(DETACH_KEY).toBe('\x1d');
+    expect(DETACH_KEY).toHaveLength(1);
+    expect(DETACH_KEY).not.toBe('');
+  });
+});
+
+describe('SessionRuntime subscriber isolation', () => {
+  // Task 7 isolated the ADAPTER's fan-out; SessionRuntime has its own loops and had
+  // to be fixed separately. The exit path mattered most: a throw there skipped
+  // `running.delete` and `onExit`, wedging the session at `running` with a stale pid
+  // and making it permanently unstartable.
+  function fakeContext(onNotify: (m: string) => void): MethodContext {
+    return { notify: (m) => onNotify(m), onClose: () => undefined };
+  }
+
+  // The data and exit fan-outs are tested SEPARATELY and each asserts on its own
+  // notification kind. A combined test masks a regression: whichever loop is still
+  // isolated keeps delivering, and the adapter's own fanOut swallows the throw, so
+  // reverting either call site alone left the test green.
+  it('a throwing DATA subscriber does not starve later data subscribers', async () => {
+    const runtime = new SessionRuntime(() => undefined);
+    const row = await sessions.create({
+      workspaceId, name: 'isodata', agent: 'claude', worktree: true,
+    });
+    const seen: string[] = [];
+    runtime.start(row, new ClaudePtyAdapter('sh', ['-c', 'echo hi; sleep 2']));
+
+    const onData = (tag: string) => (m: string): void => { if (m === 'session.data') seen.push(tag); };
+    runtime.subscribe(row.id, row.name, fakeContext(onData('first')));
+    runtime.subscribe(row.id, row.name, fakeContext((m) => {
+      if (m === 'session.data') throw new Error('bad data subscriber');
+    }));
+    runtime.subscribe(row.id, row.name, fakeContext(onData('third')));
+
+    await waitFor(() => seen.includes('third'));
+    expect(seen).toContain('first');
+    await runtime.stop(row.id, 200);
+  }, 15_000);
+
+  it('a throwing EXIT subscriber does not starve the others, nor block cleanup', async () => {
+    const exits: string[] = [];
+    const runtime = new SessionRuntime((id) => exits.push(id));
+    const row = await sessions.create({
+      workspaceId, name: 'isoexit', agent: 'claude', worktree: true,
+    });
+    const seen: string[] = [];
+    runtime.start(row, new ClaudePtyAdapter('sh', ['-c', 'exit 0']));
+
+    const onExit = (tag: string) => (m: string): void => { if (m === 'session.exit') seen.push(tag); };
+    runtime.subscribe(row.id, row.name, fakeContext(onExit('first')));
+    runtime.subscribe(row.id, row.name, fakeContext((m) => {
+      if (m === 'session.exit') throw new Error('bad exit subscriber');
+    }));
+    runtime.subscribe(row.id, row.name, fakeContext(onExit('third')));
+
+    await waitFor(() => exits.includes(row.id));
+    expect(seen).toEqual(['first', 'third']);
+    // Bookkeeping runs before notification, so a throw cannot wedge the session.
+    expect(runtime.isRunning(row.id)).toBe(false);
+  }, 15_000);
 });
 
 describe('session runtime', () => {
@@ -3298,6 +4417,47 @@ describe('session runtime', () => {
     );
   });
 
+  // Regression: the scrollback replay is written DURING the session.attach call, so a
+  // client that registers its handler afterwards silently receives nothing. That is
+  // exactly how `cw session attach` came to show a blank screen on re-attach.
+  it('delivers scrollback during the attach call, so handlers must be registered first', async () => {
+    await client.call('session.new', { workspaceId, name: 'order', agent: 'claude', worktree: true });
+    await client.call('session.start', { workspaceId, idOrName: 'order' });
+    await client.call('session.attach', { workspaceId, idOrName: 'order' });
+    await client.call('session.input', { workspaceId, idOrName: 'order', data: 'MARKER\n' });
+    await new Promise((r) => setTimeout(r, 300));
+
+    const late = await DaemonClient.connect(socketPath);
+    let lateSeen = '';
+    await late.call('session.attach', { workspaceId, idOrName: 'order' });
+    late.onNotification((m, p) => {
+      if (m === 'session.data') lateSeen += (p as { chunk: string }).chunk;
+    });
+    await new Promise((r) => setTimeout(r, 300));
+    expect(lateSeen).not.toContain('echo:MARKER');
+    late.close();
+
+    const early = await DaemonClient.connect(socketPath);
+    let earlySeen = '';
+    early.onNotification((m, p) => {
+      if (m === 'session.data') earlySeen += (p as { chunk: string }).chunk;
+    });
+    await early.call('session.attach', { workspaceId, idOrName: 'order' });
+    await waitFor(() => earlySeen.includes('echo:MARKER'));
+    early.close();
+  }, 20_000);
+
+  it('reports malformed params as a client error, not an internal one', async () => {
+    await expect(client.call('session.list', {})).rejects.toMatchObject({
+      code: 'INVALID_PARAMS',
+    });
+    await client.call('session.new', { workspaceId, name: 'params', agent: 'claude', worktree: true });
+    await client.call('session.start', { workspaceId, idOrName: 'params' });
+    await expect(
+      client.call('session.resize', { workspaceId, idOrName: 'params', rows: 24 }),
+    ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
+  });
+
   it('refuses to attach to a session that is not running', async () => {
     await client.call('session.new', { workspaceId, name: 'auth', agent: 'claude', worktree: true });
     await expect(client.call('session.attach', { workspaceId, idOrName: 'auth' })).rejects.toMatchObject(
@@ -3308,17 +4468,106 @@ describe('session runtime', () => {
   it('marks the session idle and clears the pid when the agent exits', async () => {
     await client.call('session.new', { workspaceId, name: 'bye', agent: 'claude', worktree: true });
     await client.call('session.start', { workspaceId, idOrName: 'bye' });
-    await client.call('session.input', { workspaceId, idOrName: 'bye', data: '' });
     await client.call('session.stop', { workspaceId, idOrName: 'bye' });
 
-    await waitFor(async () => true);
-    const rows = await client.call<{ name: string; status: string; pid: number | null }[]>(
+    // Wait on the condition itself. The runtime's exit handler is asynchronous, so
+    // anything that does not observe the actual row is testing nothing.
+    type Row = { name: string; status: string; pid: number | null };
+    let row: Row | undefined;
+    await waitFor(async () => {
+      const rows = await client.call<Row[]>('session.list', { workspaceId });
+      row = rows.find((r) => r.name === 'bye');
+      return row !== undefined && row.pid === null && row.status !== 'running';
+    });
+
+    expect(row?.status).toBe('idle');
+    expect(row?.pid).toBeNull();
+  });
+
+  // Regression: neither start nor resume checked the status, so a killed session
+  // could be resumed straight back to running — which would have made `dead` and
+  // `idle` the same thing and the kill meaningless.
+  it('refuses to start or resume a killed session', async () => {
+    await client.call('session.new', { workspaceId, name: 'gone', agent: 'claude', worktree: true });
+    await client.call('session.start', { workspaceId, idOrName: 'gone' });
+    await client.call('session.kill', { workspaceId, idOrName: 'gone', removeWorktree: false });
+
+    await expect(
+      client.call('session.resume', { workspaceId, idOrName: 'gone' }),
+    ).rejects.toMatchObject({ code: 'SESSION_ENDED' });
+    await expect(
+      client.call('session.start', { workspaceId, idOrName: 'gone' }),
+    ).rejects.toMatchObject({ code: 'SESSION_ENDED' });
+
+    // Checked immediately, while the runtime may still report the pty as running —
+    // that window used to return a stale `dead` row with no error.
+    const rows = await client.call<{ name: string; status: string }[]>(
       'session.list', { workspaceId },
     );
-    const row = rows.find((r) => r.name === 'bye')!;
-    expect(['idle', 'dead']).toContain(row.status);
-    expect(row.pid).toBeNull();
+    expect(rows.find((r) => r.name === 'gone')?.status).toBe('dead');
   });
+
+  // Regression, and the reason this assertion is on the PID: a reviewer replaced
+  // session.resume's body with `return row` — never restarting anything — and the
+  // entire 133-test suite still passed, because the stale pre-exit row already said
+  // "running". Asserting on status alone tested nothing.
+  it('resume after stop starts a genuinely new process', async () => {
+    await client.call('session.new', { workspaceId, name: 'again', agent: 'claude', worktree: true });
+    const first = await client.call<{ pid: number }>('session.start', {
+      workspaceId, idOrName: 'again',
+    });
+    await client.call('session.stop', { workspaceId, idOrName: 'again' });
+
+    const second = await client.call<{ pid: number; status: string }>('session.resume', {
+      workspaceId, idOrName: 'again',
+    });
+    expect(second.status).toBe('running');
+    expect(second.pid).not.toBe(first.pid);
+  });
+
+  // Regression: stop returned as soon as SIGTERM was sent, so an agent that ignores
+  // it was reported stopped while still alive — and kill then cleared the pid,
+  // leaving a stranded process nothing could ever find again.
+  //
+  // Tested directly against SessionRuntime with a short grace period, and it waits
+  // for the trap to be INSTALLED before signalling. An earlier version of this test
+  // signalled immediately and the agent died from the raw SIGTERM before its trap
+  // existed — so it passed in 0.14s without ever reaching the SIGKILL branch it
+  // claimed to cover. Asserting on elapsed time is what keeps it honest.
+  it('escalates to SIGKILL when the agent ignores SIGTERM', async () => {
+    const runtime = new SessionRuntime(() => undefined);
+    const row = await sessions.create({
+      workspaceId, name: 'stubborn', agent: 'claude', worktree: true,
+    });
+    const pid = runtime.start(
+      row,
+      new ClaudePtyAdapter('sh', ['-c', 'trap "" TERM; echo TRAPPED; while true; do sleep 0.05; done']),
+    );
+
+    let out = '';
+    runtime.subscribe(row.id, row.name, {
+      notify: (_m, p) => { out += (p as { chunk?: string }).chunk ?? ''; },
+      onClose: () => undefined,
+    });
+    await waitFor(() => out.includes('TRAPPED'));
+
+    const startedAt = Date.now();
+    await runtime.stop(row.id, 200);
+    const elapsed = Date.now() - startedAt;
+
+    expect(runtime.isRunning(row.id)).toBe(false);
+    // Proof the escalation branch actually ran rather than the process dying on the
+    // first signal: it cannot have returned before the grace period elapsed.
+    expect(elapsed).toBeGreaterThanOrEqual(200);
+
+    let alive = true;
+    try {
+      process.kill(pid, 0);
+    } catch {
+      alive = false;
+    }
+    expect(alive).toBe(false);
+  }, 15_000);
 
   it('resume starts a stopped session again', async () => {
     await client.call('session.new', { workspaceId, name: 'auth', agent: 'claude', worktree: true });
@@ -3330,12 +4579,24 @@ describe('session runtime', () => {
     expect(again.status).toBe('running');
   });
 
-  it('kill stops a running agent', async () => {
+  // Regression: kill() writes 'dead' synchronously right after SIGTERM, but the pty's
+  // exit callback arrives later and used to overwrite it with 'idle'. A killed session
+  // that reads back as idle is worse than useless — `cw session list` would lie.
+  it('kill stops a running agent and the exit handler does not resurrect it', async () => {
     await client.call('session.new', { workspaceId, name: 'auth', agent: 'claude', worktree: true });
     await client.call('session.start', { workspaceId, idOrName: 'auth' });
     await client.call('session.kill', { workspaceId, idOrName: 'auth', removeWorktree: false });
-    const rows = await client.call<{ name: string; status: string }[]>('session.list', { workspaceId });
-    expect(rows.find((r) => r.name === 'auth')!.status).toBe('dead');
+
+    type Row = { name: string; status: string };
+    const statusOf = async (): Promise<string | undefined> => {
+      const rows = await client.call<Row[]>('session.list', { workspaceId });
+      return rows.find((r) => r.name === 'auth')?.status;
+    };
+
+    expect(await statusOf()).toBe('dead');
+    // Give the pty's async exit callback time to land, then confirm it did not win.
+    await new Promise((r) => setTimeout(r, 300));
+    expect(await statusOf()).toBe('dead');
   });
 });
 ```
@@ -3412,6 +4673,27 @@ import type { MethodContext } from './server.js';
 
 const SCROLLBACK_LIMIT = 64 * 1024;
 
+/** How long an agent gets to honour SIGTERM before SIGKILL. */
+const STOP_GRACE_MS = 3000;
+
+/**
+ * One broken subscriber must not starve the others, and must never be able to stop
+ * the runtime's own bookkeeping from running.
+ */
+function notifyAll(
+  subscribers: Iterable<MethodContext>,
+  method: string,
+  params: unknown,
+): void {
+  for (const sub of subscribers) {
+    try {
+      sub.notify(method, params);
+    } catch {
+      // The subscriber owns its failure; the stream keeps going.
+    }
+  }
+}
+
 interface RunningSession {
   proc: AgentProcess;
   scrollback: string;
@@ -3443,17 +4725,18 @@ export class SessionRuntime {
 
     proc.onData((chunk) => {
       entry.scrollback = (entry.scrollback + chunk).slice(-SCROLLBACK_LIMIT);
-      for (const sub of entry.subscribers) {
-        sub.notify('session.data', { sessionId: session.id, chunk });
-      }
+      notifyAll(entry.subscribers, 'session.data', { sessionId: session.id, chunk });
     });
 
     proc.onExit((code) => {
-      for (const sub of entry.subscribers) {
-        sub.notify('session.exit', { sessionId: session.id, code });
-      }
+      // Bookkeeping BEFORE notifying, deliberately. A throwing subscriber used to
+      // abort this callback, so `running` never lost its entry and `onExit` never
+      // ran: the session stayed wedged at `running` with a stale pid and could never
+      // be started again. Task 7 isolated the ADAPTER's fan-out; this loop is a
+      // second one and needed the same treatment.
       this.running.delete(session.id);
       this.onExit(session.id, code);
+      notifyAll(entry.subscribers, 'session.exit', { sessionId: session.id, code });
     });
 
     return proc.pid;
@@ -3488,14 +4771,37 @@ export class SessionRuntime {
     }
   }
 
-  stop(sessionId: string): void {
+  /**
+   * Signal the agent and wait until it is actually gone, escalating if it ignores
+   * SIGTERM.
+   *
+   * Returning before the process has died is what let `resume` immediately after
+   * `stop` see a still-live pty, short-circuit on `isRunning`, and report success
+   * carrying a pid that was already dead — with the whole suite passing even when
+   * `resume`'s restart path was gutted. It is the same gap that let `kill` clear the
+   * pid while the process survived, stranding an agent with no record of it.
+   */
+  async stop(sessionId: string, graceMs = STOP_GRACE_MS): Promise<void> {
     const entry = this.running.get(sessionId);
     if (!entry) return;
+
+    // A listener registered after the process already exited still fires, so this
+    // cannot miss the event (proven by Task 7's late-onExit test).
+    const exited = new Promise<void>((resolve) => {
+      entry.proc.onExit(() => resolve());
+    });
+
     entry.proc.kill('SIGTERM');
+    const escalate = setTimeout(() => entry.proc.kill('SIGKILL'), graceMs);
+    try {
+      await exited;
+    } finally {
+      clearTimeout(escalate);
+    }
   }
 
-  stopAll(): void {
-    for (const id of [...this.running.keys()]) this.stop(id);
+  async stopAll(): Promise<void> {
+    await Promise.all([...this.running.keys()].map((id) => this.stop(id)));
   }
 }
 ```
@@ -3537,20 +4843,40 @@ Add a public accessor so the method table can build an adapter when starting:
   markStatus(id: string, status: SessionRow['status'], pid: number | null): void {
     this.sessions.updateStatus(id, status, pid);
   }
+
+  /**
+   * The agent process ended. Called from the runtime's ASYNCHRONOUS exit handler, so
+   * it must not clobber a terminal state.
+   *
+   * The original race is no longer reachable — `kill()` now awaits `onKill` before
+   * writing `dead`, so the exit callback has already run by then. The guard stays as
+   * defence in depth: any future caller that writes a terminal state without awaiting
+   * the reap would reintroduce it, and the failure mode is `cw session list` reporting
+   * a killed session as `idle`.
+   */
+  clearRunning(id: string): void {
+    const row = this.sessions.findById(id);
+    if (!row) return;
+    if (row.status === 'dead' || row.status === 'landed') return;
+    this.sessions.updateStatus(id, 'idle', null);
+  }
 ```
 
 Add `SessionRuntime` awareness to `kill` so a running agent is stopped through the
 runtime rather than a bare `process.kill`. Replace the `if (row.pid !== null)` block with:
 
 ```ts
-    this.onKill?.(row.id);
+    // Awaited: kill must not report success while the agent is still alive, and the
+    // pid must not be cleared until the process is confirmed gone — otherwise nothing
+    // can ever find or reap it again.
+    await this.onKill?.(row.id);
 ```
 
 and add to the class:
 
 ```ts
   /** Set by the daemon so kill() can stop a live pty it does not own. */
-  onKill?: (sessionId: string) => void;
+  onKill?: (sessionId: string) => Promise<void>;
 ```
 
 - [ ] **Step 6: Extend `src/daemon/methods.ts`**
@@ -3566,12 +4892,36 @@ export function buildMethods(
   const workspaces = new WorkspaceManager(db);
   const sessions = new SessionManager(db, adapterFactory);
   const runtime = new SessionRuntime((sessionId) => {
-    sessions.markStatus(sessionId, 'idle', null);
+    sessions.clearRunning(sessionId);
   });
   sessions.onKill = (id) => runtime.stop(id);
+  // NOTE: the runtime only knows processes THIS daemon started. After a daemon
+  // restart the row can still carry a pid from the previous one, and killing such a
+  // session signals nothing. Signalling the stale pid directly is NOT safe — pids are
+  // reused, and we would be signalling an unrelated process. Reconciliation on daemon
+  // start (M2) is what closes this; it is recorded as a known M0 limitation.
+
+  /**
+   * `dead` and `landed` are terminal. The API already carries two distinct verbs —
+   * `session.stop` ends the agent process and leaves the session `idle` and
+   * resumable, `session.kill` ends the session — and if a killed session could be
+   * started again the two would be the same thing and the status column would mean
+   * nothing. The worktree outliving a kill is for inspecting the work and landing it
+   * later, not for resurrecting the session.
+   */
+  function assertResumable(row: SessionRow): void {
+    if (row.status === 'dead' || row.status === 'landed') {
+      throw new CrossweaveError(
+        'SESSION_ENDED',
+        `Session ${row.name} is ${row.status} and cannot be started again. ` +
+          'Use `cw session stop` for a session you intend to resume, or create a new one.',
+      );
+    }
+  }
 
   function start(p: Record<string, unknown>): SessionRow {
     const row = sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName'));
+    assertResumable(row);
     const pid = runtime.start(row, sessions.adapterFor(row.agentKind));
     sessions.markStatus(row.id, 'running', pid);
     return sessions.resolve(row.workspaceId, row.id);
@@ -3584,6 +4934,10 @@ export function buildMethods(
 
     'session.resume': (p) => {
       const row = sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName'));
+      // Checked BEFORE isRunning: right after a kill the runtime still reports the
+      // pty as running until its exit callback lands, and returning the row there
+      // handed back a stale `dead` snapshot with no error at all.
+      assertResumable(row);
       if (runtime.isRunning(row.id)) return row;
       return start(p);
     },
@@ -3606,14 +4960,15 @@ export function buildMethods(
       return { ok: true };
     },
 
-    'session.stop': (p) => {
+    // Awaited, so a caller told the session stopped can trust that it actually is.
+    'session.stop': async (p) => {
       const row = sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName'));
-      runtime.stop(row.id);
+      await runtime.stop(row.id);
       return { ok: true };
     },
 
-    'daemon.shutdown': () => {
-      runtime.stopAll();
+    'daemon.shutdown': async () => {
+      await runtime.stopAll();
       setTimeout(() => process.exit(0), 10);
       return { ok: true };
     },
@@ -3626,7 +4981,9 @@ Add the numeric param helper alongside `str`/`bool`:
 ```ts
 function num(params: Record<string, unknown>, key: string): number {
   const v = params[key];
-  if (typeof v !== 'number') throw new TypeError(`Expected number param: ${key}`);
+  if (typeof v !== 'number') {
+    throw new CrossweaveError('INVALID_PARAMS', `Expected number param: ${key}`);
+  }
   return v;
 }
 ```
@@ -3634,6 +4991,7 @@ function num(params: Record<string, unknown>, key: string): number {
 Add the imports this needs at the top of the file:
 
 ```ts
+import { CrossweaveError } from '../core/errors.js';
 import { SessionRuntime } from './runtime.js';
 import type { AdapterFactory } from '../domain/session.js';
 import type { SessionRow } from '../db/repositories/session.js';
@@ -3645,6 +5003,7 @@ Add a field and method to `DaemonClient`:
 
 ```ts
   private readonly notificationHandlers: Array<(method: string, params: unknown) => void> = [];
+  private readonly closeHandlers: Array<() => void> = [];
 
   onNotification(cb: (method: string, params: unknown) => void): void {
     this.notificationHandlers.push(cb);
@@ -3680,7 +5039,16 @@ Expected: all PASS, 0 type errors.
 import { defineCommand } from 'citty';
 import { withClient, fail, currentWorkspaceId } from '../context.js';
 
-const DETACH_KEY = ''; // Ctrl-]
+/**
+ * Ctrl-]. Written as an escape, never as a literal control byte: an invisible 0x1D
+ * in a code block does not survive transcription, and when it was lost this became
+ * an empty string — `''.includes('')` is true, so the first keystroke detached and
+ * no input ever reached the agent.
+ *
+ * Compared with `===` rather than `includes` so a 0x1D inside a paste does not
+ * detach; a real keypress arrives as its own chunk.
+ */
+export const DETACH_KEY = '\x1d';
 
 export const attachCommand = defineCommand({
   meta: { name: 'attach', description: 'Attach the terminal to a running session (Ctrl-] to detach)' },
@@ -3689,27 +5057,45 @@ export const attachCommand = defineCommand({
     start: { type: 'boolean', default: true, description: 'Start the agent if it is not running' },
   },
   async run({ args }) {
+    const stdin = process.stdin;
+    const isTty = stdin.isTTY === true;
+
+    // Last-resort guard, registered before anything can fail. A terminal left in raw
+    // mode gives the user a shell that neither echoes nor answers Ctrl-C, recoverable
+    // only from another window with `stty sane`.
+    process.once('exit', () => {
+      if (isTty) stdin.setRawMode(false);
+    });
+
     try {
       await withClient(async (client) => {
         const workspaceId = await currentWorkspaceId(client);
         const target = { workspaceId, idOrName: args.target };
 
-        if (args.start) await client.call('session.resume', target);
-        else await client.call('session.attach', target);
+        // Registered BEFORE session.attach, and this ordering is load-bearing: the
+        // server replays the scrollback DURING that RPC, from runtime.subscribe. A
+        // handler registered afterwards misses it entirely and re-attaching to a live
+        // session shows a blank screen.
+        let sessionExited = false;
+        let onSessionExit: (() => void) | undefined;
+        client.onNotification((method, params) => {
+          if (method === 'session.data') {
+            process.stdout.write((params as { chunk: string }).chunk);
+          } else if (method === 'session.exit') {
+            sessionExited = true;
+            process.stdout.write('\n[session exited]\n');
+            onSessionExit?.();
+          }
+        });
 
-        const stdin = process.stdin;
-        const isTty = stdin.isTTY === true;
+        if (args.start) await client.call('session.resume', target);
+        // Subscribe exactly ONCE and await it. This used to run a second time inside
+        // the promise with its failure swallowed, which both replayed the scrollback
+        // twice and could leave the terminal raw and attached to nothing.
+        await client.call('session.attach', target);
 
         await new Promise<void>((resolve) => {
           let done = false;
-          const finish = (): void => {
-            if (done) return;
-            done = true;
-            if (isTty) stdin.setRawMode(false);
-            stdin.pause();
-            process.removeListener('SIGWINCH', onResize);
-            resolve();
-          };
 
           const onResize = (): void => {
             void client.call('session.resize', {
@@ -3719,30 +5105,50 @@ export const attachCommand = defineCommand({
             }).catch(() => undefined);
           };
 
-          client.onNotification((method, params) => {
-            if (method === 'session.data') {
-              process.stdout.write((params as { chunk: string }).chunk);
-            } else if (method === 'session.exit') {
-              process.stdout.write('\n[session exited]\n');
-              finish();
-            }
-          });
-
-          void client.call('session.attach', target).catch(() => undefined);
-          onResize();
-          process.on('SIGWINCH', onResize);
-
-          if (isTty) stdin.setRawMode(true);
-          stdin.resume();
-          stdin.on('data', (buf: Buffer) => {
+          const onInput = (buf: Buffer): void => {
             const data = buf.toString('utf8');
-            if (data.includes(DETACH_KEY)) {
+            if (data === DETACH_KEY) {
               process.stdout.write('\n[detached]\n');
               finish();
               return;
             }
             void client.call('session.input', { ...target, data }).catch(() => undefined);
+          };
+
+          function finish(): void {
+            if (done) return;
+            done = true;
+            if (isTty) stdin.setRawMode(false);
+            stdin.pause();
+            stdin.removeListener('data', onInput);
+            process.removeListener('SIGWINCH', onResize);
+            resolve();
+          }
+
+          onSessionExit = finish;
+          // The session can exit during the attach RPC above, before this promise
+          // exists. Without this the notification would have nothing to call and the
+          // CLI would wait forever for an event that already happened.
+          if (sessionExited) {
+            finish();
+            return;
+          }
+
+          // Without this, finish() was reachable only from session.exit or Ctrl-] —
+          // neither of which can fire once the socket is gone — so a daemon that died
+          // left the CLI hung with the terminal in raw mode.
+          client.onClose(() => {
+            // `withClient` closes the client in its finally, which reaches here on
+            // every ordinary exit too. Only an unexpected loss is worth reporting.
+            if (!done) process.stdout.write('\n[daemon connection lost]\n');
+            finish();
           });
+
+          onResize();
+          process.on('SIGWINCH', onResize);
+          if (isTty) stdin.setRawMode(true);
+          stdin.resume();
+          stdin.on('data', onInput);
         });
       });
     } catch (err) { fail(err); }
@@ -3750,10 +5156,11 @@ export const attachCommand = defineCommand({
 });
 ```
 
-- [ ] **Step 10: Register attach in `src/cli/index.ts`**
+- [ ] **Step 10: Register attach as a `session` subcommand**
 
-Import it and add it to the `session` subcommands. In `src/cli/commands/session.ts`,
-add to the `subCommands` object of `sessionCommand`:
+This is entirely in `src/cli/commands/session.ts` — `src/cli/index.ts` already wires
+`session` into the root command and needs no change. Add to the `subCommands` object
+of `sessionCommand`:
 
 ```ts
     attach: attachCommand,
@@ -3766,6 +5173,71 @@ with `import { attachCommand } from './attach.js';` at the top of that file.
 Append to `tests/cli/cli.test.ts`:
 
 ```ts
+  // Regression, and it MUST drive the real CLI through a pty. The wire-level
+  // scrollback test in tests/daemon/runtime.test.ts passes even with attach.ts's fix
+  // reverted, because it never calls into attach.ts — the defect was purely the order
+  // of registration inside the CLI, and only a test that runs the CLI can see it.
+  it('replays scrollback when re-attaching to a live session', async () => {
+    const { mkdtemp, rm, writeFile, chmod } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const binDir = await mkdtemp(join(tmpdir(), 'cw-fakebin-'));
+    try {
+      const fake = join(binDir, 'claude');
+      await writeFile(fake, '#!/bin/sh\necho MARKER_XYZ\nwhile IFS= read -r l; do echo "got:$l"; done\n');
+      await chmod(fake, 0o755);
+      const env = { ...process.env, PATH: `${binDir}:${process.env.PATH ?? ''}` };
+
+      // The daemon is spawned lazily by whichever `cw` invocation needs it first, and
+      // it inherits THAT process's env — not the env of whatever `cw` call happens to
+      // attach later. The fake `claude` has to be on PATH before the daemon starts, or
+      // the agent it spawns is the real one on the machine.
+      const cwFake = async (args: string[]): Promise<CwResult> => {
+        const proc = Bun.spawn([process.execPath, CLI, ...args], {
+          cwd: fx.root, env, stdout: 'pipe', stderr: 'pipe',
+        });
+        const [stdout, stderr] = await Promise.all([
+          new Response(proc.stdout).text(),
+          new Response(proc.stderr).text(),
+        ]);
+        return { exitCode: await proc.exited, stdout, stderr };
+      };
+
+      await cwFake(['init']);
+      await cwFake(['session', 'new', '--name', 'replay', '--agent', 'claude']);
+
+      const attachOnce = async (): Promise<string> => {
+        let out = '';
+        const proc = Bun.spawn([process.execPath, CLI, 'session', 'attach', 'replay'], {
+          cwd: fx.root,
+          env,
+          terminal: {
+            cols: 80,
+            rows: 24,
+            data(_t: unknown, chunk: string | Uint8Array) {
+              out += typeof chunk === 'string' ? chunk : new TextDecoder().decode(chunk);
+            },
+          },
+        }) as unknown as { terminal: { write(s: string): void }; exited: Promise<number> };
+
+        await Bun.sleep(1500);
+        proc.terminal.write('\x1d'); // Ctrl-] detaches
+        await proc.exited;
+        return out;
+      };
+
+      const first = await attachOnce();
+      expect(first).toContain('MARKER_XYZ');
+
+      // The session is still running. Re-attaching must replay what it already printed.
+      const second = await attachOnce();
+      expect(second).toContain('MARKER_XYZ');
+
+      await cw(['session', 'kill', 'replay', '--yes']);
+    } finally {
+      await rm(binDir, { recursive: true, force: true });
+    }
+  }, 60_000);
+
   it('attach reports a clear error for an unknown session', async () => {
     await cw(['init']);
     const r = await cw(['session', 'attach', 'ghost']);
@@ -3855,7 +5327,16 @@ describe('compiled binaries', () => {
       expect(await new Response(list.stdout).text()).toContain('no sessions');
       expect(await list.exited).toBe(0);
 
-      Bun.spawn([cwBin, 'daemon', 'stop'], { cwd: fx.root, stdout: 'ignore', stderr: 'ignore' });
+      // Awaited, not fire-and-forget: racing fx.cleanup() left a detached `cwd`
+      // process alive on every run of this test.
+      await Bun.spawn([cwBin, 'daemon', 'stop'], {
+        cwd: fx.root, stdout: 'ignore', stderr: 'ignore',
+      }).exited;
+
+      // And ASSERTED, because the await alone guarded nothing: reverting it to
+      // fire-and-forget still passed 3/3 while daemons accumulated 1, 2, 3.
+      const survivors = Bun.spawnSync(['pgrep', '-f', cwdBin]);
+      expect(survivors.stdout.toString().trim()).toBe('');
     } finally {
       await fx.cleanup();
     }
@@ -3875,6 +5356,9 @@ import pkg from '../../package.json' with { type: 'json' };
 
 export const VERSION: string = pkg.version;
 ```
+
+Imported from `src/cli/index.ts` as `../core/version.js` — `src/core` is a sibling of
+`src/cli`, not a child.
 
 - [ ] **Step 4: Implement `scripts/build.ts`**
 
@@ -3949,6 +5433,13 @@ export async function connectOrStart(
     detached: true,
     stdio: 'ignore',
   });
+  // Node reports a spawn failure asynchronously as an 'error' event, and an 'error'
+  // with no listener is thrown — an uncaught exception carrying a raw stack trace and
+  // internal $bunfs paths, bypassing fail() entirely. Reachable in the ordinary way:
+  // a compiled `cw` moved away from its sibling `cwd` binary. Swallowing it here is
+  // correct because the polling loop below is what decides the outcome, and it ends
+  // in a proper DAEMON_START_FAILED.
+  child.on('error', () => undefined);
   child.unref();
 ```
 
@@ -3997,7 +5488,7 @@ git commit -m "feat(packaging): compile cw and cwd to standalone binaries"
 - Two sessions get two worktrees and writes in one are invisible in the other.
 - Every error path exits non-zero with a stable `CODE: message` line on stderr.
 - The daemon starts on demand and stops cleanly with `cw daemon stop`, killing any agents it owns.
-- `bun install` pulls exactly two packages, runs no postinstall script and invokes no compiler.
+- `bun install` pulls exactly **two direct runtime dependencies** (`citty`, `simple-git`); the full tree is larger because of devDependencies and transitives. What must hold is that **no dependency runs an install script and no compiler is invoked**.
 - `bun run build` produces `dist/cw` and `dist/cwd`, and `dist/cw init` works on a machine with no Bun and no Node installed.
 - The daemon socket is `0600` and `.crossweave/` is `0700`.
 
