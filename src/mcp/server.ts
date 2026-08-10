@@ -4,6 +4,22 @@ import { framedLines, handleMcpMessage, mcpSocketPath, type McpTool } from './pr
 
 export interface McpServerHandle {
   socketPath: string;
+  /**
+   * True only once the underlying `net.Server` has actually bound the socket —
+   * i.e. its `'listening'` event fired. A handle can exist (this function never
+   * throws on a bind failure — see below) while this stays permanently `false`,
+   * which is exactly the case a caller needs to distinguish "server object was
+   * created" from "socket is actually reachable".
+   */
+  listening(): boolean;
+  /**
+   * Resolves once the initial bind attempt has settled — `true` on success,
+   * `false` on failure. Never rejects, and never hangs: `listen()`'s `'listening'`
+   * and `'error'` events are the only two outcomes of a bind attempt, and exactly
+   * one of them always fires. A caller that needs `listening()` to be accurate
+   * (rather than possibly still "hasn't bound yet") must await this first.
+   */
+  ready(): Promise<boolean>;
   close(): Promise<void>;
 }
 
@@ -63,20 +79,35 @@ export function createMcpServer(
     socket.on('data', (chunk) => framer.feed(chunk));
   });
 
+  let bound = false;
+  let settleReady: (v: boolean) => void = () => undefined;
+  const readyPromise = new Promise<boolean>((resolve) => {
+    settleReady = resolve;
+  });
+
   netServer.on('error', (err) => {
     process.stderr.write(`crossweave: MCP server for session ${sessionId} failed: ${String(err)}\n`);
+    settleReady(false);
   });
 
   netServer.listen(socketPath, () => {
+    bound = true;
     try {
       chmodSync(socketPath, 0o600);
     } catch {
       // Best effort — the socket still works even if the mode couldn't be tightened.
     }
+    settleReady(true);
   });
 
   return {
     socketPath,
+    listening(): boolean {
+      return bound;
+    },
+    ready(): Promise<boolean> {
+      return readyPromise;
+    },
     close(): Promise<void> {
       return new Promise((resolve) => {
         for (const socket of openSockets) {

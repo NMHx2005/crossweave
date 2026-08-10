@@ -162,10 +162,15 @@ export function buildMethods(
       // Best effort: messaging/context tools are a real feature but not the reason
       // the session exists. A socket bind failure here (see mcpSocketPath's own
       // length guard, and main.ts's top-level handler) degrades this one session
-      // to "no MCP tools available" rather than failing the whole start.
+      // to "no MCP tools available" rather than failing the whole start. Awaiting
+      // `ready()` (not just calling `createMcpServer` synchronously) is what makes
+      // `session.mcpInfo`'s `listening()` check deterministic the moment this RPC
+      // returns, instead of racing an in-flight async bind.
       try {
         const tools = buildTools(row.id, row.workspaceId, bus, contextStore);
-        mcpServers.set(row.id, createMcpServer(row.id, tools));
+        const handle = createMcpServer(row.id, tools);
+        mcpServers.set(row.id, handle);
+        await handle.ready();
       } catch (err) {
         process.stderr.write(`crossweave: could not start MCP server for session ${row.name}: ${String(err)}\n`);
       }
@@ -260,7 +265,10 @@ export function buildMethods(
     'session.mcpInfo': (p) => {
       const row = sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName'));
       const handle = mcpServers.get(row.id);
-      if (handle === undefined) {
+      // `handle` existing only means `createMcpServer` was called and didn't throw —
+      // it never throws on a bind failure (see src/mcp/server.ts), so `listening()`
+      // is the only thing that reflects whether the socket is actually reachable.
+      if (handle === undefined || !handle.listening()) {
         throw new CrossweaveError('MCP_SERVER_NOT_RUNNING', `No MCP server is running for session ${row.name}`);
       }
       return { mcpSocketPath: handle.socketPath };
