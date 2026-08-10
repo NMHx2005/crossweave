@@ -5,7 +5,8 @@ import type { Database } from 'bun:sqlite';
 import { openDatabase } from '../../src/db/open.js';
 import { WorkspaceManager } from '../../src/domain/workspace.js';
 import { SessionManager } from '../../src/domain/session.js';
-import { collectGarbage } from '../../src/domain/gc.js';
+import { collectGarbage, collectOrphans } from '../../src/domain/gc.js';
+import { buildMethods } from '../../src/daemon/methods.js';
 import { SessionRepo } from '../../src/db/repositories/session.js';
 import { makeGitFixture, type GitFixture } from '../helpers/git-fixture.js';
 
@@ -32,7 +33,7 @@ describe('collectGarbage', () => {
     const live = await sessions.create({ workspaceId, name: 'live', agent: 'claude', worktree: true });
     await sessions.kill(workspaceId, 'dead', { removeWorktree: false });
 
-    const result = await collectGarbage(db, fx.root, workspaceId);
+    const result = await collectGarbage(db, workspaceId);
 
     expect(result.removed).toEqual(['dead']);
     expect(result.reclaimedBytes).toBeGreaterThan(0);
@@ -43,7 +44,7 @@ describe('collectGarbage', () => {
 
   it('is a no-op when nothing has ended', async () => {
     await sessions.create({ workspaceId, name: 'live', agent: 'claude', worktree: true });
-    const result = await collectGarbage(db, fx.root, workspaceId);
+    const result = await collectGarbage(db, workspaceId);
     expect(result.removed).toEqual([]);
     expect(result.reclaimedBytes).toBe(0);
   }, 30_000);
@@ -51,7 +52,7 @@ describe('collectGarbage', () => {
   it('deletes the dead session\'s branch too, freeing the name', async () => {
     await sessions.create({ workspaceId, name: 'recycle', agent: 'claude', worktree: true });
     await sessions.kill(workspaceId, 'recycle', { removeWorktree: false });
-    await collectGarbage(db, fx.root, workspaceId);
+    await collectGarbage(db, workspaceId);
 
     const { simpleGit } = await import('simple-git');
     expect((await simpleGit(fx.root).branch()).all).not.toContain('cw/recycle');
@@ -72,7 +73,7 @@ describe('collectGarbage', () => {
     const old = new Date(Date.now() - 10_000);
     utimesSync(row.worktreePath ?? '', old, old);
 
-    const result = await collectGarbage(db, fx.root, workspaceId);
+    const result = await collectGarbage(db, workspaceId);
     expect(result.removed).toHaveLength(1);
     expect(existsSync(row.worktreePath ?? '')).toBe(false);
   }, 30_000);
@@ -85,8 +86,82 @@ describe('collectGarbage', () => {
     const row = sessions.resolve(workspaceId, 'brand-new');
     new SessionRepo(db).delete(row.id);
 
-    const result = await collectGarbage(db, fx.root, workspaceId);
+    const result = await collectGarbage(db, workspaceId);
     expect(result.removed).toEqual([]);
     expect(existsSync(row.worktreePath ?? '')).toBe(true);
+  }, 30_000);
+});
+
+/**
+ * Boot-time gc is the ONLY caller that must not reclaim ended sessions. `cw session
+ * kill` without `--rm-worktree` deliberately leaves the session `dead` with its
+ * worktree and branch intact — M4's `cw land` needs the branch — so a daemon restart
+ * running the full sweep would silently destroy work nobody asked it to touch.
+ */
+describe('collectOrphans', () => {
+  it('leaves a killed session\'s worktree and branch alone', async () => {
+    const killed = await sessions.create({
+      workspaceId, name: 'keepme', agent: 'claude', worktree: true,
+    });
+    await sessions.kill(workspaceId, 'keepme', { removeWorktree: false });
+
+    // Age it past the grace window so nothing but the ended-session filter can be
+    // what saves it.
+    const old = new Date(Date.now() - 10_000);
+    utimesSync(killed.worktreePath ?? '', old, old);
+
+    const result = await collectOrphans(db, workspaceId);
+
+    expect(result.removed).toEqual([]);
+    expect(existsSync(killed.worktreePath ?? '')).toBe(true);
+    const { simpleGit } = await import('simple-git');
+    expect((await simpleGit(fx.root).branch()).all).toContain('cw/keepme');
+    expect(sessions.resolve(workspaceId, 'keepme').status).toBe('dead');
+  }, 30_000);
+
+  it('still reclaims a worktree no session row claims', async () => {
+    await sessions.create({ workspaceId, name: 'orphan', agent: 'claude', worktree: true });
+    const row = sessions.resolve(workspaceId, 'orphan');
+    new SessionRepo(db).delete(row.id);
+    const old = new Date(Date.now() - 10_000);
+    utimesSync(row.worktreePath ?? '', old, old);
+
+    const result = await collectOrphans(db, workspaceId);
+    expect(result.removed).toHaveLength(1);
+    expect(existsSync(row.worktreePath ?? '')).toBe(false);
+  }, 30_000);
+});
+
+describe('boot-time gc', () => {
+  it('does not destroy a killed session\'s worktree or branch on daemon restart', async () => {
+    const killed = await sessions.create({
+      workspaceId, name: 'survivor', agent: 'claude', worktree: true,
+    });
+    await sessions.kill(workspaceId, 'survivor', { removeWorktree: false });
+    const old = new Date(Date.now() - 10_000);
+    utimesSync(killed.worktreePath ?? '', old, old);
+
+    // What a daemon restart does against the same state: a fresh buildMethods over
+    // the same database. Its boot sweep is fire-and-forget, so give it room to run.
+    buildMethods(db, fx.root);
+    await new Promise((r) => setTimeout(r, 1000));
+
+    expect(existsSync(killed.worktreePath ?? '')).toBe(true);
+    const { simpleGit } = await import('simple-git');
+    expect((await simpleGit(fx.root).branch()).all).toContain('cw/survivor');
+    expect(sessions.list(workspaceId).map((s) => s.name)).toEqual(['survivor']);
+  }, 30_000);
+
+  it('still sweeps a genuine orphan on daemon restart', async () => {
+    await sessions.create({ workspaceId, name: 'stray', agent: 'claude', worktree: true });
+    const row = sessions.resolve(workspaceId, 'stray');
+    new SessionRepo(db).delete(row.id);
+    const old = new Date(Date.now() - 10_000);
+    utimesSync(row.worktreePath ?? '', old, old);
+
+    buildMethods(db, fx.root);
+    await new Promise((r) => setTimeout(r, 1000));
+
+    expect(existsSync(row.worktreePath ?? '')).toBe(false);
   }, 30_000);
 });

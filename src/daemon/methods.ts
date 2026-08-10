@@ -7,7 +7,7 @@ import type { MethodHandler } from './server.js';
 import type { SessionRow } from '../db/repositories/session.js';
 import { LeaseManager } from '../isolation/leases/manager.js';
 import { loadConfig, type CrossweaveConfig } from '../core/config.js';
-import { collectGarbage } from '../domain/gc.js';
+import { collectGarbage, collectOrphans } from '../domain/gc.js';
 
 function str(params: Record<string, unknown>, key: string): string {
   const v = params[key];
@@ -65,10 +65,15 @@ export function buildMethods(
   // marked active would permanently shrink the pool.
   leaseManager.releaseAll();
 
-  // Reclaim anything a previous daemon left behind. Best effort: a daemon that
-  // cannot gc must still start, or a stuck worktree would make crossweave unusable.
+  // Sweep worktrees a previous daemon orphaned. ORPHANS ONLY, deliberately: `cw
+  // session kill` without `--rm-worktree` leaves a session `dead` with its worktree
+  // and branch intact because M4's `cw land` needs them, so reclaiming ended sessions
+  // here would silently destroy that work on every restart, reboot and crash. The full
+  // sweep belongs to `workspace.gc`, where the user asked for it.
+  // Best effort: a daemon that cannot sweep must still start, or a stuck worktree
+  // would make crossweave unusable.
   for (const ws of workspaces.list()) {
-    void collectGarbage(db, projectRoot, ws.id).catch(() => undefined);
+    void collectOrphans(db, ws.id).catch(() => undefined);
   }
 
   const runtime = new SessionRuntime((sessionId) => {
@@ -143,7 +148,7 @@ export function buildMethods(
       workspaces.delete(str(p, 'id'), { force: bool(p, 'force', false) });
       return { ok: true };
     },
-    'workspace.gc': async (p) => collectGarbage(db, projectRoot, str(p, 'id')),
+    'workspace.gc': async (p) => collectGarbage(db, str(p, 'id')),
 
     'session.new': (p) =>
       sessions.create({

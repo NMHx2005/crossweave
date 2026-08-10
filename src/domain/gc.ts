@@ -1,7 +1,7 @@
 import type { Database } from 'bun:sqlite';
 import { statSync } from 'node:fs';
 import { SessionRepo } from '../db/repositories/session.js';
-import { WorkspaceRepo } from '../db/repositories/workspace.js';
+import { WorkspaceRepo, type WorkspaceRow } from '../db/repositories/workspace.js';
 import { CrossweaveError } from '../core/errors.js';
 import { removeWorktree, deleteBranch, listWorktreePaths } from '../isolation/worktree.js';
 import { measureWorktrees, directorySize } from '../isolation/disk-guard.js';
@@ -22,36 +22,43 @@ export interface GcResult {
  */
 const ORPHAN_GRACE_MS = 5_000;
 
+function requireWorkspace(db: Database, workspaceId: string): WorkspaceRow {
+  const workspace = new WorkspaceRepo(db).findById(workspaceId);
+  if (!workspace) {
+    throw new CrossweaveError('WORKSPACE_NOT_FOUND', `No such workspace: ${workspaceId}`);
+  }
+  return workspace;
+}
+
 /**
- * Reclaim every session that has ended: its worktree, its branch and its row.
+ * Reclaim every session that has ended: its worktree, its branch, and its row.
  *
  * Deliberately the same disposal `session rm` performs, so a name freed by gc behaves
  * exactly like a name freed by hand. Live sessions are never touched, and a failure
  * on one session does not abandon the rest — a half-finished gc that stops at the
  * first stubborn worktree is worse than one that reports what it could not take.
+ *
+ * This is the half that only ever runs when the user asks for it. `cw session kill`
+ * without `--rm-worktree` leaves a session `dead` with its work intact on purpose
+ * (M4's `cw land` needs the branch), so running this unprompted — on daemon boot, say
+ * — would destroy work nobody offered up.
  */
-export async function collectGarbage(
+async function reclaimEnded(
   db: Database,
-  projectRoot: string,
-  workspaceId: string,
-): Promise<GcResult> {
-  const workspace = new WorkspaceRepo(db).findById(workspaceId);
-  if (!workspace) {
-    throw new CrossweaveError('WORKSPACE_NOT_FOUND', `No such workspace: ${workspaceId}`);
-  }
-
+  workspace: WorkspaceRow,
+): Promise<GcResult & { disposedPaths: Set<string> }> {
   const repo = new SessionRepo(db);
-  const sizes = new Map(measureWorktrees(db, workspaceId).map((u) => [u.sessionId, u.bytes]));
+  const sizes = new Map(measureWorktrees(db, workspace.id).map((u) => [u.sessionId, u.bytes]));
   const ended = repo
-    .listByWorkspace(workspaceId)
+    .listByWorkspace(workspace.id)
     .filter((s) => s.status === 'dead' || s.status === 'landed');
 
   const removed: string[] = [];
   let reclaimedBytes = 0;
-  // Paths handled by the loop above, whether or not their `removeWorktree` actually
-  // succeeded — a failed removal there still deletes the row (best effort, does not
-  // abandon the rest of the sweep), which would otherwise make the orphan pass below
-  // pick the very same worktree back up and report it a second time.
+  // Paths handled by this loop, whether or not their `removeWorktree` actually
+  // succeeded — a failed removal here still deletes the row (best effort, does not
+  // abandon the rest of the sweep), which would otherwise make the orphan pass pick
+  // the very same worktree back up and report it a second time.
   const disposedPaths = new Set<string>();
 
   for (const session of ended) {
@@ -71,11 +78,25 @@ export async function collectGarbage(
     reclaimedBytes += sizes.get(session.id) ?? 0;
   }
 
-  // Worktrees git knows about that no session row claims. `cw workspace delete`
-  // removes the workspace row and cascades away its sessions WITHOUT touching the
-  // disk, so every worktree it leaves behind is invisible to the loop above — it
-  // walks sessions, and those no longer exist. Found by end-to-end testing of M0:
-  // two orphans and three branches survived a `workspace delete --force`.
+  return { removed, reclaimedBytes, disposedPaths };
+}
+
+/**
+ * Worktrees git knows about that no session row claims. `cw workspace delete` removes
+ * the workspace row and cascades away its sessions WITHOUT touching the disk, so every
+ * worktree it leaves behind is invisible to a walk over sessions — those no longer
+ * exist. Found by end-to-end testing of M0: two orphans and three branches survived a
+ * `workspace delete --force`.
+ */
+async function sweepOrphans(
+  db: Database,
+  workspace: WorkspaceRow,
+  disposedPaths: Set<string>,
+): Promise<GcResult> {
+  const repo = new SessionRepo(db);
+  const removed: string[] = [];
+  let reclaimedBytes = 0;
+
   for (const path of await listWorktreePaths(workspace.rootPath)) {
     if (repo.findByWorktreePath(path) !== undefined) continue;
     if (disposedPaths.has(path)) continue;
@@ -94,4 +115,27 @@ export async function collectGarbage(
   }
 
   return { removed, reclaimedBytes };
+}
+
+/**
+ * The orphan sweep on its own — safe to run unprompted, because a worktree no session
+ * row claims is by definition work nothing can still reach.
+ *
+ * This is what the daemon runs at boot. It deliberately does NOT reclaim ended
+ * sessions: a killed session's worktree and branch are still referenced by its row and
+ * still wanted.
+ */
+export async function collectOrphans(db: Database, workspaceId: string): Promise<GcResult> {
+  return sweepOrphans(db, requireWorkspace(db, workspaceId), new Set());
+}
+
+/** The full sweep behind `cw gc`: ended sessions first, then whatever is orphaned. */
+export async function collectGarbage(db: Database, workspaceId: string): Promise<GcResult> {
+  const workspace = requireWorkspace(db, workspaceId);
+  const ended = await reclaimEnded(db, workspace);
+  const orphans = await sweepOrphans(db, workspace, ended.disposedPaths);
+  return {
+    removed: [...ended.removed, ...orphans.removed],
+    reclaimedBytes: ended.reclaimedBytes + orphans.reclaimedBytes,
+  };
 }
