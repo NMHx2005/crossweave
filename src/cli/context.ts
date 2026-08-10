@@ -1,4 +1,5 @@
 import { findProjectRoot } from '../core/paths.js';
+import { loadConfig } from '../core/config.js';
 import { connectOrStart, type DaemonClient } from '../client/rpc-client.js';
 import { CrossweaveError } from '../core/errors.js';
 
@@ -6,6 +7,13 @@ export async function withClient<T>(
   fn: (client: DaemonClient, projectRoot: string) => Promise<T>,
 ): Promise<T> {
   const projectRoot = findProjectRoot(process.cwd());
+  // Parsed HERE, in the foreground, before anything can spawn a daemon. `buildMethods`
+  // loads the config too, but that runs inside the DETACHED daemon process whose stdio
+  // is 'ignore': a CONFIG_INVALID thrown there kills the daemon before it binds its
+  // socket, and all the user ever sees is `connectOrStart` giving up after 10 seconds
+  // with DAEMON_START_FAILED. Throwing in this process is what lets fail() print the
+  // real code and message. The daemon-side load stays as belt and braces.
+  loadConfig(projectRoot);
   const client = await connectOrStart(projectRoot);
   try {
     return await fn(client, projectRoot);

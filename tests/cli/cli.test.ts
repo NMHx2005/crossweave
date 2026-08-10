@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { $ } from 'bun';
 import { existsSync } from 'node:fs';
+import { writeFile } from 'node:fs/promises';
+import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { makeGitFixture, type GitFixture } from '../helpers/git-fixture.js';
@@ -272,4 +274,75 @@ describe('cw CLI', () => {
     expect(r.stdout).toContain('trash');
     expect((await cw(['session', 'list'])).stdout).toContain('no sessions');
   }, 60_000);
+
+  /**
+   * The DoD requires each of these to reach the user as exactly one `CODE: message`
+   * line. Every one of them was previously only asserted at its throw site, which
+   * proves the error exists — not that it survives the RPC -> CLI -> fail() path. It
+   * did not for CONFIG_INVALID: `loadConfig` ran inside the DETACHED daemon, whose
+   * stdio is 'ignore', so the throw killed the daemon before it bound its socket and
+   * the CLI reported a 10-second DAEMON_START_FAILED instead.
+   */
+  describe('error codes reaching stderr end to end', () => {
+    function expectOneCodeLine(r: CwResult, code: string): void {
+      expect(r.exitCode).toBe(1);
+      const lines = r.stderr.trimEnd().split('\n');
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toStartWith(`${code}: `);
+    }
+
+    it('CONFIG_INVALID from a malformed crossweave.config.json', async () => {
+      await writeFile(join(fx.root, 'crossweave.config.json'), '{ not json');
+      const r = await cw(['init']);
+      expectOneCodeLine(r, 'CONFIG_INVALID');
+      expect(r.stderr).not.toContain('DAEMON_START_FAILED');
+    }, 30_000);
+
+    it('CONFIG_INVALID from a ports.named key that would clobber PATH', async () => {
+      await writeFile(
+        join(fx.root, 'crossweave.config.json'),
+        JSON.stringify({ ports: { named: { PATH: 0 } } }),
+      );
+      const r = await cw(['init']);
+      expectOneCodeLine(r, 'CONFIG_INVALID');
+      expect(r.stderr).toContain('PATH');
+    }, 30_000);
+
+    it('NO_PORTS_AVAILABLE when the only block in range is held by another process', async () => {
+      // A range with room for exactly one block, so a single squatter exhausts it.
+      const base = 65020;
+      await writeFile(
+        join(fx.root, 'crossweave.config.json'),
+        JSON.stringify({ ports: { base, blockSize: 500 } }),
+      );
+      await cw(['init']);
+      await cw(['session', 'new', '--name', 'portless', '--agent', 'claude']);
+
+      const squatter = createServer();
+      await new Promise<void>((resolve, reject) => {
+        squatter.once('error', reject);
+        squatter.listen(base, '127.0.0.1', () => resolve());
+      });
+      try {
+        expectOneCodeLine(await cw(['session', 'attach', 'portless']), 'NO_PORTS_AVAILABLE');
+      } finally {
+        await new Promise<void>((resolve) => squatter.close(() => resolve()));
+      }
+    }, 60_000);
+
+    it('DISK_LIMIT_EXCEEDED when the workspace is already over budget', async () => {
+      await writeFile(
+        join(fx.root, 'crossweave.config.json'),
+        JSON.stringify({ disk: { perSessionBytes: 1, perWorkspaceBytes: 1 } }),
+      );
+      await cw(['init']);
+      // The first session is created against an empty workspace, so nothing is over
+      // budget yet; its worktree is what puts the next one over.
+      expect((await cw(['session', 'new', '--name', 'first', '--agent', 'claude'])).exitCode).toBe(0);
+
+      const r = await cw(['session', 'new', '--name', 'second', '--agent', 'claude']);
+      expectOneCodeLine(r, 'DISK_LIMIT_EXCEEDED');
+      expect(r.stderr).toContain('cw gc');
+    }, 60_000);
+  });
 });
