@@ -1085,8 +1085,26 @@ export class MessageBus {
   deliver(messageId: string): void {
     this.repo.markDelivered(messageId);
   }
+
+  /** Marks a whole batch delivered atomically — what `cw_inbox` actually calls; see the note below. */
+  deliverAll(messageIds: string[]): void {
+    this.repo.markDeliveredMany(messageIds);
+  }
 }
 ```
+
+**Plan/source divergence, found by the final whole-branch review, headline bug:** `deliver()` above is specified here but Task 7's tool set never calls it — `cw_inbox` reads `inbox()` and returns the result without ever acking it. Each half is individually correct; neither task's own review could see the gap. The result: `cw_inbox` re-surfaces every message a session has ever received on every single poll, forever — a `cw_handoff` ("take over this work") would be re-executed on every call, and the `message` table grows unbounded. This is the exact structural sibling of the reset M2 attempt's rejected defect ("broadcast messages were written but never read") — a delivery mechanism built and never wired, this time for the inbox-read path instead of the broadcast-write path.
+
+Fix: `cw_inbox`'s MCP tool handler (Task 7) must ack every row it returns, atomically, BEFORE building its response (at-most-once: a crash between ack and the client actually receiving the reply loses the message rather than risking it being processed twice). Add `deliverAll(messageIds: string[])` to `MessageRepo`/`MessageBus` (a single SQL transaction over the batch, not one `UPDATE` per id) and call it from `cw_inbox`'s handler on exactly the ids it's about to return:
+
+```ts
+// src/mcp/tools.ts, cw_inbox's handler
+const messages = bus.inbox(workspaceId, sessionId);
+bus.deliverAll(messages.map((m) => m.id));
+return text(messages.map((m) => ({ /* ... */ })));
+```
+
+The singular `deliver()`/`markDelivered()` above are now dead in production — nothing but their own unit tests calls them, since `deliverAll`/`markDeliveredMany` is the real path. Left in place per this project's dead-code convention (mention, don't delete opportunistically) rather than removed as a drive-by cleanup inside the fix that found them.
 
 **Note:** `SessionManager.list(workspaceId): SessionRow[]` and `SessionManager.resolve(workspaceId, idOrName): SessionRow` are both confirmed-existing methods from M0/M1 (`src/domain/session.ts`) — this task consumes them, it does not redefine them.
 
