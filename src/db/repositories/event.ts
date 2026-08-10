@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite';
 
-export type EventKind = 'session.started' | 'commit.made';
+export type EventKind = 'session.started' | 'session.forked' | 'commit.made';
 
 export interface EventRow {
   id: string;

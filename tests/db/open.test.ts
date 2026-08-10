@@ -64,6 +64,60 @@ describe('openDatabase', () => {
     db2.close();
   });
 
+  it('rebuilds the event table on the v3 -> v4 migration without losing rows', async () => {
+    const { MIGRATIONS } = await import('../../src/db/schema.js');
+    const p = join(dir, 'state.db');
+    const v3 = new Database(p, { create: true });
+    for (const migration of MIGRATIONS.slice(0, 3)) {
+      for (const statement of migration) v3.run(statement);
+    }
+    v3.run('INSERT INTO schema_meta (version) VALUES (3)');
+    v3.run(
+      "INSERT INTO workspace (id, name, root_path, created_at, default_isolation, safe_mode_tier)" +
+        " VALUES ('ws_1','demo','/tmp/x','2026-08-10T00:00:00.000Z','worktree','T3')",
+    );
+    v3.run(
+      'INSERT INTO session (id, workspace_id, name, agent_kind, adapter, status, worktree_path,' +
+        ' branch, created_at, last_active_at, token_budget, token_spent, enforcement_tier, pid)' +
+        " VALUES ('s_1','ws_1','a','claude','claude','idle',NULL,NULL," +
+        "'2026-08-10T00:00:00.000Z','2026-08-10T00:00:00.000Z',NULL,0,'T3',NULL)",
+    );
+    v3.run(
+      "INSERT INTO event (id, session_id, workspace_id, ts, kind, payload)" +
+        " VALUES ('ev_1','s_1','ws_1','2026-08-10T00:00:00.000Z','session.started','{}')",
+    );
+    // The pre-v4 CHECK constraint rejects the new kind.
+    expect(() =>
+      v3.run(
+        "INSERT INTO event (id, session_id, workspace_id, ts, kind, payload)" +
+          " VALUES ('ev_2','s_1','ws_1','2026-08-10T00:00:00.000Z','session.forked','{}')",
+      ),
+    ).toThrow();
+    v3.close();
+
+    const db = openDatabase(p);
+    expect((db.query('SELECT version FROM schema_meta').get() as { version: number }).version).toBe(
+      SCHEMA_VERSION,
+    );
+    expect((db.query('SELECT count(*) AS n FROM event').get() as { n: number }).n).toBe(1);
+    db.run(
+      "INSERT INTO event (id, session_id, workspace_id, ts, kind, payload)" +
+        " VALUES ('ev_2','s_1','ws_1','2026-08-10T00:00:00.000Z','session.forked','{\"forkPoint\":\"abc\"}')",
+    );
+    expect((db.query('SELECT count(*) AS n FROM event').get() as { n: number }).n).toBe(2);
+    // The rebuilt table keeps its indexes and its foreign keys.
+    const indexes = (
+      db.query("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='event'").all() as {
+        name: string;
+      }[]
+    ).map((r) => r.name);
+    expect(indexes).toContain('event_by_session');
+    expect(indexes).toContain('event_by_workspace_kind');
+    db.run("DELETE FROM session WHERE id='s_1'");
+    expect((db.query('SELECT count(*) AS n FROM event').get() as { n: number }).n).toBe(0);
+    db.close();
+  });
+
   it('migrates to schema version 3 with event, message and context_entry tables', () => {
     const db = openDatabase(join(dir, 'state.db'));
     const tables = (

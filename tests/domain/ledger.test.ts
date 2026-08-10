@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { join } from 'node:path';
+import { $ } from 'bun';
 import type { Database } from 'bun:sqlite';
 import { openDatabase } from '../../src/db/open.js';
 import { WorkspaceManager } from '../../src/domain/workspace.js';
@@ -78,6 +79,35 @@ describe('EventLedger', () => {
 
     const result = ledger.blame(workspaceId, 'app.ts', 2);
     expect(result?.sessionId).toBe(session.id);
+  }, 30_000);
+
+  it('does not attribute a human commit when the project root moves to another branch', async () => {
+    // The user switching branches in their OWN checkout while agents work in
+    // worktrees is ordinary. Deriving the attribution boundary from whatever is
+    // checked out AT BLAME TIME widened `base..branch` to swallow commits the
+    // session never made — and, the event table being append-only, wrote that
+    // misattribution permanently. The fork point captured at creation is immune.
+    await $`git branch old-release`.cwd(fx.root).quiet();
+    const humanHash = await commitFile(fx.root, 'human.ts', 'export const human = 1;\n', 'human work');
+
+    const session = await sessions.create({ workspaceId, name: 'a', agent: 'claude', worktree: true });
+    if (session.worktreePath === null) throw new Error('expected a worktree');
+    await commitFile(session.worktreePath, 'agent.ts', 'export const agent = 1;\n', 'agent work');
+
+    // `human.ts` is not on old-release, so blame falls through to the session's own
+    // branch, where it exists purely because the session forked after that commit.
+    await $`git checkout -q old-release`.cwd(fx.root).quiet();
+
+    expect(ledger.blame(workspaceId, 'human.ts', 1)).toBeUndefined();
+    const agent = ledger.blame(workspaceId, 'agent.ts', 1);
+    expect(agent?.sessionId).toBe(session.id);
+
+    const { EventRepo } = await import('../../src/db/repositories/event.js');
+    const attributed = new EventRepo(db)
+      .listBySession(session.id)
+      .filter((e) => e.kind === 'commit.made')
+      .map((e) => (JSON.parse(e.payload) as { commitHash: string }).commitHash);
+    expect(attributed).not.toContain(humanHash);
   }, 30_000);
 
   it('returns undefined for an uncommitted line, honestly, rather than guessing', async () => {

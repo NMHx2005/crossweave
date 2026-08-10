@@ -3,6 +3,7 @@ import { CrossweaveError } from '../core/errors.js';
 import { newId } from '../core/ids.js';
 import { WorkspaceRepo } from '../db/repositories/workspace.js';
 import { SessionRepo, type SessionRow } from '../db/repositories/session.js';
+import { EventRepo } from '../db/repositories/event.js';
 import { createWorktree, deleteBranch, removeWorktree } from '../isolation/worktree.js';
 import { assertDiskAvailable } from '../isolation/disk-guard.js';
 import { createAdapter as defaultCreateAdapter } from '../adapters/registry.js';
@@ -42,6 +43,7 @@ function assertValidSessionName(name: string): void {
 export class SessionManager {
   private readonly sessions: SessionRepo;
   private readonly workspaces: WorkspaceRepo;
+  private readonly events: EventRepo;
 
   /** Set by the daemon so kill() can stop a live pty it does not own. */
   onKill?: (sessionId: string) => Promise<void>;
@@ -53,6 +55,7 @@ export class SessionManager {
   ) {
     this.sessions = new SessionRepo(db);
     this.workspaces = new WorkspaceRepo(db);
+    this.events = new EventRepo(db);
   }
 
   private projectRoot(workspaceId: string): string {
@@ -77,10 +80,12 @@ export class SessionManager {
 
     let worktreePath = root;
     let branch: string | null = null;
+    let forkPoint: string | null = null;
     if (opts.worktree) {
       const handle = await createWorktree(root, id, `cw/${opts.name}`);
       worktreePath = handle.path;
       branch = handle.branch;
+      forkPoint = handle.forkPoint;
     }
 
     const now = new Date().toISOString();
@@ -113,6 +118,21 @@ export class SessionManager {
         await deleteBranch(root, branch).catch(() => undefined);
       }
       throw cause;
+    }
+
+    // Recorded once, here, and never recomputed: this is the boundary between history
+    // the session inherited and work it did itself. Deriving it later from the branch
+    // checked out in the user's own checkout attributes their commits to this session
+    // the moment they switch branches, permanently (the event table is append-only).
+    if (forkPoint !== null) {
+      this.events.insert({
+        id: newId('ev'),
+        sessionId: id,
+        workspaceId: opts.workspaceId,
+        ts: now,
+        kind: 'session.forked',
+        payload: JSON.stringify({ forkPoint }),
+      });
     }
     return row;
   }

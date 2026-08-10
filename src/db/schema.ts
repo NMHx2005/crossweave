@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 /**
  * Each migration is a list of single statements, never one multi-statement blob.
@@ -87,5 +87,26 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
     UNIQUE (workspace_id, session_id, key)
   )`,
     `CREATE INDEX context_shared ON context_entry (workspace_id, scope)`,
+  ],
+  [
+    // Adds the `session.forked` kind, which carries the commit a session's branch was
+    // created from. SQLite cannot widen a CHECK constraint in place, so the table is
+    // rebuilt: nothing references `event`, so a plain copy-drop-rename is safe even
+    // with `PRAGMA foreign_keys = ON`. Its indexes go with the dropped table and are
+    // recreated below.
+    `CREATE TABLE event_v4 (
+    id           TEXT PRIMARY KEY,
+    session_id   TEXT NOT NULL REFERENCES session(id) ON DELETE CASCADE,
+    workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+    ts           TEXT NOT NULL,
+    kind         TEXT NOT NULL CHECK (kind IN ('session.started', 'session.forked', 'commit.made')),
+    payload      TEXT NOT NULL
+  )`,
+    `INSERT INTO event_v4 (id, session_id, workspace_id, ts, kind, payload)
+       SELECT id, session_id, workspace_id, ts, kind, payload FROM event`,
+    `DROP TABLE event`,
+    `ALTER TABLE event_v4 RENAME TO event`,
+    `CREATE INDEX event_by_session ON event (session_id, ts)`,
+    `CREATE INDEX event_by_workspace_kind ON event (workspace_id, kind, ts)`,
   ],
 ];

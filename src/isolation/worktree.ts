@@ -7,6 +7,15 @@ import { assertContained, crossweaveDir } from '../core/paths.js';
 export interface WorktreeHandle {
   path: string;
   branch: string;
+  /**
+   * The commit `branch` was created from — `projectRoot`'s HEAD at this exact
+   * moment, which is what `git worktree add -b` branches from. Captured here and
+   * stored by the caller because it is only true NOW: the user is free to check out
+   * anything they like in their own checkout afterwards, and re-deriving the fork
+   * point later from whatever HEAD happens to point at then attributes their commits
+   * to this session (see EventLedger.syncCommits).
+   */
+  forkPoint: string;
 }
 
 function worktreeRoot(projectRoot: string): string {
@@ -30,8 +39,9 @@ export async function createWorktree(
   // `worktree add` SUCCEEDS on an empty repository. Checking HEAD explicitly is what
   // turns that into the WORKTREE_FAILED the contract promises. Keep it after the
   // branch check so BRANCH_EXISTS still wins on a normal repo.
+  let forkPoint: string;
   try {
-    await git.raw(['rev-parse', '--verify', 'HEAD']);
+    forkPoint = (await git.raw(['rev-parse', '--verify', 'HEAD'])).trim();
   } catch (cause) {
     throw new CrossweaveError(
       'WORKTREE_FAILED',
@@ -40,7 +50,11 @@ export async function createWorktree(
   }
 
   try {
-    await git.raw(['worktree', 'add', '-b', branch, path]);
+    // The captured hash is passed as the explicit start point, not left implicit:
+    // `worktree add -b <branch> <path>` branches from whatever HEAD is when it runs,
+    // which is not necessarily what `rev-parse` just read. Naming it makes the
+    // recorded fork point exactly the commit the branch was created at.
+    await git.raw(['worktree', 'add', '-b', branch, path, forkPoint]);
   } catch (cause) {
     throw new CrossweaveError(
       'WORKTREE_FAILED',
@@ -48,7 +62,7 @@ export async function createWorktree(
     );
   }
 
-  return { path, branch };
+  return { path, branch, forkPoint };
 }
 
 export async function removeWorktree(projectRoot: string, worktreePath: string): Promise<void> {

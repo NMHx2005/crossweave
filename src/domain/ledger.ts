@@ -44,24 +44,34 @@ export class EventLedger {
     this.events.insert({ ...row, id: newId('ev'), ts: new Date().toISOString() });
   }
 
-  private knownCommitHashes(sessionId: string): Set<string> {
-    const hashes = new Set<string>();
+  /**
+   * One pass over a session's events for both things blame needs from them: the
+   * immutable fork point recorded at session creation, and every commit already
+   * attributed to it.
+   */
+  private history(sessionId: string): { forkPoint: string | undefined; commitHashes: Set<string> } {
+    let forkPoint: string | undefined;
+    const commitHashes = new Set<string>();
     for (const ev of this.events.listBySession(sessionId)) {
-      if (ev.kind !== 'commit.made') continue;
+      if (ev.kind !== 'commit.made' && ev.kind !== 'session.forked') continue;
       try {
-        const payload = JSON.parse(ev.payload) as { commitHash?: string };
-        if (typeof payload.commitHash === 'string') hashes.add(payload.commitHash);
+        const payload = JSON.parse(ev.payload) as { commitHash?: string; forkPoint?: string };
+        if (ev.kind === 'commit.made') {
+          if (typeof payload.commitHash === 'string') commitHashes.add(payload.commitHash);
+        } else if (typeof payload.forkPoint === 'string' && payload.forkPoint.length > 0) {
+          forkPoint = payload.forkPoint;
+        }
       } catch {
         // Malformed payload from a future format — skip, don't crash blame over it.
       }
     }
-    return hashes;
+    return { forkPoint, commitHashes };
   }
 
   /**
-   * The branch currently checked out in `projectRoot` — every session's branch was
-   * created from wherever this pointed at session-creation time, so it's the
-   * boundary between "shared, pre-existing history" and "this session's own work".
+   * The branch currently checked out in `projectRoot`. Used ONLY as one more revision
+   * to try `git blame` against — never to decide which commits belong to a session,
+   * which is what the recorded fork point is for.
    * `undefined` on a detached HEAD (no usable base) or if git fails outright.
    */
   private baseBranch(): string | undefined {
@@ -78,22 +88,31 @@ export class EventLedger {
   }
 
   /**
-   * For every session with a branch, record any commit that's on that branch but
-   * NOT on the base branch — i.e. commits the session itself made, not history it
-   * inherited at fork time (which would otherwise get attributed to every session
-   * that happens to share that ancestry). Safe to call repeatedly:
-   * `knownCommitHashes` makes it a no-op for history it's already recorded.
+   * For every session with a branch, record any commit on that branch that is not
+   * reachable from its FORK POINT — i.e. commits the session itself made, not history
+   * it inherited at fork time.
+   *
+   * The range is `<forkPoint>..<branch>`, where the fork point is the immutable hash
+   * captured when the session's worktree was created. It is deliberately NOT derived
+   * from whatever branch happens to be checked out in `projectRoot` at blame time: a
+   * user who checks out an older branch in their own checkout while agents work in
+   * worktrees would widen the range to include their own commits, and because this
+   * table is append-only and deduplicated by hash, that misattribution would be
+   * written once and never corrected.
+   *
+   * A session with no recorded fork point (created before this was tracked) is
+   * skipped rather than guessed at — no attribution beats a wrong one. Safe to call
+   * repeatedly: already-recorded hashes make it a no-op.
    */
   private syncCommits(workspaceId: string): void {
-    const base = this.baseBranch();
-    if (base === undefined) return;
-
     for (const session of this.sessions.listByWorkspace(workspaceId)) {
-      if (session.branch === null || session.branch === base) continue;
+      if (session.branch === null) continue;
+      const { forkPoint, commitHashes: known } = this.history(session.id);
+      if (forkPoint === undefined) continue;
 
       let hashes: string[];
       try {
-        const out = execFileSync('git', ['log', `${base}..${session.branch}`, '--format=%H'], {
+        const out = execFileSync('git', ['log', `${forkPoint}..${session.branch}`, '--format=%H'], {
           cwd: this.projectRoot,
           encoding: 'utf8',
           stdio: ['ignore', 'pipe', 'ignore'],
@@ -104,7 +123,6 @@ export class EventLedger {
         continue;
       }
 
-      const known = this.knownCommitHashes(session.id);
       for (const hash of hashes) {
         if (known.has(hash)) continue;
         this.append({
@@ -151,13 +169,22 @@ export class EventLedger {
       ...sessions.map((s) => s.branch).filter((b): b is string => b !== null),
     ];
 
+    // Built once per call, not once per (revision, session) pair: the event table is
+    // only read after syncCommits has finished writing to it, so one pass answers
+    // every lookup below.
+    const bySessionOf = new Map<string, { id: string; name: string }>();
+    for (const session of sessions) {
+      for (const hash of this.history(session.id).commitHashes) {
+        if (!bySessionOf.has(hash)) bySessionOf.set(hash, { id: session.id, name: session.name });
+      }
+    }
+
     for (const revision of revisions) {
       const commitHash = this.blameAt(revision, filePath, line);
       if (commitHash === undefined) continue; // not found on this revision — try the next
-      for (const session of sessions) {
-        if (this.knownCommitHashes(session.id).has(commitHash)) {
-          return { sessionId: session.id, sessionName: session.name, commitHash };
-        }
+      const owner = bySessionOf.get(commitHash);
+      if (owner !== undefined) {
+        return { sessionId: owner.id, sessionName: owner.name, commitHash };
       }
       // A real commit was found here, but not authored by any tracked session — keep
       // trying other revisions instead of giving up, since a later session's branch
