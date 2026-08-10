@@ -81,4 +81,14 @@ export class MessageRepo {
   markDelivered(id: string): void {
     this.db.prepare('UPDATE message SET delivered_at=? WHERE id=?').run(new Date().toISOString(), id);
   }
+
+  /** Marks a whole batch delivered atomically — see `MessageBus.deliverAll`. */
+  markDeliveredMany(ids: string[]): void {
+    if (ids.length === 0) return;
+    const now = new Date().toISOString();
+    const statement = this.db.prepare('UPDATE message SET delivered_at=? WHERE id=?');
+    this.db.transaction(() => {
+      for (const id of ids) statement.run(now, id);
+    })();
+  }
 }

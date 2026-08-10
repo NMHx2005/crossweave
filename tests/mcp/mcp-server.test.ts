@@ -117,6 +117,34 @@ describe('MCP server end-to-end', () => {
     expect(messages[0]?.body).toBe('hi from a');
   }, 30_000);
 
+  it('a second cw_inbox over the real socket does not redeliver an already-read message', async () => {
+    if (client === undefined) throw new Error('expected a client');
+    const workspace = await client.call<{ id: string }>('workspace.init', {});
+    await client.call('session.new', { workspaceId: workspace.id, name: 'a', agent: 'claude', worktree: false });
+    await client.call('session.new', { workspaceId: workspace.id, name: 'b', agent: 'claude', worktree: false });
+    await client.call('session.start', { workspaceId: workspace.id, idOrName: 'a', env: {} });
+    await client.call('session.start', { workspaceId: workspace.id, idOrName: 'b', env: {} });
+    const infoFor = async (name: string) =>
+      client!.call<{ mcpSocketPath: string }>('session.mcpInfo', { workspaceId: workspace.id, idOrName: name });
+    const [a, b] = await Promise.all([infoFor('a'), infoFor('b')]);
+    if (!a || !b) throw new Error('expected mcp info for both');
+
+    await callMcp(a.mcpSocketPath, 'tools/call', {
+      name: 'cw_handoff', arguments: { toSession: 'b', body: 'take over this work' },
+    });
+
+    const poll = async (): Promise<unknown[]> => {
+      const response = (await callMcp(b.mcpSocketPath, 'tools/call', { name: 'cw_inbox', arguments: {} })) as {
+        result: { content: { text: string }[] };
+      };
+      return JSON.parse(response.result.content[0]?.text ?? '[]') as unknown[];
+    };
+
+    expect(await poll()).toHaveLength(1);
+    expect(await poll()).toHaveLength(0);
+    expect(await poll()).toHaveLength(0);
+  }, 30_000);
+
   it('a broadcast reaches multiple sessions but not the sender', async () => {
     if (client === undefined) throw new Error('expected a client');
     const workspace = await client.call<{ id: string }>('workspace.init', {});

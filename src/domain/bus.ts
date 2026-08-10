@@ -107,4 +107,13 @@ export class MessageBus {
   deliver(messageId: string): void {
     this.repo.markDelivered(messageId);
   }
+
+  /**
+   * Acks a whole `inbox()` batch. One statement per id inside a single transaction,
+   * so a reader can never end up with half a batch acked — either the poll it just
+   * answered is fully delivered or none of it is, and a retry re-reads the same set.
+   */
+  deliverAll(messageIds: string[]): void {
+    this.repo.markDeliveredMany(messageIds);
+  }
 }

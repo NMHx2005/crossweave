@@ -85,6 +85,11 @@ export function buildTools(
       inputSchema: { type: 'object', properties: {} },
       handler: async () => {
         const messages = bus.inbox(workspaceId, sessionId);
+        // At-most-once: a message this call HANDS BACK is delivered, so the next poll
+        // returns only what has arrived since. Without this nothing ever writes
+        // `delivered_at` and every poll re-surfaces the session's whole history —
+        // including a `cw_handoff` ("take over this work") an agent could act on again.
+        bus.deliverAll(messages.map((m) => m.id));
         return text(
           messages.map((m) => ({
             id: m.id,
