@@ -125,10 +125,13 @@ export class SessionManager {
 
   /**
    * The agent process ended. Called from the runtime's ASYNCHRONOUS exit handler, so
-   * it must not clobber a terminal state that a synchronous caller already wrote:
-   * `kill()` sets `dead` immediately after SIGTERM, and the pty's exit callback lands
-   * afterwards. Without this guard a killed session reads back as `idle` and
-   * `cw session list` lies about it.
+   * it must not clobber a terminal state.
+   *
+   * The original race is no longer reachable — `kill()` now awaits `onKill` before
+   * writing `dead`, so the exit callback has already run by then. The guard stays as
+   * defence in depth: any future caller that writes a terminal state without awaiting
+   * the reap would reintroduce it, and the failure mode is `cw session list` reporting
+   * a killed session as `idle`.
    */
   clearRunning(id: string): void {
     const row = this.sessions.findById(id);

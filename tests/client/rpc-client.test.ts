@@ -63,6 +63,67 @@ describe('DaemonClient', () => {
   // the constructor only registered 'data' and 'close'. Node THROWS an 'error' event
   // with no listener, so a daemon dying mid-session killed the CLI with an uncaught
   // exception instead of rejecting the call.
+  // Regression: onClose only pushed onto the handler list. `cw session attach`
+  // registers it after two awaited RPCs, so a daemon dying in that window left the
+  // CLI hung in raw mode — the very symptom onClose exists to prevent.
+  it('onClose fires immediately when registered after the connection is already gone', async () => {
+    daemon = createDaemon({ socketPath, methods: buildMethods(db, fx.root) });
+    await daemon.listen();
+    const client = await DaemonClient.connect(socketPath);
+    await daemon.close();
+    daemon = undefined;
+    while (client.isConnected) await new Promise((r) => setTimeout(r, 5));
+
+    let fired = false;
+    client.onClose(() => { fired = true; });
+    expect(fired).toBe(true);
+    client.close();
+  });
+
+  // Regression: `connect` strips its temporary 'error' listener once connected, and
+  // without re-registering one a socket error is THROWN by Node as an uncaught
+  // exception — a raw stack trace with internal $bunfs paths, killing the CLI instead
+  // of failing the call. Removing that listener left the whole suite green.
+  it('a socket error does not escape as an uncaught exception', async () => {
+    daemon = createDaemon({ socketPath, methods: buildMethods(db, fx.root) });
+    await daemon.listen();
+    const client = await DaemonClient.connect(socketPath);
+
+    let uncaught: unknown;
+    const onUncaught = (err: unknown): void => { uncaught = err; };
+    process.once('uncaughtException', onUncaught);
+    try {
+      await daemon.close();
+      daemon = undefined;
+      while (client.isConnected) await new Promise((r) => setTimeout(r, 5));
+      // Writing into the dead socket is what raises the error event.
+      await expect(client.call('ping')).rejects.toMatchObject({ code: 'DAEMON_GONE' });
+      await new Promise((r) => setTimeout(r, 50));
+    } finally {
+      process.removeListener('uncaughtException', onUncaught);
+    }
+    expect(uncaught).toBeUndefined();
+    client.close();
+  });
+
+  it('one throwing close handler does not starve the others', async () => {
+    daemon = createDaemon({ socketPath, methods: buildMethods(db, fx.root) });
+    await daemon.listen();
+    const client = await DaemonClient.connect(socketPath);
+
+    const seen: string[] = [];
+    client.onClose(() => { seen.push('first'); });
+    client.onClose(() => { throw new Error('bad close handler'); });
+    client.onClose(() => { seen.push('third'); });
+
+    await daemon.close();
+    daemon = undefined;
+    while (client.isConnected) await new Promise((r) => setTimeout(r, 5));
+
+    expect(seen).toEqual(['first', 'third']);
+    client.close();
+  });
+
   it('rejects with DAEMON_GONE instead of crashing or hanging when the daemon goes away', async () => {
     daemon = createDaemon({ socketPath, methods: buildMethods(db, fx.root) });
     await daemon.listen();

@@ -43,6 +43,11 @@ describe('compiled binaries', () => {
       await Bun.spawn([cwBin, 'daemon', 'stop'], {
         cwd: fx.root, stdout: 'ignore', stderr: 'ignore',
       }).exited;
+
+      // And ASSERTED, because the await alone guarded nothing: reverting it to
+      // fire-and-forget still passed 3/3 while daemons accumulated 1, 2, 3.
+      const survivors = Bun.spawnSync(['pgrep', '-f', cwdBin]);
+      expect(survivors.stdout.toString().trim()).toBe('');
     } finally {
       await fx.cleanup();
     }

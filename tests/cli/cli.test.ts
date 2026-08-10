@@ -99,6 +99,71 @@ describe('cw CLI', () => {
     expect(existsSync(join(fx.root, '.crossweave', 'daemon.sock'))).toBe(false);
   }, 30_000);
 
+  // Regression, and it MUST drive the real CLI through a pty. The wire-level
+  // scrollback test in tests/daemon/runtime.test.ts passes even with attach.ts's fix
+  // reverted, because it never calls into attach.ts — the defect was purely the order
+  // of registration inside the CLI, and only a test that runs the CLI can see it.
+  it('replays scrollback when re-attaching to a live session', async () => {
+    const { mkdtemp, rm, writeFile, chmod } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const binDir = await mkdtemp(join(tmpdir(), 'cw-fakebin-'));
+    try {
+      const fake = join(binDir, 'claude');
+      await writeFile(fake, '#!/bin/sh\necho MARKER_XYZ\nwhile IFS= read -r l; do echo "got:$l"; done\n');
+      await chmod(fake, 0o755);
+      const env = { ...process.env, PATH: `${binDir}:${process.env.PATH ?? ''}` };
+
+      // The daemon is spawned lazily by whichever `cw` invocation needs it first, and
+      // it inherits THAT process's env — not the env of whatever `cw` call happens to
+      // attach later. The fake `claude` has to be on PATH before the daemon starts, or
+      // the agent it spawns is the real one on the machine.
+      const cwFake = async (args: string[]): Promise<CwResult> => {
+        const proc = Bun.spawn([process.execPath, CLI, ...args], {
+          cwd: fx.root, env, stdout: 'pipe', stderr: 'pipe',
+        });
+        const [stdout, stderr] = await Promise.all([
+          new Response(proc.stdout).text(),
+          new Response(proc.stderr).text(),
+        ]);
+        return { exitCode: await proc.exited, stdout, stderr };
+      };
+
+      await cwFake(['init']);
+      await cwFake(['session', 'new', '--name', 'replay', '--agent', 'claude']);
+
+      const attachOnce = async (): Promise<string> => {
+        let out = '';
+        const proc = Bun.spawn([process.execPath, CLI, 'session', 'attach', 'replay'], {
+          cwd: fx.root,
+          env,
+          terminal: {
+            cols: 80,
+            rows: 24,
+            data(_t: unknown, chunk: string | Uint8Array) {
+              out += typeof chunk === 'string' ? chunk : new TextDecoder().decode(chunk);
+            },
+          },
+        }) as unknown as { terminal: { write(s: string): void }; exited: Promise<number> };
+
+        await Bun.sleep(1500);
+        proc.terminal.write('\x1d'); // Ctrl-] detaches
+        await proc.exited;
+        return out;
+      };
+
+      const first = await attachOnce();
+      expect(first).toContain('MARKER_XYZ');
+
+      // The session is still running. Re-attaching must replay what it already printed.
+      const second = await attachOnce();
+      expect(second).toContain('MARKER_XYZ');
+
+      await cwFake(['session', 'kill', 'replay', '--yes']);
+    } finally {
+      await rm(binDir, { recursive: true, force: true });
+    }
+  }, 60_000);
+
   it('attach reports a clear error for an unknown session', async () => {
     await cw(['init']);
     const r = await cw(['session', 'attach', 'ghost']);

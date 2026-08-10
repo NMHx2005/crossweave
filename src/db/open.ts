@@ -10,8 +10,9 @@ export function openDatabase(dbPath: string): Database {
   // 0700 at the source. The database sits beside the daemon socket and holds every
   // session's state, and `mode` on mkdirSync applies only at CREATION — so whichever
   // caller makes the directory first is the one that decides its permissions. The
-  // daemon re-chmods defensively for the already-exists case, but a caller that opens
-  // the database without starting a daemon (the CLI does) must not leave it open.
+  // daemon is currently the only caller, and it re-chmods defensively for the
+  // already-exists case; setting the mode here means a future caller that opens the
+  // database without starting a daemon cannot silently widen it.
   mkdirSync(dirname(dbPath), { recursive: true, mode: 0o700 });
   const db = new Database(dbPath, { create: true });
 

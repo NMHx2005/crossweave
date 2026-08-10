@@ -20,7 +20,10 @@ export function fail(err: unknown): never {
   // Collapse to exactly one line. Errors that wrap a subprocess's output carry its
   // multi-line stderr, and those extra lines would reach the terminal with no `CODE:`
   // prefix — the one thing a script or the TUI cannot parse.
-  const message = String((err as Error).message).replace(/\s*\n\s*/g, ' ');
+  // [\r\n] not just \n: a lone carriage return can overwrite the line in a terminal.
+  // Trimmed because a wrapped message that ended in a newline otherwise leaves a
+  // stray trailing space.
+  const message = String((err as Error).message).replace(/\s*[\r\n]+\s*/g, ' ').trim();
   process.stderr.write(`${code}: ${message}\n`);
   process.exit(1);
 }

@@ -82,6 +82,23 @@ export const sessionCommand = defineCommand({
       },
     }),
 
+    // Without this the stop/kill distinction exists only over RPC, and the decision
+    // that `kill` is terminal has no escape hatch a user can reach — SESSION_ENDED
+    // would be advising a command that does not exist.
+    stop: defineCommand({
+      meta: { name: 'stop', description: 'Stop the agent but keep the session resumable' },
+      args: { target: { type: 'positional', description: 'Session name or id' } },
+      async run({ args }) {
+        try {
+          await withClient(async (client) => {
+            const workspaceId = await currentWorkspaceId(client);
+            await client.call('session.stop', { workspaceId, idOrName: args.target });
+            process.stdout.write(`stopped ${args.target}\n`);
+          });
+        } catch (err) { fail(err); }
+      },
+    }),
+
     kill: defineCommand({
       meta: { name: 'kill', description: 'Kill a session' },
       args: {

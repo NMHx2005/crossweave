@@ -33,9 +33,11 @@ export function encodeFrame(msg: RpcRequest | RpcResponse): string {
 }
 
 /**
- * A line longer than this is corrupt or hostile. The daemon accepts connections, so
- * a buffer that grows without limit is a memory-exhaustion vector. Set far above any
- * legitimate frame — session scrollback and diffs are the largest payloads.
+ * Bounds an UNTERMINATED line that keeps growing — the memory-exhaustion vector,
+ * since the daemon accepts connections. It does NOT bound a complete oversized frame
+ * that arrives with its own newline: the loop drains that as an ordinary line before
+ * the length check runs. Set far above any legitimate frame; session scrollback and
+ * diffs are the largest payloads.
  */
 const MAX_LINE_LENGTH = 16 * 1024 * 1024;
 
