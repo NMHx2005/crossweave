@@ -737,6 +737,20 @@ export function loadConfig(projectRoot: string): CrossweaveConfig {
 }
 ```
 
+**Plan/source divergence, found by the final whole-branch review, DoD-breaking:** this task's
+brief never says WHERE `loadConfig` gets called for the first time, and Task 9's `buildMethods`
+default-parameters it (`config = loadConfig(projectRoot)`), which only runs inside the
+daemon process — spawned detached with `stdio: 'ignore'` by `connectOrStart`. A malformed
+config's `CONFIG_INVALID` throw there kills the daemon before it binds its socket; the
+foreground CLI just sees `connectOrStart`'s 10s poll expire and reports
+`DAEMON_START_FAILED`, never the real code — against the DoD's explicit "a malformed one
+fails with `CONFIG_INVALID` rather than silently falling back." Fixed in
+`src/cli/context.ts`'s `withClient` (the function every CLI command routes failures through),
+calling `loadConfig(projectRoot)` in the foreground BEFORE `connectOrStart` can spawn
+anything, so `fail()` can format the real error. The daemon-side call stays as belt and
+braces. `cw daemon stop` is the only command that doesn't route through `withClient`, and it
+never starts a daemon, so it needs no change.
+
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `bun test tests/core/config.test.ts && bun run typecheck`
