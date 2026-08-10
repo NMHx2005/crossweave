@@ -1683,6 +1683,39 @@ Make `start` async so it can await the acquire:
   }
 ```
 
+**Plan/source divergence, found by task review:** making `start` async introduces a genuine
+yield point (`await leaseManager.acquire(row.id)`) before the session is registered as
+running. The server dispatches every socket message via `void handle(...)`, unserialized, so
+two rapid `session.start`/`session.resume` calls for the SAME session can both pass
+`assertResumable`, both reach the `await`, and both acquire a full lease block before the
+second `runtime.start` finally throws `SESSION_ALREADY_RUNNING` — self-healing on the next
+`session.stop` (which releases every active lease for that session), but transiently doubling
+pool consumption. The fix: a synchronous check-and-mark `Set<string>` of in-flight session
+ids, checked and added BEFORE the first `await`, cleared in a `finally`:
+
+```ts
+  const starting = new Set<string>();
+
+  async function start(p: Record<string, unknown>): Promise<SessionRow> {
+    const row = sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName'));
+    assertResumable(row);
+    if (starting.has(row.id)) {
+      throw new CrossweaveError('SESSION_ALREADY_RUNNING', `Session already starting: ${row.name}`);
+    }
+    starting.add(row.id);
+    try {
+      const env = { ...clientEnv(p), ...(await leaseManager.acquire(row.id)) };
+      const pid = runtime.start(row, sessions.adapterFor(row.agentKind), env);
+      sessions.markStatus(row.id, 'running', pid);
+      return sessions.resolve(row.workspaceId, row.id);
+    } finally {
+      starting.delete(row.id);
+    }
+  }
+```
+
+This composes with Step 3b's `clientEnv` layering below — both land inside the same `try`.
+
 `session.start` and `session.resume` must now `await start(p)`. `session.stop` releases after the runtime stop:
 
 ```ts
