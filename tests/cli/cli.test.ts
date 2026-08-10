@@ -272,6 +272,9 @@ describe('cw CLI', () => {
     const r = await cw(['gc']);
     expect(r.exitCode).toBe(0);
     expect(r.stdout).toContain('trash');
+    // The DoD asks gc to report what it reclaimed, and the disk it gave back is the
+    // reason to run it at all.
+    expect(r.stdout).toMatch(/reclaimed \d+\.\d(B|KB|MB|GB) from/);
     expect((await cw(['session', 'list'])).stdout).toContain('no sessions');
   }, 60_000);
 

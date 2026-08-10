@@ -1,5 +1,6 @@
 import { defineCommand } from 'citty';
 import { withClient, fail } from '../context.js';
+import { humanBytes } from '../../isolation/disk-guard.js';
 
 interface Workspace { id: string; name: string; rootPath: string }
 interface Session { id: string; name: string; status: string; enforcementTier: string }
@@ -84,8 +85,11 @@ export const gcCommand = defineCommand({
           process.stdout.write('nothing to reclaim\n');
           return;
         }
+        // The DoD asks gc to report what it reclaimed, and a count of names is only
+        // half of that — the reason to run gc is the disk it gives back.
         process.stdout.write(
-          `reclaimed ${result.removed.length} session(s): ${result.removed.join(', ')}\n`,
+          `reclaimed ${humanBytes(result.reclaimedBytes)} from ` +
+            `${result.removed.length} session(s): ${result.removed.join(', ')}\n`,
         );
       });
     } catch (err) { fail(err); }

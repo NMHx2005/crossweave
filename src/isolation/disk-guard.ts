@@ -61,7 +61,8 @@ export function measureWorktrees(db: Database, workspaceId: string): DiskUsage[]
     }));
 }
 
-function human(bytes: number): string {
+/** Short human-readable size, for messages a person reads rather than parses. */
+export function humanBytes(bytes: number): string {
   const units = ['B', 'KB', 'MB', 'GB'];
   let value = bytes;
   let unit = 0;
@@ -93,8 +94,8 @@ export function assertDiskAvailable(
   if (worst !== undefined && worst.bytes > config.disk.perSessionBytes) {
     throw new CrossweaveError(
       'DISK_LIMIT_EXCEEDED',
-      `Session ${worst.name} holds ${human(worst.bytes)}, over the ` +
-        `${human(config.disk.perSessionBytes)} per-session limit. ` +
+      `Session ${worst.name} holds ${humanBytes(worst.bytes)}, over the ` +
+        `${humanBytes(config.disk.perSessionBytes)} per-session limit. ` +
         'Run `cw gc` to reclaim ended sessions, or raise disk.perSessionBytes.',
     );
   }
@@ -103,8 +104,8 @@ export function assertDiskAvailable(
   if (total > config.disk.perWorkspaceBytes) {
     throw new CrossweaveError(
       'DISK_LIMIT_EXCEEDED',
-      `Worktrees hold ${human(total)} in total, over the ` +
-        `${human(config.disk.perWorkspaceBytes)} workspace limit. ` +
+      `Worktrees hold ${humanBytes(total)} in total, over the ` +
+        `${humanBytes(config.disk.perWorkspaceBytes)} workspace limit. ` +
         'Run `cw gc` to reclaim ended sessions, or raise disk.perWorkspaceBytes.',
     );
   }
