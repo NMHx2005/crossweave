@@ -1445,6 +1445,31 @@ export class LeaseManager {
     const project = `cw_${sessionId}`;
     this.record(sessionId, 'docker', project);
     env.COMPOSE_PROJECT_NAME = project;
+```
+
+**Two plan/source divergences, found by the final whole-branch review, in this block:**
+
+1. `ports.named` (looped above) was never validated by `loadConfig` — a key of `PATH` or
+   `LD_PRELOAD` silently overwrites the agent's environment; a non-integer or out-of-range
+   offset silently produces garbage (`"43000undefined"`, or a port past 65535). Fixed in
+   `src/core/config.ts`'s `loadConfig`, not here: after the `blockSize` bound is known, each
+   `[name, offset]` in `config.ports.named` must have a syntactically valid env-var name
+   (`/^[A-Za-z_][A-Za-z0-9_]*$/`), must not be one of a reserved set that a lease must never
+   be able to overwrite (`PATH`, `HOME`, `SHELL`, `USER`, `LD_PRELOAD`, `LD_LIBRARY_PATH`,
+   `DYLD_INSERT_LIBRARIES`, `DYLD_LIBRARY_PATH`, `CW_SESSION_ID`, `CW_SESSION_NAME`, plus
+   `CW_PORT_BASE` — this manager's own `named` loop runs before `CW_PORT_BASE` is set above,
+   so a colliding entry would otherwise silently win), and must have an integer offset in
+   `0 .. blockSize-1`. Each rejection throws `CONFIG_INVALID`.
+
+2. `` `cw_${sessionId}` `` above is invalid for Docker Compose v2, which requires project
+   names matching `^[a-z0-9][a-z0-9_-]*$` — `sessionId` uses `newId`'s uppercase Crockford
+   alphabet (e.g. `cw_s_01KZNG77Y20000KQP0R`), so the docker lease errored on first real use.
+   Fix: `` `cw_${sessionId.toLowerCase()}` ``. (The `schema` db strategy below builds the
+   same `` `cw_${sessionId}` `` shape unmodified — left uppercase, since Postgres folds
+   unquoted identifiers to lowercase and it is embedded in a `search_path`, not a Compose
+   name.)
+
+```ts
 
     if (this.config.cacheIsolation) {
       const cache = join(crossweaveDir(this.projectRoot), 'cache', sessionId);
