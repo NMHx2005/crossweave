@@ -36,6 +36,34 @@ describe('createMcpServer', () => {
     }
   });
 
+  it('a stale close does not unlink a newer server sharing the same socket path', async () => {
+    // The fast stop-then-resume race: a second server for the same session id is
+    // created while the first one's close() is still in flight. Both act on a NAME.
+    // Before the inode check in close(), the second server ended up `listening()`
+    // true with its socket file deleted by the first's close — running, and
+    // unreachable to every client.
+    const sessionId = `stale-close-${process.pid}-${Date.now()}`;
+    const first = createMcpServer(sessionId, []);
+    expect(await first.ready()).toBe(true);
+
+    const closingFirst = first.close();
+    handle = createMcpServer(sessionId, []);
+    expect(await handle.ready()).toBe(true);
+    await closingFirst;
+
+    expect(handle.listening()).toBe(true);
+    expect(existsSync(handle.socketPath)).toBe(true);
+    const connected = await new Promise<boolean>((resolve) => {
+      const client = connect(handle!.socketPath);
+      client.once('connect', () => {
+        client.destroy();
+        resolve(true);
+      });
+      client.once('error', () => resolve(false));
+    });
+    expect(connected).toBe(true);
+  });
+
   it('close() resolves within a timeout even with an open client connection', async () => {
     const sessionId = `close-hang-${Date.now()}`;
     const echoTool: McpTool = {

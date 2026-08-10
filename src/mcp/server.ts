@@ -1,5 +1,5 @@
 import { createServer, type Server as NetServer, type Socket } from 'node:net';
-import { chmodSync, existsSync, unlinkSync } from 'node:fs';
+import { chmodSync, existsSync, statSync, unlinkSync } from 'node:fs';
 import { framedLines, handleMcpMessage, mcpSocketPath, type McpTool } from './protocol.js';
 
 export interface McpServerHandle {
@@ -80,6 +80,17 @@ export function createMcpServer(
   });
 
   let bound = false;
+  /**
+   * The inode of the socket file THIS server created, captured at bind time.
+   *
+   * A socket path is a name, and a session id can be bound twice in quick succession
+   * (a stop racing a resume — the daemon dispatches socket messages unserialized).
+   * Unlinking by name on close then deletes whatever currently answers to that name,
+   * which may be a NEWER server's socket: it reports `listening()` true while nothing
+   * can connect to it any more. Comparing inodes is what makes close() delete only
+   * its own file.
+   */
+  let boundInode: number | undefined;
   let settleReady: (v: boolean) => void = () => undefined;
   const readyPromise = new Promise<boolean>((resolve) => {
     settleReady = resolve;
@@ -97,8 +108,29 @@ export function createMcpServer(
     } catch {
       // Best effort — the socket still works even if the mode couldn't be tightened.
     }
+    try {
+      boundInode = statSync(socketPath).ino;
+    } catch {
+      // Without an inode close() simply won't unlink; a leftover socket file is far
+      // better than deleting a live server's.
+    }
     settleReady(true);
   });
+
+  /** Removes the socket file only while it is still the one this server bound. */
+  function unlinkOwnSocketFile(): void {
+    if (boundInode === undefined) return; // Never bound: nothing here is ours.
+    try {
+      if (statSync(socketPath).ino !== boundInode) return; // A newer server owns this name now.
+    } catch {
+      return; // Already gone.
+    }
+    try {
+      unlinkSync(socketPath);
+    } catch {
+      // Best effort on close.
+    }
+  }
 
   return {
     socketPath,
@@ -115,13 +147,7 @@ export function createMcpServer(
         }
 
         const finish = (): void => {
-          if (existsSync(socketPath)) {
-            try {
-              unlinkSync(socketPath);
-            } catch {
-              // Best effort on close.
-            }
-          }
+          unlinkOwnSocketFile();
           resolve();
         };
 

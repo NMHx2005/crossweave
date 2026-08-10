@@ -92,18 +92,39 @@ export function buildMethods(
     void collectOrphans(db, ws.id).catch(() => undefined);
   }
 
+  /** The server that is a session's CURRENT one. Never holds a closing server. */
   const mcpServers = new Map<string, McpServerHandle>();
+  /**
+   * Closes still in flight, tracked separately from `mcpServers` on purpose.
+   *
+   * Deleting the map entry only once `close()` resolves conflates two questions: a
+   * `session.start` for the same id landing during a close (a fast stop-then-resume;
+   * the daemon dispatches socket messages unserialized) would then have its brand-new
+   * server deleted by the old close's cleanup — running, unreachable and untracked,
+   * so neither `session.stop` nor `daemon.shutdown` would ever close it. The map
+   * therefore loses its entry synchronously, and `daemon.shutdown` awaits genuinely
+   * in-flight closes through this set instead.
+   */
+  const closingMcpServers = new Set<Promise<void>>();
+
+  /**
+   * Retires `handle` as `sessionId`'s server. The map entry is dropped ONLY if it
+   * still points at this exact handle — never at "whatever is currently registered
+   * for this id", which may already be a newer server.
+   */
+  function closeMcpServer(sessionId: string, handle: McpServerHandle): Promise<void> {
+    if (mcpServers.get(sessionId) === handle) mcpServers.delete(sessionId);
+    const pending: Promise<void> = handle.close().catch(() => undefined);
+    closingMcpServers.add(pending);
+    void pending.finally(() => closingMcpServers.delete(pending));
+    return pending;
+  }
 
   const runtime = new SessionRuntime((sessionId) => {
     sessions.clearRunning(sessionId);
     leaseManager.release(sessionId);
     const handle = mcpServers.get(sessionId);
-    if (handle !== undefined) {
-      void handle
-        .close()
-        .catch(() => undefined)
-        .finally(() => mcpServers.delete(sessionId));
-    }
+    if (handle !== undefined) void closeMcpServer(sessionId, handle);
   });
   sessions.onKill = (id) => runtime.stop(id);
 
@@ -167,6 +188,12 @@ export function buildMethods(
       // `session.mcpInfo`'s `listening()` check deterministic the moment this RPC
       // returns, instead of racing an in-flight async bind.
       try {
+        // A server still registered for this id has been superseded — retire it
+        // explicitly rather than dropping the reference, or it would keep running
+        // with nothing left able to close it.
+        const superseded = mcpServers.get(row.id);
+        if (superseded !== undefined) void closeMcpServer(row.id, superseded);
+
         const tools = buildTools(row.id, row.workspaceId, bus, contextStore);
         const handle = createMcpServer(row.id, tools);
         mcpServers.set(row.id, handle);
@@ -247,13 +274,15 @@ export function buildMethods(
     // Awaited, so a caller told the session stopped can trust that it actually is.
     'session.stop': async (p) => {
       const row = sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName'));
+      // Captured BEFORE the await, not after: this stop is responsible for the server
+      // that was this session's when it was asked to stop. A `session.resume` landing
+      // while `runtime.stop` is in flight installs a NEW one, and re-reading the map
+      // afterwards would close that instead — leaving the resumed session with a
+      // socket nothing can connect to.
+      const handle = mcpServers.get(row.id);
       await runtime.stop(row.id);
       leaseManager.release(row.id);
-      const handle = mcpServers.get(row.id);
-      if (handle !== undefined) {
-        await handle.close().catch(() => undefined);
-        mcpServers.delete(row.id);
-      }
+      if (handle !== undefined) await closeMcpServer(row.id, handle);
       return { ok: true };
     },
 
@@ -276,7 +305,11 @@ export function buildMethods(
 
     'daemon.shutdown': async () => {
       await runtime.stopAll();
-      await Promise.all([...mcpServers.values()].map((h) => h.close().catch(() => undefined)));
+      // stopAll's exit callbacks have already begun closing most of these; anything
+      // still registered is closed here, and both sets of closes are awaited through
+      // `closingMcpServers` so a shutdown never races ahead of one in flight.
+      for (const [sessionId, handle] of [...mcpServers]) void closeMcpServer(sessionId, handle);
+      await Promise.all([...closingMcpServers]);
       setTimeout(() => process.exit(0), 10);
       return { ok: true };
     },

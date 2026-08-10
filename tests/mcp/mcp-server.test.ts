@@ -216,6 +216,35 @@ describe('MCP server lifecycle (regression coverage for Task 8 wiring)', () => {
     await waitFor(() => isSocketGone(info.mcpSocketPath));
   }, 30_000);
 
+  it('a resume racing a stop leaves a reachable server that is still tracked', async () => {
+    if (client === undefined) throw new Error('expected a client');
+    const workspace = await client.call<{ id: string }>('workspace.init', {});
+    await client.call('session.new', { workspaceId: workspace.id, name: 'a', agent: 'claude', worktree: false });
+    await client.call('session.start', { workspaceId: workspace.id, idOrName: 'a', env: {} });
+
+    // Deliberately not awaited: the daemon dispatches socket messages unserialized,
+    // so a resume can land while a stop for the same session is still in flight. The
+    // stop must retire ITS server, never the one the resume just installed, and the
+    // resumed server must stay in the map so a later stop can still close it.
+    const stopping = client.call('session.stop', { workspaceId: workspace.id, idOrName: 'a' });
+    await waitFor(async () => {
+      const rows = await client!.call<{ name: string; status: string }[]>('session.list', {
+        workspaceId: workspace.id,
+      });
+      return rows.find((r) => r.name === 'a')?.status !== 'running';
+    });
+    await client.call('session.resume', { workspaceId: workspace.id, idOrName: 'a', env: {} });
+    await stopping;
+
+    const info = await client.call<{ mcpSocketPath: string }>('session.mcpInfo', {
+      workspaceId: workspace.id, idOrName: 'a',
+    });
+    expect(await isSocketGone(info.mcpSocketPath)).toBe(false);
+
+    await client.call('session.stop', { workspaceId: workspace.id, idOrName: 'a' });
+    expect(await isSocketGone(info.mcpSocketPath)).toBe(true);
+  }, 30_000);
+
   it('daemon.shutdown closes every still-tracked MCP server before exiting', async () => {
     if (client === undefined) throw new Error('expected a client');
     const workspace = await client.call<{ id: string }>('workspace.init', {});
