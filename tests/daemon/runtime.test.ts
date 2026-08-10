@@ -11,11 +11,20 @@ import { ClaudePtyAdapter } from '../../src/adapters/claude-pty.js';
 import { CrossweaveError } from '../../src/core/errors.js';
 import type { AgentAdapter } from '../../src/adapters/types.js';
 import { makeGitFixture, type GitFixture } from '../helpers/git-fixture.js';
+import { LeaseRepo } from '../../src/db/repositories/lease.js';
 
-/** Echoes each stdin line back, so tests never need the real `claude` binary. */
+/**
+ * Echoes each stdin line back, so tests never need the real `claude` binary.
+ *
+ * `eval` (rather than a plain `echo "echo:$l"`) is deliberate: it gives the line a
+ * second parse pass, so a line that is itself a shell command — like
+ * `echo "P=$CW_PORT_BASE"` — expands its `$VAR` references against THIS process's
+ * environment, the same way a real agent's shell would. A plain literal like `ping`
+ * still round-trips unchanged, since eval-ing `echo echo:ping` just prints it back.
+ */
 function echoFactory(kind: string): AgentAdapter {
   if (kind !== 'claude') throw new CrossweaveError('UNKNOWN_AGENT', `Unsupported: ${kind}`);
-  return new ClaudePtyAdapter('sh', ['-c', 'while IFS= read -r l; do echo "echo:$l"; done']);
+  return new ClaudePtyAdapter('sh', ['-c', 'while IFS= read -r l; do eval "echo echo:$l"; done']);
 }
 
 let fx: GitFixture;
@@ -359,4 +368,51 @@ describe('session runtime', () => {
     await new Promise((r) => setTimeout(r, 300));
     expect(await statusOf()).toBe('dead');
   });
+
+  it('injects the session\'s leases into the agent environment', async () => {
+    await client.call('session.new', { workspaceId, name: 'leased', agent: 'claude', worktree: true });
+    await client.call('session.start', { workspaceId, idOrName: 'leased' });
+
+    let seen = '';
+    client.onNotification((method, params) => {
+      if (method === 'session.data') seen += (params as { chunk: string }).chunk;
+    });
+    await client.call('session.attach', { workspaceId, idOrName: 'leased' });
+    await client.call('session.input', {
+      workspaceId, idOrName: 'leased', data: 'echo "P=$CW_PORT_BASE D=$COMPOSE_PROJECT_NAME"\n',
+    });
+
+    await waitFor(() => seen.includes('P=') && seen.includes('D=cw_'));
+    expect(seen).toMatch(/P=\d{4,5}/);
+    expect(seen).toContain('D=cw_s_');
+  }, 20_000);
+
+  it('frees a session\'s leases when it stops, so the next session reuses them', async () => {
+    await client.call('session.new', { workspaceId, name: 'first', agent: 'claude', worktree: true });
+    await client.call('session.start', { workspaceId, idOrName: 'first' });
+    await client.call('session.stop', { workspaceId, idOrName: 'first' });
+
+    await client.call('session.new', { workspaceId, name: 'second', agent: 'claude', worktree: true });
+    await client.call('session.start', { workspaceId, idOrName: 'second' });
+
+    const leases = new LeaseRepo(db);
+    expect(leases.listActive('port')).toHaveLength(1);
+  }, 20_000);
+
+  it('forwards the client environment to the agent', async () => {
+    await client.call('session.new', { workspaceId, name: 'envtest', agent: 'claude', worktree: true });
+    await client.call('session.start', {
+      workspaceId, idOrName: 'envtest', env: { CW_E2E_MARKER: 'from-client' },
+    });
+
+    let seen = '';
+    client.onNotification((m, p) => {
+      if (m === 'session.data') seen += (p as { chunk: string }).chunk;
+    });
+    await client.call('session.attach', { workspaceId, idOrName: 'envtest' });
+    await client.call('session.input', {
+      workspaceId, idOrName: 'envtest', data: 'echo "M=$CW_E2E_MARKER"\n',
+    });
+    await waitFor(() => seen.includes('M=from-client'));
+  }, 20_000);
 });

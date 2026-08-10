@@ -5,6 +5,8 @@ import { CrossweaveError } from '../core/errors.js';
 import { SessionRuntime } from './runtime.js';
 import type { MethodHandler } from './server.js';
 import type { SessionRow } from '../db/repositories/session.js';
+import { LeaseManager } from '../isolation/leases/manager.js';
+import { loadConfig, type CrossweaveConfig } from '../core/config.js';
 
 function str(params: Record<string, unknown>, key: string): string {
   const v = params[key];
@@ -32,15 +34,39 @@ function num(params: Record<string, unknown>, key: string): number {
   return v;
 }
 
+/**
+ * The daemon inherits the environment of whichever `cw` invocation happened to start
+ * it, and by default every agent it spawns would get THAT environment forever —
+ * stale toolchain, wrong virtualenv, whatever was exported when the daemon booted.
+ * The client forwards its own `process.env` on every start/resume so the agent gets
+ * the shell the user actually meant.
+ */
+function clientEnv(p: Record<string, unknown>): Record<string, string> {
+  const raw = p.env;
+  if (typeof raw !== 'object' || raw === null) return {};
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof v === 'string') out[k] = v;
+  }
+  return out;
+}
+
 export function buildMethods(
   db: Database,
   projectRoot: string,
   adapterFactory?: AdapterFactory,
+  config: CrossweaveConfig = loadConfig(projectRoot),
 ): Record<string, MethodHandler> {
   const workspaces = new WorkspaceManager(db);
   const sessions = new SessionManager(db, adapterFactory);
+  const leaseManager = new LeaseManager(db, projectRoot, config);
+  // Nothing a previous daemon held can have survived its death, and a lease left
+  // marked active would permanently shrink the pool.
+  leaseManager.releaseAll();
+
   const runtime = new SessionRuntime((sessionId) => {
     sessions.clearRunning(sessionId);
+    leaseManager.release(sessionId);
   });
   sessions.onKill = (id) => runtime.stop(id);
   // NOTE: the runtime only knows processes THIS daemon started. After a daemon
@@ -67,10 +93,13 @@ export function buildMethods(
     }
   }
 
-  function start(p: Record<string, unknown>): SessionRow {
+  async function start(p: Record<string, unknown>): Promise<SessionRow> {
     const row = sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName'));
     assertResumable(row);
-    const pid = runtime.start(row, sessions.adapterFor(row.agentKind));
+    // A lease must win over the client's shell, or a session's port would depend on
+    // what the user happened to export.
+    const env = { ...clientEnv(p), ...(await leaseManager.acquire(row.id)) };
+    const pid = runtime.start(row, sessions.adapterFor(row.agentKind), env);
     sessions.markStatus(row.id, 'running', pid);
     return sessions.resolve(row.workspaceId, row.id);
   }
@@ -109,7 +138,7 @@ export function buildMethods(
 
     'session.start': (p) => start(p),
 
-    'session.resume': (p) => {
+    'session.resume': async (p) => {
       const row = sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName'));
       // Checked BEFORE isRunning: right after a kill the runtime still reports the
       // pty as running until its exit callback lands, and returning the row there
@@ -141,6 +170,7 @@ export function buildMethods(
     'session.stop': async (p) => {
       const row = sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName'));
       await runtime.stop(row.id);
+      leaseManager.release(row.id);
       return { ok: true };
     },
 

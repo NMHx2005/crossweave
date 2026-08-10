@@ -50,7 +50,7 @@ export const attachCommand = defineCommand({
           }
         });
 
-        if (args.start) await client.call('session.resume', target);
+        if (args.start) await client.call('session.resume', { ...target, env: { ...process.env } });
         // Subscribe exactly ONCE and await it. This used to run a second time inside
         // the promise with its failure swallowed, which both replayed the scrollback
         // twice and could leave the terminal raw and attached to nothing.

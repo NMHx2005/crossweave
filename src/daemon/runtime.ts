@@ -37,7 +37,7 @@ export class SessionRuntime {
 
   constructor(private readonly onExit: (sessionId: string, code: number) => void) {}
 
-  start(session: SessionRow, adapter: AgentAdapter): number {
+  start(session: SessionRow, adapter: AgentAdapter, env: Record<string, string> = {}): number {
     if (this.running.has(session.id)) {
       throw new CrossweaveError('SESSION_ALREADY_RUNNING', `Session already running: ${session.name}`);
     }
@@ -47,7 +47,9 @@ export class SessionRuntime {
 
     const proc = adapter.spawn({
       cwd: session.worktreePath,
-      env: { CW_SESSION_ID: session.id, CW_SESSION_NAME: session.name },
+      // CW_SESSION_ID/CW_SESSION_NAME are set last deliberately: a lease must never
+      // be able to overwrite the session's own identity.
+      env: { ...env, CW_SESSION_ID: session.id, CW_SESSION_NAME: session.name },
       cols: 80,
       rows: 24,
     });
