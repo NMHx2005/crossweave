@@ -87,9 +87,17 @@ export const sessionCommand = defineCommand({
     // would be advising a command that does not exist.
     stop: defineCommand({
       meta: { name: 'stop', description: 'Stop the agent but keep the session resumable' },
-      args: { target: { type: 'positional', description: 'Session name or id' } },
+      // Declared optional, not required: citty's own missing-positional error has no
+      // `CODE:` prefix (it prints usage + a bare message and calls process.exit(1)
+      // itself, never rejecting runMain's promise), which breaks the contract that
+      // every CLI failure path emits exactly one `CODE: message` line. Validating it
+      // ourselves keeps that path going through fail() like every other error.
+      args: { target: { type: 'positional', description: 'Session name or id', required: false } },
       async run({ args }) {
         try {
+          if (args.target === undefined) {
+            throw new CrossweaveError('INVALID_ARGUMENTS', 'Missing required argument: TARGET');
+          }
           await withClient(async (client) => {
             const workspaceId = await currentWorkspaceId(client);
             await client.call('session.stop', { workspaceId, idOrName: args.target });

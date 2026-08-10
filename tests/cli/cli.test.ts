@@ -250,4 +250,13 @@ describe('cw CLI', () => {
     expect(missing.exitCode).toBe(1);
     expect(missing.stderr).toContain('SESSION_NOT_FOUND:');
   }, 60_000);
+
+  it('a missing required argument reports in the standard shape', async () => {
+    await cw(['init']);
+    const r = await cw(['session', 'stop']);
+    expect(r.exitCode).toBe(1);
+    const lines = r.stderr.trimEnd().split('\n');
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/^[A-Z_]+: /);
+  }, 30_000);
 });

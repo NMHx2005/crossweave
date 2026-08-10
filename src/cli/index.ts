@@ -4,6 +4,7 @@ import { defineCommand, runMain } from 'citty';
 import { crossweaveDir, findProjectRoot } from '../core/paths.js';
 import { VERSION } from '../core/version.js';
 import { DaemonClient } from '../client/rpc-client.js';
+import { CrossweaveError } from '../core/errors.js';
 import { initCommand, workspaceCommand } from './commands/workspace.js';
 import { sessionCommand } from './commands/session.js';
 import { fail } from './context.js';
@@ -35,11 +36,21 @@ const daemonCommand = defineCommand({
           // gone — a caller (or a test asserting no `cwd` survives) could observe
           // "daemon stopped" while it is still exiting. Wait for the socket to close,
           // which only happens once the daemon process has actually gone away.
+          // This is sound only because `daemon.shutdown` never calls `daemon.close()`
+          // itself — if shutdown ever closed client sockets before exiting, the socket
+          // would close first, the poll would return immediately, and this would
+          // silently report success even though the process is still exiting.
           const deadline = Date.now() + 2000;
           while (client.isConnected && Date.now() < deadline) {
             await new Promise((r) => setTimeout(r, 10));
           }
           client.close();
+          if (Date.now() >= deadline) {
+            throw new CrossweaveError(
+              'DAEMON_STOP_TIMEOUT',
+              'The daemon acknowledged the shutdown but was still running after 2s.',
+            );
+          }
           process.stdout.write('daemon stopped\n');
         } catch (err) { fail(err); }
       },

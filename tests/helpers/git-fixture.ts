@@ -1,7 +1,7 @@
 import { cp, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { realpathSync } from 'node:fs';
+import { realpathSync, rmSync } from 'node:fs';
 import { $ } from 'bun';
 
 export interface GitFixture {
@@ -30,6 +30,16 @@ async function gitTemplate(): Promise<string> {
   await $`git add .`.cwd(root).quiet();
   await $`git commit -q -m init`.cwd(root).quiet();
   template = root;
+  // One template per process, removed when the process exits. Without this every
+  // test run leaves a live git repo in TMPDIR; a full TMPDIR is what caused M0's
+  // beforeEach hook timeouts in the first place.
+  process.once('exit', () => {
+    try {
+      rmSync(root, { recursive: true, force: true });
+    } catch {
+      // Best effort on exit; a leftover template is not worth failing a run over.
+    }
+  });
   return root;
 }
 
