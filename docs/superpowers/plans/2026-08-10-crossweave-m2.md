@@ -2898,6 +2898,24 @@ export const blameCommand = defineCommand({
 });
 ```
 
+**Two divergences from the code above, found at two different points:**
+
+1. **(Task 9's own implementation) `tsc --noEmit` fails on `args.target.lastIndexOf(...)`** — citty types an undeclared positional as `string | undefined` (confirmed against `citty@0.2.2`'s real `.d.mts`), so dereferencing it without a guard is a real strict-mode error, not a false alarm. Fixed the same way `session stop` (M1) already established: declare `target: { type: 'positional', description: '<file>:<line>', required: false }`, then explicitly check `if (args.target === undefined) throw new CrossweaveError('INVALID_ARGUMENTS', 'Missing required argument: TARGET');` at the top of `run()`, before the rest of the parsing above.
+
+2. **(Final whole-branch review) The target path is sent to the daemon as-is, resolved against `projectRoot`, not the user's actual working directory.** The daemon runs `git blame` from `projectRoot`, so `file` must be repo-relative — but a user running `cw blame foo.ts:1` from a subdirectory means `foo.ts` relative to THEIR cwd, not the repo root, and got a silent, wrong "no attribution found" instead of either working correctly or erroring. Fixed by resolving the raw argument against `process.cwd()` first and re-relativizing against the (real, symlink-resolved) project root before sending it — routed through `assertContained` per the Global Constraint that every path originating outside the process must be, so a target outside the repo fails loudly with `PATH_ESCAPE` instead of quietly finding nothing:
+
+```ts
+      await withClient(async (client, projectRoot) => {
+        const workspaceId = await currentWorkspaceId(client);
+        const root = realpathSync(projectRoot);
+        const repoRelative = relative(root, assertContained(root, resolve(process.cwd(), file)));
+        const result = await client.call<BlameResult | null>('blame', { workspaceId, file: repoRelative, line });
+        // ... unchanged from here
+      });
+```
+
+Needs `import { realpathSync } from 'node:fs';`, `import { relative, resolve } from 'node:path';`, and `import { assertContained } from '../../core/paths.js';` added to the file.
+
 `withClient`, `fail`, `currentWorkspaceId` are all real, already-exported names from `src/cli/context.js`.
 
 - [ ] **Step 4: Register the command**
