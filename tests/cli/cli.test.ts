@@ -259,4 +259,17 @@ describe('cw CLI', () => {
     expect(lines).toHaveLength(1);
     expect(lines[0]).toMatch(/^[A-Z_]+: /);
   }, 30_000);
+
+  it('gc reclaims ended sessions and reports nothing when there are none', async () => {
+    await cw(['init']);
+    expect((await cw(['gc'])).stdout).toContain('nothing to reclaim');
+
+    await cw(['session', 'new', '--name', 'trash', '--agent', 'claude']);
+    await cw(['session', 'kill', 'trash', '--yes']);
+
+    const r = await cw(['gc']);
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain('trash');
+    expect((await cw(['session', 'list'])).stdout).toContain('no sessions');
+  }, 60_000);
 });

@@ -70,3 +70,24 @@ export const workspaceCommand = defineCommand({
     }),
   },
 });
+
+export const gcCommand = defineCommand({
+  meta: { name: 'gc', description: 'Reclaim worktrees and branches from ended sessions' },
+  async run() {
+    try {
+      await withClient(async (client) => {
+        const ws = await client.call<Workspace>('workspace.init', {});
+        const result = await client.call<{ removed: string[]; reclaimedBytes: number }>(
+          'workspace.gc', { id: ws.id },
+        );
+        if (result.removed.length === 0) {
+          process.stdout.write('nothing to reclaim\n');
+          return;
+        }
+        process.stdout.write(
+          `reclaimed ${result.removed.length} session(s): ${result.removed.join(', ')}\n`,
+        );
+      });
+    } catch (err) { fail(err); }
+  },
+});

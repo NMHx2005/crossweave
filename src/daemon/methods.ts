@@ -7,6 +7,7 @@ import type { MethodHandler } from './server.js';
 import type { SessionRow } from '../db/repositories/session.js';
 import { LeaseManager } from '../isolation/leases/manager.js';
 import { loadConfig, type CrossweaveConfig } from '../core/config.js';
+import { collectGarbage } from '../domain/gc.js';
 
 function str(params: Record<string, unknown>, key: string): string {
   const v = params[key];
@@ -58,11 +59,17 @@ export function buildMethods(
   config: CrossweaveConfig = loadConfig(projectRoot),
 ): Record<string, MethodHandler> {
   const workspaces = new WorkspaceManager(db);
-  const sessions = new SessionManager(db, adapterFactory);
+  const sessions = new SessionManager(db, adapterFactory, config);
   const leaseManager = new LeaseManager(db, projectRoot, config);
   // Nothing a previous daemon held can have survived its death, and a lease left
   // marked active would permanently shrink the pool.
   leaseManager.releaseAll();
+
+  // Reclaim anything a previous daemon left behind. Best effort: a daemon that
+  // cannot gc must still start, or a stuck worktree would make crossweave unusable.
+  for (const ws of workspaces.list()) {
+    void collectGarbage(db, projectRoot, ws.id).catch(() => undefined);
+  }
 
   const runtime = new SessionRuntime((sessionId) => {
     sessions.clearRunning(sessionId);
@@ -136,6 +143,7 @@ export function buildMethods(
       workspaces.delete(str(p, 'id'), { force: bool(p, 'force', false) });
       return { ok: true };
     },
+    'workspace.gc': async (p) => collectGarbage(db, projectRoot, str(p, 'id')),
 
     'session.new': (p) =>
       sessions.create({

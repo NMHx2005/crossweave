@@ -4,8 +4,10 @@ import { newId } from '../core/ids.js';
 import { WorkspaceRepo } from '../db/repositories/workspace.js';
 import { SessionRepo, type SessionRow } from '../db/repositories/session.js';
 import { createWorktree, deleteBranch, removeWorktree } from '../isolation/worktree.js';
+import { assertDiskAvailable } from '../isolation/disk-guard.js';
 import { createAdapter as defaultCreateAdapter } from '../adapters/registry.js';
 import type { AgentAdapter } from '../adapters/types.js';
+import { DEFAULT_CONFIG, type CrossweaveConfig } from '../core/config.js';
 
 export type AdapterFactory = (kind: string) => AgentAdapter;
 
@@ -45,8 +47,9 @@ export class SessionManager {
   onKill?: (sessionId: string) => Promise<void>;
 
   constructor(
-    db: Database,
+    private readonly db: Database,
     private readonly adapterFactory: AdapterFactory = defaultCreateAdapter,
+    private readonly config: CrossweaveConfig = DEFAULT_CONFIG,
   ) {
     this.sessions = new SessionRepo(db);
     this.workspaces = new WorkspaceRepo(db);
@@ -60,6 +63,9 @@ export class SessionManager {
 
   async create(opts: CreateSessionOptions): Promise<SessionRow> {
     assertValidSessionName(opts.name);
+    // Checked before the worktree is created, not after: the whole point is to refuse
+    // before adding another full checkout to a disk that is already over budget.
+    assertDiskAvailable(this.db, opts.workspaceId, this.config);
     const root = this.projectRoot(opts.workspaceId);
 
     if (this.sessions.findByName(opts.workspaceId, opts.name)) {

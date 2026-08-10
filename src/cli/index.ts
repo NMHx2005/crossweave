@@ -5,7 +5,7 @@ import { crossweaveDir, findProjectRoot } from '../core/paths.js';
 import { VERSION } from '../core/version.js';
 import { DaemonClient } from '../client/rpc-client.js';
 import { CrossweaveError } from '../core/errors.js';
-import { initCommand, workspaceCommand } from './commands/workspace.js';
+import { initCommand, workspaceCommand, gcCommand } from './commands/workspace.js';
 import { sessionCommand } from './commands/session.js';
 import { fail } from './context.js';
 
@@ -65,6 +65,7 @@ const main = defineCommand({
     workspace: workspaceCommand,
     session: sessionCommand,
     daemon: daemonCommand,
+    gc: gcCommand,
   },
 });
 

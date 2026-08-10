@@ -124,4 +124,11 @@ export class SessionRepo {
   clearWorktree(id: string): void {
     this.db.prepare('UPDATE session SET worktree_path = NULL WHERE id = ?').run(id);
   }
+
+  findByWorktreePath(path: string): SessionRow | undefined {
+    const r = this.db
+      .prepare(`SELECT ${COLUMNS} FROM session WHERE worktree_path = ?`)
+      .get(path) as SessionRecord | null;
+    return r ? toRow(r) : undefined;
+  }
 }
