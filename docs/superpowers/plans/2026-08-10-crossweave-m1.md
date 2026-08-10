@@ -1501,6 +1501,53 @@ and inside, replace the `env` passed to `adapter.spawn`:
 
 `CW_SESSION_ID` and `CW_SESSION_NAME` are set last deliberately: a lease must never be able to overwrite the session's own identity.
 
+- [ ] **Step 3b: Forward the CLIENT's environment, not the daemon's**
+
+Found by end-to-end testing of M0: the daemon inherits the environment of whichever `cw` invocation happened to start it, and **every agent it ever spawns gets that environment**. Activate a virtualenv or `nvm use 20` in a fresh shell, create a session, and the agent silently gets the toolchain from whenever the daemon first booted. For a tool whose whole job is running coding agents, handing them the wrong toolchain without saying so is worse than failing.
+
+The env plumbing this task already introduces is the right place to fix it. Add an optional `env` param to the start methods in `src/daemon/methods.ts`:
+
+```ts
+function clientEnv(p: Record<string, unknown>): Record<string, string> {
+  const raw = p.env;
+  if (typeof raw !== 'object' || raw === null) return {};
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof v === 'string') out[k] = v;
+  }
+  return out;
+}
+```
+
+and in `start`, layer it under the leases — a lease must win over the client's shell, or a session's port would depend on what the user happened to export:
+
+```ts
+    const env = { ...clientEnv(p), ...(await leaseManager.acquire(row.id)) };
+```
+
+In `src/cli/commands/session.ts` and `src/cli/commands/attach.ts`, every `session.start` / `session.resume` call passes `env: { ...process.env }`.
+
+Add a test asserting an env var exported by the client reaches the agent:
+
+```ts
+  it('forwards the client environment to the agent', async () => {
+    await client.call('session.new', { workspaceId, name: 'envtest', agent: 'claude', worktree: true });
+    await client.call('session.start', {
+      workspaceId, idOrName: 'envtest', env: { CW_E2E_MARKER: 'from-client' },
+    });
+
+    let seen = '';
+    client.onNotification((m, p) => {
+      if (m === 'session.data') seen += (p as { chunk: string }).chunk;
+    });
+    await client.call('session.attach', { workspaceId, idOrName: 'envtest' });
+    await client.call('session.input', {
+      workspaceId, idOrName: 'envtest', data: 'echo "M=$CW_E2E_MARKER"\n',
+    });
+    await waitFor(() => seen.includes('M=from-client'));
+  }, 20_000);
+```
+
 - [ ] **Step 4: Wire the manager into `buildMethods`**
 
 In `src/daemon/methods.ts`, extend the signature and body:
@@ -1950,8 +1997,48 @@ export async function collectGarbage(
     reclaimedBytes += sizes.get(session.id) ?? 0;
   }
 
+  // Worktrees git knows about that no session row claims. `cw workspace delete`
+  // removes the workspace row and cascades away its sessions WITHOUT touching the
+  // disk, so every worktree it leaves behind is invisible to the loop above — it
+  // walks sessions, and those no longer exist. Found by end-to-end testing of M0:
+  // two orphans and three branches survived a `workspace delete --force`.
+  for (const path of await listWorktreePaths(workspace.rootPath)) {
+    if (repo.findByWorktreePath(path) !== undefined) continue;
+    await removeWorktree(workspace.rootPath, path).catch(() => undefined);
+    removed.push(path.split('/').pop() ?? path);
+  }
+
   return { removed, reclaimedBytes };
 }
+```
+
+`SessionRepo` needs one more lookup for that. Append to the class in `src/db/repositories/session.ts`:
+
+```ts
+  findByWorktreePath(path: string): SessionRow | undefined {
+    const r = this.db
+      .prepare(`SELECT ${COLUMNS} FROM session WHERE worktree_path = ?`)
+      .get(path) as SessionRecord | null;
+    return r ? toRow(r) : undefined;
+  }
+```
+
+Import `listWorktreePaths` in `src/domain/gc.ts`. Task 4 must therefore keep it — it now has a `src/` caller.
+
+Add a test for the orphan path:
+
+```ts
+  it('reclaims worktrees no session row claims', async () => {
+    await sessions.create({ workspaceId, name: 'orphan', agent: 'claude', worktree: true });
+    // Simulate what `workspace delete --force` leaves: the row is gone, the disk is not.
+    const row = sessions.resolve(workspaceId, 'orphan');
+    new SessionRepo(db).delete(row.id);
+    expect(existsSync(row.worktreePath ?? '')).toBe(true);
+
+    const result = await collectGarbage(db, fx.root, workspaceId);
+    expect(result.removed).toHaveLength(1);
+    expect(existsSync(row.worktreePath ?? '')).toBe(false);
+  }, 30_000);
 ```
 
 - [ ] **Step 4: Guard session creation on disk**
