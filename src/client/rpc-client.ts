@@ -174,6 +174,13 @@ export async function connectOrStart(
     detached: true,
     stdio: 'ignore',
   });
+  // Node reports a spawn failure asynchronously as an 'error' event, and an 'error'
+  // with no listener is thrown — an uncaught exception carrying a raw stack trace and
+  // internal $bunfs paths, bypassing fail() entirely. Reachable in the ordinary way:
+  // a compiled `cw` moved away from its sibling `cwd` binary. Swallowing it here is
+  // correct because the polling loop below is what decides the outcome, and it ends
+  // in a proper DAEMON_START_FAILED.
+  child.on('error', () => undefined);
   child.unref();
 
   const deadline = Date.now() + DAEMON_START_TIMEOUT_MS;
