@@ -1,6 +1,6 @@
-import { cp, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { readdirSync, realpathSync, rmSync } from 'node:fs';
 import { $ } from 'bun';
 
@@ -95,4 +95,19 @@ export async function makeGitFixture(): Promise<GitFixture> {
   // cleanly. Anything that adds a worktree to the TEMPLATE would break that.
   await cp(src, root, { recursive: true });
   return { root, cleanup: () => rm(root, { recursive: true, force: true }) };
+}
+
+/** Writes, adds and commits a file inside `repoRoot`. Returns the new commit's hash. */
+export async function commitFile(
+  repoRoot: string,
+  relativePath: string,
+  content: string,
+  message: string,
+): Promise<string> {
+  const fullPath = join(repoRoot, relativePath);
+  await mkdir(dirname(fullPath), { recursive: true });
+  await writeFile(fullPath, content);
+  await $`git add ${relativePath}`.cwd(repoRoot).quiet();
+  await $`git commit -q -m ${message}`.cwd(repoRoot).quiet();
+  return (await $`git rev-parse HEAD`.cwd(repoRoot).quiet().text()).trim();
 }
