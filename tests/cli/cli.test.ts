@@ -203,4 +203,45 @@ describe('cw CLI', () => {
       await rm(bare, { recursive: true, force: true });
     }
   }, 30_000);
+
+  // Regression: fail() collapses [\r\n] and trims. A lone \r would otherwise let a
+  // wrapped subprocess error overwrite the visible line in a terminal. The existing
+  // one-line assertion cannot catch it — INVALID_SESSION_NAME's message has no \r.
+  //
+  // Deleting `.crossweave/worktrees` outright (the original repro) does not make
+  // `git worktree remove --force` fail on git 2.50.1: it treats an already-gone
+  // directory as nothing to prune and exits 0. Locking the worktree does reproduce a
+  // real failure — a single --force cannot override a lock, and git's fatal message
+  // for that is genuinely two lines.
+  it('collapses a carriage return in a wrapped error into one clean line', async () => {
+    await cw(['init']);
+    const created = await cw(['session', 'new', '--name', 'crlf', '--agent', 'claude']);
+    const worktreePath = created.stdout.trim().split('\t')[3]!;
+    await $`git worktree lock ${worktreePath} --reason locked-for-test`.cwd(fx.root).quiet();
+
+    const r = await cw(['session', 'kill', 'crlf', '--rm-worktree', '--yes']);
+    expect(r.exitCode).toBe(1);
+    const lines = r.stderr.trimEnd().split('\n');
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/^[A-Z_]+: /);
+    expect(r.stderr).not.toContain('\r');
+    expect(r.stderr.trimEnd()).not.toMatch(/ $/);
+  }, 60_000);
+
+  it('session stop leaves the session idle and resumable', async () => {
+    await cw(['init']);
+    await cw(['session', 'new', '--name', 'pausable', '--agent', 'claude']);
+
+    const help = await cw(['session', '--help']);
+    expect(help.stdout).toContain('stop');
+
+    const stopped = await cw(['session', 'stop', 'pausable']);
+    expect(stopped.exitCode).toBe(0);
+    expect((await cw(['session', 'list'])).stdout).toContain('idle');
+
+    // And it is a real command, not a stub: an unknown target fails in the standard shape.
+    const missing = await cw(['session', 'stop', 'ghost']);
+    expect(missing.exitCode).toBe(1);
+    expect(missing.stderr).toContain('SESSION_NOT_FOUND:');
+  }, 60_000);
 });

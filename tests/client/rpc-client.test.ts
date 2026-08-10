@@ -93,15 +93,20 @@ describe('DaemonClient', () => {
     const onUncaught = (err: unknown): void => { uncaught = err; };
     process.once('uncaughtException', onUncaught);
     try {
+      // Reach the socket directly. Going through call() cannot raise a socket
+      // 'error' — its isConnected pre-check refuses to write first — which is
+      // exactly why the previous version of this test passed with the listener
+      // deleted.
+      const socket = (client as unknown as { socket: import('node:net').Socket }).socket;
       await daemon.close();
       daemon = undefined;
-      while (client.isConnected) await new Promise((r) => setTimeout(r, 5));
-      // Writing into the dead socket is what raises the error event.
-      await expect(client.call('ping')).rejects.toMatchObject({ code: 'DAEMON_GONE' });
-      await new Promise((r) => setTimeout(r, 50));
+      socket.write('x'.repeat(1024 * 1024));
+      socket.write('y\n');
+      await new Promise((r) => setTimeout(r, 200));
     } finally {
       process.removeListener('uncaughtException', onUncaught);
     }
+
     expect(uncaught).toBeUndefined();
     client.close();
   });
