@@ -2654,6 +2654,41 @@ Replace the runtime's exit callback (currently `sessions.clearRunning(sessionId)
   });
 ```
 
+**Plan/source divergence, found by the final whole-branch review:** deleting the map entry only in `.finally()` after `close()` resolves has an ownership gap — both the `unlinkSync` inside `handle.close()` and this `.finally()`'s delete act on a NAME (the session id / socket path), not on whether `handle` is still the CURRENT server for that id. If a new `session.start` for the same id creates a replacement server while the OLD one's close is still in flight (a fast stop-then-resume, or a resume racing a stop — the daemon dispatches socket messages unserialized), the old close's eventual `unlinkSync` deletes the NEW server's socket file, and/or this `.finally()` deletes the NEW server's map entry — leaving a live, unreachable, and now-untracked server that nothing will ever close again.
+
+The fix introduces one small helper, `closeMcpServer`, used everywhere a handle gets retired (this callback, `session.stop`, and a superseded handle inside `start` itself), plus a second tracking structure so `daemon.shutdown` can still await genuinely in-flight closes without that awaiting being what races the ownership check:
+
+```ts
+  // A handle superseded before its close settles is retired here but is no longer
+  // in `mcpServers` (this function already deleted it), so neither `session.stop`
+  // nor `daemon.shutdown` would ever close it. The map therefore loses its entry
+  // synchronously, and `daemon.shutdown` awaits genuinely in-flight closes through
+  // this set instead.
+  const closingMcpServers = new Set<Promise<void>>();
+
+  /**
+   * Retires `handle` as `sessionId`'s server. The map entry is dropped ONLY if it
+   * still points at this exact handle — never at "whatever is currently registered
+   * for this id", which may already be a newer server.
+   */
+  function closeMcpServer(sessionId: string, handle: McpServerHandle): Promise<void> {
+    if (mcpServers.get(sessionId) === handle) mcpServers.delete(sessionId);
+    const pending: Promise<void> = handle.close().catch(() => undefined);
+    closingMcpServers.add(pending);
+    void pending.finally(() => closingMcpServers.delete(pending));
+    return pending;
+  }
+
+  const runtime = new SessionRuntime((sessionId) => {
+    sessions.clearRunning(sessionId);
+    leaseManager.release(sessionId);
+    const handle = mcpServers.get(sessionId);
+    if (handle !== undefined) void closeMcpServer(sessionId, handle);
+  });
+```
+
+`start` (further down) must also retire — via `closeMcpServer`, not a bare overwrite — any handle it finds already registered for the session before installing the new one: `const superseded = mcpServers.get(row.id); if (superseded !== undefined) void closeMcpServer(row.id, superseded); mcpServers.set(row.id, handle);`. `session.stop` retires its captured handle the same way (`await closeMcpServer(row.id, handle)`) instead of calling `.close()` directly. `daemon.shutdown`'s close-everything pass becomes `for (const [sessionId, handle] of [...mcpServers]) void closeMcpServer(sessionId, handle); await Promise.all([...closingMcpServers]);` — closing what's still in the map AND awaiting anything still in flight from an earlier retirement, covering both a handle mid-close from a recent exit and one this very loop just started closing.
+
 Add `blame` and `session.mcpInfo` to the returned methods object, and extend `session.stop` and `daemon.shutdown`:
 
 ```ts
@@ -2672,7 +2707,7 @@ Add `blame` and `session.mcpInfo` to the returned methods object, and extend `se
     },
 ```
 
-Change `session.stop` to also close (and remove) that session's MCP server:
+Change `session.stop` to also close (and remove) that session's MCP server. **Per the close-ownership divergence noted above, this must capture its handle and retire it through `closeMcpServer`, not close it directly:**
 
 ```ts
     'session.stop': async (p) => {
@@ -2680,20 +2715,18 @@ Change `session.stop` to also close (and remove) that session's MCP server:
       await runtime.stop(row.id);
       leaseManager.release(row.id);
       const handle = mcpServers.get(row.id);
-      if (handle !== undefined) {
-        await handle.close().catch(() => undefined);
-        mcpServers.delete(row.id);
-      }
+      if (handle !== undefined) await closeMcpServer(row.id, handle);
       return { ok: true };
     },
 ```
 
-Change `daemon.shutdown` to await closing every MCP server still tracked — this is the pass that catches a server whose close was kicked off by the exit callback above but hadn't resolved yet when shutdown was requested:
+Change `daemon.shutdown` to await closing every MCP server still tracked — this is the pass that catches a server whose close was kicked off by the exit callback above but hadn't resolved yet when shutdown was requested. **Same divergence: route every close through `closeMcpServer`, and also await `closingMcpServers` so a close already in flight from an earlier retirement is covered too, not just the ones this loop starts:**
 
 ```ts
     'daemon.shutdown': async () => {
       await runtime.stopAll();
-      await Promise.all([...mcpServers.values()].map((h) => h.close().catch(() => undefined)));
+      for (const [sessionId, handle] of [...mcpServers]) void closeMcpServer(sessionId, handle);
+      await Promise.all([...closingMcpServers]);
       setTimeout(() => process.exit(0), 10);
       return { ok: true };
     },
