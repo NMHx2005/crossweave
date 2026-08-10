@@ -2334,6 +2334,36 @@ export const gcCommand = defineCommand({
 });
 ```
 
+**Two plan/source divergences, found by the final whole-branch review, in this area:**
+
+1. `collectGarbage`'s `GcResult.reclaimedBytes` is computed and returned but this CLI command
+   never prints it, against the DoD's "reports what it reclaimed." Fixed by reusing
+   `disk-guard.ts`'s `human()` byte-formatter — exported as `humanBytes` rather than
+   duplicated — in the success message: `` `reclaimed ${humanBytes(result.reclaimedBytes)}
+   from ${result.removed.length} session(s): ${result.removed.join(', ')}\n` ``.
+
+2. Per-session cache directories (`.crossweave/cache/<sessionId>`) and file-copy-strategy
+   copied databases (`.crossweave/db/<sessionId>.db`) — both created by `LeaseManager.acquire`
+   — were never reclaimed by `collectGarbage`'s ended-session loop, and were invisible to
+   `measureWorktrees`/`assertDiskAvailable`, which measure `worktreePath` only. Left alone,
+   they grow forever, unseen by the exact guard meant to stop the disk filling. Fixed by a
+   `disposeLeasedPaths` step in `collectGarbage`'s ended-session loop, called BEFORE
+   `repo.delete(session.id)` (deleting the row cascades the lease rows away, so the leases
+   must be read first): for each `cache`/`db` lease of the session, skip non-absolute values
+   (the `schema` db strategy's lease value is a Postgres schema name, not a path — must never
+   be treated as one), route the absolute ones through `assertContained(crossweaveDir(
+   workspace.rootPath), value)` since they originate from the database, then best-effort
+   `rmSync(path, { recursive: true, force: true })`. Wiring the resulting bytes into the disk
+   budget itself (`measureWorktrees` is keyed on `worktreePath`, and a `schema` lease has no
+   bytes to attribute) was judged too large a change this late and is a carried-forward
+   follow-up — reclaiming the files, the higher-priority half, is done.
+   **Known residual gap, carried forward, not fixed in M1:** `cw session rm` and
+   `cw session kill --rm-worktree` dispose a session through a different path
+   (`SessionManager.remove`/the tail of `kill`) that calls `sessions.delete(row.id)` directly
+   without this same `disposeLeasedPaths` step — those two doors still leak a session's cache
+   dir and copied db permanently, since the lease rows are gone once the row is. Same class of
+   leak as above, different call site; not closed here.
+
 Register it in `src/cli/index.ts`'s `subCommands` as `gc: gcCommand`.
 
 - [ ] **Step 7: Add the CLI test**
