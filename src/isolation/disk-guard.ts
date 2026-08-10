@@ -12,7 +12,7 @@ export interface DiskUsage {
 }
 
 /** Recursive size in bytes. Returns 0 for a path that is gone rather than throwing. */
-function directorySize(path: string): number {
+export function directorySize(path: string): number {
   if (!existsSync(path)) return 0;
   let total = 0;
   for (const entry of readdirSync(path, { withFileTypes: true })) {
