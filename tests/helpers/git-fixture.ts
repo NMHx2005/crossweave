@@ -1,7 +1,7 @@
 import { cp, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { realpathSync, rmSync } from 'node:fs';
+import { readdirSync, realpathSync, rmSync } from 'node:fs';
 import { $ } from 'bun';
 
 export interface GitFixture {
@@ -10,6 +10,50 @@ export interface GitFixture {
 }
 
 let template: string | undefined;
+
+const TEMPLATE_NAME = /^cw-template-(\d+)-/;
+
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    // ESRCH: no such process — dead. EPERM: exists but owned by someone else — alive.
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+/**
+ * Removes `cw-template-<pid>-*` directories in `dir` whose owning pid is no longer
+ * alive. Anything that doesn't match the expected name shape is left alone — better to
+ * miss a stale directory than to guess-delete something that isn't ours.
+ *
+ * `bun test` does not run `process.once('exit', ...)` handlers on its own natural
+ * termination (confirmed empirically — neither `exit` nor `beforeExit` fire, even via
+ * `--preload`; only an explicit `process.exit()` call triggers them), so that handler
+ * below cannot be relied on to clean up a `bun test` process's own template. This sweep
+ * is what actually bounds the leak: a dead process's template is removed the next time
+ * *any* process calls `gitTemplate()`, which for `bun test` is the next test run.
+ */
+export function sweepStaleTemplates(dir: string): void {
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return;
+  }
+  for (const name of entries) {
+    const match = TEMPLATE_NAME.exec(name);
+    if (!match?.[1]) continue;
+    const pid = Number(match[1]);
+    if (isAlive(pid)) continue;
+    try {
+      rmSync(join(dir, name), { recursive: true, force: true });
+    } catch {
+      // Best effort — another sweep or the owning process may have already removed it.
+    }
+  }
+}
 
 /**
  * Built once per process, then copied per fixture.
@@ -22,7 +66,8 @@ let template: string | undefined;
  */
 async function gitTemplate(): Promise<string> {
   if (template !== undefined) return template;
-  const root = realpathSync(await mkdtemp(join(tmpdir(), 'cw-template-')));
+  sweepStaleTemplates(tmpdir());
+  const root = realpathSync(await mkdtemp(join(tmpdir(), `cw-template-${process.pid}-`)));
   await $`git init -q -b main`.cwd(root).quiet();
   await $`git config user.email test@crossweave.dev`.cwd(root).quiet();
   await $`git config user.name ${'crossweave test'}`.cwd(root).quiet();
@@ -30,9 +75,8 @@ async function gitTemplate(): Promise<string> {
   await $`git add .`.cwd(root).quiet();
   await $`git commit -q -m init`.cwd(root).quiet();
   template = root;
-  // One template per process, removed when the process exits. Without this every
-  // test run leaves a live git repo in TMPDIR; a full TMPDIR is what caused M0's
-  // beforeEach hook timeouts in the first place.
+  // Removed when the process exits, on runtimes that actually fire this — see the
+  // sweep above for why `bun test` itself needs the startup sweep instead.
   process.once('exit', () => {
     try {
       rmSync(root, { recursive: true, force: true });
