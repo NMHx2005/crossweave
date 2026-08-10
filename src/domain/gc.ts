@@ -1,8 +1,11 @@
 import type { Database } from 'bun:sqlite';
-import { statSync } from 'node:fs';
+import { rmSync, statSync } from 'node:fs';
+import { isAbsolute } from 'node:path';
 import { SessionRepo } from '../db/repositories/session.js';
 import { WorkspaceRepo, type WorkspaceRow } from '../db/repositories/workspace.js';
+import { LeaseRepo } from '../db/repositories/lease.js';
 import { CrossweaveError } from '../core/errors.js';
+import { assertContained, crossweaveDir } from '../core/paths.js';
 import { removeWorktree, deleteBranch, listWorktreePaths } from '../isolation/worktree.js';
 import { measureWorktrees, directorySize } from '../isolation/disk-guard.js';
 
@@ -31,7 +34,34 @@ function requireWorkspace(db: Database, workspaceId: string): WorkspaceRow {
 }
 
 /**
- * Reclaim every session that has ended: its worktree, its branch, and its row.
+ * Delete the per-session directories and files the leases point at.
+ *
+ * Nothing else ever removes these, and `measureWorktrees` cannot see them, so without
+ * this a session's cache and copied database survive every reclaim and grow invisibly
+ * against the very budget the disk guard enforces.
+ *
+ * Must run BEFORE the session row is deleted — that cascades the lease rows away.
+ * Only absolute values are touched: under the `schema` db strategy the `db` lease
+ * holds a Postgres schema name, not a path. `assertContained` is what decides a value
+ * read back out of the database is safe to delete at all.
+ */
+function disposeLeasedPaths(leases: LeaseRepo, workspace: WorkspaceRow, sessionId: string): void {
+  for (const lease of leases.listBySession(sessionId)) {
+    if (lease.kind !== 'cache' && lease.kind !== 'db') continue;
+    if (!isAbsolute(lease.value)) continue;
+    try {
+      const path = assertContained(crossweaveDir(workspace.rootPath), lease.value);
+      rmSync(path, { recursive: true, force: true });
+    } catch {
+      // Best effort, like every other disposal here: a stubborn cache directory must
+      // not abandon the rest of the sweep.
+    }
+  }
+}
+
+/**
+ * Reclaim every session that has ended: its worktree, its branch, its leased cache and
+ * database, and its row.
  *
  * Deliberately the same disposal `session rm` performs, so a name freed by gc behaves
  * exactly like a name freed by hand. Live sessions are never touched, and a failure
@@ -48,6 +78,7 @@ async function reclaimEnded(
   workspace: WorkspaceRow,
 ): Promise<GcResult & { disposedPaths: Set<string> }> {
   const repo = new SessionRepo(db);
+  const leases = new LeaseRepo(db);
   const sizes = new Map(measureWorktrees(db, workspace.id).map((u) => [u.sessionId, u.bytes]));
   const ended = repo
     .listByWorkspace(workspace.id)
@@ -73,6 +104,7 @@ async function reclaimEnded(
     if (session.branch !== null) {
       await deleteBranch(workspace.rootPath, session.branch).catch(() => undefined);
     }
+    disposeLeasedPaths(leases, workspace, session.id);
     repo.delete(session.id);
     removed.push(session.name);
     reclaimedBytes += sizes.get(session.id) ?? 0;

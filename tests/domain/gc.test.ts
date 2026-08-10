@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { existsSync, utimesSync } from 'node:fs';
+import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Database } from 'bun:sqlite';
 import { openDatabase } from '../../src/db/open.js';
@@ -8,6 +9,9 @@ import { SessionManager } from '../../src/domain/session.js';
 import { collectGarbage, collectOrphans } from '../../src/domain/gc.js';
 import { buildMethods } from '../../src/daemon/methods.js';
 import { SessionRepo } from '../../src/db/repositories/session.js';
+import { LeaseRepo } from '../../src/db/repositories/lease.js';
+import { LeaseManager } from '../../src/isolation/leases/manager.js';
+import { DEFAULT_CONFIG } from '../../src/core/config.js';
 import { makeGitFixture, type GitFixture } from '../helpers/git-fixture.js';
 
 let fx: GitFixture;
@@ -76,6 +80,46 @@ describe('collectGarbage', () => {
     const result = await collectGarbage(db, workspaceId);
     expect(result.removed).toHaveLength(1);
     expect(existsSync(row.worktreePath ?? '')).toBe(false);
+  }, 30_000);
+
+  // Nothing else deletes these, and `measureWorktrees` cannot see them, so before this
+  // a session's cache and copied database survived every reclaim and grew invisibly
+  // against the disk budget.
+  it('deletes the ended session\'s leased cache directory and copied database', async () => {
+    await writeFile(join(fx.root, 'app.db'), 'sqlite');
+    const session = await sessions.create({
+      workspaceId, name: 'leased', agent: 'claude', worktree: true,
+    });
+    const config = { ...DEFAULT_CONFIG, db: { strategy: 'file-copy' as const, url: 'app.db' } };
+    const env = await new LeaseManager(db, fx.root, config).acquire(session.id);
+    const cache = env.XDG_CACHE_HOME ?? '';
+    const copied = env.DATABASE_URL ?? '';
+    expect(existsSync(cache)).toBe(true);
+    expect(existsSync(copied)).toBe(true);
+
+    await sessions.kill(workspaceId, 'leased', { removeWorktree: false });
+    await collectGarbage(db, workspaceId);
+
+    expect(existsSync(cache)).toBe(false);
+    expect(existsSync(copied)).toBe(false);
+  }, 30_000);
+
+  // The `schema` strategy's db lease holds a Postgres schema name, not a path.
+  it('does not treat a schema-strategy db lease as a filesystem path', async () => {
+    const session = await sessions.create({
+      workspaceId, name: 'schema', agent: 'claude', worktree: true,
+    });
+    const config = {
+      ...DEFAULT_CONFIG,
+      db: { strategy: 'schema' as const, url: 'postgres://localhost/app' },
+    };
+    await new LeaseManager(db, fx.root, config).acquire(session.id);
+    expect(new LeaseRepo(db).listBySession(session.id).map((l) => l.value))
+      .toContain(`cw_${session.id}`);
+
+    await sessions.kill(workspaceId, 'schema', { removeWorktree: false });
+    const result = await collectGarbage(db, workspaceId);
+    expect(result.removed).toContain('schema');
   }, 30_000);
 
   it('does not reclaim a worktree that is still mid-creation', async () => {
