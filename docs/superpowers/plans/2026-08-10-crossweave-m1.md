@@ -2097,6 +2097,47 @@ export async function collectGarbage(
 }
 ```
 
+**Plan/source divergence, found by the final whole-branch review, DoD-breaking:** Step 5
+below calls `collectGarbage` — the function above, which reclaims BOTH ended sessions AND
+orphans — directly from the daemon's boot path. `cw session kill` (without `--rm-worktree`)
+deliberately leaves a session `dead` with its worktree and branch intact (Task 1's whole
+model: "the name stays taken exactly as long as the work does", and M4's `cw land` needs the
+kept branch). Calling `collectGarbage` at boot means **every daemon restart silently deletes
+every killed-but-not-removed session's worktree and branch** — reproduced end to end: kill a
+session without `--rm-worktree`, restart the daemon, the branch is gone. This wording here
+("Reclaim anything a previous daemon left behind") meant orphaned worktrees, not a user's
+still-referenced work — the plan's Step 5 intent and this function's actual scope diverged.
+
+The fix: split this function's two behaviors so the boot path only gets the orphan-safe half.
+`collectGarbage` (above) is unchanged and still does both, in this order, sharing one
+`disposedPaths` set so a worktree is never reported twice — it remains what `workspace.gc` /
+`cw gc` calls, the explicit, user-requested full sweep. A new `collectOrphans` exposes only
+the orphan sweep (the second loop above, lines checking `findByWorktreePath`), and Step 5's
+boot-time call below must use `collectOrphans`, not `collectGarbage`.
+
+```ts
+export async function collectOrphans(db: Database, workspaceId: string): Promise<GcResult> {
+  return sweepOrphans(db, workspaceId, new Set());
+}
+
+export async function collectGarbage(db: Database, workspaceId: string): Promise<GcResult> {
+  const disposedPaths = new Set<string>();
+  const ended = await reclaimEnded(db, workspaceId, disposedPaths);
+  const orphaned = await sweepOrphans(db, workspaceId, disposedPaths);
+  return {
+    removed: [...ended.removed, ...orphaned.removed],
+    reclaimedBytes: ended.reclaimedBytes + orphaned.reclaimedBytes,
+  };
+}
+```
+
+(`reclaimEnded` is the first loop above — dead/landed sessions only, never touching a live
+or merely-`dead`-with-work-intact session's worktree/branch/row unless it is genuinely ended
+AND explicitly requested via the full sweep. `sweepOrphans` is the second loop — worktrees no
+session row claims. Both are private; `disposedPaths` prevents a worktree whose
+`removeWorktree` failed in the ended-loop from being double-reported by the orphan-loop in
+the same call. See the shipped `src/domain/gc.ts` for the exact split.)
+
 `SessionRepo` needs one more lookup for that. Append to the class in `src/db/repositories/session.ts`:
 
 ```ts
@@ -2165,6 +2206,18 @@ and, beside `leaseManager.releaseAll()`:
   // cannot gc must still start, or a stuck worktree would make crossweave unusable.
   for (const ws of workspaces.list()) {
     void collectGarbage(db, projectRoot, ws.id).catch(() => undefined);
+  }
+```
+
+**Plan/source divergence — see the note above `collectGarbage`'s definition.** This must
+call `collectOrphans(db, ws.id)`, not `collectGarbage(db, projectRoot, ws.id)` — the boot
+path may only sweep orphans, never a dead/landed session's still-referenced worktree and
+branch. `collectGarbage`/`collectOrphans` also dropped the unused `projectRoot` parameter in
+the shipped version (both take `workspaceId` and read `workspace.rootPath` internally):
+
+```ts
+  for (const ws of workspaces.list()) {
+    void collectOrphans(db, ws.id).catch(() => undefined);
   }
 ```
 
