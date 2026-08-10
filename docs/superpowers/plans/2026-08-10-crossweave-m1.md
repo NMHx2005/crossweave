@@ -1201,6 +1201,36 @@ export async function allocatePortBlock(
 }
 ```
 
+**Plan/source divergence, found by the final whole-branch review, DoD-breaking:** the code
+above has a real race across *different* sessions that the code as written does not close.
+`taken` is snapshotted once, then `await isPortFree(candidate)` yields — the daemon
+dispatches RPCs unserialized, and the winning candidate's lease row is not inserted until
+`LeaseManager.acquire`/`record`, later still. Two different sessions can both pass the same
+candidate through `isPortFree` before either lease row lands. Reproduced deterministically
+(40/40 trials collided with a squatter on the first candidate and staggered timing) and
+confirmed at the real daemon+pty level by echoing `$CW_PORT_BASE` from inside two
+concurrently-started agents — the exact method the DoD requires. This directly falsified the
+DoD's headline claim ("two sessions started at once get different `CW_PORT_BASE` values").
+
+The fix, verified to take 40/40 collisions to 0/40: re-read the active set immediately after
+the probe resolves, before committing to the candidate. This is a valid check-then-act
+specifically because the caller (`LeaseManager.acquire`) inserts the row with **no `await`**
+between the return and the insert — nothing can interleave in that gap.
+
+```ts
+    if (await isPortFree(candidate)) {
+      // Re-read: another acquire may have inserted its row while we were probing —
+      // the snapshot above is now stale. The caller inserts with no `await` after this
+      // returns, so nothing can interleave between this check and that write.
+      for (const lease of leases.listActive('port')) taken.add(Number(lease.value));
+      if (taken.has(candidate)) continue;
+      return candidate;
+    }
+```
+
+Guarding this requires a concurrent test with a squatter on the first candidate — without
+one, the race does not reproduce and a naive concurrent test passes against the broken code.
+
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `bun test tests/isolation/ports.test.ts && bun run typecheck`
