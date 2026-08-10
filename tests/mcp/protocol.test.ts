@@ -23,6 +23,27 @@ describe('framedLines', () => {
     framer.feed('\n\nreal\n');
     expect(lines).toEqual(['real']);
   });
+
+  it('reassembles a UTF-8 multi-byte character split mid-codepoint across chunks', () => {
+    const lines: string[] = [];
+    const framer = framedLines((line) => lines.push(line));
+    const text = 'nhiệm vụ — 日本語';
+    const full = Buffer.from(`${text}\n`, 'utf8');
+    // Find a byte offset that falls INSIDE a multi-byte character's encoding: any
+    // byte that is not a UTF-8 lead/ASCII byte (i.e. a continuation byte, 10xxxxxx).
+    let splitAt = -1;
+    for (let i = 0; i < full.length; i++) {
+      const byte = full[i];
+      if (byte !== undefined && (byte & 0xc0) === 0x80) {
+        splitAt = i;
+        break;
+      }
+    }
+    expect(splitAt).toBeGreaterThan(0);
+    framer.feed(full.subarray(0, splitAt));
+    framer.feed(full.subarray(splitAt));
+    expect(lines).toEqual([text]);
+  });
 });
 
 describe('mcpSocketPath', () => {

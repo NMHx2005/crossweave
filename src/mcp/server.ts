@@ -30,17 +30,34 @@ export function createMcpServer(
     }
   }
 
+  // Tracked so `close()` can force every open connection shut: `netServer.close()`'s
+  // callback only fires once ALL accepted connections have ended on their own, and
+  // an MCP client holds its connection open for the session's whole life — without
+  // this, `close()` would hang forever in the steady state instead of resolving.
+  const openSockets = new Set<Socket>();
+
   const netServer: NetServer = createServer((socket: Socket) => {
     socket.on('error', () => {
       // A peer that goes away mid-write is not this process's problem.
     });
 
+    openSockets.add(socket);
+    socket.on('close', () => {
+      openSockets.delete(socket);
+    });
+
     const framer = framedLines((line) => {
-      void handleMcpMessage(line, tools).then((response) => {
-        if (response !== undefined && !socket.destroyed) {
-          socket.write(response + '\n');
-        }
-      });
+      void handleMcpMessage(line, tools)
+        .then((response) => {
+          if (response !== undefined && !socket.destroyed) {
+            socket.write(response + '\n');
+          }
+        })
+        .catch(() => {
+          // handleMcpMessage is documented never to throw, but `ok()`/`protocolError()`
+          // JSON.stringify caller-supplied data outside any try/catch — if that ever
+          // rejects, it must not become an unhandled rejection that kills the daemon.
+        });
     });
 
     socket.on('data', (chunk) => framer.feed(chunk));
@@ -62,7 +79,11 @@ export function createMcpServer(
     socketPath,
     close(): Promise<void> {
       return new Promise((resolve) => {
-        netServer.close(() => {
+        for (const socket of openSockets) {
+          socket.destroy();
+        }
+
+        const finish = (): void => {
           if (existsSync(socketPath)) {
             try {
               unlinkSync(socketPath);
@@ -71,7 +92,17 @@ export function createMcpServer(
             }
           }
           resolve();
-        });
+        };
+
+        // If the initial bind never succeeded, `netServer.close()` throws
+        // ERR_SERVER_NOT_RUNNING synchronously instead of reporting it through the
+        // callback — guard on `.listening` so a failed-to-bind session's `close()`
+        // still resolves instead of crashing the caller.
+        if (!netServer.listening) {
+          finish();
+          return;
+        }
+        netServer.close(() => finish());
       });
     },
   };
