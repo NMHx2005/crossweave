@@ -54,13 +54,6 @@ export class WorkspaceRepo {
     return r ? toRow(r) : undefined;
   }
 
-  findByName(name: string): WorkspaceRow | undefined {
-    const r = this.db.prepare(`SELECT ${COLUMNS} FROM workspace WHERE name = ?`).get(name) as
-      | WorkspaceRecord
-      | null;
-    return r ? toRow(r) : undefined;
-  }
-
   list(): WorkspaceRow[] {
     const rows = this.db
       .prepare(`SELECT ${COLUMNS} FROM workspace ORDER BY created_at ASC, id ASC`)

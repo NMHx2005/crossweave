@@ -1,6 +1,6 @@
 import { StringDecoder } from 'node:string_decoder';
 
-export interface RpcRequest {
+interface RpcRequest {
   jsonrpc: '2.0';
   id: number;
   method: string;

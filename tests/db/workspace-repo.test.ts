@@ -45,11 +45,10 @@ describe('WorkspaceRepo', () => {
     expect(repo.findById('ws_missing')).toBeUndefined();
   });
 
-  it('finds by root path and by name', () => {
+  it('finds by root path', () => {
     const row = makeRow({ name: 'alpha', rootPath: '/tmp/alpha' });
     repo.insert(row);
     expect(repo.findByRoot('/tmp/alpha')?.id).toBe(row.id);
-    expect(repo.findByName('alpha')?.id).toBe(row.id);
   });
 
   it('lists rows ordered by creation time', () => {
