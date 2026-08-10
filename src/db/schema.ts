@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 /**
  * Each migration is a list of single statements, never one multi-statement blob.
@@ -37,5 +37,17 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
     UNIQUE (workspace_id, name)
   )`,
     `CREATE INDEX session_by_workspace ON session (workspace_id, status)`,
+  ],
+  [
+    `CREATE TABLE lease (
+    id          TEXT PRIMARY KEY,
+    session_id  TEXT NOT NULL REFERENCES session(id) ON DELETE CASCADE,
+    kind        TEXT NOT NULL CHECK (kind IN ('port','db','docker','cache')),
+    value       TEXT NOT NULL,
+    acquired_at TEXT NOT NULL,
+    released_at TEXT
+  )`,
+    `CREATE INDEX lease_active ON lease (kind, released_at)`,
+    `CREATE INDEX lease_by_session ON lease (session_id)`,
   ],
 ];

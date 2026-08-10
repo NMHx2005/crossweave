@@ -48,6 +48,21 @@ describe('openDatabase', () => {
       expect.objectContaining({ code: 'SCHEMA_TOO_NEW' }) as unknown as Error,
     );
   });
+
+  it('migrates a v1 database forward without rebuilding it', () => {
+    const p = join(dir, 'state.db');
+    const db1 = openDatabase(p);
+    db1.run("INSERT INTO workspace (id, name, root_path, created_at, default_isolation, safe_mode_tier) VALUES ('ws_1','demo','/tmp/x','2026-08-10T00:00:00.000Z','worktree','T3')");
+    db1.close();
+
+    const db2 = openDatabase(p);
+    // The pre-existing row survived, and the new table exists.
+    const ws = db2.query('SELECT count(*) AS n FROM workspace').get() as { n: number };
+    expect(ws.n).toBe(1);
+    const lease = db2.query('SELECT count(*) AS n FROM lease').get() as { n: number };
+    expect(lease.n).toBe(0);
+    db2.close();
+  });
 });
 
 describe('openDatabase under concurrency', () => {
