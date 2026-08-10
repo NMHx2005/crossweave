@@ -22,10 +22,11 @@ export interface BlameResult {
  *
  * A session's own worktree is the only place a fresh file exists before it's
  * landed (M4), so plain `git blame` against `projectRoot`'s checked-out state
- * cannot see it — the file was never checked out THERE. Every git call here uses
- * `<revision>:<path>` addressing (a branch name passed straight to `git blame`)
- * instead, which reads directly from git's object database and needs nothing
- * checked out anywhere.
+ * cannot see it — the file was never checked out THERE. Every git call here passes
+ * a revision (a branch name) plus a `-- <path>` pathspec straight to `git blame` /
+ * `git log` — e.g. `git blame <branch> -- <path>` — instead of touching the working
+ * tree. That reads directly from git's object database and needs nothing checked
+ * out anywhere.
  */
 export class EventLedger {
   private readonly events: EventRepo;
@@ -127,7 +128,12 @@ export class EventLedger {
       );
       const firstLine = out.split('\n')[0] ?? '';
       const hash = firstLine.slice(0, 40).trim();
-      // All-zeros hash means the line is uncommitted on this revision.
+      // Defensive: an all-zeros hash is what a plain working-directory `git blame`
+      // (no revision) reports for an uncommitted line. Blaming a REVISION (as we
+      // always do here) can't produce it in practice — currently unreachable, kept
+      // in case that ever changes — so this isn't what makes uncommitted-line
+      // lookups return undefined; that happens via the catch below instead, when
+      // the path doesn't exist on any revision at all.
       return !hash || /^0+$/.test(hash) ? undefined : hash;
     } catch {
       // Path doesn't exist on this revision at all — not an error, just not here.
@@ -153,8 +159,10 @@ export class EventLedger {
           return { sessionId: session.id, sessionName: session.name, commitHash };
         }
       }
-      return undefined; // a real commit, found — but not made by any tracked session
+      // A real commit was found here, but not authored by any tracked session — keep
+      // trying other revisions instead of giving up, since a later session's branch
+      // may still hold the actual agent-authored edit to this same file/line.
     }
-    return undefined; // not found on any known revision, or genuinely uncommitted everywhere
+    return undefined; // no revision had a tracked-session match, or nothing was found anywhere
   }
 }

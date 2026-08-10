@@ -47,6 +47,37 @@ describe('EventLedger', () => {
 
     expect(ledger.blame(workspaceId, 'a.ts', 1)?.sessionId).toBe(a.id);
     expect(ledger.blame(workspaceId, 'b.ts', 1)?.sessionId).toBe(b.id);
+    // README.md is on the fixture's shared init commit, inherited by both branches
+    // at fork time — neither session authored it. Using `base..branch` (not each
+    // branch's full history) must exclude it from both sessions' known commits.
+    expect(ledger.blame(workspaceId, 'README.md', 1)).toBeUndefined();
+  }, 30_000);
+
+  it('attributes an edit to an existing base-branch file to the session that made it', async () => {
+    // Reproduces the exact scenario blame() must not give up on: a file that
+    // already exists on the base branch, later edited by a session on its own
+    // branch. The first revision tried (base) DOES yield a real commit hash for
+    // this line — just not one authored by any tracked session — so blame() must
+    // keep trying the session's branch rather than returning undefined as soon as
+    // the base branch produces any hash at all.
+    await commitFile(
+      fx.root,
+      'app.ts',
+      'export const one = 1;\nexport const two = 2;\nexport const three = 3;\n',
+      'add app.ts',
+    );
+
+    const session = await sessions.create({ workspaceId, name: 'a', agent: 'claude', worktree: true });
+    if (session.worktreePath === null) throw new Error('expected a worktree');
+    await commitFile(
+      session.worktreePath,
+      'app.ts',
+      'export const one = 1;\nexport const two = 22;\nexport const three = 3;\n',
+      'edit line two',
+    );
+
+    const result = ledger.blame(workspaceId, 'app.ts', 2);
+    expect(result?.sessionId).toBe(session.id);
   }, 30_000);
 
   it('returns undefined for an uncommitted line, honestly, rather than guessing', async () => {
