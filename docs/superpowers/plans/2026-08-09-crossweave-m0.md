@@ -5187,8 +5187,23 @@ Append to `tests/cli/cli.test.ts`:
       await chmod(fake, 0o755);
       const env = { ...process.env, PATH: `${binDir}:${process.env.PATH ?? ''}` };
 
-      await cw(['init']);
-      await cw(['session', 'new', '--name', 'replay', '--agent', 'claude']);
+      // The daemon is spawned lazily by whichever `cw` invocation needs it first, and
+      // it inherits THAT process's env — not the env of whatever `cw` call happens to
+      // attach later. The fake `claude` has to be on PATH before the daemon starts, or
+      // the agent it spawns is the real one on the machine.
+      const cwFake = async (args: string[]): Promise<CwResult> => {
+        const proc = Bun.spawn([process.execPath, CLI, ...args], {
+          cwd: fx.root, env, stdout: 'pipe', stderr: 'pipe',
+        });
+        const [stdout, stderr] = await Promise.all([
+          new Response(proc.stdout).text(),
+          new Response(proc.stderr).text(),
+        ]);
+        return { exitCode: await proc.exited, stdout, stderr };
+      };
+
+      await cwFake(['init']);
+      await cwFake(['session', 'new', '--name', 'replay', '--agent', 'claude']);
 
       const attachOnce = async (): Promise<string> => {
         let out = '';
