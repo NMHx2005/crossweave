@@ -21,6 +21,33 @@ export const DEFAULT_CONFIG: CrossweaveConfig = {
 
 const STRATEGIES = new Set(['none', 'schema', 'file-copy']);
 
+/** Anything a shell would refuse to export is not a variable name we can inject. */
+const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * Names a port lease must never be allowed to overwrite.
+ *
+ * `LeaseManager.acquire` writes every named port straight into the agent's
+ * environment, and that environment wins over the client's shell. A `named` entry
+ * called `PATH` or `LD_PRELOAD` would therefore replace the agent's toolchain — or
+ * its loader — with a port number, from a file that looks like innocuous
+ * configuration. The crossweave-owned names are here because a lease that silently
+ * shadowed the session identity would make every downstream lookup lie.
+ */
+const RESERVED_ENV_NAMES = new Set([
+  'PATH',
+  'HOME',
+  'SHELL',
+  'USER',
+  'LD_PRELOAD',
+  'LD_LIBRARY_PATH',
+  'DYLD_INSERT_LIBRARIES',
+  'DYLD_LIBRARY_PATH',
+  'CW_SESSION_ID',
+  'CW_SESSION_NAME',
+  'CW_PORT_BASE',
+]);
+
 function invalid(detail: string): never {
   throw new CrossweaveError('CONFIG_INVALID', `crossweave.config.json: ${detail}`);
 }
@@ -59,6 +86,28 @@ export function loadConfig(projectRoot: string): CrossweaveConfig {
   if (config.ports.base + config.ports.blockSize > 65535) {
     invalid(`ports.base ${config.ports.base} + blockSize ${config.ports.blockSize} exceeds 65535`);
   }
+  // Unvalidated, every one of these lands verbatim in the agent's environment.
+  if (typeof config.ports.named !== 'object' || config.ports.named === null) {
+    invalid(`ports.named must be an object of NAME: offset, got ${String(config.ports.named)}`);
+  }
+  for (const [name, offset] of Object.entries(config.ports.named)) {
+    if (!ENV_NAME.test(name)) {
+      invalid(`ports.named key ${JSON.stringify(name)} is not a valid environment variable name`);
+    }
+    if (RESERVED_ENV_NAMES.has(name)) {
+      invalid(`ports.named must not override ${name}`);
+    }
+    if (!Number.isInteger(offset)) {
+      invalid(`ports.named.${name} must be an integer offset, got ${JSON.stringify(offset)}`);
+    }
+    if (offset < 0 || offset >= config.ports.blockSize) {
+      invalid(
+        `ports.named.${name} offset ${String(offset)} is outside the block ` +
+          `0..${String(config.ports.blockSize - 1)}`,
+      );
+    }
+  }
+
   if (config.disk.perSessionBytes < 1 || config.disk.perWorkspaceBytes < 1) {
     invalid('disk limits must be positive');
   }

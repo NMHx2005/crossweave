@@ -55,9 +55,16 @@ describe('LeaseManager', () => {
 
     expect(Number(env.CW_PORT_BASE)).toBe(DEFAULT_CONFIG.ports.base);
     expect(env.PORT).toBe(env.CW_PORT_BASE);
-    expect(env.COMPOSE_PROJECT_NAME).toBe(`cw_${sessionA}`);
+    expect(env.COMPOSE_PROJECT_NAME).toBe(`cw_${sessionA.toLowerCase()}`);
     expect(env.XDG_CACHE_HOME).toContain(sessionA);
     expect(existsSync(env.XDG_CACHE_HOME ?? '')).toBe(true);
+  });
+
+  // `newId` uses an uppercase Crockford alphabet, and Compose v2 refuses a project
+  // name outside `[a-z0-9][a-z0-9_-]*` — so the raw session id cannot be used as-is.
+  it('gives docker a project name Compose will actually accept', async () => {
+    const env = await manager.acquire(sessionA);
+    expect(env.COMPOSE_PROJECT_NAME).toMatch(/^[a-z0-9][a-z0-9_-]*$/);
   });
 
   it('gives two concurrent sessions non-overlapping ports and caches', async () => {

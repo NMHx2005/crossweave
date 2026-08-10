@@ -29,7 +29,7 @@ export class LeaseManager {
 
   private record(sessionId: string, kind: LeaseKind, value: string): void {
     this.leases.insert({
-      id: newId('ev'),
+      id: newId('lease'),
       sessionId,
       kind,
       value,
@@ -49,7 +49,10 @@ export class LeaseManager {
       env[name] = String(base + offset);
     }
 
-    const project = `cw_${sessionId}`;
+    // Lowercased: Compose v2 rejects a project name that is not
+    // `[a-z0-9][a-z0-9_-]*`, and `newId` uses an uppercase Crockford alphabet — so
+    // the raw id produces a name docker refuses outright.
+    const project = `cw_${sessionId.toLowerCase()}`;
     this.record(sessionId, 'docker', project);
     env.COMPOSE_PROJECT_NAME = project;
 

@@ -47,7 +47,7 @@ describe('allocatePortBlock', () => {
 
   it('skips a block already leased', async () => {
     leases.insert({
-      id: newId('ev'), sessionId, kind: 'port', value: String(DEFAULT_CONFIG.ports.base),
+      id: newId('lease'), sessionId, kind: 'port', value: String(DEFAULT_CONFIG.ports.base),
       acquiredAt: '2026-08-10T00:00:00.000Z', releasedAt: null,
     });
     expect(await allocatePortBlock(leases, DEFAULT_CONFIG)).toBe(
@@ -57,7 +57,7 @@ describe('allocatePortBlock', () => {
 
   it('reuses a block whose lease was released', async () => {
     leases.insert({
-      id: newId('ev'), sessionId, kind: 'port', value: String(DEFAULT_CONFIG.ports.base),
+      id: newId('lease'), sessionId, kind: 'port', value: String(DEFAULT_CONFIG.ports.base),
       acquiredAt: '2026-08-10T00:00:00.000Z', releasedAt: null,
     });
     leases.release(sessionId);
@@ -91,7 +91,7 @@ describe('allocatePortBlock', () => {
     // Fill every block the range can hold by leasing them all.
     for (let p = 43000; p + 10 <= 65535; p += 10) {
       leases.insert({
-        id: newId('ev'), sessionId, kind: 'port', value: String(p),
+        id: newId('lease'), sessionId, kind: 'port', value: String(p),
         acquiredAt: '2026-08-10T00:00:00.000Z', releasedAt: null,
       });
     }
