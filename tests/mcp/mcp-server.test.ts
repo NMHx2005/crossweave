@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { connect, type Socket } from 'node:net';
+import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Database } from 'bun:sqlite';
 import { openDatabase } from '../../src/db/open.js';
@@ -9,7 +10,8 @@ import { DaemonClient } from '../../src/client/rpc-client.js';
 import { ClaudePtyAdapter } from '../../src/adapters/claude-pty.js';
 import { CrossweaveError } from '../../src/core/errors.js';
 import type { AgentAdapter } from '../../src/adapters/types.js';
-import { makeGitFixture, type GitFixture } from '../helpers/git-fixture.js';
+import { mcpSocketPath } from '../../src/mcp/protocol.js';
+import { makeGitFixture, commitFile, type GitFixture } from '../helpers/git-fixture.js';
 
 /** Never spawns the real `claude` binary — see tests/daemon/runtime.test.ts's identical helper. */
 function echoFactory(kind: string): AgentAdapter {
@@ -43,6 +45,29 @@ async function callMcp(mcpSocketPath: string, method: string, params: Record<str
     sock.on('connect', () => {
       sock.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n');
     });
+  });
+}
+
+/** Accepts an async predicate — several conditions here only settle asynchronously. */
+async function waitFor(predicate: () => boolean | Promise<boolean>, ms = 5000): Promise<void> {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    if (await predicate()) return;
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  throw new Error('waitFor timed out');
+}
+
+/** True once nothing is listening at `path` AND the socket file itself is gone. */
+async function isSocketGone(path: string): Promise<boolean> {
+  if (existsSync(path)) return false;
+  return new Promise((resolve) => {
+    const sock = connect(path);
+    sock.once('connect', () => {
+      sock.destroy();
+      resolve(false);
+    });
+    sock.once('error', () => resolve(true));
   });
 }
 
@@ -120,5 +145,122 @@ describe('MCP server end-to-end', () => {
       result: { content: { text: string }[] };
     };
     expect(JSON.parse(aInbox.result.content[0]?.text ?? '[]')).toHaveLength(0);
+  }, 30_000);
+});
+
+describe('MCP server lifecycle (regression coverage for Task 8 wiring)', () => {
+  it('session.stop closes the session\'s MCP server: its socket becomes unreachable', async () => {
+    if (client === undefined) throw new Error('expected a client');
+    const workspace = await client.call<{ id: string }>('workspace.init', {});
+    await client.call('session.new', { workspaceId: workspace.id, name: 'a', agent: 'claude', worktree: false });
+    await client.call('session.start', { workspaceId: workspace.id, idOrName: 'a', env: {} });
+    const info = await client.call<{ mcpSocketPath: string }>('session.mcpInfo', {
+      workspaceId: workspace.id, idOrName: 'a',
+    });
+    expect(await isSocketGone(info.mcpSocketPath)).toBe(false);
+
+    await client.call('session.stop', { workspaceId: workspace.id, idOrName: 'a' });
+
+    expect(await isSocketGone(info.mcpSocketPath)).toBe(true);
+    await expect(
+      client.call('session.mcpInfo', { workspaceId: workspace.id, idOrName: 'a' }),
+    ).rejects.toMatchObject({ code: 'MCP_SERVER_NOT_RUNNING' });
+  }, 30_000);
+
+  it('the MCP server closes when the agent process exits on its own, not through session.stop', async () => {
+    if (client === undefined) throw new Error('expected a client');
+    const workspace = await client.call<{ id: string }>('workspace.init', {});
+    await client.call('session.new', { workspaceId: workspace.id, name: 'a', agent: 'claude', worktree: false });
+    const started = await client.call<{ pid: number | null }>('session.start', {
+      workspaceId: workspace.id, idOrName: 'a', env: {},
+    });
+    const info = await client.call<{ mcpSocketPath: string }>('session.mcpInfo', {
+      workspaceId: workspace.id, idOrName: 'a',
+    });
+    expect(await isSocketGone(info.mcpSocketPath)).toBe(false);
+    if (started.pid === null) throw new Error('expected a pid');
+
+    // Kills the underlying pty process directly — never goes through session.stop
+    // or runtime.stop(), so the ONLY thing that can close the MCP server here is
+    // the runtime's own exit callback wired in Task 8.
+    process.kill(started.pid, 'SIGKILL');
+
+    await waitFor(() => isSocketGone(info.mcpSocketPath));
+  }, 30_000);
+
+  it('daemon.shutdown closes every still-tracked MCP server before exiting', async () => {
+    if (client === undefined) throw new Error('expected a client');
+    const workspace = await client.call<{ id: string }>('workspace.init', {});
+    await client.call('session.new', { workspaceId: workspace.id, name: 'a', agent: 'claude', worktree: false });
+    await client.call('session.new', { workspaceId: workspace.id, name: 'b', agent: 'claude', worktree: false });
+    await client.call('session.start', { workspaceId: workspace.id, idOrName: 'a', env: {} });
+    await client.call('session.start', { workspaceId: workspace.id, idOrName: 'b', env: {} });
+    const infoFor = async (name: string) =>
+      client!.call<{ mcpSocketPath: string }>('session.mcpInfo', { workspaceId: workspace.id, idOrName: name });
+    const [a, b] = await Promise.all([infoFor('a'), infoFor('b')]);
+
+    // Stub process.exit so daemon.shutdown's real exit timer doesn't tear down the
+    // test runner — it's a top-level `setTimeout(() => process.exit(0), 10)`, which
+    // fires shortly AFTER the RPC response, so it must be intercepted rather than
+    // just not awaited.
+    const originalExit = process.exit;
+    const exitCalls: Array<number | undefined> = [];
+    process.exit = ((code?: number): never => {
+      exitCalls.push(code);
+      return undefined as never;
+    }) as typeof process.exit;
+    try {
+      await client.call('daemon.shutdown');
+      // Give the stubbed-out exit timer room to fire before restoring the real one.
+      await new Promise((r) => setTimeout(r, 100));
+    } finally {
+      process.exit = originalExit;
+    }
+    expect(exitCalls).toEqual([0]);
+
+    expect(await isSocketGone(a.mcpSocketPath)).toBe(true);
+    expect(await isSocketGone(b.mcpSocketPath)).toBe(true);
+  }, 30_000);
+
+  it('blame is reachable over the daemon RPC and attributes a commit to its session', async () => {
+    if (client === undefined) throw new Error('expected a client');
+    const workspace = await client.call<{ id: string }>('workspace.init', {});
+    const session = await client.call<{ id: string; name: string; worktreePath: string | null }>('session.new', {
+      workspaceId: workspace.id, name: 'a', agent: 'claude', worktree: true,
+    });
+    if (session.worktreePath === null) throw new Error('expected a worktree');
+    await commitFile(session.worktreePath, 'auth.ts', 'export const x = 1;\n', 'add auth.ts');
+
+    const result = await client.call<{ sessionId: string; sessionName: string } | null>('blame', {
+      workspaceId: workspace.id, file: 'auth.ts', line: 1,
+    });
+
+    expect(result?.sessionId).toBe(session.id);
+    expect(result?.sessionName).toBe('a');
+  }, 30_000);
+
+  it('a session whose MCP server fails to bind still starts successfully (best-effort, not fatal)', async () => {
+    if (client === undefined) throw new Error('expected a client');
+    const workspace = await client.call<{ id: string }>('workspace.init', {});
+    const session = await client.call<{ id: string }>('session.new', {
+      workspaceId: workspace.id, name: 'a', agent: 'claude', worktree: false,
+    });
+    const collidingPath = mcpSocketPath(session.id);
+    // Pre-create a directory at the socket path — `net.Server#listen` cannot bind
+    // over it, and `unlinkSync` (files-only) inside createMcpServer can't clear it
+    // either, exactly reproducing a real bind failure (see tests/mcp/server.test.ts).
+    mkdirSync(collidingPath, { recursive: true });
+    try {
+      const started = await client.call<{ status: string }>('session.start', {
+        workspaceId: workspace.id, idOrName: 'a', env: {},
+      });
+      expect(started.status).toBe('running');
+
+      await expect(
+        client.call('session.mcpInfo', { workspaceId: workspace.id, idOrName: 'a' }),
+      ).rejects.toMatchObject({ code: 'MCP_SERVER_NOT_RUNNING' });
+    } finally {
+      rmSync(collidingPath, { recursive: true, force: true });
+    }
   }, 30_000);
 });
