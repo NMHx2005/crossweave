@@ -7,6 +7,7 @@ import { DaemonClient } from '../client/rpc-client.js';
 import { CrossweaveError } from '../core/errors.js';
 import { initCommand, workspaceCommand, gcCommand } from './commands/workspace.js';
 import { sessionCommand } from './commands/session.js';
+import { blameCommand } from './commands/blame.js';
 import { fail } from './context.js';
 
 const daemonCommand = defineCommand({
@@ -66,6 +67,7 @@ const main = defineCommand({
     session: sessionCommand,
     daemon: daemonCommand,
     gc: gcCommand,
+    blame: blameCommand,
   },
 });
 
