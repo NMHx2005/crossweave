@@ -1,6 +1,8 @@
 import type { McpTool, McpToolResult } from './protocol.js';
 import type { MessageBus } from '../domain/bus.js';
 import type { ContextStore } from '../domain/context-store.js';
+import type { ContextEntryRow } from '../db/repositories/context.js';
+import { CrossweaveError } from '../core/errors.js';
 
 function text(payload: unknown): McpToolResult {
   return { content: [{ type: 'text', text: typeof payload === 'string' ? payload : JSON.stringify(payload) }] };
@@ -17,6 +19,18 @@ function requireString(args: Record<string, unknown>, key: string): string {
 function optionalString(args: Record<string, unknown>, key: string): string | undefined {
   const v = args[key];
   return typeof v === 'string' ? v : undefined;
+}
+
+/**
+ * One entry by id, scoped to the caller's own workspace — an id from another
+ * workspace must read as "no such entry", not as a cross-workspace peek.
+ */
+function resolveById(store: ContextStore, workspaceId: string, id: string): ContextEntryRow[] {
+  const entry = store.readById(id);
+  if (entry === undefined || entry.workspaceId !== workspaceId || entry.scope !== 'shared') {
+    throw new CrossweaveError('CONTEXT_NOT_FOUND', `No such shared context entry: ${id}`);
+  }
+  return [entry];
 }
 
 /** Exactly the six real tools. `cw_check` and `cw_declare_contract` arrive in M3. */
@@ -109,7 +123,7 @@ export function buildTools(
       inputSchema: {
         type: 'object',
         properties: {
-          key: { type: 'string', description: 'Entry key' },
+          key: { type: 'string', description: 'Entry key (max 256 bytes)' },
           body: { type: 'string', description: 'Entry body (max 64 KB)' },
         },
         required: ['key', 'body'],
@@ -123,10 +137,19 @@ export function buildTools(
     },
     {
       name: 'cw_read_context',
-      description: 'Read every shared context entry in this workspace.',
-      inputSchema: { type: 'object', properties: {} },
-      handler: async () => {
-        const entries = store.readShared(workspaceId);
+      description:
+        'Read shared context entries in this workspace: one by id (e.g. a handoff\'s contextRef), or all of them.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: "A context entry id, such as a handoff's contextRef. Omit to read all." },
+        },
+      },
+      handler: async (args) => {
+        const id = optionalString(args, 'id');
+        // Without this a recipient could not resolve the `contextRef` it was handed —
+        // only scan every shared entry hoping to spot a matching id.
+        const entries = id === undefined ? store.readShared(workspaceId) : resolveById(store, workspaceId, id);
         return text(entries.map((e) => ({ id: e.id, sessionId: e.sessionId, key: e.key, body: e.body, createdAt: e.createdAt })));
       },
     },

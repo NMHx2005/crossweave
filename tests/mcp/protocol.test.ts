@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'bun:test';
 import { framedLines, handleMcpMessage, mcpSocketPath, type McpTool } from '../../src/mcp/protocol.js';
+import { CrossweaveError } from '../../src/core/errors.js';
 
 describe('framedLines', () => {
   it('reassembles a message split across chunks', () => {
@@ -143,6 +144,31 @@ describe('handleMcpMessage', () => {
     const response = await handleMcpMessage('{ not json', [echoTool]);
     const parsed = JSON.parse(response ?? '') as { error: { code: number } };
     expect(parsed.error.code).toBe(-32700);
+  });
+
+  it('ignores an initialize or tools/list that carries no id, like tools/call already does', async () => {
+    // No id means the message is malformed, not a request: answering it would put an
+    // unmatched response on the wire for a client that is not waiting for one.
+    expect(await handleMcpMessage(JSON.stringify({ jsonrpc: '2.0', method: 'initialize' }), [echoTool])).toBeUndefined();
+    expect(await handleMcpMessage(JSON.stringify({ jsonrpc: '2.0', method: 'tools/list' }), [echoTool])).toBeUndefined();
+  });
+
+  it('a CrossweaveError from a tool keeps its code, so an agent can branch on it', async () => {
+    const failingTool: McpTool = {
+      name: 'boom',
+      description: 'Always throws a CrossweaveError',
+      inputSchema: { type: 'object', properties: {} },
+      handler: async () => {
+        throw new CrossweaveError('MESSAGE_TOO_LARGE', 'Message body exceeds 8192 bytes');
+      },
+    };
+    const response = await handleMcpMessage(
+      JSON.stringify({ jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'boom', arguments: {} } }),
+      [failingTool],
+    );
+    const parsed = JSON.parse(response ?? '') as { result: { isError: boolean; content: { text: string }[] } };
+    expect(parsed.result.isError).toBe(true);
+    expect(parsed.result.content[0]?.text).toBe('MESSAGE_TOO_LARGE: Message body exceeds 8192 bytes');
   });
 
   it('a tool handler that throws is caught and reported as an MCP-level error', async () => {

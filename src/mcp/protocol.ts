@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createLineFramer } from '../core/framing.js';
+import { CrossweaveError } from '../core/errors.js';
 
 export interface McpToolResult {
   content: { type: 'text'; text: string }[];
@@ -78,6 +79,7 @@ export async function handleMcpMessage(raw: string, tools: McpTool[]): Promise<s
   const isNotification = id === undefined;
 
   if (method === 'initialize') {
+    if (isNotification) return undefined; // A request without an id is malformed, not a notification to answer.
     return ok(id, {
       protocolVersion: PROTOCOL_VERSION,
       capabilities: { tools: {} },
@@ -90,6 +92,7 @@ export async function handleMcpMessage(raw: string, tools: McpTool[]): Promise<s
   }
 
   if (method === 'tools/list') {
+    if (isNotification) return undefined;
     return ok(id, {
       tools: tools.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema })),
     });
@@ -109,7 +112,15 @@ export async function handleMcpMessage(raw: string, tools: McpTool[]): Promise<s
       return ok(id, result);
     } catch (err) {
       if (isNotification) return undefined;
-      const text = err instanceof Error ? err.message : String(err);
+      // `CODE: message`, the same shape `fail()` prints for the CLI — an agent that
+      // gets a bare message cannot tell MESSAGE_TOO_LARGE (retry with less) from
+      // SESSION_NOT_FOUND (the recipient is wrong) and has nothing to branch on.
+      const text =
+        err instanceof CrossweaveError
+          ? `${err.code}: ${err.message}`
+          : err instanceof Error
+            ? err.message
+            : String(err);
       return ok(id, { content: [{ type: 'text', text }], isError: true });
     }
   }

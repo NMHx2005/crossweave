@@ -69,10 +69,15 @@ export function createMcpServer(
             socket.write(response + '\n');
           }
         })
-        .catch(() => {
+        .catch((err: unknown) => {
           // handleMcpMessage is documented never to throw, but `ok()`/`protocolError()`
           // JSON.stringify caller-supplied data outside any try/catch — if that ever
           // rejects, it must not become an unhandled rejection that kills the daemon.
+          // Logged rather than swallowed: the client is left waiting forever on that
+          // request id, so a real bug here must leave a trace somewhere.
+          process.stderr.write(
+            `crossweave: MCP message handling failed for session ${sessionId}: ${String(err)}\n`,
+          );
         });
     });
 

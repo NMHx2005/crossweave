@@ -84,6 +84,43 @@ describe('buildTools', () => {
     expect(third.map((m) => m.body)).toEqual(['and one more']);
   }, 30_000);
 
+  it("cw_read_context resolves a handoff's contextRef by id", async () => {
+    const a = await sessions.create({ workspaceId, name: 'a', agent: 'claude', worktree: false });
+    const b = await sessions.create({ workspaceId, name: 'b', agent: 'claude', worktree: false });
+    const bus = new MessageBus(db, sessions);
+    const store = new ContextStore(db);
+    const toolsA = buildTools(a.id, workspaceId, bus, store);
+    const toolsB = buildTools(b.id, workspaceId, bus, store);
+
+    const publish = toolsA.find((t) => t.name === 'cw_publish_context');
+    const read = toolsB.find((t) => t.name === 'cw_read_context');
+    if (!publish || !read) throw new Error('expected tools');
+    await publish.handler({ key: 'other', body: 'not this one' });
+    const published = await publish.handler({ key: 'plan', body: 'the plan' });
+    const ref = (JSON.parse(published.content[0]?.text ?? '{}') as { id: string }).id;
+
+    const one = JSON.parse((await read.handler({ id: ref })).content[0]?.text ?? '[]') as { body: string }[];
+    expect(one.map((e) => e.body)).toEqual(['the plan']);
+
+    const all = JSON.parse((await read.handler({})).content[0]?.text ?? '[]') as unknown[];
+    expect(all).toHaveLength(2);
+
+    await expect(read.handler({ id: 'ctx_nope' })).rejects.toMatchObject({ code: 'CONTEXT_NOT_FOUND' });
+  }, 30_000);
+
+  it('cw_publish_context rejects an oversized key, not just an oversized body', async () => {
+    const a = await sessions.create({ workspaceId, name: 'a', agent: 'claude', worktree: false });
+    const publish = buildTools(a.id, workspaceId, new MessageBus(db, sessions), new ContextStore(db)).find(
+      (t) => t.name === 'cw_publish_context',
+    );
+    if (publish === undefined) throw new Error('expected cw_publish_context');
+
+    await expect(publish.handler({ key: 'k'.repeat(257), body: 'x' })).rejects.toMatchObject({
+      code: 'CONTEXT_TOO_LARGE',
+    });
+    await expect(publish.handler({ key: 'k'.repeat(256), body: 'x' })).resolves.toBeDefined();
+  }, 30_000);
+
   it('cw_handoff carries contextRef through cw_inbox', async () => {
     const a = await sessions.create({ workspaceId, name: 'a', agent: 'claude', worktree: false });
     const b = await sessions.create({ workspaceId, name: 'b', agent: 'claude', worktree: false });
