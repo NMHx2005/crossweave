@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { createServer } from 'node:net';
 import { join } from 'node:path';
 import type { Database } from 'bun:sqlite';
 import { openDatabase } from '../../src/db/open.js';
@@ -12,6 +13,7 @@ import { CrossweaveError } from '../../src/core/errors.js';
 import type { AgentAdapter } from '../../src/adapters/types.js';
 import { makeGitFixture, type GitFixture } from '../helpers/git-fixture.js';
 import { LeaseRepo } from '../../src/db/repositories/lease.js';
+import { DEFAULT_CONFIG } from '../../src/core/config.js';
 
 /**
  * Echoes each stdin line back, so tests never need the real `claude` binary.
@@ -440,4 +442,39 @@ describe('session runtime', () => {
     const leases = new LeaseRepo(db);
     expect(leases.listActive('port')).toHaveLength(1);
   }, 20_000);
+
+  // The milestone's headline claim, over the real RPC path: the server dispatches
+  // every decoded frame with `void handle(...)`, so these four starts genuinely
+  // interleave inside `allocatePortBlock`. The squatter on the first candidate is what
+  // makes the old bug reproduce — it forces every allocation through a doomed probe
+  // first, spreading the calls across two probe round-trips and into each other's
+  // window. Without it the collision hides.
+  it('gives four sessions started at once four different port blocks', async () => {
+    const names = ['p0', 'p1', 'p2', 'p3'];
+    for (const name of names) {
+      await client.call('session.new', { workspaceId, name, agent: 'claude', worktree: true });
+    }
+
+    const squatter = createServer();
+    await new Promise<void>((resolve, reject) => {
+      squatter.once('error', reject);
+      squatter.listen(DEFAULT_CONFIG.ports.base, '127.0.0.1', () => resolve());
+    });
+
+    try {
+      await Promise.all(
+        names.map(async (name, i) => {
+          await new Promise((r) => setTimeout(r, i));
+          await client.call('session.start', { workspaceId, idOrName: name });
+        }),
+      );
+
+      const bases = new LeaseRepo(db).listActive('port').map((l) => l.value);
+      expect(bases).toHaveLength(names.length);
+      expect(new Set(bases).size).toBe(names.length);
+      expect(bases).not.toContain(String(DEFAULT_CONFIG.ports.base));
+    } finally {
+      await new Promise<void>((resolve) => squatter.close(() => resolve()));
+    }
+  }, 30_000);
 });

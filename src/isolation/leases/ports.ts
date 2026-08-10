@@ -25,6 +25,13 @@ function isPortFree(port: number): Promise<boolean> {
  * Only the block's first port is probed. Probing all ten would triple the cost of
  * starting a session for a case that does not occur in practice, since blocks are
  * handed out whole.
+ *
+ * The leased set is snapshotted once and then RE-READ after every successful probe,
+ * because `await isPortFree` is a yield point and the daemon dispatches RPCs
+ * unserialized: two sessions starting at once can both reach the same candidate before
+ * either one's lease row exists. Re-reading immediately before returning closes that —
+ * the caller inserts the row with no `await` in between, so nothing can interleave
+ * between this check and that write.
  */
 export async function allocatePortBlock(
   leases: LeaseRepo,
@@ -35,7 +42,11 @@ export async function allocatePortBlock(
 
   for (let candidate = base; candidate + blockSize <= 65536; candidate += blockSize) {
     if (taken.has(candidate)) continue;
-    if (await isPortFree(candidate)) return candidate;
+    if (await isPortFree(candidate)) {
+      for (const lease of leases.listActive('port')) taken.add(Number(lease.value));
+      if (taken.has(candidate)) continue;
+      return candidate;
+    }
   }
 
   throw new CrossweaveError(
