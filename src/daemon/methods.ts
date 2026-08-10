@@ -8,6 +8,12 @@ import type { SessionRow } from '../db/repositories/session.js';
 import { LeaseManager } from '../isolation/leases/manager.js';
 import { loadConfig, type CrossweaveConfig } from '../core/config.js';
 import { collectGarbage, collectOrphans } from '../domain/gc.js';
+import { EventLedger } from '../domain/ledger.js';
+import { MessageBus } from '../domain/bus.js';
+import { ContextStore } from '../domain/context-store.js';
+import { reconcile } from '../domain/reconciliation.js';
+import { createMcpServer, type McpServerHandle } from '../mcp/server.js';
+import { buildTools } from '../mcp/tools.js';
 
 function str(params: Record<string, unknown>, key: string): string {
   const v = params[key];
@@ -65,6 +71,16 @@ export function buildMethods(
   // marked active would permanently shrink the pool.
   leaseManager.releaseAll();
 
+  const ledger = new EventLedger(db, projectRoot);
+  const bus = new MessageBus(db, sessions);
+  const contextStore = new ContextStore(db);
+
+  // Once, at boot: every `running`/`waiting` session in the DB is necessarily a
+  // leftover from a previous daemon instance, since this one hasn't started
+  // anything yet. See src/domain/reconciliation.ts for what this does and does not
+  // catch.
+  reconcile(db, projectRoot);
+
   // Sweep worktrees a previous daemon orphaned. ORPHANS ONLY, deliberately: `cw
   // session kill` without `--rm-worktree` leaves a session `dead` with its worktree
   // and branch intact because M4's `cw land` needs them, so reclaiming ended sessions
@@ -76,9 +92,18 @@ export function buildMethods(
     void collectOrphans(db, ws.id).catch(() => undefined);
   }
 
+  const mcpServers = new Map<string, McpServerHandle>();
+
   const runtime = new SessionRuntime((sessionId) => {
     sessions.clearRunning(sessionId);
     leaseManager.release(sessionId);
+    const handle = mcpServers.get(sessionId);
+    if (handle !== undefined) {
+      void handle
+        .close()
+        .catch(() => undefined)
+        .finally(() => mcpServers.delete(sessionId));
+    }
   });
   sessions.onKill = (id) => runtime.stop(id);
 
@@ -132,6 +157,19 @@ export function buildMethods(
       const env = { ...clientEnv(p), ...(await leaseManager.acquire(row.id)) };
       const pid = runtime.start(row, sessions.adapterFor(row.agentKind), env);
       sessions.markStatus(row.id, 'running', pid);
+      ledger.append({ sessionId: row.id, workspaceId: row.workspaceId, kind: 'session.started', payload: '{}' });
+
+      // Best effort: messaging/context tools are a real feature but not the reason
+      // the session exists. A socket bind failure here (see mcpSocketPath's own
+      // length guard, and main.ts's top-level handler) degrades this one session
+      // to "no MCP tools available" rather than failing the whole start.
+      try {
+        const tools = buildTools(row.id, row.workspaceId, bus, contextStore);
+        mcpServers.set(row.id, createMcpServer(row.id, tools));
+      } catch (err) {
+        process.stderr.write(`crossweave: could not start MCP server for session ${row.name}: ${String(err)}\n`);
+      }
+
       return sessions.resolve(row.workspaceId, row.id);
     } finally {
       starting.delete(row.id);
@@ -206,11 +244,31 @@ export function buildMethods(
       const row = sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName'));
       await runtime.stop(row.id);
       leaseManager.release(row.id);
+      const handle = mcpServers.get(row.id);
+      if (handle !== undefined) {
+        await handle.close().catch(() => undefined);
+        mcpServers.delete(row.id);
+      }
       return { ok: true };
+    },
+
+    blame: (p) => {
+      const result = ledger.blame(str(p, 'workspaceId'), str(p, 'file'), num(p, 'line'));
+      return result ?? null;
+    },
+
+    'session.mcpInfo': (p) => {
+      const row = sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName'));
+      const handle = mcpServers.get(row.id);
+      if (handle === undefined) {
+        throw new CrossweaveError('MCP_SERVER_NOT_RUNNING', `No MCP server is running for session ${row.name}`);
+      }
+      return { mcpSocketPath: handle.socketPath };
     },
 
     'daemon.shutdown': async () => {
       await runtime.stopAll();
+      await Promise.all([...mcpServers.values()].map((h) => h.close().catch(() => undefined)));
       setTimeout(() => process.exit(0), 10);
       return { ok: true };
     },

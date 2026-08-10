@@ -26,4 +26,16 @@ async function main(): Promise<void> {
   process.on('SIGTERM', shutdown);
 }
 
+// Last line of defence: an MCP server's own 'error' listener (src/mcp/server.ts) is
+// the first line, but any other unexpected error in this process must not take down
+// every session's agent process just because one thing went wrong. Log it and keep
+// serving — a daemon that's still up for the other N sessions beats one that isn't
+// up for any of them.
+process.on('uncaughtException', (err) => {
+  process.stderr.write(`crossweave: uncaught exception in daemon: ${String(err)}\n`);
+});
+process.on('unhandledRejection', (reason) => {
+  process.stderr.write(`crossweave: unhandled rejection in daemon: ${String(reason)}\n`);
+});
+
 void main();
