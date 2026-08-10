@@ -2,7 +2,7 @@ import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Database } from 'bun:sqlite';
 import { newId } from '../../core/ids.js';
-import { crossweaveDir } from '../../core/paths.js';
+import { assertContained, crossweaveDir } from '../../core/paths.js';
 import type { CrossweaveConfig } from '../../core/config.js';
 import { LeaseRepo, type LeaseKind } from '../../db/repositories/lease.js';
 import { allocatePortBlock } from './ports.js';
@@ -78,7 +78,7 @@ export class LeaseManager {
       const source = this.config.db.url ?? 'app.db';
       const target = join(crossweaveDir(this.projectRoot), 'db', `${sessionId}.db`);
       mkdirSync(join(crossweaveDir(this.projectRoot), 'db'), { recursive: true });
-      const from = join(this.projectRoot, source);
+      const from = assertContained(this.projectRoot, source);
       if (existsSync(from)) copyFileSync(from, target);
       this.record(sessionId, 'db', target);
       return target;

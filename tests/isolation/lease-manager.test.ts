@@ -106,6 +106,16 @@ describe('LeaseManager', () => {
     expect(new LeaseRepo(db).listBySession(sessionA).map((l) => l.kind)).toContain('db');
   });
 
+  it('rejects a file-copy db.url that escapes the project root', async () => {
+    const config = {
+      ...DEFAULT_CONFIG,
+      db: { strategy: 'file-copy' as const, url: '../outside.db' },
+    };
+    const withDb = new LeaseManager(db, dir, config);
+    await expect(withDb.acquire(sessionA)).rejects.toThrow();
+    expect(new LeaseRepo(db).listBySession(sessionA).map((l) => l.kind)).not.toContain('db');
+  });
+
   it('releaseAll clears leases left by a previous daemon', async () => {
     await manager.acquire(sessionA);
     manager.releaseAll();
