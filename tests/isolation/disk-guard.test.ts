@@ -5,7 +5,11 @@ import type { Database } from 'bun:sqlite';
 import { openDatabase } from '../../src/db/open.js';
 import { WorkspaceRepo } from '../../src/db/repositories/workspace.js';
 import { SessionRepo } from '../../src/db/repositories/session.js';
-import { measureWorktrees, assertDiskAvailable } from '../../src/isolation/disk-guard.js';
+import {
+  measureWorktrees,
+  assertDiskAvailable,
+  directorySize,
+} from '../../src/isolation/disk-guard.js';
 import { DEFAULT_CONFIG } from '../../src/core/config.js';
 import { newId } from '../../src/core/ids.js';
 import { makeGitFixture, type GitFixture } from '../helpers/git-fixture.js';
@@ -56,6 +60,28 @@ describe('measureWorktrees', () => {
     const id = await addSessionWithBytes('c', 1024);
     await rm(join(fx.root, '.crossweave', 'worktrees', id), { recursive: true, force: true });
     expect(measureWorktrees(db, workspaceId).find((u) => u.name === 'c')?.bytes).toBe(0);
+  });
+});
+
+describe('directorySize', () => {
+  // Regression: only the RECURSIVE calls were guarded. The outermost `existsSync` +
+  // `readdirSync` pair was not, so a worktree removed by the boot-time sweep while
+  // `session.new` measured it escaped as an uncaught internal error instead of the
+  // clean `CODE:` line the CLI contract promises. Any throw out of that pair — ENOENT
+  // from the race, ENOTDIR here — has to come back as 0.
+  it('returns 0 when the outermost read fails instead of throwing', async () => {
+    const notADirectory = join(fx.root, 'plain-file');
+    await writeFile(notADirectory, 'x');
+    expect(directorySize(notADirectory)).toBe(0);
+  });
+
+  it('keeps measureWorktrees from throwing when a worktree cannot be read', async () => {
+    const id = await addSessionWithBytes('unreadable', 1024);
+    const path = join(fx.root, '.crossweave', 'worktrees', id);
+    await rm(path, { recursive: true, force: true });
+    await writeFile(path, 'x');
+    expect(measureWorktrees(db, workspaceId).find((u) => u.name === 'unreadable')?.bytes).toBe(0);
+    expect(() => assertDiskAvailable(db, workspaceId, DEFAULT_CONFIG)).not.toThrow();
   });
 });
 

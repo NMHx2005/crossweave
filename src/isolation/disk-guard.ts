@@ -11,11 +11,32 @@ export interface DiskUsage {
   bytes: number;
 }
 
-/** Recursive size in bytes. Returns 0 for a path that is gone rather than throwing. */
+/**
+ * Recursive size in bytes. Returns 0 for a path that is gone rather than throwing.
+ *
+ * The `existsSync` + `readdirSync` pair is guarded, not just the recursive calls: the
+ * OUTERMOST call runs from `measureWorktrees` on `session.new`, which the daemon
+ * dispatches concurrently with the boot-time orphan sweep's `git worktree remove` on
+ * those very paths. Without the try/catch an ENOENT between the two syscalls escaped
+ * as an uncaught internal error instead of the clean `CODE:` line the CLI contract
+ * promises — and the doc line above already claimed otherwise.
+ *
+ * The catch is deliberately type-blind: an EACCES directory is counted as zero too.
+ * Refusing to start a session because one unreadable subdirectory cannot be sized is
+ * worse than under-counting it, and the guard's job is to catch runaway growth, not to
+ * audit permissions.
+ */
 export function directorySize(path: string): number {
-  if (!existsSync(path)) return 0;
+  let entries;
+  try {
+    if (!existsSync(path)) return 0;
+    entries = readdirSync(path, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+
   let total = 0;
-  for (const entry of readdirSync(path, { withFileTypes: true })) {
+  for (const entry of entries) {
     const child = join(path, entry.name);
     try {
       if (entry.isDirectory()) total += directorySize(child);
