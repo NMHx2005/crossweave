@@ -10,8 +10,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "bun test",
-    "build": "bun build ./src/cli/index.ts --compile --outfile dist/cw",
-    "build:daemon": "bun build ./src/daemon/main.ts --compile --outfile dist/cwd"
+    "build": "bun run scripts/build.ts"
   },
   "dependencies": {
     "citty": "^0.2.2",

@@ -38,7 +38,11 @@ describe('compiled binaries', () => {
       expect(await new Response(list.stdout).text()).toContain('no sessions');
       expect(await list.exited).toBe(0);
 
-      Bun.spawn([cwBin, 'daemon', 'stop'], { cwd: fx.root, stdout: 'ignore', stderr: 'ignore' });
+      // Awaited, not fire-and-forget: racing fx.cleanup() left a detached `cwd`
+      // process alive on every run of this test.
+      await Bun.spawn([cwBin, 'daemon', 'stop'], {
+        cwd: fx.root, stdout: 'ignore', stderr: 'ignore',
+      }).exited;
     } finally {
       await fx.cleanup();
     }
