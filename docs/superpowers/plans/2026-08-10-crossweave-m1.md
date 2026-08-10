@@ -407,6 +407,55 @@ Each `bun test` process leaves one `cw-template-*` directory behind forever; 93 
 
 Add `rmSync` to the `node:fs` import.
 
+**Plan/source divergence, found by this step's own mandated verification (Step 5):** the
+`process.once('exit', ...)` handler above is inert under `bun test` — confirmed empirically
+that Bun's test runner never fires `exit`/`beforeExit` on natural (non-`process.exit()`)
+termination, even via `--preload`. It was applied as specified anyway (harmless, and correct
+on a runtime that does emit `exit`), but does not close the leak under the harness this
+project's own gate uses. The actual fix, race-safe against genuinely concurrent `bun test`
+invocations: tag the template directory name with the owning pid
+(`cw-template-${process.pid}-`) and sweep stale entries — pid confirmed dead via
+`process.kill(pid, 0)` throwing `ESRCH` — at the top of `gitTemplate()`, before creating a
+new template:
+
+```ts
+const TEMPLATE_NAME = /^cw-template-(\d+)-/;
+
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+export function sweepStaleTemplates(dir: string): void {
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return;
+  }
+  for (const name of entries) {
+    const match = TEMPLATE_NAME.exec(name);
+    if (!match?.[1]) continue;
+    const pid = Number(match[1]);
+    if (isAlive(pid)) continue;
+    try {
+      rmSync(join(dir, name), { recursive: true, force: true });
+    } catch {
+      // Best effort — another sweep or the owning process may have already removed it.
+    }
+  }
+}
+```
+
+This means a template is swept the next time *any* process calls `gitTemplate()` after its
+owner died — not the instant cleanup the exit handler imagined, but it bounds the leak
+(roughly one live template per currently-running `bun test` process) instead of letting it
+grow without limit, which is what the DoD line actually requires.
+
 - [ ] **Step 2: Make `cw daemon stop` report a timeout**
 
 It currently prints `daemon stopped` and exits 0 even when the 2 s poll expires — the exact failure it was added to prevent, now silent. In `src/cli/index.ts`, replace the poll's tail:
