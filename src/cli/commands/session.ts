@@ -127,5 +127,28 @@ export const sessionCommand = defineCommand({
         } catch (err) { fail(err); }
       },
     }),
+
+    rm: defineCommand({
+      meta: { name: 'rm', description: 'Purge an ended session: its worktree, branch and record' },
+      args: {
+        target: { type: 'positional', description: 'Session name or id' },
+        yes: { type: 'boolean', default: false, description: 'Skip confirmation' },
+      },
+      async run({ args }) {
+        try {
+          if (!args.yes) {
+            throw new CrossweaveError(
+              'CONFIRMATION_REQUIRED',
+              'Removing a session deletes its worktree and branch. Re-run with --yes.',
+            );
+          }
+          await withClient(async (client) => {
+            const workspaceId = await currentWorkspaceId(client);
+            await client.call('session.rm', { workspaceId, idOrName: args.target });
+            process.stdout.write(`removed ${args.target}\n`);
+          });
+        } catch (err) { fail(err); }
+      },
+    }),
   },
 });

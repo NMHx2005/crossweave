@@ -102,6 +102,10 @@ export function buildMethods(
       });
       return { ok: true };
     },
+    'session.rm': async (p) => {
+      await sessions.remove(str(p, 'workspaceId'), str(p, 'idOrName'));
+      return { ok: true };
+    },
 
     'session.start': (p) => start(p),
 

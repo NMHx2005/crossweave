@@ -178,11 +178,42 @@ export class SessionManager {
     // A shared session points at the project root, which must never be removed.
     const ownWorktree =
       row.worktreePath !== null && row.worktreePath !== root ? row.worktreePath : null;
+
     if (opts.removeWorktree && ownWorktree !== null) {
       await removeWorktree(root, ownWorktree);
-      this.sessions.clearWorktree(row.id);
+      if (row.branch !== null) await deleteBranch(root, row.branch).catch(() => undefined);
+      // Removing the worktree means the work is gone, so nothing is left for the row
+      // to describe — and keeping it would hold the name hostage under
+      // UNIQUE(workspace_id, name) with no way to reclaim it.
+      this.sessions.delete(row.id);
+      return;
     }
 
     this.sessions.updateStatus(row.id, 'dead', null);
+  }
+
+  /**
+   * Purge a session that has already ended: its worktree, its branch and its row.
+   *
+   * Refuses a live session outright rather than killing it first — deleting a running
+   * agent's record without stopping the agent would strand the process, and silently
+   * killing something the caller only asked to remove is worse.
+   */
+  async remove(workspaceId: string, idOrName: string): Promise<void> {
+    const row = this.resolve(workspaceId, idOrName);
+    if (row.status !== 'dead' && row.status !== 'landed') {
+      throw new CrossweaveError(
+        'SESSION_STILL_LIVE',
+        `Session ${row.name} is ${row.status}. Kill it before removing it.`,
+      );
+    }
+
+    const root = this.projectRoot(workspaceId);
+    const ownWorktree =
+      row.worktreePath !== null && row.worktreePath !== root ? row.worktreePath : null;
+
+    if (ownWorktree !== null) await removeWorktree(root, ownWorktree).catch(() => undefined);
+    if (row.branch !== null) await deleteBranch(root, row.branch).catch(() => undefined);
+    this.sessions.delete(row.id);
   }
 }

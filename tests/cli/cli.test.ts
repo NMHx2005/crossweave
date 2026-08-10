@@ -60,7 +60,9 @@ describe('cw CLI', () => {
 
     const killed = await cw(['session', 'kill', 'auth2', '--rm-worktree', '--yes']);
     expect(killed.exitCode).toBe(0);
-    expect((await cw(['session', 'list'])).stdout).toContain('dead');
+    // --rm-worktree means the work is gone, so the row is deleted, not left dead —
+    // that is what makes the name reusable again.
+    expect((await cw(['session', 'list'])).stdout).toContain('no sessions');
   }, 60_000);
 
   it('exits non-zero with the error code on a bad session name', async () => {
@@ -89,6 +91,24 @@ describe('cw CLI', () => {
     const lines = r.stderr.trimEnd().split('\n');
     expect(lines).toHaveLength(1);
   }, 30_000);
+
+  it('session rm frees the name, and refuses without --yes', async () => {
+    await cw(['init']);
+    await cw(['session', 'new', '--name', 'gone', '--agent', 'claude']);
+    await cw(['session', 'kill', 'gone', '--yes']);
+
+    const refused = await cw(['session', 'rm', 'gone']);
+    expect(refused.exitCode).toBe(1);
+    expect(refused.stderr).toContain('CONFIRMATION_REQUIRED:');
+    expect((await cw(['session', 'list'])).stdout).toContain('gone');
+
+    const removed = await cw(['session', 'rm', 'gone', '--yes']);
+    expect(removed.exitCode).toBe(0);
+    expect((await cw(['session', 'list'])).stdout).toContain('no sessions');
+
+    const recreated = await cw(['session', 'new', '--name', 'gone', '--agent', 'claude']);
+    expect(recreated.exitCode).toBe(0);
+  }, 60_000);
 
   it('daemon stop reports success without starting a daemon when none is running', async () => {
     const r = await cw(['daemon', 'stop']);

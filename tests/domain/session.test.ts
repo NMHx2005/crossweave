@@ -165,16 +165,64 @@ describe('SessionManager.kill', () => {
     expect(existsSync(s.worktreePath!)).toBe(true);
   });
 
-  it('removes the worktree when asked', async () => {
+  it('removes the worktree and the row when asked', async () => {
     const s = await sessions.create({ workspaceId, name: 'auth', agent: 'claude', worktree: true });
     await sessions.kill(workspaceId, 'auth', { removeWorktree: true });
     expect(existsSync(s.worktreePath!)).toBe(false);
-    expect(sessions.resolve(workspaceId, 'auth').worktreePath).toBeNull();
+    expect(sessions.list(workspaceId)).toHaveLength(0);
   });
 
   it('never removes the project root for a shared session', async () => {
     await sessions.create({ workspaceId, name: 'shared', agent: 'claude', worktree: false });
     await sessions.kill(workspaceId, 'shared', { removeWorktree: true });
     expect(existsSync(fx.root)).toBe(true);
+  });
+});
+
+describe('SessionManager name reclamation', () => {
+  it('frees the name when the worktree is removed with the session', async () => {
+    const first = await sessions.create({ workspaceId, name: 'auth', agent: 'claude', worktree: true });
+    await sessions.kill(workspaceId, 'auth', { removeWorktree: true });
+
+    // The row is gone, not merely dead — nothing references the work any more.
+    expect(sessions.list(workspaceId)).toHaveLength(0);
+
+    const second = await sessions.create({ workspaceId, name: 'auth', agent: 'claude', worktree: true });
+    expect(second.id).not.toBe(first.id);
+    expect(second.branch).toBe('cw/auth');
+  });
+
+  it('keeps the name taken while the work still exists', async () => {
+    await sessions.create({ workspaceId, name: 'auth', agent: 'claude', worktree: true });
+    await sessions.kill(workspaceId, 'auth', { removeWorktree: false });
+
+    const row = sessions.resolve(workspaceId, 'auth');
+    expect(row.status).toBe('dead');
+    await expect(
+      sessions.create({ workspaceId, name: 'auth', agent: 'claude', worktree: true }),
+    ).rejects.toMatchObject({ code: 'SESSION_NAME_TAKEN' });
+  });
+
+  it('remove purges a dead session and frees its name', async () => {
+    await sessions.create({ workspaceId, name: 'auth', agent: 'claude', worktree: true });
+    await sessions.kill(workspaceId, 'auth', { removeWorktree: false });
+
+    await sessions.remove(workspaceId, 'auth');
+    expect(sessions.list(workspaceId)).toHaveLength(0);
+
+    const { simpleGit } = await import('simple-git');
+    expect((await simpleGit(fx.root).branch()).all).not.toContain('cw/auth');
+    expect(await listWorktreePaths(fx.root)).toHaveLength(0);
+
+    const revived = await sessions.create({ workspaceId, name: 'auth', agent: 'claude', worktree: true });
+    expect(revived.branch).toBe('cw/auth');
+  });
+
+  it('refuses to remove a session that is still live', async () => {
+    await sessions.create({ workspaceId, name: 'live', agent: 'claude', worktree: true });
+    await expect(sessions.remove(workspaceId, 'live')).rejects.toMatchObject({
+      code: 'SESSION_STILL_LIVE',
+    });
+    expect(sessions.list(workspaceId)).toHaveLength(1);
   });
 });
