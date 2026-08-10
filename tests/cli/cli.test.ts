@@ -204,16 +204,19 @@ describe('cw CLI', () => {
     }
   }, 30_000);
 
-  // Regression: fail() collapses [\r\n] and trims. A lone \r would otherwise let a
-  // wrapped subprocess error overwrite the visible line in a terminal. The existing
-  // one-line assertion cannot catch it — INVALID_SESSION_NAME's message has no \r.
+  // Integration-level check of the overall contract (one line, CODE: prefix, no
+  // trailing space) against a genuinely multi-line wrapped subprocess error.
   //
   // Deleting `.crossweave/worktrees` outright (the original repro) does not make
   // `git worktree remove --force` fail on git 2.50.1: it treats an already-gone
   // directory as nothing to prune and exits 0. Locking the worktree does reproduce a
   // real failure — a single --force cannot override a lock, and git's fatal message
   // for that is genuinely two lines.
-  it('collapses a carriage return in a wrapped error into one clean line', async () => {
+  //
+  // This does NOT guard fail()'s \r-handling specifically: git never emits a bare \r
+  // here (only \n), and it sanitizes \r out of a lock's --reason field too — see
+  // tests/cli/context.test.ts for the direct unit test that actually catches that.
+  it('collapses a wrapped multi-line error into one clean line', async () => {
     await cw(['init']);
     const created = await cw(['session', 'new', '--name', 'crlf', '--agent', 'claude']);
     const worktreePath = created.stdout.trim().split('\t')[3]!;
@@ -221,11 +224,14 @@ describe('cw CLI', () => {
 
     const r = await cw(['session', 'kill', 'crlf', '--rm-worktree', '--yes']);
     expect(r.exitCode).toBe(1);
-    const lines = r.stderr.trimEnd().split('\n');
-    expect(lines).toHaveLength(1);
-    expect(lines[0]).toMatch(/^[A-Z_]+: /);
-    expect(r.stderr).not.toContain('\r');
-    expect(r.stderr.trimEnd()).not.toMatch(/ $/);
+    expect(r.stderr.endsWith('\n')).toBe(true);
+    // Strip exactly the one trailing '\n' the write template always appends — not
+    // trimEnd(), which would silently swallow a genuine trailing-space regression.
+    const body = r.stderr.slice(0, -1);
+    expect(body.split('\n')).toHaveLength(1);
+    expect(body).toMatch(/^[A-Z_]+: /);
+    expect(body).not.toContain('\r');
+    expect(body).not.toMatch(/\s$/);
   }, 60_000);
 
   it('session stop leaves the session idle and resumable', async () => {
