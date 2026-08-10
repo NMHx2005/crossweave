@@ -1477,6 +1477,18 @@ export class LeaseManager {
       return target;
     }
 
+    // Plan/source divergence, found by task review, security: `source` above comes
+    // straight from `crossweave.config.json`'s `db.url` — external, unvalidated input —
+    // and `from` never went through `assertContained`. A traversal `db.url` (e.g.
+    // `../../../../etc/passwd`) resolved `from` outside `projectRoot`, and that file
+    // was then copied into the session's db-copy target and wired into the agent's
+    // environment via `DATABASE_URL`: an arbitrary-file-read-into-agent-workspace
+    // primitive. Fixed by routing `from` through `assertContained(this.projectRoot,
+    // from)` before `existsSync`/`copyFileSync` — `join(this.projectRoot, source)`
+    // above must become `assertContained(this.projectRoot, source)` instead, per the
+    // Global Constraint that every path originating outside the process goes through
+    // `assertContained`.
+
     // schema: the session gets its own Postgres schema via the search_path, leaving
     // the connection URL itself untouched.
     const schema = `cw_${sessionId}`;
