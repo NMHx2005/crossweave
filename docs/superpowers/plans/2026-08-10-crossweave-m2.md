@@ -1576,6 +1576,23 @@ export function reconcile(db: Database, _projectRoot: string): void {
 }
 ```
 
+**Plan/source divergence, found by Task 8's whole-branch-adjacent review, DoD-breaking:** the code above treats `worktreeGone` and `pidGone` as the same outcome — both mark `dead`. Task 8 wires `reconcile()` into the live boot path, and only then does this become reachable and destructive: a session that is merely `running` when the daemon dies (a crash, or an ordinary restart for `cw daemon stop`/an upgrade/a host reboot) gets marked `dead` on the next boot even though nothing was ever asked to kill it. `dead` means "deliberately killed, terminal" in this codebase's established semantics — `assertResumable` refuses to ever restart it, and a later `cw gc` deletes its worktree and branch. **An ordinary daemon restart permanently destroys any in-progress work that happened to be `running` at that moment** — the same class of bug as M1's boot-gc Critical #2, reproduced end to end: start a session, simulate a daemon crash+restart, the session becomes `dead`, `resume` throws `SESSION_ENDED`, `cw gc` deletes the worktree.
+
+The fix distinguishes the two conditions instead of collapsing them: a gone worktree really does mean nothing is left to resume (`dead` is correct there), but a gone pid with the worktree still intact is functionally identical to what `cw session stop` already does on purpose — end the process, leave the session resumable. That case must mark `idle`, not `dead`.
+
+```ts
+      if (worktreeGone) {
+        sessions.updateStatus(session.id, 'dead', null);
+        leases.release(session.id);
+      } else if (pidGone) {
+        // Same outcome as `session.stop`: process ended, work stays resumable.
+        sessions.updateStatus(session.id, 'idle', null);
+        leases.release(session.id);
+      }
+```
+
+Leases are released in both branches either way — a dead process can't hold live port/docker/cache resources regardless of which case applies. This also means the test two sections above — `marks a running session dead when its recorded pid is not alive` — is now wrong under the corrected code (that scenario is exactly the pid-gone-worktree-intact case) and must assert `idle`, not `dead`; a separate test for the genuinely-`dead` worktree-gone case stays as originally written.
+
 - [ ] **Step 4: Run tests and typecheck**
 
 Run: `bun test tests/domain/reconciliation.test.ts && bun run typecheck`
