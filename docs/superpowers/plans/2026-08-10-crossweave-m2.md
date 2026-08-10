@@ -1930,7 +1930,54 @@ export function framedLines(onMessage: (line: string) => void): { feed(chunk: Bu
     },
   };
 }
+```
 
+**Plan/source divergence, found by Task 6's own fix round AND the final whole-branch review, in two layers:**
+
+1. (Task 6's fix round) `chunk.toString('utf8')` decodes each chunk independently, corrupting a multi-byte UTF-8 codepoint that straddles two socket chunks — still valid JSON, silently wrong content, no error anywhere. Fixed with `node:string_decoder`'s `StringDecoder`, one instance per framer, persisting state across `feed()` calls.
+2. (Final whole-branch review) The code above has **no maximum line length**. This project's own daemon RPC decoder (`src/daemon/rpc.ts`) already has one — `MAX_LINE_LENGTH` plus a discarding mechanism, with a comment naming it the fix for a memory-exhaustion vector, since the daemon accepts connections from a semi-trusted peer. `framedLines` was hand-rolled from that same logic and silently lost the cap. An MCP client (an agent process — exactly that semi-trusted peer class) that writes without ever sending a newline grows the daemon's heap without limit; the 8 KB/64 KB body-size caps in `MessageRepo`/`ContextRepo` are checked only after the full (unbounded) line has already been buffered and parsed.
+
+Both fixes land in one new shared file, `src/core/framing.ts`, used by BOTH `src/daemon/rpc.ts` and `src/mcp/protocol.ts` — extracted specifically so the cap can't silently drift apart between the two transports a second time:
+
+```ts
+// src/core/framing.ts
+import { StringDecoder } from 'node:string_decoder';
+
+export const MAX_LINE_LENGTH = 16 * 1024 * 1024;
+
+export function createLineFramer(onLine: (line: string) => void): (chunk: Buffer | string) => void {
+  const decoder = new StringDecoder('utf8');
+  let buffer = '';
+  let discarding = false;
+
+  return (chunk) => {
+    buffer += typeof chunk === 'string' ? chunk : decoder.write(chunk);
+
+    let index = buffer.indexOf('\n');
+    while (index !== -1) {
+      const line = buffer.slice(0, index).trim();
+      buffer = buffer.slice(index + 1);
+      if (discarding) {
+        discarding = false; // This newline ends the over-long line we dropped.
+      } else if (line.length > 0) {
+        onLine(line);
+      }
+      index = buffer.indexOf('\n');
+    }
+
+    if (buffer.length > MAX_LINE_LENGTH) {
+      buffer = '';
+      discarding = true;
+    }
+  };
+}
+```
+
+`framedLines` in this file becomes a thin wrapper: `const feed = createLineFramer(onMessage); return { feed };`. `src/daemon/rpc.ts`'s decoder becomes `createLineFramer((line) => { /* JSON.parse + dispatch */ })` — no residual duplicated logic in either call site.
+
+The rest of `src/mcp/protocol.ts` (`mcpSocketPath`, `handleMcpMessage`) is unaffected by either fix and continues exactly as originally specified:
+
+```ts
 const SOCKET_PATH_SAFE_MAX = 90; // margin under macOS's ~104 / Linux's ~108 byte AF_UNIX cap
 
 /**
