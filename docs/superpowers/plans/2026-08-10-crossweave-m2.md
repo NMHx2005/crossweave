@@ -162,6 +162,8 @@ Append a new entry to `MIGRATIONS` (do not touch entries 0 or 1):
   ],
 ```
 
+**Follow-on divergence (added by the final whole-branch review's fix for Task 2's fork-point bug, not by this task):** `SCHEMA_VERSION` goes to 4 and a fifth migration entry is appended later in this milestone, widening `event.kind`'s `CHECK` to `IN ('session.started', 'session.forked', 'commit.made')` via a copy-drop-rename of the `event` table (`CREATE TABLE event_v4 ... ; INSERT INTO event_v4 SELECT ... FROM event; DROP TABLE event; ALTER TABLE event_v4 RENAME TO event;`, then both indexes above recreated) — SQLite cannot `ALTER` a `CHECK` constraint in place. This entry is still append-only relative to what Task 1 ships; see the sync note in Task 2's `syncCommits` section for why it was needed.
+
 **Corrected design vs. the reset attempt:** `message.to_session` is `NOT NULL` with `ON DELETE CASCADE`, not nullable with `ON DELETE SET NULL`. There is no longer a legitimate `to_session IS NULL` row at all — broadcast fans out to real recipients at send time (Task 3), so a message always has one. This removes the whole class of bug where a deleted recipient's leftover direct message went `to_session = NULL` and became indistinguishable from — and silently surfaced by — the broadcast query. There is no `attempts` column either (it existed in the reset attempt but nothing ever read it — dropped as unused).
 
 - [ ] **Step 5: Run the test and the whole suite**
@@ -579,6 +581,80 @@ export class EventLedger {
       }
     }
   }
+  ```
+
+  **Plan/source divergence, found by the final whole-branch review, headline bug:** `baseBranch()` above is a LIVE `git rev-parse --abbrev-ref HEAD` in `projectRoot`, re-evaluated every time `syncCommits`/`blame()` runs — but a session's branch was only ever forked from wherever `HEAD` happened to point at the moment the session was CREATED, which is not the same thing as wherever `HEAD` points NOW. A user who checks out a different (or older) branch in their own main checkout — an entirely ordinary thing to do while agents work in worktrees — widens `${base}..${branch}` to include commits the session never made. Because the event table is append-only and deduplicated by hash, **that misattribution is written once and can never be corrected**, even after switching back to the right branch. Reproduced: create a session off `main`, have it commit, `git checkout old-release` in `projectRoot`, blame a human-authored file that's on `main` but not `old-release` — it gets attributed to the session.
+
+  The fix captures each session's fork point ONCE, immutably, at the moment its worktree is actually created — `createWorktree` (`src/isolation/worktree.ts`) already reads `git rev-parse --verify HEAD` before calling `git worktree add -b <branch> <path> <forkPoint>`, passing that exact hash as the explicit start point (not just reading HEAD and hoping nothing raced it — the hash IS what the branch is created from). `SessionManager.create` records it as a new `session.forked` event immediately after the session row inserts: `{ kind: 'session.forked', payload: JSON.stringify({ forkPoint }) }`. This needs a fourth `EventKind` member and a schema migration, since SQLite cannot widen a `CHECK` constraint in place — migration 3 (`event.kind IN ('session.started', 'commit.made')`) becomes migration 4's `event.kind IN ('session.started', 'session.forked', 'commit.made')` via a copy-drop-rename of the `event` table (nothing references it, so this is safe even under `PRAGMA foreign_keys = ON`); `SCHEMA_VERSION` becomes 4.
+
+  `syncCommits` and `blame()` are both rewritten to read a session's stored fork point instead of computing a live base:
+
+  ```ts
+  /**
+   * One pass over a session's events for both things blame needs from them: the
+   * immutable fork point recorded at session creation, and every commit already
+   * attributed to it.
+   */
+  private history(sessionId: string): { forkPoint: string | undefined; commitHashes: Set<string> } {
+    let forkPoint: string | undefined;
+    const commitHashes = new Set<string>();
+    for (const ev of this.events.listBySession(sessionId)) {
+      if (ev.kind !== 'commit.made' && ev.kind !== 'session.forked') continue;
+      try {
+        const payload = JSON.parse(ev.payload) as { commitHash?: string; forkPoint?: string };
+        if (ev.kind === 'commit.made') {
+          if (typeof payload.commitHash === 'string') commitHashes.add(payload.commitHash);
+        } else if (typeof payload.forkPoint === 'string' && payload.forkPoint.length > 0) {
+          forkPoint = payload.forkPoint;
+        }
+      } catch {
+        // Malformed payload from a future format — skip, don't crash blame over it.
+      }
+    }
+    return { forkPoint, commitHashes };
+  }
+
+  /**
+   * The branch currently checked out in `projectRoot`. Used ONLY as one more revision
+   * to try `git blame` against — never to decide which commits belong to a session,
+   * which is what the recorded fork point is for.
+   */
+  private baseBranch(): string | undefined {
+    // — unchanged from above —
+  }
+
+  /**
+   * For every session with a branch, record any commit on that branch that is not
+   * reachable from its FORK POINT — an immutable hash captured at worktree-creation
+   * time, deliberately NOT derived from whatever's checked out in `projectRoot` now.
+   * A session with no recorded fork point (created before this was tracked) is
+   * skipped rather than guessed at — no attribution beats a wrong, permanent one.
+   */
+  private syncCommits(workspaceId: string): void {
+    for (const session of this.sessions.listByWorkspace(workspaceId)) {
+      if (session.branch === null) continue;
+      const { forkPoint, commitHashes: known } = this.history(session.id);
+      if (forkPoint === undefined) continue;
+
+      let hashes: string[];
+      try {
+        const out = execFileSync('git', ['log', `${forkPoint}..${session.branch}`, '--format=%H'], {
+          cwd: this.projectRoot,
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'ignore'],
+        });
+        hashes = out.split('\n').map((h) => h.trim()).filter(Boolean);
+      } catch {
+        continue;
+      }
+
+      for (const hash of hashes) {
+        if (known.has(hash)) continue;
+        this.append({ sessionId: session.id, workspaceId, kind: 'commit.made', payload: JSON.stringify({ commitHash: hash }) });
+        known.add(hash);
+      }
+    }
+  }
 
   /** Blames `filePath` at `line` as it exists on `revision` — no checkout needed. */
   private blameAt(revision: string, filePath: string, line: number): string | undefined {
@@ -621,6 +697,39 @@ export class EventLedger {
     return undefined; // not found on any known revision, or genuinely uncommitted everywhere
   }
 }
+```
+
+**Two small follow-on divergences from the same fix (final whole-branch review, Minor):**
+
+1. `blameAt`'s all-zeros-hash comment above was already known-inert (synced during Task 2's own fix round); the final review's fix-wave rewrote it once more, purely for wording, to explicitly say the catch below is what actually makes an uncommitted line return `undefined` — no behavior change.
+2. `blame()` above calls `this.knownCommitHashes(session.id)` inside the revision loop, i.e. once per `(revision, session)` pair — the event table is re-queried and re-JSON-parsed that many times per call. Harmless at this milestone's scale but easy to avoid: `history(sessionId)` (the helper the fork-point fix introduced) already returns `commitHashes` alongside `forkPoint`, so `blame()` now builds one `Map<hash, {id, name}>` up front — after `syncCommits` has finished writing, since that's what makes the map complete — and looks up each revision's hash in that map instead of re-querying per session:
+
+```ts
+  blame(workspaceId: string, filePath: string, line: number): BlameResult | undefined {
+    this.syncCommits(workspaceId);
+
+    const base = this.baseBranch();
+    const sessions = this.sessions.listByWorkspace(workspaceId);
+    const revisions = [
+      ...(base !== undefined ? [base] : []),
+      ...sessions.map((s) => s.branch).filter((b): b is string => b !== null),
+    ];
+
+    const bySessionOf = new Map<string, { id: string; name: string }>();
+    for (const session of sessions) {
+      for (const hash of this.history(session.id).commitHashes) {
+        if (!bySessionOf.has(hash)) bySessionOf.set(hash, { id: session.id, name: session.name });
+      }
+    }
+
+    for (const revision of revisions) {
+      const commitHash = this.blameAt(revision, filePath, line);
+      if (commitHash === undefined) continue;
+      const owner = bySessionOf.get(commitHash);
+      if (owner !== undefined) return { sessionId: owner.id, sessionName: owner.name, commitHash };
+    }
+    return undefined;
+  }
 ```
 
 - [ ] **Step 6: Run tests and typecheck**
