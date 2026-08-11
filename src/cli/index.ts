@@ -11,6 +11,7 @@ import { blameCommand } from './commands/blame.js';
 import { radarHookCommand } from './commands/radar-hook.js';
 import { contractCommand } from './commands/contract.js';
 import { convergeCommand } from './commands/converge.js';
+import { landCommand } from './commands/land.js';
 import { fail } from './context.js';
 
 const daemonCommand = defineCommand({
@@ -74,6 +75,7 @@ const main = defineCommand({
     'radar-hook': radarHookCommand,
     contract: contractCommand,
     converge: convergeCommand,
+    land: landCommand,
   },
 });
 
