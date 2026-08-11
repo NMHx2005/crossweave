@@ -5,32 +5,39 @@ import type { EnforcementTier } from '../db/repositories/session.js';
 import type { AgentAdapter, AgentProcess, SpawnOptions } from './types.js';
 
 /**
- * The `cw` binary's own path — `spawn` runs inside the daemon process, whose
- * PATH is whatever the client forwarded (see `clientEnv` in methods.ts),
- * which may not include wherever `cw` itself was installed, so this cannot
- * just be the bare command name in every case.
+ * The full shell command that invokes `cw radar-hook` — `spawn` runs inside
+ * the daemon process, whose PATH is whatever the client forwarded (see
+ * `clientEnv` in methods.ts), which may not include wherever `cw` itself was
+ * installed, so this cannot just be the bare command name in every case.
  *
- * Three tiers, most to least specific:
+ * Three tiers, most to least specific, mirroring `resolveDaemonEntry` in
+ * `client/rpc-client.ts` (same compiled-vs-source problem, same fix):
  * 1. In a COMPILED build, `process.execPath` is this very `cwd` binary's own
  *    path (a Bun-compiled standalone executable reports itself, not the Bun
  *    runtime) — `scripts/build.ts` always places `cw` and `cwd` side by
- *    side, so a sibling `cw` next to it is the release layout.
+ *    side, so a sibling `cw` next to it is the release layout, and that
+ *    sibling IS directly executable.
  * 2. In DEV (`bun run`), `process.execPath` is wherever `bun` itself lives,
  *    which tier 1 would resolve wrongly — `import.meta.url` instead points
  *    at this module's own real source location, and `cw`'s entry point is
- *    the sibling `src/cli/index.ts`.
+ *    the sibling `src/cli/index.ts`. That source file is checked into git
+ *    WITHOUT an executable bit, so it cannot be run directly — the command
+ *    must go through the interpreter that is currently running this very
+ *    process (`process.execPath`, i.e. `bun`), with the source path passed
+ *    as its argument, exactly like `resolveDaemonEntry` does for the
+ *    daemon's own source-mode case.
  * 3. Neither guess matches (e.g. a global install with the two binaries in
  *    different directories) — fall back to the bare command name and let
  *    PATH resolve it, same as any other sibling-CLI convention.
  */
-function cwBinaryPath(): string {
+function radarHookInvocation(): string {
   const siblingOfExecutable = join(dirname(process.execPath), 'cw');
-  if (existsSync(siblingOfExecutable)) return siblingOfExecutable;
+  if (existsSync(siblingOfExecutable)) return `${siblingOfExecutable} radar-hook`;
 
   const siblingSource = fileURLToPath(new URL('../cli/index.ts', import.meta.url));
-  if (existsSync(siblingSource)) return siblingSource;
+  if (existsSync(siblingSource)) return `${process.execPath} ${siblingSource} radar-hook`;
 
-  return 'cw';
+  return 'cw radar-hook';
 }
 
 function radarHookSettings(): string {
@@ -39,7 +46,7 @@ function radarHookSettings(): string {
       PreToolUse: [
         {
           matcher: 'Edit|Write',
-          hooks: [{ type: 'command', command: `${cwBinaryPath()} radar-hook`, timeout: 5 }],
+          hooks: [{ type: 'command', command: radarHookInvocation(), timeout: 5 }],
         },
       ],
     },

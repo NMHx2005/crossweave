@@ -11,6 +11,32 @@ function collect(proc: { onData(cb: (c: string) => void): void }): () => string 
   return () => buf;
 }
 
+interface RadarHookSettings {
+  hooks: { PreToolUse: [{ matcher: string; hooks: [{ type: string; command: string; timeout: number }] }] };
+}
+
+/**
+ * Spawns a `sh` child that echoes back its own argv (one `ARG:<value>` line
+ * per arg), reads the `--settings` JSON `spawn()` actually passed it, and
+ * returns the parsed settings. The pty translates LF to CRLF (see the
+ * `TTY`/`test -t 1` test above), so every line carries a trailing \r that a
+ * plain split('\n') would leave in place — stripped here, the same tolerance
+ * every other assertion in this file gets for free from `toContain` on the
+ * whole buffer.
+ */
+async function spawnAndReadRadarHookSettings(): Promise<RadarHookSettings> {
+  const adapter = new ClaudePtyAdapter('sh', ['-c', 'for a in "$@"; do echo "ARG:$a"; done', '_']);
+  const proc = adapter.spawn({ cwd: tmpdir(), env: {}, cols: 80, rows: 24 });
+  const read = collect(proc);
+  await new Promise<number>((res) => proc.onExit(res));
+
+  const lines = read().replace(/\r/g, '').split('\n');
+  expect(lines).toContain('ARG:--settings');
+  const settingsLine = lines.find((l) => l.startsWith('ARG:') && l.includes('"hooks"'));
+  expect(settingsLine).toBeDefined();
+  return JSON.parse(settingsLine!.slice('ARG:'.length)) as RadarHookSettings;
+}
+
 describe('ClaudePtyAdapter', () => {
   it('reports kind and enforcement tier T3', () => {
     const a = new ClaudePtyAdapter();
@@ -113,23 +139,37 @@ describe('ClaudePtyAdapter', () => {
   });
 
   it('spawn injects a scoped PreToolUse hook via --settings, calling cw radar-hook', async () => {
-    const adapter = new ClaudePtyAdapter('sh', ['-c', 'for a in "$@"; do echo "ARG:$a"; done', '_']);
-    const proc = adapter.spawn({ cwd: tmpdir(), env: {}, cols: 80, rows: 24 });
-    const read = collect(proc);
-    await new Promise<number>((res) => proc.onExit(res));
-
-    // The pty translates LF to CRLF (see the `TTY`/`test -t 1` test above), so
-    // every line here carries a trailing \r that a plain split('\n') would leave in
-    // place — strip it before comparing, the same tolerance every other assertion
-    // in this file gets for free from `toContain` on the whole buffer.
-    const lines = read().replace(/\r/g, '').split('\n');
-    expect(lines).toContain('ARG:--settings');
-    const settingsLine = lines.find((l) => l.startsWith('ARG:') && l.includes('"hooks"'));
-    expect(settingsLine).toBeDefined();
-    const settings = JSON.parse(settingsLine!.slice('ARG:'.length));
+    const settings = await spawnAndReadRadarHookSettings();
     expect(settings.hooks.PreToolUse[0].matcher).toBe('Edit|Write');
     expect(settings.hooks.PreToolUse[0].hooks[0].command).toContain('radar-hook');
     expect(settings.hooks.PreToolUse[0].hooks[0].timeout).toBe(5);
+  });
+
+  // Task 10's review caught that the dev-mode command was a bare path to the
+  // `.ts` SOURCE file, which is checked into git without an executable bit —
+  // `sh` (and Claude Code's own hook runner) cannot exec it directly, only
+  // ever failing at the moment a real PreToolUse fires, in exactly the
+  // `bun run src/cli/index.ts` dev workflow this project actually uses day to
+  // day. Asserting on the JSON string alone (as the test above does) cannot
+  // catch that class of bug — it has to actually be run.
+  it('the injected --settings command is actually executable, not a bare unexecutable .ts path', async () => {
+    const settings = await spawnAndReadRadarHookSettings();
+    const command = settings.hooks.PreToolUse[0].hooks[0].command;
+
+    // An empty stdin makes `runRadarHook`'s JSON.parse throw immediately, which
+    // it catches and turns into `allow()` — no daemon connection, no session
+    // lookup, just proof the command itself is exec-able at all. A command
+    // built from the raw, non-executable source path (no interpreter prefix)
+    // fails BEFORE any of that, with `Bun.spawn` throwing EACCES synchronously.
+    const hookProc = Bun.spawn(command.split(' '), {
+      stdin: 'ignore',
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const exitCode = await hookProc.exited;
+    const stdout = await new Response(hookProc.stdout).text();
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain('"permissionDecision":"allow"');
   });
 });
 
