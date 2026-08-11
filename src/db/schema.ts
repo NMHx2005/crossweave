@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 /**
  * Each migration is a list of single statements, never one multi-statement blob.
@@ -108,5 +108,41 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
     `ALTER TABLE event_v4 RENAME TO event`,
     `CREATE INDEX event_by_session ON event (session_id, ts)`,
     `CREATE INDEX event_by_workspace_kind ON event (workspace_id, kind, ts)`,
+  ],
+  [
+    // Collision Radar (M3): per-session claims on files/symbols, and the
+    // contracts sessions can pin a symbol's public shape against.
+    `CREATE TABLE file_claim (
+    id           TEXT PRIMARY KEY,
+    session_id   TEXT NOT NULL REFERENCES session(id) ON DELETE CASCADE,
+    workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+    path         TEXT NOT NULL,
+    symbol       TEXT,
+    kind         TEXT NOT NULL CHECK (kind IN ('function','class','method','interface','type','const','file')),
+    head_sha     TEXT NOT NULL,
+    body_hash    TEXT NOT NULL,
+    first_seen   TEXT NOT NULL,
+    last_seen    TEXT NOT NULL
+  )`,
+    `CREATE INDEX file_claim_by_workspace_path ON file_claim (workspace_id, path)`,
+    `CREATE INDEX file_claim_by_session ON file_claim (session_id)`,
+
+    `CREATE TABLE contract (
+    id            TEXT PRIMARY KEY,
+    workspace_id  TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+    owner_session TEXT NOT NULL REFERENCES session(id) ON DELETE CASCADE,
+    symbol_fqn    TEXT NOT NULL,
+    sig_hash      TEXT NOT NULL,
+    declared_at   TEXT NOT NULL,
+    stable_by     TEXT,
+    UNIQUE (workspace_id, symbol_fqn)
+  )`,
+
+    `CREATE TABLE contract_sub (
+    contract_id   TEXT NOT NULL REFERENCES contract(id) ON DELETE CASCADE,
+    session_id    TEXT NOT NULL REFERENCES session(id) ON DELETE CASCADE,
+    subscribed_at TEXT NOT NULL,
+    PRIMARY KEY (contract_id, session_id)
+  )`,
   ],
 ];
