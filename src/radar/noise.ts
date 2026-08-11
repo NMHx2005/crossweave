@@ -23,7 +23,11 @@ export class NotificationGate {
   shouldNotify(sessionId: string, path: string, symbol: string | null): boolean {
     const now = this.clock();
     const coalesceKey = `${sessionId}\0${path}\0${symbol}`;
-    if (this.coalesced.has(coalesceKey)) return false;
+    const lastSent = this.coalesced.get(coalesceKey);
+    if (lastSent !== undefined) {
+      if (now - lastSent < WINDOW_MS) return false;
+      this.coalesced.delete(coalesceKey);
+    }
 
     const timestamps = (this.sent.get(sessionId) ?? []).filter((t) => now - t < WINDOW_MS);
     if (timestamps.length >= MAX_PER_WINDOW) {

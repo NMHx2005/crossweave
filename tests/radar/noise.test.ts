@@ -16,6 +16,14 @@ describe('NotificationGate', () => {
     expect(gate.shouldNotify('s_1', 'src/x.ts', 'foo')).toBe(false);
   });
 
+  test('coalescing expires after the window, allowing the SAME triple to notify again', () => {
+    let now = 0;
+    const gate = new NotificationGate(() => now);
+    expect(gate.shouldNotify('s_1', 'src/x.ts', 'foo')).toBe(true);
+    now += 10 * 60 * 1000 + 1;
+    expect(gate.shouldNotify('s_1', 'src/x.ts', 'foo')).toBe(true);
+  });
+
   test('a different symbol is not coalesced by an unrelated one', () => {
     let now = 0;
     const gate = new NotificationGate(() => now);
