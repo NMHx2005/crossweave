@@ -83,6 +83,11 @@ export class RadarWatcherRegistry {
     notifyCollisions(this.claims, this.bus, this.gate, {
       workspaceId: session.workspaceId, sessionId: session.id,
     });
+
+    // Nothing declared in this workspace — skip the file-read-and-check
+    // sweep entirely rather than opening every changed file for nothing.
+    if (!this.contracts.hasContracts(session.workspaceId)) return;
+
     const paths = new Set(this.claims.listBySession(session.id).map((c) => c.path));
     for (const path of paths) {
       let source: string;
@@ -91,6 +96,10 @@ export class RadarWatcherRegistry {
       } catch {
         continue; // deleted since the reindex read it — skip this pass
       }
+      // A claim on this path is this session's evidence of "cares about
+      // this file" — auto-subscribe it to any contract living there before
+      // checking, so a signature change caught THIS pass still reaches it.
+      this.contracts.autoSubscribeForPath(session.workspaceId, session.id, path);
       this.contracts.checkAndNotify(session.workspaceId, path, source, this.bus);
     }
   }

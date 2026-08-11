@@ -9,6 +9,15 @@ export interface SymbolRange {
   kind: SymbolKind;
   startByte: number;
   endByte: number;
+  /**
+   * Byte offset where the symbol's body block starts — populated for
+   * `function`/`method` kinds only, via the node's own `body` field, so a
+   * consumer (Task 8's `ContractService`) can split "signature" from
+   * "implementation" without guessing at brace positions (which breaks on a
+   * destructured/object-typed parameter). Left `undefined` for
+   * `class`/`interface`/`type`/`const`.
+   */
+  bodyStartByte?: number;
 }
 
 /** Unwraps `export`/`export default` so the wrapped declaration is what gets classified. */
@@ -24,7 +33,10 @@ function tsTopLevelSymbol(node: Node): SymbolRange | undefined {
   switch (inner.type) {
     case 'function_declaration': {
       const name = inner.childForFieldName('name')?.text;
-      return name ? { name, kind: 'function', startByte: node.startIndex, endByte: node.endIndex } : undefined;
+      const bodyStartByte = inner.childForFieldName('body')?.startIndex;
+      return name
+        ? { name, kind: 'function', startByte: node.startIndex, endByte: node.endIndex, bodyStartByte }
+        : undefined;
     }
     case 'interface_declaration': {
       const name = inner.childForFieldName('name')?.text;
@@ -53,7 +65,8 @@ function tsClassMethods(classNode: Node): SymbolRange[] {
   for (const child of body.namedChildren) {
     if (!child || child.type !== 'method_definition') continue;
     const name = child.childForFieldName('name')?.text;
-    if (name) out.push({ name, kind: 'method', startByte: child.startIndex, endByte: child.endIndex });
+    const bodyStartByte = child.childForFieldName('body')?.startIndex;
+    if (name) out.push({ name, kind: 'method', startByte: child.startIndex, endByte: child.endIndex, bodyStartByte });
   }
   return out;
 }
@@ -81,7 +94,8 @@ function pyClassMethods(classNode: Node): SymbolRange[] {
   for (const child of body.namedChildren) {
     if (!child || child.type !== 'function_definition') continue;
     const name = child.childForFieldName('name')?.text;
-    if (name) out.push({ name, kind: 'method', startByte: child.startIndex, endByte: child.endIndex });
+    const bodyStartByte = child.childForFieldName('body')?.startIndex;
+    if (name) out.push({ name, kind: 'method', startByte: child.startIndex, endByte: child.endIndex, bodyStartByte });
   }
   return out;
 }
@@ -92,7 +106,8 @@ function extractPython(root: Node): SymbolRange[] {
     if (!child) continue;
     if (child.type === 'function_definition') {
       const name = child.childForFieldName('name')?.text;
-      if (name) out.push({ name, kind: 'function', startByte: child.startIndex, endByte: child.endIndex });
+      const bodyStartByte = child.childForFieldName('body')?.startIndex;
+      if (name) out.push({ name, kind: 'function', startByte: child.startIndex, endByte: child.endIndex, bodyStartByte });
     } else if (child.type === 'class_definition') {
       const name = child.childForFieldName('name')?.text;
       if (name) out.push({ name, kind: 'class', startByte: child.startIndex, endByte: child.endIndex });

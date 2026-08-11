@@ -341,10 +341,12 @@ export function buildMethods(
     },
 
     'contract.declare': (p) => {
+      const workspaceId = str(p, 'workspaceId');
+      const owner = sessions.resolve(workspaceId, str(p, 'sessionId'));
       const contract = contracts.declareFromSource(
         {
-          workspaceId: str(p, 'workspaceId'),
-          ownerSession: str(p, 'sessionId'),
+          workspaceId,
+          ownerSession: owner.id,
           symbolFqn: str(p, 'symbolFqn'),
           stableBy: optionalStr(p, 'stableBy'),
         },

@@ -2,7 +2,6 @@ import { beforeAll, describe, expect, test } from 'bun:test';
 import { openDatabase } from '../../src/db/open.js';
 import { WorkspaceRepo } from '../../src/db/repositories/workspace.js';
 import { SessionRepo } from '../../src/db/repositories/session.js';
-import { FileClaimRepo } from '../../src/db/repositories/file-claim.js';
 import { ContractRepo } from '../../src/db/repositories/contract.js';
 import { MessageBus } from '../../src/domain/bus.js';
 import { SessionManager } from '../../src/domain/session.js';
@@ -47,9 +46,66 @@ describe('ContractService', () => {
       { workspaceId: 'ws_1', ownerSession: 's_owner', symbolFqn: 'src/auth.ts#login' },
       'export function login(user: string): boolean {\n  return true;\n}\n',
     );
-    const repo = new ContractRepo(db);
-    const before = repo.findByFqn('ws_1', 'src/auth.ts#login');
-    expect(before?.sigHash).toBe(a.sigHash);
+    const b = service.declareFromSource(
+      { workspaceId: 'ws_1', ownerSession: 's_owner', symbolFqn: 'src/auth.ts#login' },
+      'export function login(user: string): boolean {\n  return false;\n}\n',
+    );
+    expect(b.sigHash).toBe(a.sigHash);
+  });
+
+  test('a body-only change to a Python function does not change sig_hash', () => {
+    const db = openDatabase(':memory:');
+    seed(db);
+    const service = new ContractService(db);
+    const a = service.declareFromSource(
+      { workspaceId: 'ws_1', ownerSession: 's_owner', symbolFqn: 'src/auth.py#login' },
+      'def login(user):\n    return True\n',
+    );
+    const b = service.declareFromSource(
+      { workspaceId: 'ws_1', ownerSession: 's_owner', symbolFqn: 'src/auth.py#login' },
+      'def login(user):\n    return False\n',
+    );
+    expect(b.sigHash).toBe(a.sigHash);
+  });
+
+  test('a destructured-param function fires when its return type changes, even though a `{` appears before the body', () => {
+    const db = openDatabase(':memory:');
+    seed(db);
+    const service = new ContractService(db);
+    const a = service.declareFromSource(
+      { workspaceId: 'ws_1', ownerSession: 's_owner', symbolFqn: 'src/auth.ts#login' },
+      'export function login({ user }: Creds): boolean {\n  return true;\n}\n',
+    );
+    const b = service.declareFromSource(
+      { workspaceId: 'ws_1', ownerSession: 's_owner', symbolFqn: 'src/auth.ts#login' },
+      'export function login({ user }: Creds): string {\n  return "true";\n}\n',
+    );
+    expect(b.sigHash).not.toBe(a.sigHash);
+  });
+
+  test('autoSubscribeForPath subscribes a session with a claim on the same file, so a later signature change reaches it', () => {
+    const db = openDatabase(':memory:');
+    seed(db);
+    const service = new ContractService(db);
+    service.declareFromSource(
+      { workspaceId: 'ws_1', ownerSession: 's_owner', symbolFqn: 'src/auth.ts#login' },
+      'export function login(user: string): boolean {\n  return true;\n}\n',
+    );
+
+    service.autoSubscribeForPath('ws_1', 's_user', 'src/auth.ts');
+    const contractId = new ContractRepo(db).findByFqn('ws_1', 'src/auth.ts#login')!.id;
+    expect(new ContractRepo(db).listSubscribers(contractId)).toContain('s_user');
+
+    const bus = new MessageBus(db, new SessionManager(db));
+    service.checkAndNotify(
+      'ws_1', 'src/auth.ts',
+      'export function login(user: string, token: string): boolean {\n  return true;\n}\n',
+      bus,
+    );
+
+    const inbox = bus.inbox('ws_1', 's_user');
+    expect(inbox).toHaveLength(1);
+    expect(inbox[0]?.trust).toBe('system');
   });
 
   test('the caller is responsible for calling checkAndNotify after a real re-index; a signature-changing edit fires a system message to subscribers', () => {
