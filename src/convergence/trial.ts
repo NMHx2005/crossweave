@@ -41,6 +41,18 @@ export async function runMergeTrial(
   } catch {
     // Nothing was in progress — the common case.
   }
+  try {
+    // Same reasoning as the `merge --abort` above, but for a `REBASE_HEAD` left
+    // behind by a `cw land` rebase-strategy attempt whose `resetIntegration` never
+    // got to run — e.g. the daemon crashed mid-rebase. Without this, a caller whose
+    // OWN cleanup path never runs (`ConvergenceScheduler`'s pairwise trial loop has
+    // no try/finally around `runMergeTrial`/`resetIntegration`) would otherwise find
+    // this worktree stuck on every future tick, since `merge --abort` alone cannot
+    // clear `REBASE_HEAD`.
+    execFileSync('git', ['rebase', '--abort'], { cwd: integrationPath, stdio: 'ignore' });
+  } catch {
+    // No rebase was in progress — the common case.
+  }
 
   execFileSync('git', ['checkout', '-B', 'cw/trial', baseHead], {
     cwd: integrationPath, stdio: ['ignore', 'pipe', 'pipe'],

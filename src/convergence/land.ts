@@ -71,16 +71,29 @@ function isWorkingTreeClean(projectRoot: string): boolean {
   return dirty.length === 0;
 }
 
+function bufferText(raw: Buffer | string | undefined): string {
+  const text = typeof raw === 'string' ? raw : raw?.toString('utf8');
+  return text?.trim() ?? '';
+}
+
 /**
  * `execFileSync` attaches `stdout`/`stderr` buffers to the error it throws when the
  * child exits non-zero — pulling the real git message out of that is what turns a bare
  * "Command failed: git merge --squash cw/b" into something the user can act on.
+ *
+ * Both are checked, stderr first, because WHICH stream git writes its actual message
+ * to differs by command: `git rebase`'s conflict output goes to stderr, but `git
+ * merge` (both `--squash` and plain `--no-ff`) writes its "CONFLICT (content)..."
+ * output to STDOUT, leaving stderr empty — verified directly, not assumed. Reading
+ * stderr alone would silently drop the real message for the two most common
+ * merge-failure causes and fall back to a bare "Command failed: ...".
  */
 function gitStderr(cause: unknown): string {
-  const err = cause as { stderr?: Buffer | string; message?: string };
-  const raw = err.stderr;
-  const text = typeof raw === 'string' ? raw : raw?.toString('utf8');
-  return text !== undefined && text.trim().length > 0 ? text.trim() : (err.message ?? String(cause));
+  const err = cause as { stdout?: Buffer | string; stderr?: Buffer | string; message?: string };
+  const stderrText = bufferText(err.stderr);
+  const stdoutText = bufferText(err.stdout);
+  const text = stderrText.length > 0 ? stderrText : stdoutText;
+  return text.length > 0 ? text : (err.message ?? String(cause));
 }
 
 /** Every git call that can leave the MAIN checkout mid-conflict captures stderr, not `stdio: 'ignore'`. */
@@ -178,6 +191,16 @@ export async function landSession(
         }
         tested = 'clean';
       }
+
+      // `runMergeTrial`'s `--no-commit` merge leaves the integration worktree with
+      // staged, uncommitted changes — reused as-is, `rebase`'s `checkout -B cw/trial
+      // <branch>` below would refuse ("local changes would be overwritten by
+      // checkout") on the ordinary, non-conflicting case of base and the branch
+      // touching the same file in different places. This clears that leftover state
+      // before the strategy block reuses the worktree; the `finally` below's call
+      // to the same function cleans up whatever the strategy block itself does
+      // afterward — both calls are needed, for different halves of the operation.
+      resetIntegration(integration.path, base);
 
       // The `landing` lock above rules out another `cw land` racing this one, but
       // not the user (or any other process) moving the base branch by hand while a

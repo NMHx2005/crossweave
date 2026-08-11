@@ -257,6 +257,41 @@ describe('landSession', () => {
     }
   });
 
+  test('rebase strategy: an ordinary clean trial on the SAME file (different regions) does not collide with leftover trial state', async () => {
+    // Regression test for a bug the resetIntegration-into-finally restructure
+    // introduced: `runMergeTrial`'s `--no-commit` merge leaves the integration
+    // worktree with staged/uncommitted changes. Without an explicit reset BEFORE
+    // the strategy block reuses that worktree, `rebase`'s `checkout -B cw/trial
+    // <branch>` collides with those leftovers — even on a completely ordinary,
+    // non-conflicting rebase where base and the branch touch the same file in
+    // different, unrelated regions (line 1 vs. the last line), which is exactly
+    // the shape the two existing rebase tests both happened to avoid.
+    const fixture = await makeGitFixture();
+    try {
+      const lines = ['line1', 'line2', 'line3', 'line4', 'line5'];
+      await commitFile(fixture.root, 'multi.txt', `${lines.join('\n')}\n`, 'seed multi-line file');
+      await $`git checkout -q -b cw/a`.cwd(fixture.root).quiet();
+      await commitFile(fixture.root, 'multi.txt', `${['line1-a', ...lines.slice(1)].join('\n')}\n`, 'a: edit line 1');
+      await $`git checkout -q main`.cwd(fixture.root).quiet();
+      await commitFile(fixture.root, 'multi.txt', `${[...lines.slice(0, 4), 'line5-main'].join('\n')}\n`, 'main: edit line 5');
+
+      const config = withStrategy('rebase');
+      const { db, sessions, leaseManager, ledger } = await setup(fixture, config);
+      insertSession(sessions, { id: 's_a', worktreePath: fixture.root, branch: 'cw/a' });
+
+      const result = await landSession(
+        { db, projectRoot: fixture.root, sessions, leaseManager, ledger, config }, 'ws_1', 's_a', { force: false },
+      );
+      expect(result.status).toBe('landed');
+
+      const mainFile = execFileSync('git', ['show', 'main:multi.txt'], { cwd: fixture.root, encoding: 'utf8' });
+      expect(mainFile).toContain('line1-a');
+      expect(mainFile).toContain('line5-main');
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
   test('LAND_REBASE_CONFLICT: a rebase can fail even after a clean trial merge, and the main checkout stays untouched', async () => {
     const fixture = await makeGitFixture();
     try {
