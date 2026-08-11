@@ -6,7 +6,7 @@ import type { LeaseManager } from '../isolation/leases/manager.js';
 import { WorkspaceRepo } from '../db/repositories/workspace.js';
 import { SessionRepo, type SessionRow } from '../db/repositories/session.js';
 import { MergeTrialRepo } from '../db/repositories/merge-trial.js';
-import { ensureIntegrationWorktree, withIntegrationLease } from '../convergence/integration-worktree.js';
+import { ensureIntegrationWorktree, withIntegrationLease, withIntegrationWorktreeLock } from '../convergence/integration-worktree.js';
 import { runMergeTrial, resetIntegration } from '../convergence/trial.js';
 
 const TICK_MS = 5_000;
@@ -177,32 +177,39 @@ export class ConvergenceScheduler {
     const integration = await ensureIntegrationWorktree(this.db, workspaceId, projectRoot);
 
     if (!degraded) {
-      for (const session of due) {
-        const branchA = session.branch as string;
-        const headA = currentHead(projectRoot, branchA);
-        if (headA === undefined) continue;
+      // The whole pairwise sweep runs under one lock acquisition per tickWorkspace
+      // call — every mutation of the shared integration worktree below (the trial
+      // merge and its reset) must not interleave with another workspace-scoped
+      // caller (a concurrent `cw land`, or this same lock's next acquisition by
+      // `maybeRunFullIntegration` below) touching the SAME worktree mid-trial.
+      await withIntegrationWorktreeLock(workspaceId, async () => {
+        for (const session of due) {
+          const branchA = session.branch as string;
+          const headA = currentHead(projectRoot, branchA);
+          if (headA === undefined) continue;
 
-        for (const partner of active) {
-          if (partner.id === session.id) continue;
-          const branchB = partner.branch as string;
-          const headB = currentHead(projectRoot, branchB);
-          if (headB === undefined) continue;
+          for (const partner of active) {
+            if (partner.id === session.id) continue;
+            const branchB = partner.branch as string;
+            const headB = currentHead(projectRoot, branchB);
+            if (headB === undefined) continue;
 
-          const pairKey = `${workspaceId}:${[`${branchA}@${headA}`, `${branchB}@${headB}`].sort().join('|')}`;
-          if (this.triedPairs.has(pairKey)) continue;
+            const pairKey = `${workspaceId}:${[`${branchA}@${headA}`, `${branchB}@${headB}`].sort().join('|')}`;
+            if (this.triedPairs.has(pairKey)) continue;
 
-          const result = await runMergeTrial(integration.path, base, [branchA, branchB]);
-          resetIntegration(integration.path, base);
-          this.mergeTrials.insert({
-            id: newId('mt'), workspaceId, ts: new Date().toISOString(),
-            branches: [branchA, branchB], result: result.result, detail: result.detail,
-          });
-          this.rememberPair(pairKey);
+            const result = await runMergeTrial(integration.path, base, [branchA, branchB]);
+            resetIntegration(integration.path, base);
+            this.mergeTrials.insert({
+              id: newId('mt'), workspaceId, ts: new Date().toISOString(),
+              branches: [branchA, branchB], result: result.result, detail: result.detail,
+            });
+            this.rememberPair(pairKey);
+          }
+
+          this.lastTrialHead.set(`${workspaceId}:${branchA}`, headA);
+          this.lastTrialAt.set(`${workspaceId}:${branchA}`, now);
         }
-
-        this.lastTrialHead.set(`${workspaceId}:${branchA}`, headA);
-        this.lastTrialAt.set(`${workspaceId}:${branchA}`, now);
-      }
+      });
     }
 
     await this.maybeRunFullIntegration(workspaceId, integration.sessionId, integration.path, base, active, degraded);
@@ -241,52 +248,61 @@ export class ConvergenceScheduler {
     // conflicting merge.
 
     this.lastFullIntegrationAt.set(workspaceId, now);
-    try {
-      const result = await runMergeTrial(integrationPath, base, branches);
-      if (result.result === 'conflict') {
-        this.mergeTrials.insert({
-          id: newId('mt'), workspaceId, ts: new Date().toISOString(),
-          branches, result: 'conflict', detail: result.detail,
-        });
-        return;
-      }
-
-      if (this.config.converge.testCommand === undefined) {
-        this.mergeTrials.insert({
-          id: newId('mt'), workspaceId, ts: new Date().toISOString(),
-          branches, result: 'unverified', detail: null,
-        });
-        return;
-      }
-
-      const testResult = await withIntegrationLease(this.leaseManager, integrationSessionId, async (env) => {
-        this.sessions.updateStatus(integrationSessionId, 'running', null);
-        try {
-          const proc = Bun.spawn(['sh', '-c', this.config.converge.testCommand as string], {
-            cwd: integrationPath, env: { ...process.env, ...env }, stdout: 'pipe', stderr: 'pipe',
+    // The whole trial-through-test-through-reset sequence runs under one lock
+    // acquisition: `withIntegrationLease`'s port allocation is a genuine async
+    // yield (real network I/O), and the test command itself can run for a long
+    // time — both must hold this workspace's integration worktree exclusively for
+    // their entire duration, not just around the synchronous git calls, or a
+    // concurrent `cw land` (or the next tick's pairwise sweep) could reset/overwrite
+    // the merged state this full-integration run is still testing against.
+    await withIntegrationWorktreeLock(workspaceId, async () => {
+      try {
+        const result = await runMergeTrial(integrationPath, base, branches);
+        if (result.result === 'conflict') {
+          this.mergeTrials.insert({
+            id: newId('mt'), workspaceId, ts: new Date().toISOString(),
+            branches, result: 'conflict', detail: result.detail,
           });
-          const [code, out, err] = await Promise.all([
-            proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text(),
-          ]);
-          return { code, tail: (out + err).slice(-4000) };
-        } finally {
-          this.sessions.updateStatus(integrationSessionId, 'idle', null);
+          return;
         }
-      });
 
-      this.mergeTrials.insert({
-        id: newId('mt'), workspaceId, ts: new Date().toISOString(),
-        branches,
-        result: testResult.code === 0 ? 'clean' : 'test_fail',
-        detail: testResult.code === 0 ? null : testResult.tail,
-      });
-    } finally {
-      // Covers every exit from the try above, including a throw from
-      // runMergeTrial/withIntegrationLease/Bun.spawn itself — previously
-      // only the two explicit early-return branches called this, so an
-      // unexpected error left the integration worktree dirty for the next
-      // trial.
-      resetIntegration(integrationPath, base);
-    }
+        if (this.config.converge.testCommand === undefined) {
+          this.mergeTrials.insert({
+            id: newId('mt'), workspaceId, ts: new Date().toISOString(),
+            branches, result: 'unverified', detail: null,
+          });
+          return;
+        }
+
+        const testResult = await withIntegrationLease(this.leaseManager, integrationSessionId, async (env) => {
+          this.sessions.updateStatus(integrationSessionId, 'running', null);
+          try {
+            const proc = Bun.spawn(['sh', '-c', this.config.converge.testCommand as string], {
+              cwd: integrationPath, env: { ...process.env, ...env }, stdout: 'pipe', stderr: 'pipe',
+            });
+            const [code, out, err] = await Promise.all([
+              proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text(),
+            ]);
+            return { code, tail: (out + err).slice(-4000) };
+          } finally {
+            this.sessions.updateStatus(integrationSessionId, 'idle', null);
+          }
+        });
+
+        this.mergeTrials.insert({
+          id: newId('mt'), workspaceId, ts: new Date().toISOString(),
+          branches,
+          result: testResult.code === 0 ? 'clean' : 'test_fail',
+          detail: testResult.code === 0 ? null : testResult.tail,
+        });
+      } finally {
+        // Covers every exit from the try above, including a throw from
+        // runMergeTrial/withIntegrationLease/Bun.spawn itself — previously
+        // only the two explicit early-return branches called this, so an
+        // unexpected error left the integration worktree dirty for the next
+        // trial.
+        resetIntegration(integrationPath, base);
+      }
+    });
   }
 }

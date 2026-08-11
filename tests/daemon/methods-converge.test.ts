@@ -66,4 +66,47 @@ describe('converge.status RPC', () => {
 
     expect(result.degraded).toBe(true);
   });
+
+  // Important 1: `recommendedOrder` is an ordering of every ACTIVE session,
+  // conflicts and all — it is not a filter. `cw land all` needs the actual
+  // conflict-free subset so it lands what it safely can instead of halting the
+  // whole batch on a session that was never going to land cleanly.
+  test('conflictFree excludes every session with a known conflict, unlike recommendedOrder', async () => {
+    const db = openDatabase(':memory:');
+    new WorkspaceRepo(db).insert({
+      id: 'ws_1', name: 'w', rootPath: '/tmp/w', createdAt: 'now',
+      defaultIsolation: 'worktree', safeModeTier: 'T1',
+    });
+    const sessions = new SessionRepo(db);
+    // A and B conflict with EACH OTHER (both would merge cleanly against base
+    // individually — the conflict is pairwise, not "against base"). C conflicts
+    // with nothing.
+    for (const [id, branch, createdAt] of [
+      ['s_a', 'cw/a', '2026-01-01T00:00:01.000Z'],
+      ['s_b', 'cw/b', '2026-01-01T00:00:02.000Z'],
+      ['s_c', 'cw/c', '2026-01-01T00:00:03.000Z'],
+    ] as const) {
+      sessions.insert({
+        id, workspaceId: 'ws_1', name: id.slice(2), agentKind: 'claude', adapter: 'claude',
+        status: 'running', worktreePath: tmpdir(), branch, createdAt,
+        lastActiveAt: createdAt, tokenBudget: null, tokenSpent: 0, enforcementTier: 'T3', pid: null,
+      });
+    }
+    new MergeTrialRepo(db).insert({
+      id: 'mt_1', workspaceId: 'ws_1', ts: 'now', branches: ['cw/a', 'cw/b'], result: 'conflict', detail: 'x.ts',
+    });
+
+    const methods = buildMethods(db, '/tmp/w');
+    const result = (await methods['converge.status']!(
+      { workspaceId: 'ws_1' },
+      { notify: () => undefined, onClose: () => undefined },
+    )) as { recommendedOrder: string[]; conflictFree: string[] };
+
+    expect(result.recommendedOrder).toContain('a');
+    expect(result.recommendedOrder).toContain('b');
+    expect(result.recommendedOrder).toContain('c');
+    expect(result.conflictFree).toEqual(['c']);
+    expect(result.conflictFree).not.toContain('a');
+    expect(result.conflictFree).not.toContain('b');
+  });
 });

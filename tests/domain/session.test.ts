@@ -82,6 +82,33 @@ describe('SessionManager.resolve and rename', () => {
     );
   });
 
+  // Important 3: the plan states the integration row is "never resolvable by
+  // session.resolve/messaging" — list() already filtered it, but resolve() did
+  // not, letting `cw session kill __integration__`, rename, msg and blame all
+  // target the internal infrastructure row by name or id.
+  it('throws SESSION_NOT_FOUND for the integration session by name, when the row is present', () => {
+    const sessionRepo = new SessionRepo(db);
+    sessionRepo.insert({
+      id: 's_integration', workspaceId, name: '__integration__', agentKind: 'integration', adapter: 'integration',
+      status: 'idle', worktreePath: '/tmp/integration', branch: 'cw/integration', createdAt: 'now',
+      lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, enforcementTier: 'T3', pid: null,
+    });
+    expect(() => sessions.resolve(workspaceId, '__integration__')).toThrowError(
+      expect.objectContaining({ code: 'SESSION_NOT_FOUND' }) as unknown as Error,
+    );
+    // Also by id, not just by name — a caller who already has the row's id
+    // (e.g. from a stale listing) must not be able to bypass the name check.
+    expect(() => sessions.resolve(workspaceId, 's_integration')).toThrowError(
+      expect.objectContaining({ code: 'SESSION_NOT_FOUND' }) as unknown as Error,
+    );
+  });
+
+  it('throws SESSION_NOT_FOUND for the integration session name when no such row exists at all', () => {
+    expect(() => sessions.resolve(workspaceId, '__integration__')).toThrowError(
+      expect.objectContaining({ code: 'SESSION_NOT_FOUND' }) as unknown as Error,
+    );
+  });
+
   it('renames and rejects a name collision', async () => {
     await sessions.create({ workspaceId, name: 'a', agent: 'claude', worktree: true });
     const b = await sessions.create({ workspaceId, name: 'b', agent: 'claude', worktree: true });

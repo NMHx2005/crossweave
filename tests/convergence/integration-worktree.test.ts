@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { openDatabase } from '../../src/db/open.js';
 import { WorkspaceRepo } from '../../src/db/repositories/workspace.js';
 import { SessionRepo } from '../../src/db/repositories/session.js';
-import { ensureIntegrationWorktree } from '../../src/convergence/integration-worktree.js';
+import { ensureIntegrationWorktree, withIntegrationWorktreeLock } from '../../src/convergence/integration-worktree.js';
 import { makeGitFixture, type GitFixture } from '../helpers/git-fixture.js';
 
 describe('ensureIntegrationWorktree', () => {
@@ -92,5 +92,89 @@ describe('ensureIntegrationWorktree', () => {
     } finally {
       await fixture.cleanup();
     }
+  });
+});
+
+describe('withIntegrationWorktreeLock', () => {
+  // Regression for the Critical cross-task bug: `ConvergenceScheduler` and
+  // `landSession` both drive the SAME `.crossweave/integration` worktree with no
+  // mutual exclusion between them. A real end-to-end repro (scheduler tick racing
+  // a `cw land`) would be flaky — this pins the lock's own contract directly, with
+  // a manually-controlled gate instead of a real sleep.
+
+  test('serializes calls for the SAME workspace: the second does not start until the first resolves', async () => {
+    const order: string[] = [];
+    let releaseFirst: (() => void) | undefined;
+
+    const first = withIntegrationWorktreeLock('ws_1', async () => {
+      order.push('first-start');
+      await new Promise<void>((resolve) => {
+        releaseFirst = resolve;
+      });
+      order.push('first-end');
+    });
+
+    // Let the first call's synchronous prefix (up to its own await) run, but no further.
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(order).toEqual(['first-start']);
+
+    const second = withIntegrationWorktreeLock('ws_1', async () => {
+      order.push('second-start');
+    });
+
+    // The second call must not have started merely because it was queued — it is
+    // still waiting on the first to resolve.
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(order).toEqual(['first-start']);
+
+    releaseFirst?.();
+    await first;
+    await second;
+
+    expect(order).toEqual(['first-start', 'first-end', 'second-start']);
+  });
+
+  test('a DIFFERENT workspace is not blocked by a still-running call for another workspace', async () => {
+    const order: string[] = [];
+    let releaseFirst: (() => void) | undefined;
+
+    const first = withIntegrationWorktreeLock('ws_1', async () => {
+      order.push('ws1-start');
+      await new Promise<void>((resolve) => {
+        releaseFirst = resolve;
+      });
+      order.push('ws1-end');
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(order).toEqual(['ws1-start']);
+
+    // A DIFFERENT workspace's call must run to completion even while ws_1's lock
+    // is still held — the lock is per-workspace, not a single global mutex.
+    const second = await withIntegrationWorktreeLock('ws_2', async () => {
+      order.push('ws2');
+      return 'done';
+    });
+    expect(second).toBe('done');
+    expect(order).toEqual(['ws1-start', 'ws2']);
+
+    releaseFirst?.();
+    await first;
+    expect(order).toEqual(['ws1-start', 'ws2', 'ws1-end']);
+  });
+
+  test('a rejection from one caller does not wedge the lock for the next caller', async () => {
+    await expect(
+      withIntegrationWorktreeLock('ws_3', async () => {
+        throw new Error('boom');
+      }),
+    ).rejects.toThrow('boom');
+
+    const result = await withIntegrationWorktreeLock('ws_3', async () => 'ok');
+    expect(result).toBe('ok');
   });
 });

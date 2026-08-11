@@ -413,6 +413,12 @@ export function buildMethods(
       }
       const fullIntegration = [...trials].reverse().find((t) => t.branches.length > 2) ?? null;
       const degraded = active.length > config.converge.pairwiseSessionThreshold;
+      // `recommendedOrder` is an ordering of every active session, conflicts and
+      // all — it is not a filter. `cw land all` needs the actual conflict-free
+      // subset (degree 0 in the conflict graph) so it can land what it safely can
+      // instead of attempting a session that was never going to land cleanly and
+      // halting everyone after it in the order.
+      const conflictFree = order.filter((s) => (graph.get(s.branch ?? '')?.size ?? 0) === 0).map((s) => s.name);
 
       return {
         pairwise,
@@ -420,6 +426,7 @@ export function buildMethods(
           ? { result: fullIntegration.result, ts: fullIntegration.ts, detail: fullIntegration.detail }
           : null,
         recommendedOrder: order.map((s) => s.name),
+        conflictFree,
         degraded,
       };
     },

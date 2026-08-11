@@ -37,6 +37,45 @@ function isHealthyWorktree(path: string): boolean {
 // would otherwise delete the branch the first just created.
 const inFlight = new Map<string, Promise<IntegrationWorktree>>();
 
+// Keyed by workspaceId — the tail of the chain of every `withIntegrationWorktreeLock`
+// call for that workspace, so far. Not related to `inFlight` above: that map only
+// coalesces concurrent CREATIONS of the worktree; this one serializes every caller's
+// actual USE of it once created (a merge trial, a full-integration run, a land).
+const tails = new Map<string, Promise<unknown>>();
+
+/**
+ * Serializes all access to one workspace's integration worktree across every caller —
+ * scheduler ticks (pairwise trials and full-integration runs) and `cw land` alike.
+ *
+ * Both `ConvergenceScheduler` and `landSession` drive the SAME scratch worktree
+ * (`ensureIntegrationWorktree`'s `.crossweave/integration`) via real `git`
+ * mutations — `git merge --abort`, `checkout -B cw/trial`, `git reset --hard`, a
+ * rebase — with genuine async yields in between (a `withIntegrationLease` port
+ * allocation does real network I/O). Without this lock, a scheduler tick's pairwise
+ * trial can reset/overwrite the worktree while a `cw land` is suspended mid-lease-
+ * acquire, silently invalidating the trial `cw land` is about to test against — or
+ * the reverse, a land aborting a scheduler trial mid-flight. This lock is the only
+ * thing that makes "one workspace's integration worktree, one mutator at a time"
+ * true across both call sites; see the scheduler and `land.ts` for where it's used.
+ *
+ * A plain promise-chaining mutex: each call tacks itself onto the tail of the
+ * previous one, so calls for the SAME workspace run strictly one at a time, in
+ * order, while calls for DIFFERENT workspaces never wait on each other (the map is
+ * keyed by workspaceId, not global). `fn` runs regardless of whether the prior
+ * holder resolved or rejected — one caller's failure must not permanently wedge
+ * every later caller for the same workspace.
+ */
+export function withIntegrationWorktreeLock<T>(workspaceId: string, fn: () => Promise<T>): Promise<T> {
+  const prior = tails.get(workspaceId) ?? Promise.resolve();
+  const result = prior.then(fn, fn);
+  // Swallow the outcome for chaining purposes only — the real result/rejection
+  // still propagates to this call's own caller via `result` below. Without this,
+  // one caller's rejection would permanently reject the tail and every later
+  // caller's `.then(fn, fn)` would never even run `fn`.
+  tails.set(workspaceId, result.catch(() => undefined));
+  return result;
+}
+
 /**
  * Creates (or reuses) the Convergence Engine's scratch worktree and its
  * backing session row. Idempotent and safe to call on every trial — the

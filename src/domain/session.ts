@@ -180,7 +180,12 @@ export class SessionManager {
   resolve(workspaceId: string, idOrName: string): SessionRow {
     const found =
       this.sessions.findByName(workspaceId, idOrName) ?? this.sessions.findById(idOrName);
-    if (!found || found.workspaceId !== workspaceId) {
+    // The integration row is infrastructure, never a user-addressable session — it
+    // must stay invisible to every consumer of resolve() (kill, rename, messaging,
+    // blame, `land.session`'s own lookup) exactly like it already is to list(), not
+    // just some of them. Treated as not found rather than given its own error code,
+    // consistent with everywhere else it is hidden.
+    if (!found || found.workspaceId !== workspaceId || found.agentKind === 'integration') {
       throw new CrossweaveError('SESSION_NOT_FOUND', `No such session: ${idOrName}`);
     }
     return found;

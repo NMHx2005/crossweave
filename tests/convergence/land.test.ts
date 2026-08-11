@@ -7,6 +7,7 @@ import { openDatabase } from '../../src/db/open.js';
 import { WorkspaceRepo } from '../../src/db/repositories/workspace.js';
 import { SessionRepo, type SessionRow } from '../../src/db/repositories/session.js';
 import { EventRepo } from '../../src/db/repositories/event.js';
+import { MergeTrialRepo } from '../../src/db/repositories/merge-trial.js';
 import { LeaseManager } from '../../src/isolation/leases/manager.js';
 import { EventLedger } from '../../src/domain/ledger.js';
 import { DEFAULT_CONFIG, type CrossweaveConfig } from '../../src/core/config.js';
@@ -114,6 +115,40 @@ describe('landSession', () => {
       expect(mainLog).toBeTruthy();
       const mainFiles = execFileSync('git', ['ls-tree', '-r', '--name-only', 'main'], { cwd: fixture.root, encoding: 'utf8' });
       expect(mainFiles).toContain('a.txt');
+      expect(sessions.findById('s_a')?.status).toBe('landed');
+
+      const events = new EventRepo(db).listBySession('s_a');
+      expect(events.some((e) => e.kind === 'session.landed')).toBe(true);
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
+  test('Important 2: default squash strategy lands a session whose branch has no commits beyond base, without error', async () => {
+    // Regression: `git merge --squash` on a branch identical to base reports
+    // "nothing to squash" (exit 0), and the follow-up `git commit` then fails on
+    // "nothing to commit" (exit 1) — turning a legitimate no-op into
+    // LAND_MERGE_FAILED under the DEFAULT strategy specifically (merge/rebase
+    // already handle this fine via "Already up to date").
+    const fixture = await makeGitFixture();
+    try {
+      await $`git checkout -q -b cw/a`.cwd(fixture.root).quiet();
+      await $`git checkout -q main`.cwd(fixture.root).quiet();
+      const beforeHead = (await $`git rev-parse HEAD`.cwd(fixture.root).quiet().text()).trim();
+
+      const { db, sessions, leaseManager, ledger, config } = await setup(fixture); // default squash strategy
+      insertSession(sessions, { id: 's_a', worktreePath: fixture.root, branch: 'cw/a', status: 'idle' });
+
+      const result = await landSession(
+        { db, projectRoot: fixture.root, sessions, leaseManager, ledger, config }, 'ws_1', 's_a', { force: false },
+      );
+      expect(result.status).toBe('landed');
+      expect(result.warnings).toEqual([]);
+
+      // No merge mutation happened — main's HEAD is exactly what it was, not a
+      // fresh (even empty) commit.
+      const afterHead = execFileSync('git', ['rev-parse', 'main'], { cwd: fixture.root, encoding: 'utf8' }).trim();
+      expect(afterHead).toBe(beforeHead);
       expect(sessions.findById('s_a')?.status).toBe('landed');
 
       const events = new EventRepo(db).listBySession('s_a');
@@ -504,4 +539,113 @@ describe('land.session RPC', () => {
       await fixture.cleanup();
     }
   }, 10_000);
+});
+
+describe('cw land all (RPC-level, converge.status + land.session directly — not a spawned CLI process)', () => {
+  const ctx = { notify: () => undefined, onClose: () => undefined };
+
+  test('Important 1: lands only the conflict-free subset — A and B (mutual conflict) are skipped, C lands', async () => {
+    const fixture = await makeGitFixture();
+    try {
+      const db = openDatabase(':memory:');
+      new WorkspaceRepo(db).insert({
+        id: 'ws_1', name: 'w', rootPath: fixture.root, createdAt: 'now',
+        defaultIsolation: 'worktree', safeModeTier: 'T1',
+      });
+      const methods = buildMethods(db, fixture.root);
+
+      const a = (await methods['session.new']!({ workspaceId: 'ws_1', name: 'a', agent: 'claude', worktree: true }, ctx)) as { id: string; worktreePath: string };
+      await commitFile(a.worktreePath, 'a.txt', 'a\n', 'add a');
+      const b = (await methods['session.new']!({ workspaceId: 'ws_1', name: 'b', agent: 'claude', worktree: true }, ctx)) as { id: string; worktreePath: string };
+      await commitFile(b.worktreePath, 'b.txt', 'b\n', 'add b');
+      const c = (await methods['session.new']!({ workspaceId: 'ws_1', name: 'c', agent: 'claude', worktree: true }, ctx)) as { id: string; worktreePath: string };
+      await commitFile(c.worktreePath, 'c.txt', 'c\n', 'add c');
+
+      // A and B each merge cleanly against base individually (the LAND_CONFLICT
+      // check landSession itself does), but a pairwise trial between them
+      // conflicts — seeded directly since the scheduler is not running in this
+      // test, matching the same conflict-graph shape a real tick would produce.
+      new MergeTrialRepo(db).insert({
+        id: 'mt_1', workspaceId: 'ws_1', ts: 'now', branches: ['cw/a', 'cw/b'], result: 'conflict', detail: 'x.ts',
+      });
+
+      const status = (await methods['converge.status']!({ workspaceId: 'ws_1' }, ctx)) as { conflictFree: string[] };
+      expect(status.conflictFree).toEqual(['c']);
+
+      // Mirrors `cw land all`'s CLI loop exactly: iterate `conflictFree`, not
+      // `recommendedOrder`.
+      for (const name of status.conflictFree) {
+        const result = (await methods['land.session']!(
+          { workspaceId: 'ws_1', idOrName: name, force: false }, ctx,
+        )) as LandResult;
+        expect(result.status).toBe('landed');
+      }
+
+      const sessions = new SessionRepo(db);
+      expect(sessions.findById(a.id)?.status).not.toBe('landed');
+      expect(sessions.findById(b.id)?.status).not.toBe('landed');
+      expect(sessions.findById(c.id)?.status).toBe('landed');
+
+      const mainFiles = execFileSync('git', ['ls-tree', '-r', '--name-only', 'main'], { cwd: fixture.root, encoding: 'utf8' });
+      expect(mainFiles).toContain('c.txt');
+      expect(mainFiles).not.toContain('a.txt');
+      expect(mainFiles).not.toContain('b.txt');
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
+  test('Important 4: stops at the first REAL failure — sessions after it in order are never attempted', async () => {
+    const fixture = await makeGitFixture();
+    try {
+      const db = openDatabase(':memory:');
+      new WorkspaceRepo(db).insert({
+        id: 'ws_1', name: 'w', rootPath: fixture.root, createdAt: 'now',
+        defaultIsolation: 'worktree', safeModeTier: 'T1',
+      });
+      // Fails exactly when the integration worktree contains FAIL_MARKER.txt —
+      // only B's branch adds it, so only B's land trips LAND_TEST_FAILED.
+      const config = withTestCommand('test ! -f FAIL_MARKER.txt');
+      const methods = buildMethods(db, fixture.root, undefined, config);
+
+      const a = (await methods['session.new']!({ workspaceId: 'ws_1', name: 'a', agent: 'claude', worktree: true }, ctx)) as { id: string; worktreePath: string };
+      await commitFile(a.worktreePath, 'a.txt', 'a\n', 'add a');
+      const b = (await methods['session.new']!({ workspaceId: 'ws_1', name: 'b', agent: 'claude', worktree: true }, ctx)) as { id: string; worktreePath: string };
+      await commitFile(b.worktreePath, 'FAIL_MARKER.txt', 'x\n', 'add marker — trips testCommand');
+      const c = (await methods['session.new']!({ workspaceId: 'ws_1', name: 'c', agent: 'claude', worktree: true }, ctx)) as { id: string; worktreePath: string };
+      await commitFile(c.worktreePath, 'c.txt', 'c\n', 'add c');
+
+      const status = (await methods['converge.status']!({ workspaceId: 'ws_1' }, ctx)) as { conflictFree: string[] };
+      // No conflicts seeded at all — all three are conflict-free, in creation order.
+      expect(status.conflictFree).toEqual(['a', 'b', 'c']);
+
+      const landed: string[] = [];
+      let stoppedAt: string | undefined;
+      for (const name of status.conflictFree) {
+        try {
+          const result = (await methods['land.session']!(
+            { workspaceId: 'ws_1', idOrName: name, force: false }, ctx,
+          )) as LandResult;
+          expect(result.status).toBe('landed');
+          landed.push(name);
+        } catch (err) {
+          expect((err as { code?: string }).code).toBe('LAND_TEST_FAILED');
+          stoppedAt = name;
+          break; // mirrors `cw land all`'s CLI: the batch stops at the first failure
+        }
+      }
+
+      expect(landed).toEqual(['a']);
+      expect(stoppedAt).toBe('b');
+
+      const sessions = new SessionRepo(db);
+      // C was never attempted: still idle, its branch and worktree untouched.
+      expect(sessions.findById(c.id)?.status).toBe('idle');
+      const mainFiles = execFileSync('git', ['ls-tree', '-r', '--name-only', 'main'], { cwd: fixture.root, encoding: 'utf8' });
+      expect(mainFiles).not.toContain('c.txt');
+      expect(mainFiles).not.toContain('FAIL_MARKER.txt');
+    } finally {
+      await fixture.cleanup();
+    }
+  });
 });

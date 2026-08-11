@@ -8,7 +8,7 @@ interface LandResult {
   baseBranch: string;
   warnings: string[];
 }
-interface ConvergeStatus { recommendedOrder: string[] }
+interface ConvergeStatus { conflictFree: string[] }
 
 export function assertLandConfirmed(yes: boolean): void {
   if (!yes) {
@@ -62,11 +62,11 @@ const allCommand = defineCommand({
       await withClient(async (client) => {
         const workspaceId = await currentWorkspaceId(client);
         const status = await client.call<ConvergeStatus>('converge.status', { workspaceId });
-        if (status.recommendedOrder.length === 0) {
+        if (status.conflictFree.length === 0) {
           process.stdout.write('nothing to land\n');
           return;
         }
-        for (const name of status.recommendedOrder) {
+        for (const name of status.conflictFree) {
           try {
             const result = await client.call<LandResult>('land.session', {
               workspaceId, idOrName: name, force: args.force,

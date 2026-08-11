@@ -6,7 +6,7 @@ import type { SessionRepo } from '../db/repositories/session.js';
 import type { LeaseManager } from '../isolation/leases/manager.js';
 import type { EventLedger } from '../domain/ledger.js';
 import { removeWorktree, deleteBranch } from '../isolation/worktree.js';
-import { ensureIntegrationWorktree, withIntegrationLease } from './integration-worktree.js';
+import { ensureIntegrationWorktree, withIntegrationLease, withIntegrationWorktreeLock } from './integration-worktree.js';
 import { runMergeTrial, resetIntegration } from './trial.js';
 
 export interface LandDeps {
@@ -102,6 +102,19 @@ function runGit(args: string[], cwd: string): void {
 }
 
 /**
+ * How many commits `branch` has beyond `base` — i.e. whether there is anything for a
+ * merge strategy to actually integrate. A session that is `idle` with a real branch
+ * but has made no commits yet (e.g. just created, never touched) is a legitimate,
+ * already-landable no-op: its content already equals base.
+ */
+function commitsAhead(projectRoot: string, base: string, branch: string): number {
+  const out = execFileSync('git', ['rev-list', '--count', `${base}..${branch}`], {
+    cwd: projectRoot, encoding: 'utf8',
+  }).trim();
+  return Number(out);
+}
+
+/**
  * Recovers the main checkout from a failed real merge/squash/ff-only and re-throws as
  * a reportable error. `git reset --hard <base>` is used deliberately instead of
  * `git merge --abort`: a squash merge never sets `MERGE_HEAD`, so `merge --abort`
@@ -149,6 +162,11 @@ export async function landSession(
     if (row.branch === null) {
       throw new CrossweaveError('LAND_NO_BRANCH', `Session ${row.name} has no branch to land (started with --no-worktree).`);
     }
+    // Narrowed once, here, into its own binding: TS does not carry a `row.branch
+    // !== null` narrowing into the async closure passed to
+    // `withIntegrationWorktreeLock` below (a closure handed to another function
+    // is not provably synchronous), so every reference below uses this instead.
+    const branch: string = row.branch;
     if (row.status === 'running' && !opts.force) {
       throw new CrossweaveError('SESSION_STILL_LIVE', `Session ${row.name} is running. Stop it first, or pass --force.`);
     }
@@ -165,107 +183,136 @@ export async function landSession(
     const base = currentBaseHead(deps.projectRoot);
     const integration = await ensureIntegrationWorktree(deps.db, workspaceId, deps.projectRoot);
 
-    let tested: 'clean' | 'unverified' = 'unverified';
-    let baseBranch: string;
-    try {
-      const trial = await runMergeTrial(integration.path, base, [row.branch]);
-      if (trial.result === 'conflict') {
-        throw new CrossweaveError(
-          'LAND_CONFLICT',
-          `Session ${row.name}'s branch conflicts with the current base: ${trial.detail ?? '(no files reported)'}`,
-        );
-      }
+    // The scheduler drives this SAME scratch worktree independently (pairwise
+    // trials, full-integration runs) on its own 5s timer. Without this lock, a
+    // tick landing while this land is suspended on a real async yield below (the
+    // lease's port allocation, or the test command itself) would reset/overwrite
+    // the merged state this land is testing — and the reverse, this land resetting
+    // a scheduler trial mid-flight. `landing` above only rules out a second
+    // CONCURRENT `cw land`; this rules out a `cw land` racing the scheduler.
+    const { tested, baseBranch } = await withIntegrationWorktreeLock(workspaceId, async () => {
+      let tested: 'clean' | 'unverified' = 'unverified';
+      let baseBranch: string;
+      try {
+        const trial = await runMergeTrial(integration.path, base, [branch]);
+        if (trial.result === 'conflict') {
+          throw new CrossweaveError(
+            'LAND_CONFLICT',
+            `Session ${row.name}'s branch conflicts with the current base: ${trial.detail ?? '(no files reported)'}`,
+          );
+        }
 
-      if (deps.config.converge.testCommand !== undefined) {
-        const testOutcome = await withIntegrationLease(deps.leaseManager, integration.sessionId, async (env) => {
-          const proc = Bun.spawn(['sh', '-c', deps.config.converge.testCommand as string], {
-            cwd: integration.path, env: { ...process.env, ...env }, stdout: 'pipe', stderr: 'pipe',
+        if (deps.config.converge.testCommand !== undefined) {
+          const testOutcome = await withIntegrationLease(deps.leaseManager, integration.sessionId, async (env) => {
+            // Mirrors the scheduler's `maybeRunFullIntegration`: the integration
+            // row's status reflects a real session's lifecycle — `running` only
+            // while it is actually executing something, `idle` the rest of the time.
+            deps.sessions.updateStatus(integration.sessionId, 'running', null);
+            try {
+              const proc = Bun.spawn(['sh', '-c', deps.config.converge.testCommand as string], {
+                cwd: integration.path, env: { ...process.env, ...env }, stdout: 'pipe', stderr: 'pipe',
+              });
+              const [code, out, err] = await Promise.all([
+                proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text(),
+              ]);
+              return { code, tail: (out + err).slice(-4000) };
+            } finally {
+              deps.sessions.updateStatus(integration.sessionId, 'idle', null);
+            }
           });
-          const [code, out, err] = await Promise.all([
-            proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text(),
-          ]);
-          return { code, tail: (out + err).slice(-4000) };
-        });
-        if (testOutcome.code !== 0) {
-          throw new CrossweaveError('LAND_TEST_FAILED', `converge.testCommand failed:\n${testOutcome.tail}`);
-        }
-        tested = 'clean';
-      }
-
-      // `runMergeTrial`'s `--no-commit` merge leaves the integration worktree with
-      // staged, uncommitted changes — reused as-is, `rebase`'s `checkout -B cw/trial
-      // <branch>` below would refuse ("local changes would be overwritten by
-      // checkout") on the ordinary, non-conflicting case of base and the branch
-      // touching the same file in different places. This clears that leftover state
-      // before the strategy block reuses the worktree; the `finally` below's call
-      // to the same function cleans up whatever the strategy block itself does
-      // afterward — both calls are needed, for different halves of the operation.
-      resetIntegration(integration.path, base);
-
-      // The `landing` lock above rules out another `cw land` racing this one, but
-      // not the user (or any other process) moving the base branch by hand while a
-      // slow test command was still running against the trial's now-stale snapshot
-      // of it — re-check right before the real, main-checkout mutation below.
-      const baseNow = currentBaseHead(deps.projectRoot);
-      if (baseNow !== base) {
-        throw new CrossweaveError(
-          'LAND_BASE_MOVED',
-          `The base branch moved while landing ${row.name} (was ${base}, now ${baseNow}). Retry the land.`,
-        );
-      }
-
-      baseBranch = currentBaseBranch(deps.projectRoot); // refuses on a detached HEAD, before any main-checkout mutation
-
-      const strategy = deps.config.converge.mergeStrategy;
-      if (strategy === 'squash') {
-        try {
-          runGit(['merge', '--squash', row.branch], deps.projectRoot);
-          runGit(['commit', '-m', `${row.name}: squashed from ${row.branch}`], deps.projectRoot);
-        } catch (cause) {
-          recoverMainCheckoutAndFail(deps.projectRoot, base, cause);
-        }
-      } else if (strategy === 'rebase') {
-        // Rewritten in the scratch worktree — never the session's own branch,
-        // and never the main checkout mid-operation — then fast-forwarded into
-        // base. A clean 3-way trial merge does NOT guarantee a clean rebase
-        // (rebase replays commits individually; an intermediate state can
-        // conflict where the final merged state wouldn't), so this can fail
-        // even after `runMergeTrial` above reported clean.
-        try {
-          runGit(['checkout', '-B', 'cw/trial', row.branch], integration.path);
-          runGit(['rebase', base], integration.path);
-        } catch (cause) {
-          try {
-            execFileSync('git', ['rebase', '--abort'], { cwd: integration.path, stdio: 'ignore' });
-          } catch {
-            // Nothing to abort, or the abort itself failed — the `finally`
-            // below's `resetIntegration` makes a second, independent attempt.
+          if (testOutcome.code !== 0) {
+            throw new CrossweaveError('LAND_TEST_FAILED', `converge.testCommand failed:\n${testOutcome.tail}`);
           }
-          throw new CrossweaveError('LAND_REBASE_CONFLICT', gitStderr(cause));
+          tested = 'clean';
         }
-        // `git rebase <upstream> <branch>` checks `<branch>` out as a side effect,
-        // which the integration worktree can absorb harmlessly but the main
-        // checkout must not — so the main checkout only ever does the ff-only.
-        try {
-          runGit(['merge', '--ff-only', 'cw/trial'], deps.projectRoot);
-        } catch (cause) {
-          recoverMainCheckoutAndFail(deps.projectRoot, base, cause);
+
+        // `runMergeTrial`'s `--no-commit` merge leaves the integration worktree with
+        // staged, uncommitted changes — reused as-is, `rebase`'s `checkout -B cw/trial
+        // <branch>` below would refuse ("local changes would be overwritten by
+        // checkout") on the ordinary, non-conflicting case of base and the branch
+        // touching the same file in different places. This clears that leftover state
+        // before the strategy block reuses the worktree; the `finally` below's call
+        // to the same function cleans up whatever the strategy block itself does
+        // afterward — both calls are needed, for different halves of the operation.
+        resetIntegration(integration.path, base);
+
+        // The `landing` lock above rules out another `cw land` racing this one, but
+        // not the user (or any other process) moving the base branch by hand while a
+        // slow test command was still running against the trial's now-stale snapshot
+        // of it — re-check right before the real, main-checkout mutation below.
+        const baseNow = currentBaseHead(deps.projectRoot);
+        if (baseNow !== base) {
+          throw new CrossweaveError(
+            'LAND_BASE_MOVED',
+            `The base branch moved while landing ${row.name} (was ${base}, now ${baseNow}). Retry the land.`,
+          );
         }
-      } else {
-        try {
-          runGit(['merge', '--no-ff', row.branch, '-m', `Merge ${row.name} (${row.branch})`], deps.projectRoot);
-        } catch (cause) {
-          recoverMainCheckoutAndFail(deps.projectRoot, base, cause);
+
+        baseBranch = currentBaseBranch(deps.projectRoot); // refuses on a detached HEAD, before any main-checkout mutation
+
+        // A session that is otherwise fully landable (idle, real branch, clean
+        // trial) but has made no commits beyond `base` yet has nothing for a merge
+        // strategy to integrate — its content already equals base. `merge`/`rebase`
+        // both handle this as a harmless no-op ("Already up to date", exit 0), but
+        // `squash` (the default) does not: `git merge --squash` reports "nothing to
+        // squash" (exit 0) and the follow-up `git commit` then fails on "nothing to
+        // commit" (exit 1), turning a legitimate no-op into LAND_MERGE_FAILED. Skip
+        // the strategy block entirely rather than special-case squash alone — a
+        // branch identical to base needs no merge under ANY strategy.
+        if (commitsAhead(deps.projectRoot, base, branch) > 0) {
+          const strategy = deps.config.converge.mergeStrategy;
+          if (strategy === 'squash') {
+            try {
+              runGit(['merge', '--squash', branch], deps.projectRoot);
+              runGit(['commit', '-m', `${row.name}: squashed from ${branch}`], deps.projectRoot);
+            } catch (cause) {
+              recoverMainCheckoutAndFail(deps.projectRoot, base, cause);
+            }
+          } else if (strategy === 'rebase') {
+            // Rewritten in the scratch worktree — never the session's own branch,
+            // and never the main checkout mid-operation — then fast-forwarded into
+            // base. A clean 3-way trial merge does NOT guarantee a clean rebase
+            // (rebase replays commits individually; an intermediate state can
+            // conflict where the final merged state wouldn't), so this can fail
+            // even after `runMergeTrial` above reported clean.
+            try {
+              runGit(['checkout', '-B', 'cw/trial', branch], integration.path);
+              runGit(['rebase', base], integration.path);
+            } catch (cause) {
+              try {
+                execFileSync('git', ['rebase', '--abort'], { cwd: integration.path, stdio: 'ignore' });
+              } catch {
+                // Nothing to abort, or the abort itself failed — the `finally`
+                // below's `resetIntegration` makes a second, independent attempt.
+              }
+              throw new CrossweaveError('LAND_REBASE_CONFLICT', gitStderr(cause));
+            }
+            // `git rebase <upstream> <branch>` checks `<branch>` out as a side effect,
+            // which the integration worktree can absorb harmlessly but the main
+            // checkout must not — so the main checkout only ever does the ff-only.
+            try {
+              runGit(['merge', '--ff-only', 'cw/trial'], deps.projectRoot);
+            } catch (cause) {
+              recoverMainCheckoutAndFail(deps.projectRoot, base, cause);
+            }
+          } else {
+            try {
+              runGit(['merge', '--no-ff', branch, '-m', `Merge ${row.name} (${branch})`], deps.projectRoot);
+            } catch (cause) {
+              recoverMainCheckoutAndFail(deps.projectRoot, base, cause);
+            }
+          }
         }
+      } finally {
+        // Spans the trial, the optional test run AND the real merge above: the
+        // integration worktree must always end up reset, whether the failure (or
+        // success) happened in the trial, the test run, or the real merge — the
+        // strategy block runs in the MAIN checkout, not here, but `resetIntegration`
+        // on the integration path is still exactly what's needed regardless.
+        resetIntegration(integration.path, base);
       }
-    } finally {
-      // Spans the trial, the optional test run AND the real merge above: the
-      // integration worktree must always end up reset, whether the failure (or
-      // success) happened in the trial, the test run, or the real merge — the
-      // strategy block runs in the MAIN checkout, not here, but `resetIntegration`
-      // on the integration path is still exactly what's needed regardless.
-      resetIntegration(integration.path, base);
-    }
+      return { tested, baseBranch };
+    });
 
     deps.leaseManager.release(sessionId);
     const warnings: string[] = [];
