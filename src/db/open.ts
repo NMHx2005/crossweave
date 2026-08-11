@@ -22,7 +22,11 @@ export function openDatabase(dbPath: string): Database {
   // exclusive lock. Two cold starts could therefore both die here, before either one
   // reached its socket bind, leaving the auto-start race with no winner at all.
   db.run('PRAGMA busy_timeout = 5000');
-  enableWal(db);
+  // An in-memory database has no file for another process to contend over, and
+  // SQLite never actually leaves `journal_mode = memory` for one no matter what
+  // is requested — so attempting the WAL switch here would just spin through
+  // every retry and fail every time.
+  if (dbPath !== ':memory:') enableWal(db);
   db.run('PRAGMA foreign_keys = ON');
 
   migrate(db);
