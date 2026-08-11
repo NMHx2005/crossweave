@@ -6,25 +6,12 @@ subagent-driven implementation and the final whole-branch review — see
 `.superpowers/sdd/2026-08-11-crossweave-m3-collision-radar/progress.md` for
 the full task-by-task ledger this doc summarizes.
 
-## Security-adjacent — worth prioritizing early in M4
+## Security-adjacent
 
-- **`contract.declare`'s daemon-side file read has no `assertContained`
-  containment check.** The final-review fix wave moved the file read for
-  `cw contract declare` from the CLI (client-side, main checkout) to the
-  daemon (server-side, the owner session's worktree) to fix a wrong-worktree
-  `sig_hash` bug — but the new `join(worktreePath, path)` read (in
-  `src/daemon/methods.ts`'s `'contract.declare'` handler) never validates
-  that `path` (derived from a client-supplied `symbolFqn`) stays inside
-  `worktreePath`. Every other RPC handler and CLI command that touches the
-  filesystem from an external-origin path goes through `assertContained`
-  (`src/core/paths.ts`) first — this project's standing rule since M0. This
-  one path was missed. Impact is bounded today: the socket is `0600`,
-  reachable only by the same OS user, and the read only ever produces a
-  signature **hash**, never file content — so this is a same-user
-  path-traversal-shaped gap, not a privilege-escalation or cross-user data
-  leak. Still, it's a one-line fix (`assertContained(worktreePath, path)`
-  before the `readFileSync`) that should land before this handler grows any
-  further.
+- ~~`contract.declare`'s daemon-side file read has no `assertContained`
+  containment check.~~ **Fixed** post-merge, before M4 started (see
+  `src/daemon/methods.ts`'s `'contract.declare'` handler and its regression
+  test in `tests/daemon/methods-contract.test.ts`).
 
 ## Noise control — one of the design's four mechanisms is unwired
 

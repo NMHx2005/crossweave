@@ -70,4 +70,33 @@ describe('contract.declare RPC', () => {
       await rm(ownerWorktree, { recursive: true, force: true });
     }
   });
+
+  test('rejects a symbolFqn path that escapes the owner session\'s worktree', async () => {
+    const mainRoot = await tempDirWithFile('export function login(): boolean { return true; }\n');
+    const ownerWorktree = await tempDirWithFile('export function login(): boolean { return true; }\n');
+
+    try {
+      const db = openDatabase(':memory:');
+      new WorkspaceRepo(db).insert({
+        id: 'ws_1', name: 'w', rootPath: mainRoot, createdAt: 'now',
+        defaultIsolation: 'worktree', safeModeTier: 'T1',
+      });
+      new SessionRepo(db).insert({
+        id: 's_owner', workspaceId: 'ws_1', name: 's_owner', agentKind: 'claude', adapter: 'claude',
+        status: 'running', worktreePath: ownerWorktree, branch: 'cw/s_owner', createdAt: 'now',
+        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, enforcementTier: 'T3', pid: null,
+      });
+
+      const methods = buildMethods(db, mainRoot);
+      expect(() =>
+        methods['contract.declare']!(
+          { workspaceId: 'ws_1', sessionId: 's_owner', symbolFqn: '../../../etc/passwd#login' },
+          { notify: () => undefined, onClose: () => undefined },
+        ),
+      ).toThrowError(expect.objectContaining({ code: 'PATH_ESCAPE' }) as unknown as Error);
+    } finally {
+      await rm(mainRoot, { recursive: true, force: true });
+      await rm(ownerWorktree, { recursive: true, force: true });
+    }
+  });
 });

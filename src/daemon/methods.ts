@@ -20,6 +20,7 @@ import { RadarWatcherRegistry } from './watcher.js';
 import { FileClaimRepo } from '../db/repositories/file-claim.js';
 import { checkCollisions } from '../radar/collisions.js';
 import { ContractService, parseFqn } from '../radar/contracts.js';
+import { assertContained } from '../core/paths.js';
 
 function str(params: Record<string, unknown>, key: string): string {
   const v = params[key];
@@ -353,7 +354,9 @@ export function buildMethods(
       // the very first watcher tick after declaring.
       const { path } = parseFqn(symbolFqn);
       const worktreePath = owner.worktreePath ?? projectRoot;
-      const source = readFileSync(join(worktreePath, path), 'utf8');
+      // `path` comes from a client-supplied symbolFqn — never trust it to
+      // stay inside the resolved worktree without checking.
+      const source = readFileSync(assertContained(worktreePath, join(worktreePath, path)), 'utf8');
       const contract = contracts.declareFromSource(
         {
           workspaceId,
