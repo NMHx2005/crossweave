@@ -15,6 +15,8 @@ import { reconcile } from '../domain/reconciliation.js';
 import { createMcpServer, type McpServerHandle } from '../mcp/server.js';
 import { buildTools } from '../mcp/tools.js';
 import { RadarWatcherRegistry } from './watcher.js';
+import { FileClaimRepo } from '../db/repositories/file-claim.js';
+import { checkCollisions } from '../radar/collisions.js';
 
 function str(params: Record<string, unknown>, key: string): string {
   const v = params[key];
@@ -76,6 +78,7 @@ export function buildMethods(
   const bus = new MessageBus(db, sessions);
   const contextStore = new ContextStore(db);
   const radarWatchers = new RadarWatcherRegistry(db);
+  const fileClaims = new FileClaimRepo(db);
 
   // Once, at boot: every `running`/`waiting` session in the DB is necessarily a
   // leftover from a previous daemon instance, since this one hasn't started
@@ -312,6 +315,27 @@ export function buildMethods(
     blame: (p) => {
       const result = ledger.blame(str(p, 'workspaceId'), str(p, 'file'), num(p, 'line'));
       return result ?? null;
+    },
+
+    'radar.check': (p) => {
+      const workspaceId = str(p, 'workspaceId');
+      const symbol = optionalStr(p, 'symbol');
+      const collisions = checkCollisions(fileClaims, {
+        workspaceId,
+        sessionId: str(p, 'sessionId'),
+        path: str(p, 'path'),
+        symbol,
+      });
+      // checkCollisions stays pure (FileClaimRepo only, no session lookups —
+      // see Task 6's unit tests). Session NAMES are a display concern, added
+      // here where `sessions` is already in scope, for the one consumer that
+      // needs a human-readable name: Task 9's hook advisory text.
+      return {
+        collisions: collisions.map((c) => ({
+          ...c,
+          sessionName: sessions.resolve(workspaceId, c.sessionId).name,
+        })),
+      };
     },
 
     'session.mcpInfo': (p) => {
