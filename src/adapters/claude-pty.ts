@@ -1,5 +1,50 @@
+import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { EnforcementTier } from '../db/repositories/session.js';
 import type { AgentAdapter, AgentProcess, SpawnOptions } from './types.js';
+
+/**
+ * The `cw` binary's own path — `spawn` runs inside the daemon process, whose
+ * PATH is whatever the client forwarded (see `clientEnv` in methods.ts),
+ * which may not include wherever `cw` itself was installed, so this cannot
+ * just be the bare command name in every case.
+ *
+ * Three tiers, most to least specific:
+ * 1. In a COMPILED build, `process.execPath` is this very `cwd` binary's own
+ *    path (a Bun-compiled standalone executable reports itself, not the Bun
+ *    runtime) — `scripts/build.ts` always places `cw` and `cwd` side by
+ *    side, so a sibling `cw` next to it is the release layout.
+ * 2. In DEV (`bun run`), `process.execPath` is wherever `bun` itself lives,
+ *    which tier 1 would resolve wrongly — `import.meta.url` instead points
+ *    at this module's own real source location, and `cw`'s entry point is
+ *    the sibling `src/cli/index.ts`.
+ * 3. Neither guess matches (e.g. a global install with the two binaries in
+ *    different directories) — fall back to the bare command name and let
+ *    PATH resolve it, same as any other sibling-CLI convention.
+ */
+function cwBinaryPath(): string {
+  const siblingOfExecutable = join(dirname(process.execPath), 'cw');
+  if (existsSync(siblingOfExecutable)) return siblingOfExecutable;
+
+  const siblingSource = fileURLToPath(new URL('../cli/index.ts', import.meta.url));
+  if (existsSync(siblingSource)) return siblingSource;
+
+  return 'cw';
+}
+
+function radarHookSettings(): string {
+  return JSON.stringify({
+    hooks: {
+      PreToolUse: [
+        {
+          matcher: 'Edit|Write',
+          hooks: [{ type: 'command', command: `${cwBinaryPath()} radar-hook`, timeout: 5 }],
+        },
+      ],
+    },
+  });
+}
 
 type BunTerminal = { write(data: string): void; resize(cols: number, rows: number): void; close(): void };
 type BunPtyProcess = { pid: number; exited: Promise<number>; terminal: BunTerminal; kill(signal?: number | NodeJS.Signals): void };
@@ -86,7 +131,7 @@ export class ClaudePtyAdapter implements AgentAdapter {
   spawn(opts: SpawnOptions): AgentProcess {
     let wrapper: PtyProcess | undefined;
 
-    const proc = Bun.spawn([this.command, ...this.args], {
+    const proc = Bun.spawn([this.command, ...this.args, '--settings', radarHookSettings()], {
       cwd: opts.cwd,
       env: { ...process.env, ...opts.env, TERM: 'xterm-256color' },
       terminal: {

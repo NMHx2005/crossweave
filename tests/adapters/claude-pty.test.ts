@@ -111,6 +111,26 @@ describe('ClaudePtyAdapter', () => {
     expect(late.join('')).not.toContain('early');
     expect(late.join('')).toContain('late');
   });
+
+  it('spawn injects a scoped PreToolUse hook via --settings, calling cw radar-hook', async () => {
+    const adapter = new ClaudePtyAdapter('sh', ['-c', 'for a in "$@"; do echo "ARG:$a"; done', '_']);
+    const proc = adapter.spawn({ cwd: tmpdir(), env: {}, cols: 80, rows: 24 });
+    const read = collect(proc);
+    await new Promise<number>((res) => proc.onExit(res));
+
+    // The pty translates LF to CRLF (see the `TTY`/`test -t 1` test above), so
+    // every line here carries a trailing \r that a plain split('\n') would leave in
+    // place — strip it before comparing, the same tolerance every other assertion
+    // in this file gets for free from `toContain` on the whole buffer.
+    const lines = read().replace(/\r/g, '').split('\n');
+    expect(lines).toContain('ARG:--settings');
+    const settingsLine = lines.find((l) => l.startsWith('ARG:') && l.includes('"hooks"'));
+    expect(settingsLine).toBeDefined();
+    const settings = JSON.parse(settingsLine!.slice('ARG:'.length));
+    expect(settings.hooks.PreToolUse[0].matcher).toBe('Edit|Write');
+    expect(settings.hooks.PreToolUse[0].hooks[0].command).toContain('radar-hook');
+    expect(settings.hooks.PreToolUse[0].hooks[0].timeout).toBe(5);
+  });
 });
 
 describe('createAdapter', () => {
