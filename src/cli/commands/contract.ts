@@ -1,4 +1,4 @@
-import { realpathSync, readFileSync } from 'node:fs';
+import { realpathSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
 import { defineCommand } from 'citty';
 import { withClient, fail, currentWorkspaceId } from '../context.js';
@@ -26,14 +26,15 @@ const declareCommand = defineCommand({
       await withClient(async (client, projectRoot) => {
         const workspaceId = await currentWorkspaceId(client);
         const root = realpathSync(projectRoot);
+        // Still worth rejecting an escaping path early, even though the daemon
+        // resolves the actual read (from the declaring session's own worktree,
+        // not this main checkout — see `contract.declare`'s RPC handler).
         const repoRelativePath = relative(root, assertContained(root, resolve(process.cwd(), path)));
-        const source = readFileSync(assertContained(root, resolve(process.cwd(), path)), 'utf8');
         const result = await client.call<{ id: string; symbolFqn: string; sigHash: string }>('contract.declare', {
           workspaceId,
           sessionId: args.session,
           symbolFqn: `${repoRelativePath}#${symbolFqn.slice(symbolFqn.lastIndexOf('#') + 1)}`,
           stableBy: args['stable-by'],
-          source,
         });
         process.stdout.write(`declared ${result.symbolFqn} (sig ${result.sigHash.slice(0, 8)})\n`);
       });

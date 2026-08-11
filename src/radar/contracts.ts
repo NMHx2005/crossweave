@@ -14,7 +14,8 @@ export interface DeclareOpts {
   stableBy?: string;
 }
 
-function parseFqn(fqn: string): { path: string; name: string } {
+/** Exported so `contract.declare`'s RPC handler can resolve a symbolFqn's path without re-implementing this split. */
+export function parseFqn(fqn: string): { path: string; name: string } {
   const hashIndex = fqn.lastIndexOf('#');
   if (hashIndex === -1) {
     throw new CrossweaveError('INVALID_SYMBOL_FQN', `Expected <file>#<Name>, got: ${fqn}`);
@@ -110,9 +111,14 @@ export class ContractService {
    * noise.ts): a session that has a claim on the SAME FILE a contract lives
    * in gets auto-subscribed, so `checkAndNotify`'s notification loop has a
    * real, reachable path to a subscriber instead of an always-empty one.
+   *
+   * A contract's own owner is skipped: `checkAndNotify` only ever fires on
+   * the owner's tick (see its own comment), so the owner subscribing to its
+   * own contract would just message itself about a change it made.
    */
   autoSubscribeForPath(workspaceId: string, sessionId: string, path: string): void {
     for (const contract of this.repo.listByWorkspace(workspaceId)) {
+      if (contract.ownerSession === sessionId) continue;
       const parsed = safeParseFqn(contract.symbolFqn);
       if (parsed?.path === path) this.subscribe(contract.id, sessionId);
     }

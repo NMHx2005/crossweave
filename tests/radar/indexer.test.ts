@@ -103,6 +103,37 @@ describe('RadarIndexer.reindexSession', () => {
     }
   });
 
+  test('a same-named method on a class does not erase the claim for a changed top-level function of the same name', async () => {
+    const fixture = await makeGitFixture();
+    try {
+      const before =
+        'export function run(): number {\n  return 1;\n}\n' +
+        'export class Helper {\n  run(): number {\n    return 2;\n  }\n}\n';
+      const forkPoint = await commitFile(fixture.root, 'src/run.ts', before, 'base');
+      const { claims, indexer } = await setup(fixture);
+
+      // Only the top-level `run` changes; `Helper.run` is untouched.
+      const after =
+        'export function run(): number {\n  return 999;\n}\n' +
+        'export class Helper {\n  run(): number {\n    return 2;\n  }\n}\n';
+      await commitFile(fixture.root, 'src/run.ts', after, 'wip');
+
+      await indexer.reindexSession({ id: 's_1', workspaceId: 'ws_1', worktreePath: fixture.root, forkPoint });
+
+      const rows = claims.listBySession('s_1');
+      // Before the qualified-name fix, the unchanged `Helper.run` shared the
+      // bare key 'run' with the changed top-level function, matched as
+      // "unchanged", and deleted the claim just written for it — leaving
+      // zero claims for a file that genuinely changed.
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.path).toBe('src/run.ts');
+      expect(rows[0]?.symbol).toBe('run');
+      expect(rows[0]?.kind).toBe('function');
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
   test('advancing the fork point to include the change clears the now-stale claim', async () => {
     const fixture = await makeGitFixture();
     try {

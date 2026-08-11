@@ -58,7 +58,16 @@ function tsTopLevelSymbol(node: Node): SymbolRange | undefined {
   }
 }
 
-function tsClassMethods(classNode: Node): SymbolRange[] {
+/**
+ * `className` qualifies each method's `name` as `${className}.${methodName}`
+ * — a bare method name is not unique within a file (two classes can each
+ * have a `run` method), and `RadarIndexer`'s `beforeByName` map plus
+ * `FileClaimRepo`'s `(session_id, path, symbol)` keying both treat same-named
+ * symbols in one file as the SAME symbol. An unqualified top-level
+ * `function`/`class`/`interface`/`type`/`const` name stays unqualified — see
+ * `extractTsLike`/`extractPython`.
+ */
+function tsClassMethods(classNode: Node, className: string): SymbolRange[] {
   const body = classNode.childForFieldName('body');
   if (!body) return [];
   const out: SymbolRange[] = [];
@@ -66,7 +75,12 @@ function tsClassMethods(classNode: Node): SymbolRange[] {
     if (!child || child.type !== 'method_definition') continue;
     const name = child.childForFieldName('name')?.text;
     const bodyStartByte = child.childForFieldName('body')?.startIndex;
-    if (name) out.push({ name, kind: 'method', startByte: child.startIndex, endByte: child.endIndex, bodyStartByte });
+    if (name) {
+      out.push({
+        name: `${className}.${name}`, kind: 'method',
+        startByte: child.startIndex, endByte: child.endIndex, bodyStartByte,
+      });
+    }
   }
   return out;
 }
@@ -80,14 +94,17 @@ function extractTsLike(root: Node): SymbolRange[] {
     const inner = unwrapExport(child);
     if (inner.type === 'class_declaration') {
       const name = inner.childForFieldName('name')?.text;
-      if (name) out.push({ name, kind: 'class', startByte: child.startIndex, endByte: child.endIndex });
-      out.push(...tsClassMethods(inner));
+      if (name) {
+        out.push({ name, kind: 'class', startByte: child.startIndex, endByte: child.endIndex });
+        out.push(...tsClassMethods(inner, name));
+      }
     }
   }
   return out;
 }
 
-function pyClassMethods(classNode: Node): SymbolRange[] {
+/** See `tsClassMethods` for why `className` qualifies the emitted name. */
+function pyClassMethods(classNode: Node, className: string): SymbolRange[] {
   const body = classNode.childForFieldName('body');
   if (!body) return [];
   const out: SymbolRange[] = [];
@@ -95,7 +112,12 @@ function pyClassMethods(classNode: Node): SymbolRange[] {
     if (!child || child.type !== 'function_definition') continue;
     const name = child.childForFieldName('name')?.text;
     const bodyStartByte = child.childForFieldName('body')?.startIndex;
-    if (name) out.push({ name, kind: 'method', startByte: child.startIndex, endByte: child.endIndex, bodyStartByte });
+    if (name) {
+      out.push({
+        name: `${className}.${name}`, kind: 'method',
+        startByte: child.startIndex, endByte: child.endIndex, bodyStartByte,
+      });
+    }
   }
   return out;
 }
@@ -110,8 +132,10 @@ function extractPython(root: Node): SymbolRange[] {
       if (name) out.push({ name, kind: 'function', startByte: child.startIndex, endByte: child.endIndex, bodyStartByte });
     } else if (child.type === 'class_definition') {
       const name = child.childForFieldName('name')?.text;
-      if (name) out.push({ name, kind: 'class', startByte: child.startIndex, endByte: child.endIndex });
-      out.push(...pyClassMethods(child));
+      if (name) {
+        out.push({ name, kind: 'class', startByte: child.startIndex, endByte: child.endIndex });
+        out.push(...pyClassMethods(child, name));
+      }
     }
   }
   return out;

@@ -108,6 +108,22 @@ describe('ContractService', () => {
     expect(inbox[0]?.trust).toBe('system');
   });
 
+  test('autoSubscribeForPath does not subscribe a contract\'s own owner to its own contract', () => {
+    const db = openDatabase(':memory:');
+    seed(db);
+    const service = new ContractService(db);
+    const contract = service.declareFromSource(
+      { workspaceId: 'ws_1', ownerSession: 's_owner', symbolFqn: 'src/auth.ts#login' },
+      'export function login(user: string): boolean {\n  return true;\n}\n',
+    );
+
+    // The owner also has a claim on the same file — the normal case, since
+    // it declared a contract on work it is doing.
+    service.autoSubscribeForPath('ws_1', 's_owner', 'src/auth.ts');
+
+    expect(new ContractRepo(db).listSubscribers(contract.id)).not.toContain('s_owner');
+  });
+
   test('only the contract owner\'s own tick may update sig_hash — a subscriber\'s divergent worktree view is not authoritative', () => {
     const db = openDatabase(':memory:');
     seed(db);

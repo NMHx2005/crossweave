@@ -1,4 +1,6 @@
 import type { Database } from 'bun:sqlite';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { WorkspaceManager } from '../domain/workspace.js';
 import { SessionManager, type AdapterFactory } from '../domain/session.js';
 import { CrossweaveError } from '../core/errors.js';
@@ -17,7 +19,7 @@ import { buildTools } from '../mcp/tools.js';
 import { RadarWatcherRegistry } from './watcher.js';
 import { FileClaimRepo } from '../db/repositories/file-claim.js';
 import { checkCollisions } from '../radar/collisions.js';
-import { ContractService } from '../radar/contracts.js';
+import { ContractService, parseFqn } from '../radar/contracts.js';
 
 function str(params: Record<string, unknown>, key: string): string {
   const v = params[key];
@@ -343,14 +345,23 @@ export function buildMethods(
     'contract.declare': (p) => {
       const workspaceId = str(p, 'workspaceId');
       const owner = sessions.resolve(workspaceId, str(p, 'sessionId'));
+      const symbolFqn = str(p, 'symbolFqn');
+      // Resolved from the OWNER's own worktree, never a client-supplied
+      // `source` — `checkAndNotify` later recomputes sig_hash from that same
+      // worktree, and a client-supplied source (e.g. the CLI's main-checkout
+      // read) can diverge from it, firing a spurious "Contract changed" on
+      // the very first watcher tick after declaring.
+      const { path } = parseFqn(symbolFqn);
+      const worktreePath = owner.worktreePath ?? projectRoot;
+      const source = readFileSync(join(worktreePath, path), 'utf8');
       const contract = contracts.declareFromSource(
         {
           workspaceId,
           ownerSession: owner.id,
-          symbolFqn: str(p, 'symbolFqn'),
+          symbolFqn,
           stableBy: optionalStr(p, 'stableBy'),
         },
-        str(p, 'source'),
+        source,
       );
       return { id: contract.id, symbolFqn: contract.symbolFqn, sigHash: contract.sigHash };
     },

@@ -98,7 +98,10 @@ export class RadarWatcherRegistry {
       }
       // A claim on this path is this session's evidence of "cares about
       // this file" — auto-subscribe it to any contract living there before
-      // checking, so a signature change caught THIS pass still reaches it.
+      // checking. `checkAndNotify` only ever fires on a contract's OWNER
+      // tick, so this only ever adds OTHER (non-owner) sessions as
+      // subscribers — `autoSubscribeForPath` itself skips a contract's own
+      // owner, or the owner would end up messaging itself.
       this.contracts.autoSubscribeForPath(session.workspaceId, session.id, path);
       this.contracts.checkAndNotify(session.workspaceId, path, source, this.bus, session.id);
     }

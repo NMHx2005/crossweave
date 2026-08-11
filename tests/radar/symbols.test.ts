@@ -26,8 +26,8 @@ describe('extractSymbols — typescript', () => {
     expect(symbols).toBeDefined();
     const names = symbols?.map((s) => `${s.kind}:${s.name}`);
     expect(names).toContain('class:AuthService');
-    expect(names).toContain('method:login');
-    expect(names).toContain('method:logout');
+    expect(names).toContain('method:AuthService.login');
+    expect(names).toContain('method:AuthService.logout');
   });
 
   test('a generic function declaration is still extracted as one function symbol', () => {
@@ -71,6 +71,6 @@ describe('extractSymbols — python', () => {
     const names = symbols?.map((s) => `${s.kind}:${s.name}`);
     expect(names).toContain('function:greet');
     expect(names).toContain('class:AuthService');
-    expect(names).toContain('method:login');
+    expect(names).toContain('method:AuthService.login');
   });
 });
