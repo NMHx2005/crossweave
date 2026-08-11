@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 /**
  * Each migration is a list of single statements, never one multi-statement blob.
@@ -175,5 +175,17 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
     `ALTER TABLE event_v6 RENAME TO event`,
     `CREATE INDEX event_by_session ON event (session_id, ts)`,
     `CREATE INDEX event_by_workspace_kind ON event (workspace_id, kind, ts)`,
+  ],
+  [
+    // Trust gate for `converge.testCommand` (M4 known-limitation): a workspace
+    // must explicitly `cw config trust` the exact command string sourced from
+    // the committed crossweave.config.json before the daemon will ever execute
+    // it. Keyed by a hash of the command string, not a boolean, so editing the
+    // string — including via a hostile clone — requires re-trusting.
+    `CREATE TABLE config_trust (
+    workspace_id      TEXT PRIMARY KEY REFERENCES workspace(id) ON DELETE CASCADE,
+    test_command_hash TEXT NOT NULL,
+    trusted_at        TEXT NOT NULL
+  )`,
   ],
 ];

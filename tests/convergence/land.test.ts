@@ -8,10 +8,12 @@ import { WorkspaceRepo } from '../../src/db/repositories/workspace.js';
 import { SessionRepo, type SessionRow } from '../../src/db/repositories/session.js';
 import { EventRepo } from '../../src/db/repositories/event.js';
 import { MergeTrialRepo } from '../../src/db/repositories/merge-trial.js';
+import { ConfigTrustRepo } from '../../src/db/repositories/config-trust.js';
 import { LeaseManager } from '../../src/isolation/leases/manager.js';
 import { EventLedger } from '../../src/domain/ledger.js';
 import { DEFAULT_CONFIG, type CrossweaveConfig } from '../../src/core/config.js';
 import { landSession, type LandResult } from '../../src/convergence/land.js';
+import { hashTestCommand } from '../../src/convergence/trust.js';
 import { buildMethods } from '../../src/daemon/methods.js';
 import { ClaudePtyAdapter } from '../../src/adapters/claude-pty.js';
 import type { AgentAdapter } from '../../src/adapters/types.js';
@@ -26,7 +28,14 @@ async function setup(fixture: GitFixture, config = DEFAULT_CONFIG) {
   const sessions = new SessionRepo(db);
   const leaseManager = new LeaseManager(db, fixture.root, config);
   const ledger = new EventLedger(db, fixture.root);
-  return { db, sessions, leaseManager, ledger, config };
+  const configTrust = new ConfigTrustRepo(db);
+  // Tests exercise the trust gate itself explicitly (see "LAND_TESTCOMMAND_UNTRUSTED"
+  // below) — every OTHER test using a testCommand is testing something else and
+  // shouldn't also have to think about trust, so setup() pre-trusts it here.
+  if (config.converge.testCommand !== undefined) {
+    configTrust.upsert({ workspaceId: 'ws_1', testCommandHash: hashTestCommand(config.converge.testCommand), trustedAt: 'now' });
+  }
+  return { db, sessions, leaseManager, ledger, config, configTrust };
 }
 
 function insertSession(sessions: SessionRepo, overrides: Partial<SessionRow> & { id: string; branch: string | null }): void {
@@ -63,11 +72,11 @@ describe('landSession', () => {
       await $`git checkout -q -b cw/a`.cwd(fixture.root).quiet();
       await commitFile(fixture.root, 'a.txt', 'a\n', 'add a');
       await $`git checkout -q main`.cwd(fixture.root).quiet();
-      const { db, sessions, leaseManager, ledger, config } = await setup(fixture);
+      const { db, sessions, leaseManager, ledger, config, configTrust } = await setup(fixture);
       insertSession(sessions, { id: 's_a', worktreePath: fixture.root, branch: 'cw/a', status: 'running' });
 
       await expect(
-        landSession({ db, projectRoot: fixture.root, sessions, leaseManager, ledger, config }, 'ws_1', 's_a', { force: false }),
+        landSession({ db, projectRoot: fixture.root, sessions, leaseManager, ledger, config, configTrust }, 'ws_1', 's_a', { force: false }),
       ).rejects.toMatchObject({ code: 'SESSION_STILL_LIVE' });
     } finally {
       await fixture.cleanup();
@@ -83,11 +92,11 @@ describe('landSession', () => {
       await $`git checkout -q main`.cwd(fixture.root).quiet();
       await commitFile(fixture.root, 'shared.txt', 'from main\n', 'main edits shared too');
 
-      const { db, sessions, leaseManager, ledger, config } = await setup(fixture);
+      const { db, sessions, leaseManager, ledger, config, configTrust } = await setup(fixture);
       insertSession(sessions, { id: 's_a', worktreePath: fixture.root, branch: 'cw/a' });
 
       await expect(
-        landSession({ db, projectRoot: fixture.root, sessions, leaseManager, ledger, config }, 'ws_1', 's_a', { force: false }),
+        landSession({ db, projectRoot: fixture.root, sessions, leaseManager, ledger, config, configTrust }, 'ws_1', 's_a', { force: false }),
       ).rejects.toMatchObject({ code: 'LAND_CONFLICT' });
     } finally {
       await fixture.cleanup();
@@ -101,11 +110,11 @@ describe('landSession', () => {
       await commitFile(fixture.root, 'a.txt', 'a\n', 'add a');
       await $`git checkout -q main`.cwd(fixture.root).quiet();
 
-      const { db, sessions, leaseManager, ledger, config } = await setup(fixture);
+      const { db, sessions, leaseManager, ledger, config, configTrust } = await setup(fixture);
       insertSession(sessions, { id: 's_a', worktreePath: fixture.root, branch: 'cw/a' });
 
       const result = await landSession(
-        { db, projectRoot: fixture.root, sessions, leaseManager, ledger, config }, 'ws_1', 's_a', { force: false },
+        { db, projectRoot: fixture.root, sessions, leaseManager, ledger, config, configTrust }, 'ws_1', 's_a', { force: false },
       );
       expect(result.status).toBe('landed');
       expect(result.baseBranch).toBe('main');
@@ -136,11 +145,11 @@ describe('landSession', () => {
       await $`git checkout -q main`.cwd(fixture.root).quiet();
       const beforeHead = (await $`git rev-parse HEAD`.cwd(fixture.root).quiet().text()).trim();
 
-      const { db, sessions, leaseManager, ledger, config } = await setup(fixture); // default squash strategy
+      const { db, sessions, leaseManager, ledger, config, configTrust } = await setup(fixture); // default squash strategy
       insertSession(sessions, { id: 's_a', worktreePath: fixture.root, branch: 'cw/a', status: 'idle' });
 
       const result = await landSession(
-        { db, projectRoot: fixture.root, sessions, leaseManager, ledger, config }, 'ws_1', 's_a', { force: false },
+        { db, projectRoot: fixture.root, sessions, leaseManager, ledger, config, configTrust }, 'ws_1', 's_a', { force: false },
       );
       expect(result.status).toBe('landed');
       expect(result.warnings).toEqual([]);
@@ -165,11 +174,11 @@ describe('landSession', () => {
       await commitFile(fixture.root, 'a.txt', 'a\n', 'add a');
       await $`git checkout -q main`.cwd(fixture.root).quiet();
 
-      const { db, sessions, leaseManager, ledger, config } = await setup(fixture);
+      const { db, sessions, leaseManager, ledger, config, configTrust } = await setup(fixture);
       insertSession(sessions, { id: 's_a', worktreePath: fixture.root, branch: 'cw/a' });
 
       const result = await landSession(
-        { db, projectRoot: fixture.root, sessions, leaseManager, ledger, config }, 'ws_1', 's_a', { force: false },
+        { db, projectRoot: fixture.root, sessions, leaseManager, ledger, config, configTrust }, 'ws_1', 's_a', { force: false },
       );
       expect(result.tested).toBe('unverified');
     } finally {
@@ -180,11 +189,11 @@ describe('landSession', () => {
   test('LAND_NO_BRANCH: refuses a session with no branch (started with --no-worktree)', async () => {
     const fixture = await makeGitFixture();
     try {
-      const { db, sessions, leaseManager, ledger, config } = await setup(fixture);
+      const { db, sessions, leaseManager, ledger, config, configTrust } = await setup(fixture);
       insertSession(sessions, { id: 's_a', worktreePath: fixture.root, branch: null });
 
       await expect(
-        landSession({ db, projectRoot: fixture.root, sessions, leaseManager, ledger, config }, 'ws_1', 's_a', { force: false }),
+        landSession({ db, projectRoot: fixture.root, sessions, leaseManager, ledger, config, configTrust }, 'ws_1', 's_a', { force: false }),
       ).rejects.toMatchObject({ code: 'LAND_NO_BRANCH' });
     } finally {
       await fixture.cleanup();
@@ -200,11 +209,11 @@ describe('landSession', () => {
       await writeFile(join(fixture.root, 'wip.txt'), 'someone else\'s unrelated work\n');
       await $`git add wip.txt`.cwd(fixture.root).quiet();
 
-      const { db, sessions, leaseManager, ledger, config } = await setup(fixture);
+      const { db, sessions, leaseManager, ledger, config, configTrust } = await setup(fixture);
       insertSession(sessions, { id: 's_a', worktreePath: fixture.root, branch: 'cw/a' });
 
       await expect(
-        landSession({ db, projectRoot: fixture.root, sessions, leaseManager, ledger, config }, 'ws_1', 's_a', { force: false }),
+        landSession({ db, projectRoot: fixture.root, sessions, leaseManager, ledger, config, configTrust }, 'ws_1', 's_a', { force: false }),
       ).rejects.toMatchObject({ code: 'LAND_DIRTY_TREE' });
 
       // The dirty file must survive untouched — never swept into a land commit.
@@ -226,11 +235,11 @@ describe('landSession', () => {
       const head = (await $`git rev-parse HEAD`.cwd(fixture.root).quiet().text()).trim();
       await $`git checkout -q ${head}`.cwd(fixture.root).quiet();
 
-      const { db, sessions, leaseManager, ledger, config } = await setup(fixture);
+      const { db, sessions, leaseManager, ledger, config, configTrust } = await setup(fixture);
       insertSession(sessions, { id: 's_a', worktreePath: fixture.root, branch: 'cw/a' });
 
       await expect(
-        landSession({ db, projectRoot: fixture.root, sessions, leaseManager, ledger, config }, 'ws_1', 's_a', { force: false }),
+        landSession({ db, projectRoot: fixture.root, sessions, leaseManager, ledger, config, configTrust }, 'ws_1', 's_a', { force: false }),
       ).rejects.toMatchObject({ code: 'LAND_NO_BASE_BRANCH' });
     } finally {
       await fixture.cleanup();
@@ -245,11 +254,11 @@ describe('landSession', () => {
       await $`git checkout -q main`.cwd(fixture.root).quiet();
 
       const config = withStrategy('merge');
-      const { db, sessions, leaseManager, ledger } = await setup(fixture, config);
+      const { db, sessions, leaseManager, ledger, configTrust } = await setup(fixture, config);
       insertSession(sessions, { id: 's_a', worktreePath: fixture.root, branch: 'cw/a' });
 
       const result = await landSession(
-        { db, projectRoot: fixture.root, sessions, leaseManager, ledger, config }, 'ws_1', 's_a', { force: false },
+        { db, projectRoot: fixture.root, sessions, leaseManager, ledger, config, configTrust }, 'ws_1', 's_a', { force: false },
       );
       expect(result.status).toBe('landed');
 
@@ -274,11 +283,11 @@ describe('landSession', () => {
       await commitFile(fixture.root, 'other.txt', 'x\n', 'main advances independently');
 
       const config = withStrategy('rebase');
-      const { db, sessions, leaseManager, ledger } = await setup(fixture, config);
+      const { db, sessions, leaseManager, ledger, configTrust } = await setup(fixture, config);
       insertSession(sessions, { id: 's_a', worktreePath: fixture.root, branch: 'cw/a' });
 
       const result = await landSession(
-        { db, projectRoot: fixture.root, sessions, leaseManager, ledger, config }, 'ws_1', 's_a', { force: false },
+        { db, projectRoot: fixture.root, sessions, leaseManager, ledger, config, configTrust }, 'ws_1', 's_a', { force: false },
       );
       expect(result.status).toBe('landed');
 
@@ -311,11 +320,11 @@ describe('landSession', () => {
       await commitFile(fixture.root, 'multi.txt', `${[...lines.slice(0, 4), 'line5-main'].join('\n')}\n`, 'main: edit line 5');
 
       const config = withStrategy('rebase');
-      const { db, sessions, leaseManager, ledger } = await setup(fixture, config);
+      const { db, sessions, leaseManager, ledger, configTrust } = await setup(fixture, config);
       insertSession(sessions, { id: 's_a', worktreePath: fixture.root, branch: 'cw/a' });
 
       const result = await landSession(
-        { db, projectRoot: fixture.root, sessions, leaseManager, ledger, config }, 'ws_1', 's_a', { force: false },
+        { db, projectRoot: fixture.root, sessions, leaseManager, ledger, config, configTrust }, 'ws_1', 's_a', { force: false },
       );
       expect(result.status).toBe('landed');
 
@@ -344,11 +353,11 @@ describe('landSession', () => {
       await commitFile(fixture.root, 'shared.txt', 'main-edit\n', 'main edits shared');
 
       const config = withStrategy('rebase');
-      const { db, sessions, leaseManager, ledger } = await setup(fixture, config);
+      const { db, sessions, leaseManager, ledger, configTrust } = await setup(fixture, config);
       insertSession(sessions, { id: 's_a', worktreePath: fixture.root, branch: 'cw/a' });
 
       await expect(
-        landSession({ db, projectRoot: fixture.root, sessions, leaseManager, ledger, config }, 'ws_1', 's_a', { force: false }),
+        landSession({ db, projectRoot: fixture.root, sessions, leaseManager, ledger, config, configTrust }, 'ws_1', 's_a', { force: false }),
       ).rejects.toMatchObject({ code: 'LAND_REBASE_CONFLICT' });
 
       // The rebase happens ONLY in the scratch integration worktree — the main
@@ -373,9 +382,54 @@ describe('landSession', () => {
       await $`git checkout -q main`.cwd(fixture.root).quiet();
       insertSession(sessions, { id: 's_c', worktreePath: fixture.root, branch: 'cw/c' });
       const retry = await landSession(
-        { db, projectRoot: fixture.root, sessions, leaseManager, ledger, config: squashConfig }, 'ws_1', 's_c', { force: false },
+        { db, projectRoot: fixture.root, sessions, leaseManager, ledger, config: squashConfig, configTrust }, 'ws_1', 's_c', { force: false },
       );
       expect(retry.status).toBe('landed');
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
+  test('LAND_TESTCOMMAND_UNTRUSTED: refuses to land when testCommand is set but not trusted for this workspace', async () => {
+    const fixture = await makeGitFixture();
+    try {
+      await $`git checkout -q -b cw/a`.cwd(fixture.root).quiet();
+      await commitFile(fixture.root, 'a.txt', 'a\n', 'add a');
+      await $`git checkout -q main`.cwd(fixture.root).quiet();
+      const beforeHead = (await $`git rev-parse HEAD`.cwd(fixture.root).quiet().text()).trim();
+
+      // Deliberately does NOT go through setup()'s auto-trust: constructs the DB
+      // directly so no config_trust row exists for this testCommand.
+      const db = openDatabase(':memory:');
+      new WorkspaceRepo(db).insert({
+        id: 'ws_1', name: 'w', rootPath: fixture.root, createdAt: 'now',
+        defaultIsolation: 'worktree', safeModeTier: 'T1',
+      });
+      const config = withTestCommand('exit 0');
+      const sessions = new SessionRepo(db);
+      const leaseManager = new LeaseManager(db, fixture.root, config);
+      const ledger = new EventLedger(db, fixture.root);
+      const configTrust = new ConfigTrustRepo(db);
+      insertSession(sessions, { id: 's_a', worktreePath: fixture.root, branch: 'cw/a' });
+
+      await expect(
+        landSession(
+          { db, projectRoot: fixture.root, sessions, leaseManager, ledger, config, configTrust }, 'ws_1', 's_a', { force: false },
+        ),
+      ).rejects.toMatchObject({ code: 'LAND_TESTCOMMAND_UNTRUSTED' });
+
+      const afterHead = execFileSync('git', ['rev-parse', 'main'], { cwd: fixture.root, encoding: 'utf8' }).trim();
+      expect(afterHead).toBe(beforeHead);
+      expect(sessions.findById('s_a')?.status).not.toBe('landed');
+
+      // Trusting it (mirrors `cw config trust`) is enough for the SAME land to
+      // then succeed, with no other change.
+      configTrust.upsert({ workspaceId: 'ws_1', testCommandHash: hashTestCommand(config.converge.testCommand as string), trustedAt: 'now' });
+      const result = await landSession(
+        { db, projectRoot: fixture.root, sessions, leaseManager, ledger, config, configTrust }, 'ws_1', 's_a', { force: false },
+      );
+      expect(result.status).toBe('landed');
+      expect(result.tested).toBe('clean');
     } finally {
       await fixture.cleanup();
     }
@@ -389,11 +443,11 @@ describe('landSession', () => {
       await $`git checkout -q main`.cwd(fixture.root).quiet();
 
       const config = withTestCommand('exit 0');
-      const { db, sessions, leaseManager, ledger } = await setup(fixture, config);
+      const { db, sessions, leaseManager, ledger, configTrust } = await setup(fixture, config);
       insertSession(sessions, { id: 's_a', worktreePath: fixture.root, branch: 'cw/a' });
 
       const result = await landSession(
-        { db, projectRoot: fixture.root, sessions, leaseManager, ledger, config }, 'ws_1', 's_a', { force: false },
+        { db, projectRoot: fixture.root, sessions, leaseManager, ledger, config, configTrust }, 'ws_1', 's_a', { force: false },
       );
       expect(result.tested).toBe('clean');
       expect(result.status).toBe('landed');
@@ -411,11 +465,11 @@ describe('landSession', () => {
       const beforeHead = (await $`git rev-parse HEAD`.cwd(fixture.root).quiet().text()).trim();
 
       const config = withTestCommand('exit 1');
-      const { db, sessions, leaseManager, ledger } = await setup(fixture, config);
+      const { db, sessions, leaseManager, ledger, configTrust } = await setup(fixture, config);
       insertSession(sessions, { id: 's_a', worktreePath: fixture.root, branch: 'cw/a' });
 
       await expect(
-        landSession({ db, projectRoot: fixture.root, sessions, leaseManager, ledger, config }, 'ws_1', 's_a', { force: false }),
+        landSession({ db, projectRoot: fixture.root, sessions, leaseManager, ledger, config, configTrust }, 'ws_1', 's_a', { force: false }),
       ).rejects.toMatchObject({ code: 'LAND_TEST_FAILED' });
 
       const afterHead = execFileSync('git', ['rev-parse', 'main'], { cwd: fixture.root, encoding: 'utf8' }).trim();
@@ -439,11 +493,11 @@ describe('landSession', () => {
       // the trial's now-stale snapshot of it — the `landing` lock only rules out a
       // second CONCURRENT `cw land`, not this.
       const config = withTestCommand(`git -C ${fixture.root} commit --allow-empty -q -m moved-by-someone-else`);
-      const { db, sessions, leaseManager, ledger } = await setup(fixture, config);
+      const { db, sessions, leaseManager, ledger, configTrust } = await setup(fixture, config);
       insertSession(sessions, { id: 's_a', worktreePath: fixture.root, branch: 'cw/a' });
 
       await expect(
-        landSession({ db, projectRoot: fixture.root, sessions, leaseManager, ledger, config }, 'ws_1', 's_a', { force: false }),
+        landSession({ db, projectRoot: fixture.root, sessions, leaseManager, ledger, config, configTrust }, 'ws_1', 's_a', { force: false }),
       ).rejects.toMatchObject({ code: 'LAND_BASE_MOVED' });
 
       // The external commit is left in place (land does not fight the user for
@@ -468,11 +522,11 @@ describe('landSession', () => {
       await commitFile(fixture.root, 'b.txt', 'b\n', 'add b');
       await $`git checkout -q main`.cwd(fixture.root).quiet();
 
-      const { db, sessions, leaseManager, ledger, config } = await setup(fixture);
+      const { db, sessions, leaseManager, ledger, config, configTrust } = await setup(fixture);
       insertSession(sessions, { id: 's_a', worktreePath: fixture.root, branch: 'cw/a' });
       insertSession(sessions, { id: 's_b', worktreePath: fixture.root, branch: 'cw/b' });
 
-      const deps = { db, projectRoot: fixture.root, sessions, leaseManager, ledger, config };
+      const deps = { db, projectRoot: fixture.root, sessions, leaseManager, ledger, config, configTrust };
       // Fired back-to-back, without awaiting the first: `landSession` does a
       // synchronous check-and-lock before its first `await`, so the second call
       // observes the lock the first one already took, even though neither has
@@ -607,6 +661,7 @@ describe('cw land all (RPC-level, converge.status + land.session directly — no
       // only B's branch adds it, so only B's land trips LAND_TEST_FAILED.
       const config = withTestCommand('test ! -f FAIL_MARKER.txt');
       const methods = buildMethods(db, fixture.root, undefined, config);
+      await methods['config.trust']!({ workspaceId: 'ws_1' }, ctx);
 
       const a = (await methods['session.new']!({ workspaceId: 'ws_1', name: 'a', agent: 'claude', worktree: true }, ctx)) as { id: string; worktreePath: string };
       await commitFile(a.worktreePath, 'a.txt', 'a\n', 'add a');

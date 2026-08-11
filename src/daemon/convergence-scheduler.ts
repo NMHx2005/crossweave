@@ -6,8 +6,10 @@ import type { LeaseManager } from '../isolation/leases/manager.js';
 import { WorkspaceRepo } from '../db/repositories/workspace.js';
 import { SessionRepo, type SessionRow } from '../db/repositories/session.js';
 import { MergeTrialRepo } from '../db/repositories/merge-trial.js';
+import type { ConfigTrustRepo } from '../db/repositories/config-trust.js';
 import { ensureIntegrationWorktree, withIntegrationLease, withIntegrationWorktreeLock } from '../convergence/integration-worktree.js';
 import { runMergeTrial, resetIntegration } from '../convergence/trial.js';
+import { isTestCommandTrusted } from '../convergence/trust.js';
 
 const TICK_MS = 5_000;
 // Sorted-pair dedup keys accumulate one entry per unique (branch@head, branch@head)
@@ -82,6 +84,7 @@ export class ConvergenceScheduler {
     projectRoot: string,
     private readonly config: CrossweaveConfig,
     private readonly leaseManager: LeaseManager,
+    private readonly configTrust: ConfigTrustRepo,
   ) {
     this.workspaces = new WorkspaceRepo(db);
     this.sessions = new SessionRepo(db);
@@ -266,7 +269,21 @@ export class ConvergenceScheduler {
           return;
         }
 
-        if (this.config.converge.testCommand === undefined) {
+        const testCommand = this.config.converge.testCommand;
+        if (testCommand === undefined) {
+          this.mergeTrials.insert({
+            id: newId('mt'), workspaceId, ts: new Date().toISOString(),
+            branches, result: 'unverified', detail: null,
+          });
+          return;
+        }
+        // A background poller cannot prompt or block a whole tick over one
+        // workspace's untrusted config — unlike `cw land`, it just skips the test
+        // run and records the trial as unverified, same as no testCommand at all.
+        if (!isTestCommandTrusted(testCommand, this.configTrust, workspaceId)) {
+          process.stderr.write(
+            `crossweave: converge.testCommand is set but not trusted for workspace ${workspaceId} — run \`cw config trust\`. Skipping test run.\n`,
+          );
           this.mergeTrials.insert({
             id: newId('mt'), workspaceId, ts: new Date().toISOString(),
             branches, result: 'unverified', detail: null,

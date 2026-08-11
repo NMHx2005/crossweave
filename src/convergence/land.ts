@@ -5,9 +5,11 @@ import type { CrossweaveConfig } from '../core/config.js';
 import type { SessionRepo } from '../db/repositories/session.js';
 import type { LeaseManager } from '../isolation/leases/manager.js';
 import type { EventLedger } from '../domain/ledger.js';
+import type { ConfigTrustRepo } from '../db/repositories/config-trust.js';
 import { removeWorktree, deleteBranch } from '../isolation/worktree.js';
 import { ensureIntegrationWorktree, withIntegrationLease, withIntegrationWorktreeLock } from './integration-worktree.js';
 import { runMergeTrial, resetIntegration } from './trial.js';
+import { isTestCommandTrusted } from './trust.js';
 
 export interface LandDeps {
   db: Database;
@@ -16,6 +18,7 @@ export interface LandDeps {
   leaseManager: LeaseManager;
   ledger: EventLedger;
   config: CrossweaveConfig;
+  configTrust: ConfigTrustRepo;
 }
 
 export interface LandResult {
@@ -203,6 +206,16 @@ export async function landSession(
         }
 
         if (deps.config.converge.testCommand !== undefined) {
+          // Unlike the scheduler's background tick, `cw land` runs at exactly the
+          // moment a destructive, `--yes`-confirmed merge is already in flight — an
+          // untrusted testCommand must FAIL the land, not silently skip the test and
+          // land unverified. See docs/superpowers/specs/2026-08-12-m4-known-limitations.md.
+          if (!isTestCommandTrusted(deps.config.converge.testCommand, deps.configTrust, workspaceId)) {
+            throw new CrossweaveError(
+              'LAND_TESTCOMMAND_UNTRUSTED',
+              'converge.testCommand is set but not trusted for this workspace. Review crossweave.config.json, then run `cw config trust`.',
+            );
+          }
           const testOutcome = await withIntegrationLease(deps.leaseManager, integration.sessionId, async (env) => {
             // Mirrors the scheduler's `maybeRunFullIntegration`: the integration
             // row's status reflects a real session's lifecycle — `running` only

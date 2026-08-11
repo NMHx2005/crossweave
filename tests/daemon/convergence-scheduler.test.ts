@@ -5,7 +5,9 @@ import { WorkspaceRepo } from '../../src/db/repositories/workspace.js';
 import { SessionRepo } from '../../src/db/repositories/session.js';
 import { LeaseManager } from '../../src/isolation/leases/manager.js';
 import { MergeTrialRepo } from '../../src/db/repositories/merge-trial.js';
+import { ConfigTrustRepo } from '../../src/db/repositories/config-trust.js';
 import { ConvergenceScheduler } from '../../src/daemon/convergence-scheduler.js';
+import { hashTestCommand } from '../../src/convergence/trust.js';
 import { DEFAULT_CONFIG } from '../../src/core/config.js';
 import { makeGitFixture, commitFile, type GitFixture } from '../helpers/git-fixture.js';
 
@@ -28,8 +30,9 @@ async function setup(fixture: GitFixture) {
   const sessions = new SessionRepo(db);
   const config = { ...DEFAULT_CONFIG, converge: { ...DEFAULT_CONFIG.converge, trialDebounceMs: 0 } };
   const leaseManager = new LeaseManager(db, fixture.root, config);
-  const scheduler = new ConvergenceScheduler(db, fixture.root, config, leaseManager);
-  return { db, sessions, leaseManager, scheduler };
+  const configTrust = new ConfigTrustRepo(db);
+  const scheduler = new ConvergenceScheduler(db, fixture.root, config, leaseManager, configTrust);
+  return { db, sessions, leaseManager, configTrust, scheduler };
 }
 
 describe('ConvergenceScheduler', () => {
@@ -155,7 +158,8 @@ describe('ConvergenceScheduler', () => {
         converge: { ...DEFAULT_CONFIG.converge, trialDebounceMs: 0, fullIntegrationIntervalMs: 0 },
       };
       const leaseManager = new LeaseManager(db, fixture.root, config);
-      const scheduler = new ConvergenceScheduler(db, fixture.root, config, leaseManager);
+      const configTrust = new ConfigTrustRepo(db);
+      const scheduler = new ConvergenceScheduler(db, fixture.root, config, leaseManager, configTrust);
 
       for (let i = 0; i < branchCount; i += 1) {
         sessions.insert({
@@ -174,6 +178,67 @@ describe('ConvergenceScheduler', () => {
       const fullIntegration = trials.filter((t) => t.branches.length === branchCount);
       expect(fullIntegration).toHaveLength(1);
       expect(fullIntegration[0]?.result).toBe('unverified'); // clean merge, no testCommand configured
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
+  test('an untrusted testCommand is never run: full integration records "unverified", not the command\'s actual result', async () => {
+    const fixture = await makeGitFixture();
+    try {
+      // 3 branches, not 2: with only 2 active sessions, the pairwise trial for
+      // that one pair and the full-integration trial both have branches.length
+      // === 2 (see the "two workspaces" test above for the same caveat), which
+      // would make the untrusted full-integration row indistinguishable from
+      // the pairwise one below.
+      await branchWithFile(fixture.root, 'cw/a', 'a.txt', 'a\n');
+      await branchWithFile(fixture.root, 'cw/b', 'b.txt', 'b\n');
+      await branchWithFile(fixture.root, 'cw/c', 'c.txt', 'c\n');
+
+      const db = openDatabase(':memory:');
+      new WorkspaceRepo(db).insert({
+        id: 'ws_1', name: 'w', rootPath: fixture.root, createdAt: 'now',
+        defaultIsolation: 'worktree', safeModeTier: 'T1',
+      });
+      const sessions = new SessionRepo(db);
+      // Would fail the trial (exit 1) if it ever ran — proves the untrusted
+      // command genuinely never executes, not just that its result is discarded.
+      const config = {
+        ...DEFAULT_CONFIG,
+        converge: { ...DEFAULT_CONFIG.converge, trialDebounceMs: 0, fullIntegrationIntervalMs: 0, testCommand: 'exit 1' },
+      };
+      const leaseManager = new LeaseManager(db, fixture.root, config);
+      const configTrust = new ConfigTrustRepo(db); // deliberately no trust row
+      const scheduler = new ConvergenceScheduler(db, fixture.root, config, leaseManager, configTrust);
+
+      for (const name of ['a', 'b', 'c']) {
+        sessions.insert({
+          id: `s_${name}`, workspaceId: 'ws_1', name, agentKind: 'claude', adapter: 'claude',
+          status: 'running', worktreePath: fixture.root, branch: `cw/${name}`, createdAt: 'now',
+          lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, enforcementTier: 'T3', pid: null,
+        });
+      }
+
+      await scheduler.tick();
+
+      const fullIntegration1 = new MergeTrialRepo(db).listByWorkspace('ws_1').filter((t) => t.branches.length === 3);
+      expect(fullIntegration1).toHaveLength(1);
+      // Not 'test_fail', which is what actually running `exit 1` would record.
+      expect(fullIntegration1[0]?.result).toBe('unverified');
+
+      // Trusting it (mirrors `cw config trust`) is enough for a later tick to
+      // actually run it — this time seeing the real (failing) result.
+      configTrust.upsert({ workspaceId: 'ws_1', testCommandHash: hashTestCommand(config.converge.testCommand), trustedAt: 'now' });
+      await branchWithFile(fixture.root, 'cw/d', 'd.txt', 'd\n');
+      sessions.insert({
+        id: 's_d', workspaceId: 'ws_1', name: 'd', agentKind: 'claude', adapter: 'claude',
+        status: 'running', worktreePath: fixture.root, branch: 'cw/d', createdAt: 'now',
+        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, enforcementTier: 'T3', pid: null,
+      });
+      await scheduler.tick();
+      const fullIntegration2 = new MergeTrialRepo(db).listByWorkspace('ws_1').filter((t) => t.branches.length === 4);
+      expect(fullIntegration2).toHaveLength(1);
+      expect(fullIntegration2[0]?.result).toBe('test_fail');
     } finally {
       await fixture.cleanup();
     }
@@ -217,7 +282,8 @@ describe('ConvergenceScheduler', () => {
         converge: { ...DEFAULT_CONFIG.converge, trialDebounceMs: 0, fullIntegrationIntervalMs },
       };
       const leaseManager = new LeaseManager(db, fixtureA.root, config);
-      const scheduler = new ConvergenceScheduler(db, fixtureA.root, config, leaseManager);
+      const configTrust = new ConfigTrustRepo(db);
+      const scheduler = new ConvergenceScheduler(db, fixtureA.root, config, leaseManager, configTrust);
 
       for (let i = 0; i < 3; i += 1) {
         sessions.insert({

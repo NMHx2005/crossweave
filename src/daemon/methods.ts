@@ -23,8 +23,10 @@ import { ContractService, parseFqn } from '../radar/contracts.js';
 import { assertContained } from '../core/paths.js';
 import { ConvergenceScheduler } from './convergence-scheduler.js';
 import { MergeTrialRepo } from '../db/repositories/merge-trial.js';
+import { ConfigTrustRepo } from '../db/repositories/config-trust.js';
 import { buildConflictGraph, recommendOrder } from '../convergence/graph.js';
 import { landSession } from '../convergence/land.js';
+import { hashTestCommand, isTestCommandTrusted } from '../convergence/trust.js';
 
 function str(params: Record<string, unknown>, key: string): string {
   const v = params[key];
@@ -90,7 +92,8 @@ export function buildMethods(
   const fileClaims = new FileClaimRepo(db);
   const contracts = new ContractService(db);
   const radarWatchers = new RadarWatcherRegistry(db, bus, contracts);
-  const convergenceScheduler = new ConvergenceScheduler(db, projectRoot, config, leaseManager);
+  const configTrust = new ConfigTrustRepo(db);
+  const convergenceScheduler = new ConvergenceScheduler(db, projectRoot, config, leaseManager, configTrust);
   // Constructed always, started only by the real daemon. Every test that calls
   // buildMethods() to exercise one RPC in isolation goes straight to db.close()
   // without daemon.shutdown, so an unconditional start() leaks a live 5s timer
@@ -457,9 +460,31 @@ export function buildMethods(
         await sessions.kill(workspaceId, target.id, { removeWorktree: false });
       }
       return landSession(
-        { db, projectRoot, sessions: sessionsRepo, leaseManager, ledger, config },
+        { db, projectRoot, sessions: sessionsRepo, leaseManager, ledger, config, configTrust },
         workspaceId, target.id, { force },
       );
+    },
+
+    'config.trust': (p) => {
+      const workspaceId = str(p, 'workspaceId');
+      const testCommand = config.converge.testCommand;
+      if (testCommand === undefined) {
+        throw new CrossweaveError('CONFIG_NO_TEST_COMMAND', 'converge.testCommand is not set; nothing to trust.');
+      }
+      configTrust.upsert({ workspaceId, testCommandHash: hashTestCommand(testCommand), trustedAt: new Date().toISOString() });
+      return { trusted: true, testCommand };
+    },
+
+    'config.status': (p) => {
+      const workspaceId = str(p, 'workspaceId');
+      const testCommand = config.converge.testCommand;
+      const trusted = testCommand !== undefined && isTestCommandTrusted(testCommand, configTrust, workspaceId);
+      return { testCommand: testCommand ?? null, trusted };
+    },
+
+    'config.untrust': (p) => {
+      configTrust.clear(str(p, 'workspaceId'));
+      return { trusted: false };
     },
 
     'daemon.shutdown': async () => {
