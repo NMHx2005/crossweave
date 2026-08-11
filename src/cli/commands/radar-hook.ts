@@ -1,7 +1,11 @@
 import { defineCommand } from 'citty';
-import { relative } from 'node:path';
-import { withClient, currentWorkspaceId } from '../context.js';
-import { assertContained } from '../../core/paths.js';
+import { execFileSync } from 'node:child_process';
+import { realpathSync } from 'node:fs';
+import { basename, dirname, relative } from 'node:path';
+import { currentWorkspaceId } from '../context.js';
+import { connectOrStart } from '../../client/rpc-client.js';
+import { loadConfig } from '../../core/config.js';
+import { assertContained, findProjectRoot } from '../../core/paths.js';
 import { NotificationGate } from '../../radar/noise.js';
 
 interface Collision {
@@ -40,6 +44,32 @@ const WATCHED_TOOLS = new Set(['Edit', 'Write']);
 // matters, since that gate lives for the daemon's whole lifetime.
 const gate = new NotificationGate();
 
+/**
+ * A hook subprocess's `cwd` is the SESSION'S WORKTREE, not the main repo
+ * root — `findProjectRoot` (`git rev-parse --show-toplevel`) run from
+ * inside a linked worktree returns the worktree itself, which would
+ * connect to (and auto-start) an unrelated, empty daemon at
+ * `<worktree>/.crossweave/daemon.sock` instead of the real project's
+ * daemon. `--git-common-dir` resolves to the MAIN repo's `.git` directory
+ * even from inside a linked worktree, so its parent is the project root
+ * this hook actually needs. Falls back to `findProjectRoot` for anything
+ * that doesn't fit the expected shape (git unavailable, or a bare/unusual
+ * layout where the common dir doesn't end in `.git`) as a defensive
+ * default rather than guessing further.
+ */
+export function resolveMainProjectRoot(cwd: string): string {
+  try {
+    const out = execFileSync(
+      'git', ['rev-parse', '--path-format=absolute', '--git-common-dir'],
+      { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
+    ).trim();
+    if (basename(out) === '.git') return dirname(out);
+  } catch {
+    // fall through to the defensive default below
+  }
+  return findProjectRoot(cwd);
+}
+
 function allow(additionalContext?: string): string {
   return JSON.stringify({
     hookSpecificOutput: {
@@ -58,6 +88,10 @@ export async function runRadarHook(stdin: string, check: RadarCheckFn): Promise<
   } catch {
     return allow();
   }
+  // `JSON.parse` succeeds for `"null"` and any JSON scalar, none of which are an
+  // object — touching `input.tool_name` below would throw a TypeError outside
+  // any try/catch. This hook must never throw, full stop.
+  if (typeof input !== 'object' || input === null) return allow();
 
   const toolName = typeof input.tool_name === 'string' ? input.tool_name : undefined;
   if (toolName === undefined || !WATCHED_TOOLS.has(toolName)) return allow();
@@ -68,7 +102,14 @@ export async function runRadarHook(stdin: string, check: RadarCheckFn): Promise<
 
   let repoRelative: string;
   try {
-    repoRelative = relative(cwd, assertContained(cwd, filePath));
+    // `assertContained` internally realpath-canonicalizes `cwd` before comparing,
+    // but the RAW `cwd` here can be reached through a symlink (e.g. macOS's
+    // `/tmp` -> `/private/tmp`, the exact case `core/paths.ts` documents). Using
+    // the raw `cwd` as the base for `relative()` against the canonicalized result
+    // produces a path with leading `../` segments that can never match a
+    // repo-relative `file_claim` row — collisions would silently stop being
+    // found. Canonicalize `cwd` the same way before computing the relative path.
+    repoRelative = relative(realpathSync(cwd), assertContained(cwd, filePath));
   } catch {
     return allow(); // path escapes the worktree — not this hook's problem, and never a block
   }
@@ -96,22 +137,32 @@ export const radarHookCommand = defineCommand({
     const stdin = Buffer.concat(chunks).toString('utf8');
 
     const out = await runRadarHook(stdin, async (cwd, path, symbol) => {
-      return withClient(async (client) => {
-        // A hook subprocess is handed `cwd`, not a workspaceId/sessionId —
-        // both are resolved here: `workspace.init` is an idempotent
-        // upsert-by-root-path (findProjectRoot walks up from `cwd` inside
-        // withClient), and the session is whichever row's `worktreePath`
-        // matches `cwd` exactly.
+      // `SessionRuntime.start` injects `CW_SESSION_ID` into the agent's own
+      // environment, and this hook subprocess (spawned by Claude Code, spawned
+      // by the agent) inherits it — the session identity is already right
+      // there, with no need to scan `session.list` and match `worktreePath`
+      // strings (fragile: symlinks, trailing slashes, etc.). Unset means either
+      // a daemon predating this env var or a hook invoked outside a
+      // crossweave-managed session — degrade to no RPC call rather than guess.
+      const sessionId = process.env.CW_SESSION_ID;
+      if (sessionId === undefined) return { collisions: [] };
+
+      // Deliberately not `withClient`: it hard-codes `findProjectRoot(process.cwd())`
+      // with no override, and `process.cwd()` here is `cwd` — the session's
+      // WORKTREE, not the main repo root (see `resolveMainProjectRoot`'s doc
+      // comment). Mirrors what `withClient` does internally, but against the
+      // correctly-resolved root.
+      const projectRoot = resolveMainProjectRoot(cwd);
+      loadConfig(projectRoot);
+      const client = await connectOrStart(projectRoot);
+      try {
         const workspaceId = await currentWorkspaceId(client);
-        const sessions = await client.call<{ id: string; worktreePath: string | null }[]>(
-          'session.list', { workspaceId },
-        );
-        const session = sessions.find((s) => s.worktreePath === cwd);
-        if (!session) return { collisions: [] };
-        return client.call<{ collisions: Collision[] }>('radar.check', {
-          workspaceId, sessionId: session.id, path, symbol,
+        return await client.call<{ collisions: Collision[] }>('radar.check', {
+          workspaceId, sessionId, path, symbol,
         });
-      });
+      } finally {
+        client.close();
+      }
     });
 
     process.stdout.write(out + '\n');
