@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 
-type IdPrefix = 'ws' | 's' | 'ev' | 'msg' | 'lease' | 'ctx';
+type IdPrefix = 'ws' | 's' | 'ev' | 'msg' | 'lease' | 'ctx' | 'fc' | 'ct';
 
 const ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 let lastMs = 0;
