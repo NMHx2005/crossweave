@@ -22,6 +22,8 @@ import { checkCollisions } from '../radar/collisions.js';
 import { ContractService, parseFqn } from '../radar/contracts.js';
 import { assertContained } from '../core/paths.js';
 import { ConvergenceScheduler } from './convergence-scheduler.js';
+import { MergeTrialRepo } from '../db/repositories/merge-trial.js';
+import { buildConflictGraph, recommendOrder } from '../convergence/graph.js';
 
 function str(params: Record<string, unknown>, key: string): string {
   const v = params[key];
@@ -387,6 +389,37 @@ export function buildMethods(
         throw new CrossweaveError('MCP_SERVER_NOT_RUNNING', `No MCP server is running for session ${row.name}`);
       }
       return { mcpSocketPath: handle.socketPath };
+    },
+
+    'converge.status': (p) => {
+      const workspaceId = str(p, 'workspaceId');
+      const trials = new MergeTrialRepo(db).listByWorkspace(workspaceId);
+      const active = sessions
+        .list(workspaceId)
+        .filter((s) => s.agentKind !== 'integration' && (s.status === 'running' || s.status === 'idle') && s.branch !== null);
+
+      const graph = buildConflictGraph(trials);
+      const order = recommendOrder(active, graph);
+      const pairwise: { a: string; b: string; result: string }[] = [];
+      const seen = new Set<string>();
+      for (const trial of [...trials].reverse()) {
+        if (trial.branches.length !== 2) continue;
+        const key = [...trial.branches].sort().join('|');
+        if (seen.has(key)) continue;
+        seen.add(key);
+        pairwise.push({ a: trial.branches[0] as string, b: trial.branches[1] as string, result: trial.result });
+      }
+      const fullIntegration = [...trials].reverse().find((t) => t.branches.length > 2) ?? null;
+      const degraded = active.length > config.converge.pairwiseSessionThreshold;
+
+      return {
+        pairwise,
+        fullIntegration: fullIntegration
+          ? { result: fullIntegration.result, ts: fullIntegration.ts, detail: fullIntegration.detail }
+          : null,
+        recommendedOrder: order.map((s) => s.name),
+        degraded,
+      };
     },
 
     'daemon.shutdown': async () => {

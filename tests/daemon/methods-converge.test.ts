@@ -1,0 +1,69 @@
+import { describe, expect, test } from 'bun:test';
+import { tmpdir } from 'node:os';
+import { openDatabase } from '../../src/db/open.js';
+import { buildMethods } from '../../src/daemon/methods.js';
+import { WorkspaceRepo } from '../../src/db/repositories/workspace.js';
+import { SessionRepo } from '../../src/db/repositories/session.js';
+import { MergeTrialRepo } from '../../src/db/repositories/merge-trial.js';
+
+describe('converge.status RPC', () => {
+  test('reports the pairwise matrix and recommended order from seeded trial data', async () => {
+    const db = openDatabase(':memory:');
+    new WorkspaceRepo(db).insert({
+      id: 'ws_1', name: 'w', rootPath: '/tmp/w', createdAt: 'now',
+      defaultIsolation: 'worktree', safeModeTier: 'T1',
+    });
+    const sessions = new SessionRepo(db);
+    // worktreePath must point at a directory that actually exists — buildMethods'
+    // boot-time reconcile() marks any `running`/`waiting` session whose worktree is
+    // gone as `dead`, which converge.status's active-session filter then excludes.
+    sessions.insert({
+      id: 's_a', workspaceId: 'ws_1', name: 'a', agentKind: 'claude', adapter: 'claude',
+      status: 'running', worktreePath: tmpdir(), branch: 'cw/a', createdAt: 'now',
+      lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, enforcementTier: 'T3', pid: null,
+    });
+    sessions.insert({
+      id: 's_b', workspaceId: 'ws_1', name: 'b', agentKind: 'claude', adapter: 'claude',
+      status: 'running', worktreePath: tmpdir(), branch: 'cw/b', createdAt: 'now',
+      lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, enforcementTier: 'T3', pid: null,
+    });
+    new MergeTrialRepo(db).insert({
+      id: 'mt_1', workspaceId: 'ws_1', ts: 'now', branches: ['cw/a', 'cw/b'], result: 'conflict', detail: 'x.ts',
+    });
+
+    const methods = buildMethods(db, '/tmp/w');
+    const result = (await methods['converge.status']!(
+      { workspaceId: 'ws_1' },
+      { notify: () => undefined, onClose: () => undefined },
+    )) as { pairwise: unknown[]; recommendedOrder: string[]; degraded: boolean };
+
+    expect(result.pairwise).toHaveLength(1);
+    expect(result.recommendedOrder).toEqual(['a', 'b']);
+    expect(result.degraded).toBe(false);
+  });
+
+  test('reports degraded once active sessions exceed converge.pairwiseSessionThreshold', async () => {
+    const db = openDatabase(':memory:');
+    new WorkspaceRepo(db).insert({
+      id: 'ws_1', name: 'w', rootPath: '/tmp/w', createdAt: 'now',
+      defaultIsolation: 'worktree', safeModeTier: 'T1',
+    });
+    const sessions = new SessionRepo(db);
+    // DEFAULT_CONFIG.converge.pairwiseSessionThreshold is 8 — 9 active sessions crosses it.
+    for (let i = 0; i < 9; i += 1) {
+      sessions.insert({
+        id: `s_${i}`, workspaceId: 'ws_1', name: `s${i}`, agentKind: 'claude', adapter: 'claude',
+        status: 'running', worktreePath: tmpdir(), branch: `cw/s${i}`, createdAt: 'now',
+        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, enforcementTier: 'T3', pid: null,
+      });
+    }
+
+    const methods = buildMethods(db, '/tmp/w');
+    const result = (await methods['converge.status']!(
+      { workspaceId: 'ws_1' },
+      { notify: () => undefined, onClose: () => undefined },
+    )) as { degraded: boolean };
+
+    expect(result.degraded).toBe(true);
+  });
+});
