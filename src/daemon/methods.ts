@@ -14,6 +14,7 @@ import { ContextStore } from '../domain/context-store.js';
 import { reconcile } from '../domain/reconciliation.js';
 import { createMcpServer, type McpServerHandle } from '../mcp/server.js';
 import { buildTools } from '../mcp/tools.js';
+import { RadarWatcherRegistry } from './watcher.js';
 
 function str(params: Record<string, unknown>, key: string): string {
   const v = params[key];
@@ -74,6 +75,7 @@ export function buildMethods(
   const ledger = new EventLedger(db, projectRoot);
   const bus = new MessageBus(db, sessions);
   const contextStore = new ContextStore(db);
+  const radarWatchers = new RadarWatcherRegistry(db);
 
   // Once, at boot: every `running`/`waiting` session in the DB is necessarily a
   // leftover from a previous daemon instance, since this one hasn't started
@@ -123,6 +125,7 @@ export function buildMethods(
   const runtime = new SessionRuntime((sessionId) => {
     sessions.clearRunning(sessionId);
     leaseManager.release(sessionId);
+    radarWatchers.stop(sessionId);
     const handle = mcpServers.get(sessionId);
     if (handle !== undefined) void closeMcpServer(sessionId, handle);
   });
@@ -200,6 +203,18 @@ export function buildMethods(
         await handle.ready();
       } catch (err) {
         process.stderr.write(`crossweave: could not start MCP server for session ${row.name}: ${String(err)}\n`);
+      }
+
+      // Only sessions with their own worktree have a fork point to diff
+      // against — a shared (`--no-worktree`) session is never watched.
+      if (row.worktreePath !== null && row.worktreePath !== projectRoot) {
+        const forkPoint = ledger.forkPointFor(row.id);
+        if (forkPoint !== undefined) {
+          radarWatchers.start({
+            id: row.id, workspaceId: row.workspaceId,
+            worktreePath: row.worktreePath, forkPoint,
+          });
+        }
       }
 
       return sessions.resolve(row.workspaceId, row.id);
@@ -280,6 +295,7 @@ export function buildMethods(
       // afterwards would close that instead — leaving the resumed session with a
       // socket nothing can connect to.
       const handle = mcpServers.get(row.id);
+      radarWatchers.stop(row.id);
       await runtime.stop(row.id);
       leaseManager.release(row.id);
       if (handle !== undefined) await closeMcpServer(row.id, handle);
@@ -304,6 +320,7 @@ export function buildMethods(
     },
 
     'daemon.shutdown': async () => {
+      radarWatchers.stopAll();
       await runtime.stopAll();
       // stopAll's exit callbacks have already begun closing most of these; anything
       // still registered is closed here, and both sets of closes are awaited through

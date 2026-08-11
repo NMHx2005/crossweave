@@ -69,6 +69,15 @@ export class EventLedger {
   }
 
   /**
+   * A session's immutable fork point, as recorded exactly once at session
+   * creation — a thin public wrapper around the private `history()` scan,
+   * needed by the watcher to know where a session's diff should start from.
+   */
+  forkPointFor(sessionId: string): string | undefined {
+    return this.history(sessionId).forkPoint;
+  }
+
+  /**
    * The branch currently checked out in `projectRoot`. Used ONLY as one more revision
    * to try `git blame` against — never to decide which commits belong to a session,
    * which is what the recorded fork point is for.
