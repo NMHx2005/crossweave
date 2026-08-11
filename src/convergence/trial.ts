@@ -81,12 +81,28 @@ export async function runMergeTrial(
   return { result: 'clean', detail: null };
 }
 
-/** Returns the integration worktree to a clean state at `baseHead`, ready for the next trial. */
+/**
+ * Returns the integration worktree to a clean state at `baseHead`, ready for the next
+ * trial or land attempt.
+ *
+ * Both aborts are independent, best-effort attempts — a plain merge trial never
+ * leaves a rebase in progress, and `cw land`'s rebase strategy (which runs entirely
+ * in this worktree) never leaves a merge in progress, so at most one of the two ever
+ * has anything to actually abort. `merge --abort` cannot clear `REBASE_HEAD` and
+ * `rebase --abort` cannot clear `MERGE_HEAD`, so both are needed for this function to
+ * self-heal from either kind of leftover in-progress state.
+ */
 export function resetIntegration(integrationPath: string, baseHead: string): void {
   try {
     execFileSync('git', ['merge', '--abort'], { cwd: integrationPath, stdio: 'ignore' });
   } catch {
     // Nothing was in progress — the common case after a clean trial.
+  }
+  try {
+    execFileSync('git', ['rebase', '--abort'], { cwd: integrationPath, stdio: 'ignore' });
+  } catch {
+    // No rebase was in progress — the common case; only a failed `cw land`
+    // rebase-strategy attempt leaves one behind here.
   }
   execFileSync('git', ['reset', '--hard', baseHead], { cwd: integrationPath, stdio: 'ignore' });
 }

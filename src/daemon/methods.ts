@@ -427,9 +427,20 @@ export function buildMethods(
     'land.session': async (p) => {
       const workspaceId = str(p, 'workspaceId');
       const target = sessions.resolve(workspaceId, str(p, 'idOrName'));
+      const force = bool(p, 'force', false);
+      // `landSession` only has raw `SessionRepo` access and cannot reach the running
+      // agent process — stopping it here, before landing, is what makes `--force`
+      // actually stop a live session rather than just release its leases out from
+      // under it. `removeWorktree: false` leaves the worktree/branch intact for
+      // `landSession` to land normally; the row becomes `dead`, so `landSession`'s
+      // own `status === 'running'` refusal no longer applies, which is correct for a
+      // forced land.
+      if (force && target.status === 'running') {
+        await sessions.kill(workspaceId, target.id, { removeWorktree: false });
+      }
       return landSession(
         { db, projectRoot, sessions: sessionsRepo, leaseManager, ledger, config },
-        workspaceId, target.id, { force: bool(p, 'force', false) },
+        workspaceId, target.id, { force },
       );
     },
 
