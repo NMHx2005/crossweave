@@ -101,7 +101,13 @@ export class WorkspaceManager {
 
   info(id: string): WorkspaceInfo {
     const workspace = this.resolve(id);
-    return { workspace, sessions: this.sessions.listByWorkspace(workspace.id) };
+    // The integration session (Task 2's convergence-engine scratch worktree) is
+    // infrastructure, not something a user ever interacts with — `SessionManager.list`
+    // already filters it out, and `cw workspace info` must not leak it either.
+    const sessions = this.sessions
+      .listByWorkspace(workspace.id)
+      .filter((s) => s.agentKind !== 'integration');
+    return { workspace, sessions };
   }
 
   delete(id: string, opts: { force?: boolean }): void {

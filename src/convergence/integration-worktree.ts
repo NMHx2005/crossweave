@@ -4,10 +4,15 @@ import type { Database } from 'bun:sqlite';
 import { simpleGit } from 'simple-git';
 import { newId } from '../core/ids.js';
 import { crossweaveDir } from '../core/paths.js';
+import { RESERVED_SESSION_NAME } from '../domain/session.js';
 import { SessionRepo, type SessionRow } from '../db/repositories/session.js';
+import { deleteBranch, removeWorktree } from '../isolation/worktree.js';
 import type { LeaseManager } from '../isolation/leases/manager.js';
 
-export const INTEGRATION_SESSION_NAME = '__integration__';
+// Re-exported (not re-declared) so this module and `src/domain/session.ts` can never
+// drift apart on the one string that has to match for the reservation to actually
+// protect the row this engine creates.
+export const INTEGRATION_SESSION_NAME = RESERVED_SESSION_NAME;
 export const INTEGRATION_BRANCH = 'cw/integration';
 
 export interface IntegrationWorktree {
@@ -15,6 +20,22 @@ export interface IntegrationWorktree {
   path: string;
   branch: string;
 }
+
+/**
+ * A worktree directory that exists but lost its `.git` file (or never had one) is
+ * exactly the "lease succeeds, every git command fails" trap this module's docs warn
+ * about — checking the directory alone would call that healthy.
+ */
+function isHealthyWorktree(path: string): boolean {
+  return existsSync(path) && existsSync(join(path, '.git'));
+}
+
+// Keyed by workspaceId: two concurrent callers for the SAME workspace (Task 4's
+// scheduler and Task 6's `cw land` handler can both call this independently on the
+// daemon's event loop) must resolve to the one in-flight creation attempt, not race
+// each other through the check-then-act below — the second one's stale-branch cleanup
+// would otherwise delete the branch the first just created.
+const inFlight = new Map<string, Promise<IntegrationWorktree>>();
 
 /**
  * Creates (or reuses) the Convergence Engine's scratch worktree and its
@@ -31,21 +52,35 @@ export async function ensureIntegrationWorktree(
   workspaceId: string,
   projectRoot: string,
 ): Promise<IntegrationWorktree> {
+  const existing = inFlight.get(workspaceId);
+  if (existing) return existing;
+  const promise = ensureIntegrationWorktreeUncached(db, workspaceId, projectRoot).finally(() => {
+    inFlight.delete(workspaceId);
+  });
+  inFlight.set(workspaceId, promise);
+  return promise;
+}
+
+async function ensureIntegrationWorktreeUncached(
+  db: Database,
+  workspaceId: string,
+  projectRoot: string,
+): Promise<IntegrationWorktree> {
   const sessions = new SessionRepo(db);
   const existing = sessions.findByName(workspaceId, INTEGRATION_SESSION_NAME);
-  if (existing?.worktreePath !== undefined && existing?.worktreePath !== null && existsSync(existing.worktreePath)) {
+  if (existing?.worktreePath !== undefined && existing?.worktreePath !== null && isHealthyWorktree(existing.worktreePath)) {
     return { sessionId: existing.id, path: existing.worktreePath, branch: existing.branch ?? INTEGRATION_BRANCH };
   }
   if (existing) sessions.delete(existing.id);
 
   const path = join(crossweaveDir(projectRoot), 'integration');
-  const git = simpleGit(projectRoot);
   // Best-effort cleanup of a previous crash's half-torn-down state — a
   // stale worktree registration or branch left over from before must not
   // make the fresh `worktree add` below fail.
-  await git.raw(['worktree', 'remove', '--force', path]).catch(() => undefined);
-  await git.raw(['branch', '-D', INTEGRATION_BRANCH]).catch(() => undefined);
+  await removeWorktree(projectRoot, path).catch(() => undefined);
+  await deleteBranch(projectRoot, INTEGRATION_BRANCH).catch(() => undefined);
 
+  const git = simpleGit(projectRoot);
   const forkPoint = (await git.raw(['rev-parse', '--verify', 'HEAD'])).trim();
   await git.raw(['worktree', 'add', '-b', INTEGRATION_BRANCH, path, forkPoint]);
 

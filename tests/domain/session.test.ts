@@ -127,9 +127,15 @@ describe('SessionManager session name validation', () => {
   });
 
   it('rejects the reserved integration session name', async () => {
+    // '__integration__' also fails VALID_SESSION_NAME's regex (leading underscore),
+    // so asserting on the code alone would pass even with the reservation check
+    // deleted. The message content is what actually pins the reservation path.
     await expect(
       sessions.create({ workspaceId, name: '__integration__', agent: 'claude', worktree: false }),
-    ).rejects.toMatchObject({ code: 'INVALID_SESSION_NAME' });
+    ).rejects.toMatchObject({
+      code: 'INVALID_SESSION_NAME',
+      message: expect.stringContaining('reserved') as unknown as string,
+    });
   });
 
   it('list() never returns an integration-kind session row', () => {

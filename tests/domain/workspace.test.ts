@@ -98,6 +98,17 @@ describe('WorkspaceManager.info', () => {
     const ws = mgr.init('/tmp/projects/app');
     expect(mgr.info(ws.id)).toEqual({ workspace: ws, sessions: [] });
   });
+
+  it('never includes the integration-kind session row', () => {
+    const ws = mgr.init('/tmp/projects/app');
+    new SessionRepo(db).insert({
+      id: newId('s'), workspaceId: ws.id, name: '__integration__', agentKind: 'integration',
+      adapter: 'integration', status: 'idle', worktreePath: '/tmp/integration', branch: 'cw/integration',
+      createdAt: '2026-08-09T00:00:00.000Z', lastActiveAt: '2026-08-09T00:00:00.000Z',
+      tokenBudget: null, tokenSpent: 0, enforcementTier: 'T3', pid: null,
+    });
+    expect(mgr.info(ws.id).sessions).toHaveLength(0);
+  });
 });
 
 describe('WorkspaceManager identity and ambiguity', () => {
