@@ -17,6 +17,7 @@ import { buildTools } from '../mcp/tools.js';
 import { RadarWatcherRegistry } from './watcher.js';
 import { FileClaimRepo } from '../db/repositories/file-claim.js';
 import { checkCollisions } from '../radar/collisions.js';
+import { ContractService } from '../radar/contracts.js';
 
 function str(params: Record<string, unknown>, key: string): string {
   const v = params[key];
@@ -77,8 +78,9 @@ export function buildMethods(
   const ledger = new EventLedger(db, projectRoot);
   const bus = new MessageBus(db, sessions);
   const contextStore = new ContextStore(db);
-  const radarWatchers = new RadarWatcherRegistry(db);
   const fileClaims = new FileClaimRepo(db);
+  const contracts = new ContractService(db);
+  const radarWatchers = new RadarWatcherRegistry(db, bus, contracts);
 
   // Once, at boot: every `running`/`waiting` session in the DB is necessarily a
   // leftover from a previous daemon instance, since this one hasn't started
@@ -219,7 +221,7 @@ export function buildMethods(
         const superseded = mcpServers.get(row.id);
         if (superseded !== undefined) void closeMcpServer(row.id, superseded);
 
-        const tools = buildTools(row.id, row.workspaceId, bus, contextStore);
+        const tools = buildTools(row.id, row.workspaceId, bus, contextStore, fileClaims, contracts);
         const handle = createMcpServer(row.id, tools);
         mcpServers.set(row.id, handle);
         await handle.ready();
@@ -336,6 +338,19 @@ export function buildMethods(
           sessionName: sessions.resolve(workspaceId, c.sessionId).name,
         })),
       };
+    },
+
+    'contract.declare': (p) => {
+      const contract = contracts.declareFromSource(
+        {
+          workspaceId: str(p, 'workspaceId'),
+          ownerSession: str(p, 'sessionId'),
+          symbolFqn: str(p, 'symbolFqn'),
+          stableBy: optionalStr(p, 'stableBy'),
+        },
+        str(p, 'source'),
+      );
+      return { id: contract.id, symbolFqn: contract.symbolFqn, sigHash: contract.sigHash };
     },
 
     'session.mcpInfo': (p) => {

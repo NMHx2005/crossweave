@@ -1,7 +1,14 @@
 import type { Database } from 'bun:sqlite';
 import { watch, type FSWatcher } from 'node:fs';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { RadarIndexer, type IndexableSession } from '../radar/indexer.js';
 import { createDebouncer } from '../radar/watch-debounce.js';
+import { FileClaimRepo } from '../db/repositories/file-claim.js';
+import { NotificationGate } from '../radar/noise.js';
+import { notifyCollisions } from '../radar/retro-notify.js';
+import type { MessageBus } from '../domain/bus.js';
+import type { ContractService } from '../radar/contracts.js';
 
 const DEBOUNCE_MS = 500;
 
@@ -14,25 +21,27 @@ const DEBOUNCE_MS = 500;
  * nothing to do with this code's correctness. `RadarWatcherRegistry`'s real
  * logic (Task 4's indexer, this file's debounce timer) is tested directly;
  * this class is the last few lines of OS wiring around both.
- *
- * NOTE: Task 8 replaces this class with a version that also takes `bus` and
- * `contracts` constructor arguments and notifies collisions/contract
- * changes after each reindex — this Task-5 version is this file's starting
- * point, not its final shape.
  */
 export class RadarWatcherRegistry {
   private readonly indexer: RadarIndexer;
+  private readonly claims: FileClaimRepo;
+  private readonly gate = new NotificationGate();
   private readonly watchers = new Map<string, { fsWatcher: FSWatcher; debouncer: ReturnType<typeof createDebouncer> }>();
 
-  constructor(db: Database) {
+  constructor(
+    db: Database,
+    private readonly bus: MessageBus,
+    private readonly contracts: ContractService,
+  ) {
     this.indexer = new RadarIndexer(db);
+    this.claims = new FileClaimRepo(db);
   }
 
   /** Only sessions with their OWN worktree are watched — a shared (`--no-worktree`) session has no fork point to diff against. */
   start(session: IndexableSession): void {
     this.stop(session.id);
     const debouncer = createDebouncer(() => {
-      void this.indexer.reindexSession(session).catch((err: unknown) => {
+      void this.reindexAndNotify(session).catch((err: unknown) => {
         process.stderr.write(`crossweave: radar reindex failed for session ${session.id}: ${String(err)}\n`);
       });
     }, DEBOUNCE_MS);
@@ -60,6 +69,30 @@ export class RadarWatcherRegistry {
       process.stderr.write(`crossweave: worktree watcher failed for session ${session.id}: ${String(err)}\n`);
       this.stop(session.id);
     });
+  }
+
+  /**
+   * The one place per debounce tick where "reindex" becomes "reindex AND
+   * tell everyone who needs to know" — kept as a thin sequencing wrapper
+   * (no branching logic of its own) so the three pieces it calls stay each
+   * independently unit-tested (Tasks 4, 7, 8) rather than needing a fourth,
+   * `fs.watch`-entangled test for the combination.
+   */
+  private async reindexAndNotify(session: IndexableSession): Promise<void> {
+    await this.indexer.reindexSession(session);
+    notifyCollisions(this.claims, this.bus, this.gate, {
+      workspaceId: session.workspaceId, sessionId: session.id,
+    });
+    const paths = new Set(this.claims.listBySession(session.id).map((c) => c.path));
+    for (const path of paths) {
+      let source: string;
+      try {
+        source = readFileSync(join(session.worktreePath, path), 'utf8');
+      } catch {
+        continue; // deleted since the reindex read it — skip this pass
+      }
+      this.contracts.checkAndNotify(session.workspaceId, path, source, this.bus);
+    }
   }
 
   stop(sessionId: string): void {

@@ -2,6 +2,9 @@ import type { McpTool, McpToolResult } from './protocol.js';
 import type { MessageBus } from '../domain/bus.js';
 import type { ContextStore } from '../domain/context-store.js';
 import type { ContextEntryRow } from '../db/repositories/context.js';
+import type { FileClaimRepo } from '../db/repositories/file-claim.js';
+import { checkCollisions } from '../radar/collisions.js';
+import type { ContractService } from '../radar/contracts.js';
 import { CrossweaveError } from '../core/errors.js';
 
 function text(payload: unknown): McpToolResult {
@@ -33,12 +36,14 @@ function resolveById(store: ContextStore, workspaceId: string, id: string): Cont
   return [entry];
 }
 
-/** Exactly the six real tools. `cw_check` and `cw_declare_contract` arrive in M3. */
+/** Eight tools: the six messaging/context tools from M2, plus cw_check and cw_declare_contract from M3. */
 export function buildTools(
   sessionId: string,
   workspaceId: string,
   bus: MessageBus,
   store: ContextStore,
+  fileClaims: FileClaimRepo,
+  contracts: ContractService,
 ): McpTool[] {
   return [
     {
@@ -151,6 +156,47 @@ export function buildTools(
         // only scan every shared entry hoping to spot a matching id.
         const entries = id === undefined ? store.readShared(workspaceId) : resolveById(store, workspaceId, id);
         return text(entries.map((e) => ({ id: e.id, sessionId: e.sessionId, key: e.key, body: e.body, createdAt: e.createdAt })));
+      },
+    },
+    {
+      name: 'cw_check',
+      description: 'Check whether any other session in this workspace has divergent changes to a file or symbol.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Repo-relative file path' },
+          symbol: { type: 'string', description: 'Optional symbol name to scope the check to' },
+        },
+        required: ['path'],
+      },
+      handler: async (args) => {
+        const path = requireString(args, 'path');
+        const symbol = optionalString(args, 'symbol');
+        const collisions = checkCollisions(fileClaims, { workspaceId, sessionId, path, symbol });
+        return text(collisions);
+      },
+    },
+    {
+      name: 'cw_declare_contract',
+      description: "Pin a symbol's current public signature as a contract. Sessions referencing it are notified if the signature later changes.",
+      inputSchema: {
+        type: 'object',
+        properties: {
+          symbolFqn: { type: 'string', description: 'e.g. "src/auth.ts#AuthService"' },
+          source: { type: 'string', description: "The file's current full source, used to compute the signature" },
+        },
+        required: ['symbolFqn', 'source'],
+      },
+      handler: async (args) => {
+        const symbolFqn = requireString(args, 'symbolFqn');
+        const source = requireString(args, 'source');
+        try {
+          const contract = contracts.declareFromSource({ workspaceId, ownerSession: sessionId, symbolFqn }, source);
+          return text({ id: contract.id, symbolFqn: contract.symbolFqn, sigHash: contract.sigHash });
+        } catch (err) {
+          if (err instanceof CrossweaveError) throw err;
+          throw new CrossweaveError('CONTRACT_DECLARE_FAILED', String(err));
+        }
       },
     },
   ];

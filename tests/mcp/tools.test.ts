@@ -7,6 +7,8 @@ import { SessionManager } from '../../src/domain/session.js';
 import { MessageBus } from '../../src/domain/bus.js';
 import { ContextStore } from '../../src/domain/context-store.js';
 import { buildTools } from '../../src/mcp/tools.js';
+import { FileClaimRepo } from '../../src/db/repositories/file-claim.js';
+import { ContractService } from '../../src/radar/contracts.js';
 import { makeGitFixture, type GitFixture } from '../helpers/git-fixture.js';
 
 let fx: GitFixture;
@@ -27,14 +29,15 @@ afterEach(async () => {
 });
 
 describe('buildTools', () => {
-  it('exposes exactly the six real tools, never cw_check or cw_declare_contract', async () => {
+  it('exposes exactly the eight real tools', async () => {
     const a = await sessions.create({ workspaceId, name: 'a', agent: 'claude', worktree: false });
     const bus = new MessageBus(db, sessions);
     const store = new ContextStore(db);
-    const tools = buildTools(a.id, workspaceId, bus, store);
+    const tools = buildTools(a.id, workspaceId, bus, store, new FileClaimRepo(db), new ContractService(db));
 
     expect(tools.map((t) => t.name).sort()).toEqual([
-      'cw_broadcast', 'cw_handoff', 'cw_inbox', 'cw_publish_context', 'cw_read_context', 'cw_send',
+      'cw_broadcast', 'cw_check', 'cw_declare_contract', 'cw_handoff',
+      'cw_inbox', 'cw_publish_context', 'cw_read_context', 'cw_send',
     ]);
   }, 30_000);
 
@@ -43,8 +46,8 @@ describe('buildTools', () => {
     const b = await sessions.create({ workspaceId, name: 'b', agent: 'claude', worktree: false });
     const bus = new MessageBus(db, sessions);
     const store = new ContextStore(db);
-    const toolsA = buildTools(a.id, workspaceId, bus, store);
-    const toolsB = buildTools(b.id, workspaceId, bus, store);
+    const toolsA = buildTools(a.id, workspaceId, bus, store, new FileClaimRepo(db), new ContractService(db));
+    const toolsB = buildTools(b.id, workspaceId, bus, store, new FileClaimRepo(db), new ContractService(db));
 
     const send = toolsA.find((t) => t.name === 'cw_send');
     if (send === undefined) throw new Error('expected cw_send');
@@ -63,8 +66,8 @@ describe('buildTools', () => {
     const b = await sessions.create({ workspaceId, name: 'b', agent: 'claude', worktree: false });
     const bus = new MessageBus(db, sessions);
     const store = new ContextStore(db);
-    const toolsA = buildTools(a.id, workspaceId, bus, store);
-    const toolsB = buildTools(b.id, workspaceId, bus, store);
+    const toolsA = buildTools(a.id, workspaceId, bus, store, new FileClaimRepo(db), new ContractService(db));
+    const toolsB = buildTools(b.id, workspaceId, bus, store, new FileClaimRepo(db), new ContractService(db));
 
     const handoff = toolsA.find((t) => t.name === 'cw_handoff');
     const inbox = toolsB.find((t) => t.name === 'cw_inbox');
@@ -89,8 +92,8 @@ describe('buildTools', () => {
     const b = await sessions.create({ workspaceId, name: 'b', agent: 'claude', worktree: false });
     const bus = new MessageBus(db, sessions);
     const store = new ContextStore(db);
-    const toolsA = buildTools(a.id, workspaceId, bus, store);
-    const toolsB = buildTools(b.id, workspaceId, bus, store);
+    const toolsA = buildTools(a.id, workspaceId, bus, store, new FileClaimRepo(db), new ContractService(db));
+    const toolsB = buildTools(b.id, workspaceId, bus, store, new FileClaimRepo(db), new ContractService(db));
 
     const publish = toolsA.find((t) => t.name === 'cw_publish_context');
     const read = toolsB.find((t) => t.name === 'cw_read_context');
@@ -110,7 +113,7 @@ describe('buildTools', () => {
 
   it('cw_publish_context rejects an oversized key, not just an oversized body', async () => {
     const a = await sessions.create({ workspaceId, name: 'a', agent: 'claude', worktree: false });
-    const publish = buildTools(a.id, workspaceId, new MessageBus(db, sessions), new ContextStore(db)).find(
+    const publish = buildTools(a.id, workspaceId, new MessageBus(db, sessions), new ContextStore(db), new FileClaimRepo(db), new ContractService(db)).find(
       (t) => t.name === 'cw_publish_context',
     );
     if (publish === undefined) throw new Error('expected cw_publish_context');
@@ -126,8 +129,8 @@ describe('buildTools', () => {
     const b = await sessions.create({ workspaceId, name: 'b', agent: 'claude', worktree: false });
     const bus = new MessageBus(db, sessions);
     const store = new ContextStore(db);
-    const toolsA = buildTools(a.id, workspaceId, bus, store);
-    const toolsB = buildTools(b.id, workspaceId, bus, store);
+    const toolsA = buildTools(a.id, workspaceId, bus, store, new FileClaimRepo(db), new ContractService(db));
+    const toolsB = buildTools(b.id, workspaceId, bus, store, new FileClaimRepo(db), new ContractService(db));
 
     const publish = toolsA.find((t) => t.name === 'cw_publish_context');
     const handoff = toolsA.find((t) => t.name === 'cw_handoff');
