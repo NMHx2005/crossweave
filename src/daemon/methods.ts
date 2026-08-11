@@ -6,7 +6,7 @@ import { SessionManager, type AdapterFactory } from '../domain/session.js';
 import { CrossweaveError } from '../core/errors.js';
 import { SessionRuntime } from './runtime.js';
 import type { MethodHandler } from './server.js';
-import type { SessionRow } from '../db/repositories/session.js';
+import { SessionRepo, type SessionRow } from '../db/repositories/session.js';
 import { LeaseManager } from '../isolation/leases/manager.js';
 import { loadConfig, type CrossweaveConfig } from '../core/config.js';
 import { collectGarbage, collectOrphans } from '../domain/gc.js';
@@ -24,6 +24,7 @@ import { assertContained } from '../core/paths.js';
 import { ConvergenceScheduler } from './convergence-scheduler.js';
 import { MergeTrialRepo } from '../db/repositories/merge-trial.js';
 import { buildConflictGraph, recommendOrder } from '../convergence/graph.js';
+import { landSession } from '../convergence/land.js';
 
 function str(params: Record<string, unknown>, key: string): string {
   const v = params[key];
@@ -77,6 +78,7 @@ export function buildMethods(
 ): Record<string, MethodHandler> {
   const workspaces = new WorkspaceManager(db);
   const sessions = new SessionManager(db, adapterFactory, config);
+  const sessionsRepo = new SessionRepo(db);
   const leaseManager = new LeaseManager(db, projectRoot, config);
   // Nothing a previous daemon held can have survived its death, and a lease left
   // marked active would permanently shrink the pool.
@@ -420,6 +422,15 @@ export function buildMethods(
         recommendedOrder: order.map((s) => s.name),
         degraded,
       };
+    },
+
+    'land.session': async (p) => {
+      const workspaceId = str(p, 'workspaceId');
+      const target = sessions.resolve(workspaceId, str(p, 'idOrName'));
+      return landSession(
+        { db, projectRoot, sessions: sessionsRepo, leaseManager, ledger, config },
+        workspaceId, target.id, { force: bool(p, 'force', false) },
+      );
     },
 
     'daemon.shutdown': async () => {
