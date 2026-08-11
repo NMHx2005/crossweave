@@ -183,6 +183,25 @@ export function buildMethods(
       sessions.markStatus(row.id, 'running', pid);
       ledger.append({ sessionId: row.id, workspaceId: row.workspaceId, kind: 'session.started', payload: '{}' });
 
+      // Registered synchronously, in the same synchronous region as
+      // `runtime.start` above and before this function's next `await` —
+      // exactly like `mcpServers.set` below is NOT (it follows an await),
+      // which is precisely the gap this block must avoid: a `session.stop`/
+      // kill/crash landing before an awaited registration would find nothing
+      // to stop, then have the continuation install a watcher for a session
+      // that is no longer live. Only sessions with their own worktree have a
+      // fork point to diff against — a shared (`--no-worktree`) session is
+      // never watched.
+      if (row.worktreePath !== null && row.worktreePath !== projectRoot) {
+        const forkPoint = ledger.forkPointFor(row.id);
+        if (forkPoint !== undefined) {
+          radarWatchers.start({
+            id: row.id, workspaceId: row.workspaceId,
+            worktreePath: row.worktreePath, forkPoint,
+          });
+        }
+      }
+
       // Best effort: messaging/context tools are a real feature but not the reason
       // the session exists. A socket bind failure here (see mcpSocketPath's own
       // length guard, and main.ts's top-level handler) degrades this one session
@@ -203,18 +222,6 @@ export function buildMethods(
         await handle.ready();
       } catch (err) {
         process.stderr.write(`crossweave: could not start MCP server for session ${row.name}: ${String(err)}\n`);
-      }
-
-      // Only sessions with their own worktree have a fork point to diff
-      // against — a shared (`--no-worktree`) session is never watched.
-      if (row.worktreePath !== null && row.worktreePath !== projectRoot) {
-        const forkPoint = ledger.forkPointFor(row.id);
-        if (forkPoint !== undefined) {
-          radarWatchers.start({
-            id: row.id, workspaceId: row.workspaceId,
-            worktreePath: row.worktreePath, forkPoint,
-          });
-        }
       }
 
       return sessions.resolve(row.workspaceId, row.id);

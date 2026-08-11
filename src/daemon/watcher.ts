@@ -47,6 +47,19 @@ export class RadarWatcherRegistry {
       return;
     }
     this.watchers.set(session.id, { fsWatcher, debouncer });
+
+    // `watch()`'s synchronous throw above only covers failures at open time.
+    // Late failures (inotify limits, the watched root being removed, EPERM
+    // appearing after the fact) arrive as an `'error'` EVENT on the
+    // `FSWatcher` instead — with no listener, EventEmitter rethrows it,
+    // caught only by main.ts's top-level `uncaughtException` handler with no
+    // session id attached. Mirrors src/mcp/server.ts's `netServer.on('error',
+    // ...)` pattern: log with the session id, then clean up the dead entry
+    // so it doesn't linger in the map with a closed/broken watcher.
+    fsWatcher.on('error', (err: unknown) => {
+      process.stderr.write(`crossweave: worktree watcher failed for session ${session.id}: ${String(err)}\n`);
+      this.stop(session.id);
+    });
   }
 
   stop(sessionId: string): void {
