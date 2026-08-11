@@ -100,7 +100,7 @@ export class RadarWatcherRegistry {
       // this file" — auto-subscribe it to any contract living there before
       // checking, so a signature change caught THIS pass still reaches it.
       this.contracts.autoSubscribeForPath(session.workspaceId, session.id, path);
-      this.contracts.checkAndNotify(session.workspaceId, path, source, this.bus);
+      this.contracts.checkAndNotify(session.workspaceId, path, source, this.bus, session.id);
     }
   }
 

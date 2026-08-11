@@ -100,9 +100,46 @@ describe('ContractService', () => {
     service.checkAndNotify(
       'ws_1', 'src/auth.ts',
       'export function login(user: string, token: string): boolean {\n  return true;\n}\n',
-      bus,
+      bus, 's_owner',
     );
 
+    const inbox = bus.inbox('ws_1', 's_user');
+    expect(inbox).toHaveLength(1);
+    expect(inbox[0]?.trust).toBe('system');
+  });
+
+  test('only the contract owner\'s own tick may update sig_hash — a subscriber\'s divergent worktree view is not authoritative', () => {
+    const db = openDatabase(':memory:');
+    seed(db);
+    const service = new ContractService(db);
+    const declared = service.declareFromSource(
+      { workspaceId: 'ws_1', ownerSession: 's_owner', symbolFqn: 'src/auth.ts#login' },
+      'export function login(user: string): boolean {\n  return true;\n}\n',
+    );
+    new ContractRepo(db).addSubscriber(declared.id, 's_user', 'now');
+    const bus = new MessageBus(db, new SessionManager(db));
+
+    // Session B's own tick sees a DIFFERENT (but not actually re-edited by
+    // the owner) view of the file — e.g. its own worktree hasn't picked up
+    // the owner's change yet. This must be a no-op: no hash flap, no
+    // spurious notification.
+    service.checkAndNotify(
+      'ws_1', 'src/auth.ts',
+      'export function login(user: string, extra: number): boolean {\n  return true;\n}\n',
+      bus, 's_user',
+    );
+    expect(new ContractRepo(db).findByFqn('ws_1', 'src/auth.ts#login')?.sigHash).toBe(declared.sigHash);
+    expect(bus.inbox('ws_1', 's_user')).toHaveLength(0);
+
+    // The owner's own tick, with a genuinely changed signature, DOES update
+    // the hash and DOES notify.
+    service.checkAndNotify(
+      'ws_1', 'src/auth.ts',
+      'export function login(user: string, token: string): boolean {\n  return true;\n}\n',
+      bus, 's_owner',
+    );
+    const after = new ContractRepo(db).findByFqn('ws_1', 'src/auth.ts#login');
+    expect(after?.sigHash).not.toBe(declared.sigHash);
     const inbox = bus.inbox('ws_1', 's_user');
     expect(inbox).toHaveLength(1);
     expect(inbox[0]?.trust).toBe('system');
@@ -125,7 +162,7 @@ describe('ContractService', () => {
     service.checkAndNotify(
       'ws_1', 'src/auth.ts',
       'export function login(user: string, token: string): boolean {\n  return true;\n}\n',
-      bus,
+      bus, 's_owner',
     );
 
     const inbox = bus.inbox('ws_1', 's_user');

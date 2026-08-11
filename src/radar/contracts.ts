@@ -129,10 +129,23 @@ export class ContractService {
    * stored — updates it and messages every subscriber with the diff.
    * Called by the indexer after a real reindex (Task 4/5's wiring), never
    * directly by a CLI command.
+   *
+   * `sessionId` is the session whose tick is calling this — every OTHER
+   * session's watcher tick reads the same file from ITS OWN worktree copy,
+   * which can genuinely differ from the owner's (different branch point, an
+   * unrelated edit, or simply not yet caught up). Only the contract's own
+   * `ownerSession` is authoritative for what "current shape" means; a
+   * subscriber's tick recomputing and persisting a hash from its own
+   * divergent view would flap the stored hash back and forth every tick
+   * with no real edit involved, and could even clobber the owner's actual
+   * change before another subscriber's tick ever observes it. Contracts
+   * owned by a different session are therefore skipped entirely — no
+   * recompute, no persist, no notify.
    */
-  checkAndNotify(workspaceId: string, path: string, currentSource: string, bus: MessageBus): void {
+  checkAndNotify(workspaceId: string, path: string, currentSource: string, bus: MessageBus, sessionId: string): void {
     const matching: { contract: ContractRow; name: string }[] = [];
     for (const contract of this.repo.listByWorkspace(workspaceId)) {
+      if (contract.ownerSession !== sessionId) continue; // only the owner's own tick is authoritative
       const parsed = safeParseFqn(contract.symbolFqn);
       if (parsed?.path !== path) continue; // skip malformed rows and contracts on other files
       matching.push({ contract, name: parsed.name });
