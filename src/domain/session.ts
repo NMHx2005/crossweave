@@ -30,7 +30,18 @@ export interface CreateSessionOptions {
 const VALID_SESSION_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 const MAX_SESSION_NAME = 64;
 
+/**
+ * The Convergence Engine's scratch worktree (Task 2) is backed by a real
+ * session row so `lease.session_id`'s foreign key has something to point
+ * at. This name is reserved so a user can never accidentally (or
+ * maliciously) claim it and shadow the engine's own row.
+ */
+export const RESERVED_SESSION_NAME = '__integration__';
+
 function assertValidSessionName(name: string): void {
+  if (name === RESERVED_SESSION_NAME) {
+    throw new CrossweaveError('INVALID_SESSION_NAME', `"${RESERVED_SESSION_NAME}" is reserved for internal use`);
+  }
   if (name.length > MAX_SESSION_NAME || !VALID_SESSION_NAME.test(name)) {
     throw new CrossweaveError(
       'INVALID_SESSION_NAME',
@@ -138,7 +149,7 @@ export class SessionManager {
   }
 
   list(workspaceId: string): SessionRow[] {
-    return this.sessions.listByWorkspace(workspaceId);
+    return this.sessions.listByWorkspace(workspaceId).filter((s) => s.agentKind !== 'integration');
   }
 
   adapterFor(kind: string): AgentAdapter {

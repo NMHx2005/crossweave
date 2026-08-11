@@ -125,6 +125,25 @@ describe('SessionManager session name validation', () => {
     );
     expect(sessions.resolve(workspaceId, 'ok').name).toBe('ok');
   });
+
+  it('rejects the reserved integration session name', async () => {
+    await expect(
+      sessions.create({ workspaceId, name: '__integration__', agent: 'claude', worktree: false }),
+    ).rejects.toMatchObject({ code: 'INVALID_SESSION_NAME' });
+  });
+
+  it('list() never returns an integration-kind session row', () => {
+    // Inserted directly via the repo, the same way ensureIntegrationWorktree
+    // does (Task 2) — bypassing create()'s validation entirely, since that's
+    // exactly how the real integration row gets created.
+    const sessionRepo = new SessionRepo(db);
+    sessionRepo.insert({
+      id: 's_integration', workspaceId, name: '__integration__', agentKind: 'integration', adapter: 'integration',
+      status: 'idle', worktreePath: '/tmp/integration', branch: 'cw/integration', createdAt: 'now',
+      lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, enforcementTier: 'T3', pid: null,
+    });
+    expect(sessions.list(workspaceId).map((s) => s.id)).not.toContain('s_integration');
+  });
 });
 
 describe('SessionManager.create unwinds a half-created session', () => {
