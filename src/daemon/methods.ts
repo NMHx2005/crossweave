@@ -71,6 +71,7 @@ export function buildMethods(
   projectRoot: string,
   adapterFactory?: AdapterFactory,
   config: CrossweaveConfig = loadConfig(projectRoot),
+  opts: { startBackgroundJobs?: boolean } = {},
 ): Record<string, MethodHandler> {
   const workspaces = new WorkspaceManager(db);
   const sessions = new SessionManager(db, adapterFactory, config);
@@ -86,7 +87,11 @@ export function buildMethods(
   const contracts = new ContractService(db);
   const radarWatchers = new RadarWatcherRegistry(db, bus, contracts);
   const convergenceScheduler = new ConvergenceScheduler(db, projectRoot, config, leaseManager);
-  convergenceScheduler.start();
+  // Constructed always, started only by the real daemon. Every test that calls
+  // buildMethods() to exercise one RPC in isolation goes straight to db.close()
+  // without daemon.shutdown, so an unconditional start() leaks a live 5s timer
+  // into each of them — one that does real git work while the DB is still open.
+  if (opts.startBackgroundJobs === true) convergenceScheduler.start();
 
   // Once, at boot: every `running`/`waiting` session in the DB is necessarily a
   // leftover from a previous daemon instance, since this one hasn't started

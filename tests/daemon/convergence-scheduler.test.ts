@@ -131,4 +131,47 @@ describe('ConvergenceScheduler', () => {
       await fixture.cleanup();
     }
   });
+
+  test('above the pairwise session threshold, no pairwise trials run but full integration still does', async () => {
+    const fixture = await makeGitFixture();
+    try {
+      const branchCount = 9; // > DEFAULT_CONFIG.converge.pairwiseSessionThreshold (8)
+      for (let i = 0; i < branchCount; i += 1) {
+        await branchWithFile(fixture.root, `cw/s${i}`, `s${i}.txt`, `${i}\n`);
+      }
+
+      const db = openDatabase(':memory:');
+      new WorkspaceRepo(db).insert({
+        id: 'ws_1', name: 'w', rootPath: fixture.root, createdAt: 'now',
+        defaultIsolation: 'worktree', safeModeTier: 'T1',
+      });
+      const sessions = new SessionRepo(db);
+      const config = {
+        ...DEFAULT_CONFIG,
+        converge: { ...DEFAULT_CONFIG.converge, trialDebounceMs: 0, fullIntegrationIntervalMs: 0 },
+      };
+      const leaseManager = new LeaseManager(db, fixture.root, config);
+      const scheduler = new ConvergenceScheduler(db, fixture.root, config, leaseManager);
+
+      for (let i = 0; i < branchCount; i += 1) {
+        sessions.insert({
+          id: `s_${i}`, workspaceId: 'ws_1', name: `s${i}`, agentKind: 'claude', adapter: 'claude',
+          status: 'running', worktreePath: fixture.root, branch: `cw/s${i}`, createdAt: 'now',
+          lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, enforcementTier: 'T3', pid: null,
+        });
+      }
+
+      await scheduler.tick();
+
+      const trials = new MergeTrialRepo(db).listByWorkspace('ws_1');
+      const pairwise = trials.filter((t) => t.branches.length === 2);
+      expect(pairwise).toHaveLength(0);
+
+      const fullIntegration = trials.filter((t) => t.branches.length === branchCount);
+      expect(fullIntegration).toHaveLength(1);
+      expect(fullIntegration[0]?.result).toBe('unverified'); // clean merge, no testCommand configured
+    } finally {
+      await fixture.cleanup();
+    }
+  });
 });

@@ -10,7 +10,7 @@ async function main(): Promise<void> {
   const db = openDatabase(join(dir, 'state.db'));
   const daemon = createDaemon({
     socketPath: join(dir, 'daemon.sock'),
-    methods: buildMethods(db, projectRoot),
+    methods: buildMethods(db, projectRoot, undefined, undefined, { startBackgroundJobs: true }),
   });
 
   await daemon.listen();

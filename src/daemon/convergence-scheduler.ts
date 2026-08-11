@@ -10,6 +10,11 @@ import { ensureIntegrationWorktree, withIntegrationLease } from '../convergence/
 import { runMergeTrial, resetIntegration } from '../convergence/trial.js';
 
 const TICK_MS = 5_000;
+// Sorted-pair dedup keys accumulate one entry per unique (branch@head, branch@head)
+// combination ever trialled and are never individually superseded (unlike
+// lastTrialHead/lastTrialAt, which overwrite per branch). Capped with simple FIFO
+// eviction so a long-running daemon's memory doesn't grow without bound.
+const MAX_TRIED_PAIRS = 5_000;
 
 function currentHead(projectRoot: string, branch: string): string | undefined {
   try {
@@ -45,9 +50,13 @@ function baseHead(projectRoot: string): string | undefined {
 export class ConvergenceScheduler {
   private timer: ReturnType<typeof setInterval> | undefined;
   private running = false;
-  private readonly lastTrialHead = new Map<string, string>(); // branch -> head sha
-  private readonly lastTrialAt = new Map<string, number>(); // branch -> ts ms
-  private readonly triedPairs = new Set<string>(); // `${branchA}@${headA}|${branchB}@${headB}`, sorted
+  // Keyed `${workspaceId}:${branch}` — two workspaces can each have a
+  // same-named branch (branch names derive from session names), and a bare
+  // branch key would let one workspace's trial silently mark the other
+  // workspace's identically-named branch as already-trialled.
+  private readonly lastTrialHead = new Map<string, string>(); // workspaceId:branch -> head sha
+  private readonly lastTrialAt = new Map<string, number>(); // workspaceId:branch -> ts ms
+  private readonly triedPairs = new Set<string>(); // `${workspaceId}:${branchA}@${headA}|${branchB}@${headB}`, pair sorted
   // Initialized to construction time, not 0: a literal 0 makes
   // `now - lastFullIntegrationAt < fullIntegrationIntervalMs` false on the
   // very first tick no matter the configured interval (`now` is always
@@ -63,7 +72,7 @@ export class ConvergenceScheduler {
 
   constructor(
     private readonly db: Database,
-    private readonly projectRoot: string,
+    projectRoot: string,
     private readonly config: CrossweaveConfig,
     private readonly leaseManager: LeaseManager,
   ) {
@@ -73,6 +82,9 @@ export class ConvergenceScheduler {
   }
 
   start(): void {
+    // A second start() before stop() would silently overwrite `this.timer`,
+    // leaking the first interval (nothing could ever clear it again).
+    if (this.timer !== undefined) clearInterval(this.timer);
     this.timer = setInterval(() => {
       void this.tick().catch((err: unknown) => {
         process.stderr.write(`crossweave: convergence tick failed: ${String(err)}\n`);
@@ -101,10 +113,26 @@ export class ConvergenceScheduler {
     this.running = true;
     try {
       for (const workspace of this.workspaces.list()) {
-        await this.tickWorkspace(workspace.id, workspace.rootPath);
+        try {
+          await this.tickWorkspace(workspace.id, workspace.rootPath);
+        } catch (err) {
+          // A deterministic failure at one workspace (e.g. a broken
+          // integration worktree) must not starve every OTHER workspace of
+          // every future tick — letting it escape here would do exactly
+          // that, since the outer catch in start() drops the whole tick.
+          process.stderr.write(`crossweave: convergence tick failed for ${workspace.id}: ${String(err)}\n`);
+        }
       }
     } finally {
       this.running = false;
+    }
+  }
+
+  private rememberPair(key: string): void {
+    this.triedPairs.add(key);
+    if (this.triedPairs.size > MAX_TRIED_PAIRS) {
+      const oldest = this.triedPairs.values().next().value;
+      if (oldest !== undefined) this.triedPairs.delete(oldest);
     }
   }
 
@@ -112,21 +140,28 @@ export class ConvergenceScheduler {
     const active = this.activeBranchSessions(workspaceId);
     if (active.length < 2) return; // nothing to pair against
 
-    const now = Date.now();
-    const due = active.filter((s) => {
-      const branch = s.branch as string;
-      const head = currentHead(projectRoot, branch);
-      if (head === undefined) return false;
-      const changed = this.lastTrialHead.get(branch) !== head;
-      const cooledDown = now - (this.lastTrialAt.get(branch) ?? 0) >= this.config.converge.trialDebounceMs;
-      return changed && cooledDown;
-    });
-    if (due.length === 0) return;
+    // Above the threshold, pairwise trials are O(n^2) git merges every tick —
+    // too expensive to run at all. Degrade to full-integration only: skip the
+    // pairwise section entirely (no trials recorded), but still let
+    // maybeRunFullIntegration run, with its own all-pairs-clean gate
+    // bypassed since degraded mode never produces the pairwise evidence that
+    // gate looks for. §5 of the design doc — `cw converge status` (Task 5)
+    // reports this explicitly.
+    const degraded = active.length > this.config.converge.pairwiseSessionThreshold;
 
-    if (active.length > this.config.converge.pairwiseSessionThreshold) {
-      // Degrade: full-integration only, no pairwise trials at all this round.
-      // §5 of the design doc — cw converge status (Task 5) reports this explicitly.
-      return;
+    const now = Date.now();
+    let due: SessionRow[] = [];
+    if (!degraded) {
+      due = active.filter((s) => {
+        const branch = s.branch as string;
+        const head = currentHead(projectRoot, branch);
+        if (head === undefined) return false;
+        const key = `${workspaceId}:${branch}`;
+        const changed = this.lastTrialHead.get(key) !== head;
+        const cooledDown = now - (this.lastTrialAt.get(key) ?? 0) >= this.config.converge.trialDebounceMs;
+        return changed && cooledDown;
+      });
+      if (due.length === 0) return;
     }
 
     const base = baseHead(projectRoot);
@@ -134,34 +169,36 @@ export class ConvergenceScheduler {
 
     const integration = await ensureIntegrationWorktree(this.db, workspaceId, projectRoot);
 
-    for (const session of due) {
-      const branchA = session.branch as string;
-      const headA = currentHead(projectRoot, branchA);
-      if (headA === undefined) continue;
+    if (!degraded) {
+      for (const session of due) {
+        const branchA = session.branch as string;
+        const headA = currentHead(projectRoot, branchA);
+        if (headA === undefined) continue;
 
-      for (const partner of active) {
-        if (partner.id === session.id) continue;
-        const branchB = partner.branch as string;
-        const headB = currentHead(projectRoot, branchB);
-        if (headB === undefined) continue;
+        for (const partner of active) {
+          if (partner.id === session.id) continue;
+          const branchB = partner.branch as string;
+          const headB = currentHead(projectRoot, branchB);
+          if (headB === undefined) continue;
 
-        const pairKey = [`${branchA}@${headA}`, `${branchB}@${headB}`].sort().join('|');
-        if (this.triedPairs.has(pairKey)) continue;
+          const pairKey = `${workspaceId}:${[`${branchA}@${headA}`, `${branchB}@${headB}`].sort().join('|')}`;
+          if (this.triedPairs.has(pairKey)) continue;
 
-        const result = await runMergeTrial(integration.path, base, [branchA, branchB]);
-        resetIntegration(integration.path, base);
-        this.mergeTrials.insert({
-          id: newId('mt'), workspaceId, ts: new Date().toISOString(),
-          branches: [branchA, branchB], result: result.result, detail: result.detail,
-        });
-        this.triedPairs.add(pairKey);
+          const result = await runMergeTrial(integration.path, base, [branchA, branchB]);
+          resetIntegration(integration.path, base);
+          this.mergeTrials.insert({
+            id: newId('mt'), workspaceId, ts: new Date().toISOString(),
+            branches: [branchA, branchB], result: result.result, detail: result.detail,
+          });
+          this.rememberPair(pairKey);
+        }
+
+        this.lastTrialHead.set(`${workspaceId}:${branchA}`, headA);
+        this.lastTrialAt.set(`${workspaceId}:${branchA}`, now);
       }
-
-      this.lastTrialHead.set(branchA, headA);
-      this.lastTrialAt.set(branchA, now);
     }
 
-    await this.maybeRunFullIntegration(workspaceId, integration.sessionId, integration.path, base, active);
+    await this.maybeRunFullIntegration(workspaceId, integration.sessionId, integration.path, base, active, degraded);
   }
 
   private async maybeRunFullIntegration(
@@ -170,64 +207,78 @@ export class ConvergenceScheduler {
     integrationPath: string,
     base: string,
     active: SessionRow[],
+    degraded: boolean,
   ): Promise<void> {
     const now = Date.now();
     if (now - this.lastFullIntegrationAt < this.config.converge.fullIntegrationIntervalMs) return;
 
-    // "a conflicting merge never reaches the test phase" — only proceed if
-    // the most recent pairwise trial for every active pair is clean.
-    const trials = this.mergeTrials.listByWorkspace(workspaceId).filter((t) => t.branches.length === 2);
-    const latestByPair = new Map<string, (typeof trials)[number]>();
-    for (const t of trials) latestByPair.set([...t.branches].sort().join('|'), t);
     const branches = active.map((s) => s.branch as string);
-    for (let i = 0; i < branches.length; i += 1) {
-      for (let j = i + 1; j < branches.length; j += 1) {
-        const latest = latestByPair.get([branches[i], branches[j]].sort().join('|'));
-        if (latest === undefined || latest.result !== 'clean') return; // unknown or conflicting pair — skip this round
+
+    if (!degraded) {
+      // "a conflicting merge never reaches the test phase" — only proceed if
+      // the most recent pairwise trial for every active pair is clean.
+      const trials = this.mergeTrials.listByWorkspace(workspaceId).filter((t) => t.branches.length === 2);
+      const latestByPair = new Map<string, (typeof trials)[number]>();
+      for (const t of trials) latestByPair.set([...t.branches].sort().join('|'), t);
+      for (let i = 0; i < branches.length; i += 1) {
+        for (let j = i + 1; j < branches.length; j += 1) {
+          const latest = latestByPair.get([branches[i], branches[j]].sort().join('|'));
+          if (latest === undefined || latest.result !== 'clean') return; // unknown or conflicting pair — skip this round
+        }
       }
     }
+    // Degraded mode has no pairwise evidence to check at all — that's
+    // expected, not a reason to refuse. The full-integration trial's own
+    // conflict check below still protects against wasting a test run on a
+    // conflicting merge.
 
     this.lastFullIntegrationAt = now;
-    const result = await runMergeTrial(integrationPath, base, branches);
-    if (result.result === 'conflict') {
-      resetIntegration(integrationPath, base);
-      this.mergeTrials.insert({
-        id: newId('mt'), workspaceId, ts: new Date().toISOString(),
-        branches, result: 'conflict', detail: result.detail,
-      });
-      return;
-    }
-
-    if (this.config.converge.testCommand === undefined) {
-      resetIntegration(integrationPath, base);
-      this.mergeTrials.insert({
-        id: newId('mt'), workspaceId, ts: new Date().toISOString(),
-        branches, result: 'unverified', detail: null,
-      });
-      return;
-    }
-
-    const testResult = await withIntegrationLease(this.leaseManager, integrationSessionId, async (env) => {
-      this.sessions.updateStatus(integrationSessionId, 'running', null);
-      try {
-        const proc = Bun.spawn(['sh', '-c', this.config.converge.testCommand as string], {
-          cwd: integrationPath, env: { ...process.env, ...env }, stdout: 'pipe', stderr: 'pipe',
+    try {
+      const result = await runMergeTrial(integrationPath, base, branches);
+      if (result.result === 'conflict') {
+        this.mergeTrials.insert({
+          id: newId('mt'), workspaceId, ts: new Date().toISOString(),
+          branches, result: 'conflict', detail: result.detail,
         });
-        const [code, out, err] = await Promise.all([
-          proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text(),
-        ]);
-        return { code, tail: (out + err).slice(-4000) };
-      } finally {
-        this.sessions.updateStatus(integrationSessionId, 'idle', null);
+        return;
       }
-    });
 
-    resetIntegration(integrationPath, base);
-    this.mergeTrials.insert({
-      id: newId('mt'), workspaceId, ts: new Date().toISOString(),
-      branches,
-      result: testResult.code === 0 ? 'clean' : 'test_fail',
-      detail: testResult.code === 0 ? null : testResult.tail,
-    });
+      if (this.config.converge.testCommand === undefined) {
+        this.mergeTrials.insert({
+          id: newId('mt'), workspaceId, ts: new Date().toISOString(),
+          branches, result: 'unverified', detail: null,
+        });
+        return;
+      }
+
+      const testResult = await withIntegrationLease(this.leaseManager, integrationSessionId, async (env) => {
+        this.sessions.updateStatus(integrationSessionId, 'running', null);
+        try {
+          const proc = Bun.spawn(['sh', '-c', this.config.converge.testCommand as string], {
+            cwd: integrationPath, env: { ...process.env, ...env }, stdout: 'pipe', stderr: 'pipe',
+          });
+          const [code, out, err] = await Promise.all([
+            proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text(),
+          ]);
+          return { code, tail: (out + err).slice(-4000) };
+        } finally {
+          this.sessions.updateStatus(integrationSessionId, 'idle', null);
+        }
+      });
+
+      this.mergeTrials.insert({
+        id: newId('mt'), workspaceId, ts: new Date().toISOString(),
+        branches,
+        result: testResult.code === 0 ? 'clean' : 'test_fail',
+        detail: testResult.code === 0 ? null : testResult.tail,
+      });
+    } finally {
+      // Covers every exit from the try above, including a throw from
+      // runMergeTrial/withIntegrationLease/Bun.spawn itself — previously
+      // only the two explicit early-return branches called this, so an
+      // unexpected error left the integration worktree dirty for the next
+      // trial.
+      resetIntegration(integrationPath, base);
+    }
   }
 }
