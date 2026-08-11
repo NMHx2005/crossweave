@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 /**
  * Each migration is a list of single statements, never one multi-statement blob.
@@ -144,5 +144,36 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
     subscribed_at TEXT NOT NULL,
     PRIMARY KEY (contract_id, session_id)
   )`,
+  ],
+  [
+    // Convergence Engine (M4): trial-merge history, and the session.landed
+    // event kind cw land needs to record its terminal state transition.
+    `CREATE TABLE merge_trial (
+    id           TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+    ts           TEXT NOT NULL,
+    branches     TEXT NOT NULL,
+    result       TEXT NOT NULL CHECK (result IN ('clean','conflict','test_fail','unverified')),
+    detail       TEXT
+  )`,
+    `CREATE INDEX merge_trial_by_workspace ON merge_trial (workspace_id, ts)`,
+
+    // event.kind CHECK constraint widening — SQLite can't ALTER a CHECK in
+    // place, so this is a copy-drop-rename, identical in shape to migration
+    // index 3's event_v4 rebuild (which added session.forked the same way).
+    `CREATE TABLE event_v6 (
+    id           TEXT PRIMARY KEY,
+    session_id   TEXT NOT NULL REFERENCES session(id) ON DELETE CASCADE,
+    workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+    ts           TEXT NOT NULL,
+    kind         TEXT NOT NULL CHECK (kind IN ('session.started', 'session.forked', 'commit.made', 'session.landed')),
+    payload      TEXT NOT NULL
+  )`,
+    `INSERT INTO event_v6 (id, session_id, workspace_id, ts, kind, payload)
+       SELECT id, session_id, workspace_id, ts, kind, payload FROM event`,
+    `DROP TABLE event`,
+    `ALTER TABLE event_v6 RENAME TO event`,
+    `CREATE INDEX event_by_session ON event (session_id, ts)`,
+    `CREATE INDEX event_by_workspace_kind ON event (workspace_id, kind, ts)`,
   ],
 ];
