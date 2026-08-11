@@ -57,14 +57,21 @@ export class ConvergenceScheduler {
   private readonly lastTrialHead = new Map<string, string>(); // workspaceId:branch -> head sha
   private readonly lastTrialAt = new Map<string, number>(); // workspaceId:branch -> ts ms
   private readonly triedPairs = new Set<string>(); // `${workspaceId}:${branchA}@${headA}|${branchB}@${headB}`, pair sorted
-  // Initialized to construction time, not 0: a literal 0 makes
-  // `now - lastFullIntegrationAt < fullIntegrationIntervalMs` false on the
-  // very first tick no matter the configured interval (`now` is always
-  // enormously larger than any reasonable interval), firing a full
-  // integration immediately on every daemon boot regardless of config.
-  // Starting the clock at construction makes the FIRST full integration
-  // wait a full interval too, same as every one after it.
-  private lastFullIntegrationAt = Date.now();
+  // Keyed by workspaceId — a single shared scalar let one workspace's full
+  // integration reset the clock for every OTHER workspace too, so the
+  // oldest workspace (by WorkspaceRepo.list()'s created_at ASC order)
+  // always won the shared interval and every later workspace silently
+  // never got a full-integration trial. `constructedAt` is the same
+  // "initialized to construction time, not 0" default this map falls back
+  // to per-workspace the first time it's checked: a literal 0 would make
+  // `now - 0 < fullIntegrationIntervalMs` false no matter the configured
+  // interval (`now` is always enormously larger than any reasonable
+  // interval), firing a full integration immediately on every daemon boot
+  // regardless of config. Falling back to construction time makes each
+  // workspace's FIRST full integration wait a full interval too, same as
+  // every one after it — independently of every other workspace.
+  private readonly lastFullIntegrationAt = new Map<string, number>(); // workspaceId -> ts ms
+  private readonly constructedAt = Date.now();
 
   private readonly workspaces: WorkspaceRepo;
   private readonly sessions: SessionRepo;
@@ -210,7 +217,8 @@ export class ConvergenceScheduler {
     degraded: boolean,
   ): Promise<void> {
     const now = Date.now();
-    if (now - this.lastFullIntegrationAt < this.config.converge.fullIntegrationIntervalMs) return;
+    const last = this.lastFullIntegrationAt.get(workspaceId) ?? this.constructedAt;
+    if (now - last < this.config.converge.fullIntegrationIntervalMs) return;
 
     const branches = active.map((s) => s.branch as string);
 
@@ -232,7 +240,7 @@ export class ConvergenceScheduler {
     // conflict check below still protects against wasting a test run on a
     // conflicting merge.
 
-    this.lastFullIntegrationAt = now;
+    this.lastFullIntegrationAt.set(workspaceId, now);
     try {
       const result = await runMergeTrial(integrationPath, base, branches);
       if (result.result === 'conflict') {
