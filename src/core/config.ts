@@ -7,6 +7,13 @@ export interface CrossweaveConfig {
   disk: { perSessionBytes: number; perWorkspaceBytes: number };
   db: { strategy: 'none' | 'schema' | 'file-copy'; url?: string };
   cacheIsolation: boolean;
+  converge: {
+    testCommand?: string;
+    mergeStrategy: 'merge' | 'squash' | 'rebase';
+    trialDebounceMs: number;
+    fullIntegrationIntervalMs: number;
+    pairwiseSessionThreshold: number;
+  };
 }
 
 export const DEFAULT_CONFIG: CrossweaveConfig = {
@@ -17,9 +24,16 @@ export const DEFAULT_CONFIG: CrossweaveConfig = {
   disk: { perSessionBytes: 2 * 1024 * 1024 * 1024, perWorkspaceBytes: 20 * 1024 * 1024 * 1024 },
   db: { strategy: 'none' },
   cacheIsolation: true,
+  converge: {
+    mergeStrategy: 'squash',
+    trialDebounceMs: 30_000,
+    fullIntegrationIntervalMs: 300_000,
+    pairwiseSessionThreshold: 8,
+  },
 };
 
 const STRATEGIES = new Set(['none', 'schema', 'file-copy']);
+const STRATEGIES_CONVERGE = new Set(['merge', 'squash', 'rebase']);
 
 /** Anything a shell would refuse to export is not a variable name we can inject. */
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -75,6 +89,7 @@ export function loadConfig(projectRoot: string): CrossweaveConfig {
     disk: { ...DEFAULT_CONFIG.disk, ...input.disk },
     db: { ...DEFAULT_CONFIG.db, ...input.db },
     cacheIsolation: input.cacheIsolation ?? DEFAULT_CONFIG.cacheIsolation,
+    converge: { ...DEFAULT_CONFIG.converge, ...input.converge },
   };
 
   if (!Number.isInteger(config.ports.base) || config.ports.base < 1024) {
@@ -115,6 +130,22 @@ export function loadConfig(projectRoot: string): CrossweaveConfig {
     invalid(
       `db.strategy must be one of ${[...STRATEGIES].join(', ')}, got ${String(config.db.strategy)}`,
     );
+  }
+
+  if (config.converge.testCommand !== undefined && typeof config.converge.testCommand !== 'string') {
+    invalid('converge.testCommand must be a string if set');
+  }
+  if (!STRATEGIES_CONVERGE.has(config.converge.mergeStrategy)) {
+    invalid(`converge.mergeStrategy must be one of merge, squash, rebase, got ${String(config.converge.mergeStrategy)}`);
+  }
+  if (!Number.isInteger(config.converge.trialDebounceMs) || config.converge.trialDebounceMs < 0) {
+    invalid('converge.trialDebounceMs must be a non-negative integer');
+  }
+  if (!Number.isInteger(config.converge.fullIntegrationIntervalMs) || config.converge.fullIntegrationIntervalMs < 0) {
+    invalid('converge.fullIntegrationIntervalMs must be a non-negative integer');
+  }
+  if (!Number.isInteger(config.converge.pairwiseSessionThreshold) || config.converge.pairwiseSessionThreshold < 1) {
+    invalid('converge.pairwiseSessionThreshold must be a positive integer');
   }
 
   return config;

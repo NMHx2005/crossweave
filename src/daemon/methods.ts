@@ -21,6 +21,7 @@ import { FileClaimRepo } from '../db/repositories/file-claim.js';
 import { checkCollisions } from '../radar/collisions.js';
 import { ContractService, parseFqn } from '../radar/contracts.js';
 import { assertContained } from '../core/paths.js';
+import { ConvergenceScheduler } from './convergence-scheduler.js';
 
 function str(params: Record<string, unknown>, key: string): string {
   const v = params[key];
@@ -84,6 +85,8 @@ export function buildMethods(
   const fileClaims = new FileClaimRepo(db);
   const contracts = new ContractService(db);
   const radarWatchers = new RadarWatcherRegistry(db, bus, contracts);
+  const convergenceScheduler = new ConvergenceScheduler(db, projectRoot, config, leaseManager);
+  convergenceScheduler.start();
 
   // Once, at boot: every `running`/`waiting` session in the DB is necessarily a
   // leftover from a previous daemon instance, since this one hasn't started
@@ -382,6 +385,7 @@ export function buildMethods(
     },
 
     'daemon.shutdown': async () => {
+      convergenceScheduler.stop();
       radarWatchers.stopAll();
       await runtime.stopAll();
       // stopAll's exit callbacks have already begun closing most of these; anything
