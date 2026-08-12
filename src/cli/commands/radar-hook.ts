@@ -91,6 +91,13 @@ function deny(reason: string): string {
 }
 
 function collisionMessage(collisions: Collision[], repoRelative: string, blocked: boolean): string {
+  // Defensive: today's `radar.check` formula makes `blocked === true` with an
+  // empty `collisions` array unreachable, but this function must not produce a
+  // nonsensical "session(s)  also have..." string if that invariant is ever
+  // broken by a future caller (e.g. an ACP handler in M5b).
+  if (collisions.length === 0) {
+    return `crossweave Radar: blocked a write to ${repoRelative} — conditions changed before this could be fully evaluated. Retry the edit.`;
+  }
   const names = [...new Set(collisions.map((c) => c.sessionName))].join(', ');
   const symbols = [...new Set(collisions.map((c) => c.symbol ?? '(whole file)'))].join(', ');
   const base = `crossweave Radar: session(s) ${names} also have divergent changes to ${repoRelative} (${symbols}).`;
@@ -133,12 +140,17 @@ export async function runRadarHook(stdin: string, check: RadarCheckFn): Promise<
 
   try {
     const { collisions, blocked } = await check(cwd, repoRelative, undefined);
-    if (collisions.length === 0) return allow();
 
-    // A real block bypasses the noise-control gate entirely: the gate exists to
-    // cap ADVISORY token spend (§4.8), and must never suppress a safety-relevant
+    // Checked BEFORE the empty-collisions shortcut, not after: `blocked` is the
+    // daemon's verdict and must never be silently overridden by a client-side
+    // "nothing to say" shortcut — even though today's server-side formula makes
+    // blocked+empty unreachable in practice, this ordering is the seam a future
+    // caller (e.g. an ACP handler) must not be able to break by accident.
+    // Also bypasses the noise-control gate entirely: the gate exists to cap
+    // ADVISORY token spend (§4.8), and must never suppress a safety-relevant
     // deny — an agent retrying the same blocked edit must be denied every time.
     if (blocked) return deny(collisionMessage(collisions, repoRelative, true));
+    if (collisions.length === 0) return allow();
 
     const notifiable = collisions.filter((c) => gate.shouldNotify(cwd, c.path, c.symbol));
     if (notifiable.length === 0) return allow();

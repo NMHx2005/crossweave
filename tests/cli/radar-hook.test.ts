@@ -78,6 +78,14 @@ describe('runRadarHook', () => {
     }
   });
 
+  test('blocked with an empty collisions array (defensive, currently unreachable via the real RPC) still denies with a generic reason, not a crash', async () => {
+    const EMPTY_BUT_BLOCKED: RadarCheckFn = async () => ({ collisions: [], blocked: true });
+    const out = await runRadarHook(stdinFor('Write', join(cwd, 'src', 'x.ts')), EMPTY_BUT_BLOCKED);
+    const parsed = JSON.parse(out);
+    expect(parsed.hookSpecificOutput.permissionDecision).toBe('deny');
+    expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain('Retry the edit');
+  });
+
   test('a non-Edit/Write tool call is allowed without calling radar.check at all', async () => {
     let called = false;
     const spy: RadarCheckFn = async () => { called = true; return { collisions: [], blocked: false }; };
