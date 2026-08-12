@@ -90,4 +90,8 @@ describe('radar.check RPC: blocked', () => {
     expect(result.blocked).toBe(false);
     expect(result.collisions).toHaveLength(0);
   });
+
+  test('T1 workspace + T2 querying session + collision: blocked (T1 is unreachable via setSafeMode, but the blocked formula still treats it as blocking-capable, not merely advisory)', async () => {
+    expect((await check(seed('T1', 'T2', true))).blocked).toBe(true);
+  });
 });
