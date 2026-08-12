@@ -7,9 +7,14 @@ import { $ } from 'bun';
 import { resolveMainProjectRoot, runRadarHook, type RadarCheckFn } from '../../src/cli/commands/radar-hook.js';
 import { makeGitFixture, type GitFixture } from '../helpers/git-fixture.js';
 
-const NO_COLLISION: RadarCheckFn = async () => ({ collisions: [] });
+const NO_COLLISION: RadarCheckFn = async () => ({ collisions: [], blocked: false });
 const ONE_COLLISION: RadarCheckFn = async () => ({
   collisions: [{ sessionId: 's_2', sessionName: 'other', path: 'src/x.ts', symbol: 'foo', kind: 'function' }],
+  blocked: false,
+});
+const BLOCKED_COLLISION: RadarCheckFn = async () => ({
+  collisions: [{ sessionId: 's_2', sessionName: 'other', path: 'src/x.ts', symbol: 'foo', kind: 'function' }],
+  blocked: true,
 });
 
 let cwd: string;
@@ -54,9 +59,28 @@ describe('runRadarHook', () => {
     expect(parsed.hookSpecificOutput.additionalContext).toContain('src/x.ts');
   });
 
+  test('a blocked collision: deny, with a reason naming the other session', async () => {
+    const out = await runRadarHook(stdinFor('Write', join(cwd, 'src', 'x.ts')), BLOCKED_COLLISION);
+    const parsed = JSON.parse(out);
+    expect(parsed.hookSpecificOutput.permissionDecision).toBe('deny');
+    expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain('other');
+    expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain('foo');
+    expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain('src/x.ts');
+  });
+
+  test('a block is never throttled by the noise-control gate, unlike an advisory allow', async () => {
+    // The gate caps ADVISORY notifications at 6 per 10 minutes (src/radar/noise.ts).
+    // Firing the SAME collision through the hook 7 times in a row proves a block
+    // never goes through that gate at all — it must deny every single time.
+    for (let i = 0; i < 7; i += 1) {
+      const out = await runRadarHook(stdinFor('Write', join(cwd, 'src', 'x.ts')), BLOCKED_COLLISION);
+      expect(JSON.parse(out).hookSpecificOutput.permissionDecision).toBe('deny');
+    }
+  });
+
   test('a non-Edit/Write tool call is allowed without calling radar.check at all', async () => {
     let called = false;
-    const spy: RadarCheckFn = async () => { called = true; return { collisions: [] }; };
+    const spy: RadarCheckFn = async () => { called = true; return { collisions: [], blocked: false }; };
     const out = await runRadarHook(stdinFor('Read', join(cwd, 'src', 'x.ts')), spy);
     expect(called).toBe(false);
     expect(JSON.parse(out).hookSpecificOutput.permissionDecision).toBe('allow');
@@ -74,7 +98,7 @@ describe('runRadarHook', () => {
 
   test('a file_path escaping cwd is allowed without calling radar.check', async () => {
     let called = false;
-    const spy: RadarCheckFn = async () => { called = true; return { collisions: [] }; };
+    const spy: RadarCheckFn = async () => { called = true; return { collisions: [], blocked: false }; };
     const out = await runRadarHook(stdinFor('Edit', '/etc/passwd'), spy);
     expect(called).toBe(false);
     expect(JSON.parse(out).hookSpecificOutput.permissionDecision).toBe('allow');
@@ -102,7 +126,7 @@ describe('runRadarHook: cwd reached through a symlink', () => {
     let capturedPath: string | undefined;
     const capture: RadarCheckFn = async (_cwd, path) => {
       capturedPath = path;
-      return { collisions: [] };
+      return { collisions: [], blocked: false };
     };
     const stdin = JSON.stringify({
       session_id: 's', cwd: symlinkedCwd, hook_event_name: 'PreToolUse',

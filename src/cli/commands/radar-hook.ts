@@ -24,7 +24,7 @@ interface Collision {
  */
 export type RadarCheckFn = (
   cwd: string, path: string, symbol: string | undefined,
-) => Promise<{ collisions: Collision[] }>;
+) => Promise<{ collisions: Collision[]; blocked: boolean }>;
 
 interface PreToolUseInput {
   session_id?: unknown;
@@ -80,6 +80,23 @@ function allow(additionalContext?: string): string {
   });
 }
 
+function deny(reason: string): string {
+  return JSON.stringify({
+    hookSpecificOutput: {
+      hookEventName: 'PreToolUse',
+      permissionDecision: 'deny',
+      permissionDecisionReason: reason,
+    },
+  });
+}
+
+function collisionMessage(collisions: Collision[], repoRelative: string, blocked: boolean): string {
+  const names = [...new Set(collisions.map((c) => c.sessionName))].join(', ');
+  const symbols = [...new Set(collisions.map((c) => c.symbol ?? '(whole file)'))].join(', ');
+  const base = `crossweave Radar: session(s) ${names} also have divergent changes to ${repoRelative} (${symbols}).`;
+  return blocked ? `${base} Blocked — this workspace's Safe Mode does not allow write-write collisions.` : base;
+}
+
 /** Exported for direct testing — see tests/cli/radar-hook.test.ts. Never throws: a hook that crashes must not block the agent. */
 export async function runRadarHook(stdin: string, check: RadarCheckFn): Promise<string> {
   let input: PreToolUseInput;
@@ -115,15 +132,18 @@ export async function runRadarHook(stdin: string, check: RadarCheckFn): Promise<
   }
 
   try {
-    const { collisions } = await check(cwd, repoRelative, undefined);
+    const { collisions, blocked } = await check(cwd, repoRelative, undefined);
     if (collisions.length === 0) return allow();
+
+    // A real block bypasses the noise-control gate entirely: the gate exists to
+    // cap ADVISORY token spend (§4.8), and must never suppress a safety-relevant
+    // deny — an agent retrying the same blocked edit must be denied every time.
+    if (blocked) return deny(collisionMessage(collisions, repoRelative, true));
 
     const notifiable = collisions.filter((c) => gate.shouldNotify(cwd, c.path, c.symbol));
     if (notifiable.length === 0) return allow();
 
-    const names = [...new Set(notifiable.map((c) => c.sessionName))].join(', ');
-    const symbols = [...new Set(notifiable.map((c) => c.symbol ?? '(whole file)'))].join(', ');
-    return allow(`crossweave Radar: session(s) ${names} also have divergent changes to ${repoRelative} (${symbols}).`);
+    return allow(collisionMessage(notifiable, repoRelative, false));
   } catch {
     return allow(); // daemon unreachable, RPC failed, etc. — degrade silently, never block
   }
@@ -145,7 +165,7 @@ export const radarHookCommand = defineCommand({
       // a daemon predating this env var or a hook invoked outside a
       // crossweave-managed session — degrade to no RPC call rather than guess.
       const sessionId = process.env.CW_SESSION_ID;
-      if (sessionId === undefined) return { collisions: [] };
+      if (sessionId === undefined) return { collisions: [], blocked: false };
 
       // Deliberately not `withClient`: it hard-codes `findProjectRoot(process.cwd())`
       // with no override, and `process.cwd()` here is `cwd` — the session's
@@ -157,7 +177,7 @@ export const radarHookCommand = defineCommand({
       const client = await connectOrStart(projectRoot);
       try {
         const workspaceId = await currentWorkspaceId(client);
-        return await client.call<{ collisions: Collision[] }>('radar.check', {
+        return await client.call<{ collisions: Collision[]; blocked: boolean }>('radar.check', {
           workspaceId, sessionId, path, symbol,
         });
       } finally {
