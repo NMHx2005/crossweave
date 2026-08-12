@@ -2,7 +2,7 @@ import { defineCommand } from 'citty';
 import { withClient, fail } from '../context.js';
 import { humanBytes } from '../../isolation/disk-guard.js';
 
-interface Workspace { id: string; name: string; rootPath: string }
+interface Workspace { id: string; name: string; rootPath: string; safeModeTier: string }
 interface Session { id: string; name: string; status: string; enforcementTier: string }
 
 export const initCommand = defineCommand({
@@ -49,6 +49,30 @@ export const workspaceCommand = defineCommand({
             for (const s of info.sessions) {
               process.stdout.write(`  ${s.name}\t${s.status}\t${s.enforcementTier}\n`);
             }
+          });
+        } catch (err) { fail(err); }
+      },
+    }),
+
+    'safe-mode': defineCommand({
+      meta: {
+        name: 'safe-mode',
+        description: "Show or set this workspace's Safe Mode floor (T2 blocks write-write collisions, T3 is advisory-only)",
+      },
+      args: {
+        tier: { type: 'positional', description: 'T2 or T3 — omit to show the current tier', required: false },
+      },
+      async run({ args }) {
+        try {
+          await withClient(async (client) => {
+            const ws = await client.call<Workspace>('workspace.init', {});
+            if (args.tier === undefined) {
+              const info = await client.call<{ workspace: Workspace }>('workspace.info', { id: ws.id });
+              process.stdout.write(`${info.workspace.safeModeTier}\n`);
+              return;
+            }
+            const updated = await client.call<Workspace>('workspace.setSafeMode', { id: ws.id, tier: args.tier });
+            process.stdout.write(`safe mode: ${updated.safeModeTier}\n`);
           });
         } catch (err) { fail(err); }
       },

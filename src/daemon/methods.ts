@@ -261,6 +261,7 @@ export function buildMethods(
       return { ok: true };
     },
     'workspace.gc': async (p) => collectGarbage(db, str(p, 'id')),
+    'workspace.setSafeMode': (p) => workspaces.setSafeMode(str(p, 'id'), str(p, 'tier')),
 
     'session.new': (p) =>
       sessions.create({
