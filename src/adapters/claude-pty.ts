@@ -45,7 +45,7 @@ function radarHookSettings(): string {
     hooks: {
       PreToolUse: [
         {
-          matcher: 'Edit|Write',
+          matcher: '^(Edit|Write)$',
           hooks: [{ type: 'command', command: radarHookInvocation(), timeout: 5 }],
         },
       ],

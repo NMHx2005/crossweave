@@ -140,7 +140,7 @@ describe('ClaudePtyAdapter', () => {
 
   it('spawn injects a scoped PreToolUse hook via --settings, calling cw radar-hook', async () => {
     const settings = await spawnAndReadRadarHookSettings();
-    expect(settings.hooks.PreToolUse[0].matcher).toBe('Edit|Write');
+    expect(settings.hooks.PreToolUse[0].matcher).toBe('^(Edit|Write)$');
     expect(settings.hooks.PreToolUse[0].hooks[0].command).toContain('radar-hook');
     expect(settings.hooks.PreToolUse[0].hooks[0].timeout).toBe(5);
   });
