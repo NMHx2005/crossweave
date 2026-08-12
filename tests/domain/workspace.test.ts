@@ -30,7 +30,7 @@ describe('WorkspaceManager.init', () => {
     expect(ws.name).toBe('my-app');
     expect(ws.rootPath).toBe('/tmp/projects/my-app');
     expect(ws.defaultIsolation).toBe('worktree');
-    expect(ws.safeModeTier).toBe('T3');
+    expect(ws.safeModeTier).toBe('T2');
   });
 
   it('honours an explicit name', () => {
@@ -176,5 +176,43 @@ describe('WorkspaceManager identity and ambiguity', () => {
     const only = mgr.init('/tmp/projects/solo', 'solo');
     expect(mgr.resolve('solo').id).toBe(only.id);
     expect(mgr.resolve(only.id).id).toBe(only.id);
+  });
+});
+
+describe('WorkspaceManager.setSafeMode', () => {
+  it('sets T2 and persists it', () => {
+    const ws = mgr.init('/tmp/projects/app');
+    const updated = mgr.setSafeMode(ws.id, 'T2');
+    expect(updated.safeModeTier).toBe('T2');
+    expect(mgr.resolve(ws.id).safeModeTier).toBe('T2');
+  });
+
+  it('sets T3 and persists it', () => {
+    const ws = mgr.init('/tmp/projects/app');
+    const updated = mgr.setSafeMode(ws.id, 'T3');
+    expect(updated.safeModeTier).toBe('T3');
+    expect(mgr.resolve(ws.id).safeModeTier).toBe('T3');
+  });
+
+  it('rejects T1 with SAFE_MODE_TIER_UNAVAILABLE — no ACP adapter exists yet', () => {
+    const ws = mgr.init('/tmp/projects/app');
+    expect(() => mgr.setSafeMode(ws.id, 'T1')).toThrowError(
+      expect.objectContaining({ code: 'SAFE_MODE_TIER_UNAVAILABLE' }) as unknown as Error,
+    );
+    // Unchanged — a rejected set must not partially apply.
+    expect(mgr.resolve(ws.id).safeModeTier).toBe('T2');
+  });
+
+  it('rejects garbage input with INVALID_PARAMS', () => {
+    const ws = mgr.init('/tmp/projects/app');
+    expect(() => mgr.setSafeMode(ws.id, 'nope')).toThrowError(
+      expect.objectContaining({ code: 'INVALID_PARAMS' }) as unknown as Error,
+    );
+  });
+
+  it('throws WORKSPACE_NOT_FOUND for an unknown workspace', () => {
+    expect(() => mgr.setSafeMode('ghost', 'T2')).toThrowError(
+      expect.objectContaining({ code: 'WORKSPACE_NOT_FOUND' }) as unknown as Error,
+    );
   });
 });
