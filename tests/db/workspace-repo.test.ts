@@ -68,4 +68,11 @@ describe('WorkspaceRepo', () => {
     repo.delete(row.id);
     expect(repo.findById(row.id)).toBeUndefined();
   });
+
+  it('updateSafeModeTier changes only that column', () => {
+    const row = makeRow({ safeModeTier: 'T3' });
+    repo.insert(row);
+    repo.updateSafeModeTier(row.id, 'T2');
+    expect(repo.findById(row.id)).toEqual({ ...row, safeModeTier: 'T2' });
+  });
 });
