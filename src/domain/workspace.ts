@@ -123,8 +123,6 @@ export class WorkspaceManager {
     this.workspaces.delete(workspace.id);
   }
 
-  private static readonly SETTABLE_SAFE_MODE_TIERS = new Set<WorkspaceRow['safeModeTier']>(['T2', 'T3']);
-
   /**
    * T1 is rejected outright rather than silently accepted as if it were T2: no
    * ACP-based adapter exists yet (M5a's scope), and accepting it would tell the
@@ -138,10 +136,11 @@ export class WorkspaceManager {
         'T1 requires an ACP-based adapter, which crossweave does not have yet. Use T2 or T3.',
       );
     }
-    if (!WorkspaceManager.SETTABLE_SAFE_MODE_TIERS.has(tier as WorkspaceRow['safeModeTier'])) {
+    // Narrows `tier` to 'T2' | 'T3' by control-flow analysis — no cast needed.
+    if (tier !== 'T2' && tier !== 'T3') {
       throw new CrossweaveError('INVALID_PARAMS', `safeModeTier must be T2 or T3, got: ${tier}`);
     }
-    this.workspaces.updateSafeModeTier(workspace.id, tier as WorkspaceRow['safeModeTier']);
-    return { ...workspace, safeModeTier: tier as WorkspaceRow['safeModeTier'] };
+    this.workspaces.updateSafeModeTier(workspace.id, tier);
+    return { ...workspace, safeModeTier: tier };
   }
 }
