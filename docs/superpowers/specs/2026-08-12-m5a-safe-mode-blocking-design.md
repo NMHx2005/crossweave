@@ -51,7 +51,9 @@ the old label just predates M3 wiring it up and was never revisited.
 ### 3.2 `workspace.safeModeTier` becomes a real, settable floor
 
 - `WorkspaceRepo` gains `updateSafeModeTier(id: string, tier: 'T2' | 'T3'): void`.
-- New RPC `workspace.setSafeMode({ workspaceId, tier })`. `tier: 'T1'` is rejected with
+- New RPC `workspace.setSafeMode({ id, tier })` — `id` to match every sibling
+  `workspace.*` RPC (`info`, `delete`, `gc`), not `workspaceId` as an earlier
+  draft of this doc said. `tier: 'T1'` is rejected with
   `SAFE_MODE_TIER_UNAVAILABLE` — no ACP adapter exists yet, so silently accepting T1
   would create a false sense of stronger enforcement than the system can actually
   provide. Anything other than `'T1' | 'T2' | 'T3'` (wrong case, garbage string) is
@@ -102,7 +104,7 @@ When `radar.check` returns `blocked: true`:
     "hookSpecificOutput": {
       "hookEventName": "PreToolUse",
       "permissionDecision": "deny",
-      "permissionDecisionReason": "crossweave Radar: session(s) auth also have divergent changes to src/auth.ts#AuthService. Blocked — this workspace's Safe Mode is T2."
+      "permissionDecisionReason": "crossweave Radar: session(s) auth also have divergent changes to src/auth.ts#AuthService. Blocked — this workspace's Safe Mode does not allow write-write collisions."
     }
   }
   ```
