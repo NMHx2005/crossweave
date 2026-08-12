@@ -45,6 +45,7 @@ export const workspaceCommand = defineCommand({
               'workspace.info', { id: ws.id },
             );
             process.stdout.write(`${info.workspace.name}\t${info.workspace.rootPath}\n`);
+            process.stdout.write(`safe mode: ${info.workspace.safeModeTier}\n`);
             process.stdout.write(`sessions: ${info.sessions.length}\n`);
             for (const s of info.sessions) {
               process.stdout.write(`  ${s.name}\t${s.status}\t${s.enforcementTier}\n`);
@@ -57,7 +58,7 @@ export const workspaceCommand = defineCommand({
     'safe-mode': defineCommand({
       meta: {
         name: 'safe-mode',
-        description: "Show or set this workspace's Safe Mode floor (T2 blocks write-write collisions, T3 is advisory-only)",
+        description: "Show or set this workspace's Safe Mode floor (T2 blocks write-write collisions and is the default for new workspaces; T3 is advisory-only; T1 is rejected — no ACP adapter yet)",
       },
       args: {
         tier: { type: 'positional', description: 'T2 or T3 — omit to show the current tier', required: false },
