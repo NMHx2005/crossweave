@@ -123,12 +123,19 @@ class PtyProcess implements AgentProcess {
 }
 
 /**
- * Tier T3: an opaque CLI driven over a pty. crossweave observes output but
- * cannot intercept tool calls, so Safe Mode here is advisory only (spec §2.1).
+ * Tier T2: drives Claude Code over a pty, but with a real interception point —
+ * every invocation gets a `PreToolUse` hook (`radarHookSettings` below) that can
+ * allow OR deny a tool call. That is exactly what the roadmap defines T2 to mean
+ * (`docs/superpowers/specs/2026-08-09-crossweave-design.md` §4.10: "Claude Code
+ * natively (hooks + headless SDK + MCP), giving T2") — this adapter was mislabeled
+ * T3 from M0, before M3 wired the hook up; M5a corrects the label to match the
+ * capability. T1 (ACP's structured permission boundary) is stronger still: the
+ * hook's `matcher: 'Edit|Write'` cannot see a file write made through the `Bash`
+ * tool, a blind spot ACP's boundary does not have.
  */
 export class ClaudePtyAdapter implements AgentAdapter {
   readonly kind = 'claude';
-  readonly enforcementTier: EnforcementTier = 'T3';
+  readonly enforcementTier: EnforcementTier = 'T2';
 
   constructor(
     private readonly command = 'claude',

@@ -38,10 +38,10 @@ async function spawnAndReadRadarHookSettings(): Promise<RadarHookSettings> {
 }
 
 describe('ClaudePtyAdapter', () => {
-  it('reports kind and enforcement tier T3', () => {
+  it('reports kind and enforcement tier T2', () => {
     const a = new ClaudePtyAdapter();
     expect(a.kind).toBe('claude');
-    expect(a.enforcementTier).toBe('T3');
+    expect(a.enforcementTier).toBe('T2');
   });
 
   // Assert on the directory's unique basename, never on a substring of the temp path.
@@ -176,7 +176,7 @@ describe('ClaudePtyAdapter', () => {
 describe('createAdapter', () => {
   it('returns the claude adapter', () => {
     expect(createAdapter('claude').kind).toBe('claude');
-    expect(createAdapter('claude').enforcementTier).toBe('T3');
+    expect(createAdapter('claude').enforcementTier).toBe('T2');
   });
 
   it('throws UNKNOWN_AGENT for an unsupported kind', () => {
