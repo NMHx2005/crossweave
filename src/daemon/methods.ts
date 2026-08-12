@@ -337,10 +337,11 @@ export function buildMethods(
 
     'radar.check': (p) => {
       const workspaceId = str(p, 'workspaceId');
+      const sessionId = str(p, 'sessionId');
       const symbol = optionalStr(p, 'symbol');
       const collisions = checkCollisions(fileClaims, {
         workspaceId,
-        sessionId: str(p, 'sessionId'),
+        sessionId,
         path: str(p, 'path'),
         symbol,
       });
@@ -348,7 +349,16 @@ export function buildMethods(
       // see Task 6's unit tests). Session NAMES are a display concern, added
       // here where `sessions` is already in scope, for the one consumer that
       // needs a human-readable name: Task 9's hook advisory text.
+      //
+      // `blocked` is computed HERE, not in the hook, so the policy (workspace
+      // floor x this session's own capability x whether a collision even
+      // exists) is defined exactly once — a future ACP permission-boundary
+      // handler (M5b) needs the identical decision over a different transport.
+      const safeModeTier = workspaces.resolve(workspaceId).safeModeTier;
+      const enforcementTier = sessions.resolve(workspaceId, sessionId).enforcementTier;
+      const blocked = safeModeTier !== 'T3' && enforcementTier !== 'T3' && collisions.length > 0;
       return {
+        blocked,
         collisions: collisions.map((c) => ({
           ...c,
           sessionName: sessions.resolve(workspaceId, c.sessionId).name,
