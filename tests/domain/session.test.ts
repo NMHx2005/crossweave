@@ -32,7 +32,7 @@ describe('SessionManager.create', () => {
     expect(s.status).toBe('idle');
     expect(s.branch).toBe('cw/auth');
     expect(s.adapter).toBe('claude');
-    expect(s.enforcementTier).toBe('T3');
+    expect(s.enforcementTier).toBe('T2');
     expect(s.worktreePath).not.toBeNull();
     expect(existsSync(join(s.worktreePath!, 'README.md'))).toBe(true);
   });

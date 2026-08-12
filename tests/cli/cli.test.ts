@@ -54,7 +54,7 @@ describe('cw CLI', () => {
     const listed = await cw(['session', 'list']);
     expect(listed.stdout).toContain('auth');
     expect(listed.stdout).toContain('idle');
-    expect(listed.stdout).toContain('T3');
+    expect(listed.stdout).toContain('T2');
 
     const renamed = await cw(['session', 'rename', 'auth', 'auth2']);
     expect(renamed.exitCode).toBe(0);
