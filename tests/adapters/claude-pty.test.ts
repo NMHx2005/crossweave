@@ -13,6 +13,7 @@ function collect(proc: { onData(cb: (c: string) => void): void }): () => string 
 
 interface RadarHookSettings {
   hooks: { PreToolUse: [{ matcher: string; hooks: [{ type: string; command: string; timeout: number }] }] };
+  statusLine: { type: string; command: string };
 }
 
 /**
@@ -143,6 +144,12 @@ describe('ClaudePtyAdapter', () => {
     expect(settings.hooks.PreToolUse[0].matcher).toBe('^(Edit|Write)$');
     expect(settings.hooks.PreToolUse[0].hooks[0].command).toContain('radar-hook');
     expect(settings.hooks.PreToolUse[0].hooks[0].timeout).toBe(5);
+  });
+
+  it('spawn also injects a statusLine command, calling cw session-usage-hook', async () => {
+    const settings = await spawnAndReadRadarHookSettings();
+    expect(settings.statusLine.type).toBe('command');
+    expect(settings.statusLine.command).toContain('session-usage-hook');
   });
 
   // Task 10's review caught that the dev-mode command was a bare path to the

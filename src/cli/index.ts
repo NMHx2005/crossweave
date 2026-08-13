@@ -9,6 +9,7 @@ import { initCommand, workspaceCommand, gcCommand } from './commands/workspace.j
 import { sessionCommand } from './commands/session.js';
 import { blameCommand } from './commands/blame.js';
 import { radarHookCommand } from './commands/radar-hook.js';
+import { sessionUsageHookCommand } from './commands/session-usage-hook.js';
 import { contractCommand } from './commands/contract.js';
 import { convergeCommand } from './commands/converge.js';
 import { landCommand } from './commands/land.js';
@@ -74,6 +75,7 @@ const main = defineCommand({
     gc: gcCommand,
     blame: blameCommand,
     'radar-hook': radarHookCommand,
+    'session-usage-hook': sessionUsageHookCommand,
     contract: contractCommand,
     converge: convergeCommand,
     land: landCommand,

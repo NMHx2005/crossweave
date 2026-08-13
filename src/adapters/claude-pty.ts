@@ -5,10 +5,13 @@ import type { EnforcementTier } from '../db/repositories/session.js';
 import type { AgentAdapter, AgentProcess, SpawnOptions } from './types.js';
 
 /**
- * The full shell command that invokes `cw radar-hook` — `spawn` runs inside
+ * The full shell command that invokes a `cw` subcommand — `spawn` runs inside
  * the daemon process, whose PATH is whatever the client forwarded (see
  * `clientEnv` in methods.ts), which may not include wherever `cw` itself was
  * installed, so this cannot just be the bare command name in every case.
+ * Generalized from M3's `radarHookInvocation` (same three-tier resolution, now
+ * parameterized by subcommand) so M6a's statusLine command can reuse it instead of
+ * duplicating the resolution logic.
  *
  * Three tiers, most to least specific, mirroring `resolveDaemonEntry` in
  * `client/rpc-client.ts` (same compiled-vs-source problem, same fix):
@@ -30,14 +33,14 @@ import type { AgentAdapter, AgentProcess, SpawnOptions } from './types.js';
  *    different directories) — fall back to the bare command name and let
  *    PATH resolve it, same as any other sibling-CLI convention.
  */
-function radarHookInvocation(): string {
+function cwInvocation(subcommand: string): string {
   const siblingOfExecutable = join(dirname(process.execPath), 'cw');
-  if (existsSync(siblingOfExecutable)) return `${siblingOfExecutable} radar-hook`;
+  if (existsSync(siblingOfExecutable)) return `${siblingOfExecutable} ${subcommand}`;
 
   const siblingSource = fileURLToPath(new URL('../cli/index.ts', import.meta.url));
-  if (existsSync(siblingSource)) return `${process.execPath} ${siblingSource} radar-hook`;
+  if (existsSync(siblingSource)) return `${process.execPath} ${siblingSource} ${subcommand}`;
 
-  return 'cw radar-hook';
+  return `cw ${subcommand}`;
 }
 
 function radarHookSettings(): string {
@@ -46,9 +49,15 @@ function radarHookSettings(): string {
       PreToolUse: [
         {
           matcher: '^(Edit|Write)$',
-          hooks: [{ type: 'command', command: radarHookInvocation(), timeout: 5 }],
+          hooks: [{ type: 'command', command: cwInvocation('radar-hook'), timeout: 5 }],
         },
       ],
+    },
+    // M6a: reuses the exact same --settings JSON crossweave already injects for the
+    // PreToolUse hook (design doc §2) — no new spawn-time surface.
+    statusLine: {
+      type: 'command',
+      command: cwInvocation('session-usage-hook'),
     },
   });
 }
