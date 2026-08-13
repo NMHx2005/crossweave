@@ -11,6 +11,7 @@ import type { EnforcementTier } from '../db/repositories/session.js';
 import type { AgentAdapter, AgentProcess, SpawnOptions } from './types.js';
 import { assertContained } from '../core/paths.js';
 import type { DecideBlockedParams, DecideBlockedResult } from '../radar/decision.js';
+import { CrossweaveError } from '../core/errors.js';
 
 export interface AcpAdapterDeps {
   resolveWorkspaceId(sessionId: string): string;
@@ -61,6 +62,13 @@ type PermissionDecision = 'allow_once' | 'reject_once';
  * to be the STRONG enforcement tier. A location outside the worktree root, or a
  * decideBlocked call that throws, denies rather than silently allowing.
  */
+// Kinds that never write — the underlying policy is specifically about write-write
+// collisions (the hook's own deny reason says so, and M5a only ever matched
+// Edit|Write), so these are let through without consulting decideBlocked at all. A
+// kind not in this set (including an unset `kind`) is treated conservatively — checked,
+// not assumed safe.
+const NON_MUTATING_KINDS = new Set<string>(['read', 'search', 'fetch', 'think', 'switch_mode']);
+
 function decideRequestPermission(
   params: RequestPermissionRequest,
   cwd: string,
@@ -68,6 +76,7 @@ function decideRequestPermission(
   deps: AcpAdapterDeps,
 ): PermissionDecision {
   if (sessionId === undefined) return 'reject_once';
+  if (params.toolCall.kind != null && NON_MUTATING_KINDS.has(params.toolCall.kind)) return 'allow_once';
 
   const locations = params.toolCall.locations ?? [];
   if (locations.length === 0) return 'allow_once'; // nothing to check against
@@ -79,8 +88,14 @@ function decideRequestPermission(
       let relPath: string;
       try {
         relPath = relative(realCwd, assertContained(cwd, location.path));
-      } catch {
-        continue; // path escapes the worktree — not this adapter's problem, matches the hook's precedent
+      } catch (err) {
+        // Only a genuine "outside the worktree" escape is skipped (matches the Claude
+        // Code hook's precedent — that's not this adapter's problem to police). Any
+        // OTHER failure (a symlink loop `assertContained` refuses to resolve, an
+        // fs error) is NOT the same as "nothing to check" and must not be treated as
+        // one — it denies, keeping this handler's fail-closed guarantee honest.
+        if (err instanceof CrossweaveError && err.code === 'PATH_ESCAPE') continue;
+        return 'reject_once';
       }
       const result = deps.decideBlocked({ workspaceId, sessionId, path: relPath });
       if (result.blocked) return 'reject_once';
@@ -119,6 +134,17 @@ class AcpProcess implements AgentProcess {
       fanOut(this.exitListeners, this.exitCode);
     });
 
+    // Piped but otherwise unread by default (stdout/stdin are wired to the ACP JSON-RPC
+    // stream, stderr is not part of that protocol) — an agent process that logs errors
+    // to stderr (e.g. an unauthenticated `cursor-agent`, which per the design doc needs
+    // a live account) would otherwise give the user no signal at all, AND could block on
+    // write once the pipe's buffer fills, wedging the whole process with no timeout. A
+    // pty (ClaudePtyAdapter's transport) never had this exposure because it merges the
+    // streams; surfacing stderr through onData is the closest equivalent here.
+    this.child.stderr?.on('data', (chunk: Buffer) => {
+      fanOut(this.dataListeners, chunk.toString('utf8'));
+    });
+
     // Web Streams, not Node streams — ndJsonStream's contract (verified against the
     // SDK's own examples, not guessed): (output-we-write-to, input-we-read-from).
     const input = Writable.toWeb(this.child.stdin!);
@@ -135,7 +161,13 @@ class AcpProcess implements AgentProcess {
     const clientImpl: Client = {
       requestPermission: async (params: RequestPermissionRequest): Promise<RequestPermissionResponse> => {
         const decision = decideRequestPermission(params, opts.cwd, opts.env.CW_SESSION_ID, deps);
-        const chosen = params.options.find((o) => o.kind === decision) ?? params.options[0];
+        // Never fall back across the allow/deny boundary: if the agent didn't offer
+        // the exact option kind decided on, fall back only within the SAME class
+        // (any other allow_*/reject_* option) — never to an arbitrary options[0],
+        // which could silently turn a deny into an allow depending on option order.
+        const wantReject = decision === 'reject_once';
+        const chosen = params.options.find((o) => o.kind === decision)
+          ?? params.options.find((o) => o.kind.startsWith(wantReject ? 'reject' : 'allow'));
         if (chosen === undefined) {
           return { outcome: { outcome: 'cancelled' } };
         }

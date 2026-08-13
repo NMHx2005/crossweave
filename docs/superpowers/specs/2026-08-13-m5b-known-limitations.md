@@ -22,7 +22,10 @@ crossweave's side either way.
 ## T1 fails closed on internal errors; T2 (the Claude Code hook) fails open — deliberately different
 
 `decideRequestPermission` denies (not allows) on any unexpected internal error — a missing
-`CW_SESSION_ID`, `decideBlocked` throwing, a path resolution failure. This is the opposite
+`CW_SESSION_ID`, `decideBlocked` throwing, or a path-resolution failure that is NOT a plain
+worktree escape (a location genuinely outside the session's worktree is skipped, not
+denied — the same precedent the Claude Code hook already established; anything else, like
+a symlink loop, denies). This is the opposite
 of the Claude Code hook's fail-open posture
 (`docs/superpowers/specs/2026-08-12-m5a-known-limitations.md`), and the difference is
 deliberate, not an inconsistency: the hook is a separate subprocess with genuine

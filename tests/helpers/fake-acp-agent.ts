@@ -62,6 +62,7 @@ async function prompt(params: acp.PromptRequest, cx: acp.AgentContext): Promise<
     const parsed = JSON.parse(text.slice(marker.length)) as {
       locations?: { path: string }[];
       kind?: acp.ToolKind;
+      options?: { kind: acp.PermissionOptionKind; name: string; optionId: string }[];
     };
     const response = await cx.request<acp.RequestPermissionResponse, acp.RequestPermissionRequest>(acp.methods.client.session.requestPermission, {
       sessionId,
@@ -69,7 +70,7 @@ async function prompt(params: acp.PromptRequest, cx: acp.AgentContext): Promise<
         toolCallId: 'call_1', title: 'test tool call', kind: parsed.kind ?? 'edit',
         status: 'pending', locations: parsed.locations ?? [],
       },
-      options: [
+      options: parsed.options ?? [
         { kind: 'allow_once', name: 'Allow', optionId: 'allow' },
         { kind: 'reject_once', name: 'Reject', optionId: 'reject' },
       ],

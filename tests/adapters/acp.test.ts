@@ -150,6 +150,83 @@ describe('AcpAdapter', () => {
     proc.kill();
   });
 
+  it('a blocked decision with no reject_once option falls back within the reject CLASS (reject_always), never to allow', async () => {
+    const decideBlocked = (): DecideBlockedResult => ({ collisions: [], blocked: true });
+    const adapter = new AcpAdapter(
+      { resolveWorkspaceId: () => 'ws_1', decideBlocked },
+      process.execPath, [FAKE_AGENT],
+    );
+    const proc = adapter.spawn({ cwd: process.cwd(), env: { CW_SESSION_ID: 's_1' }, cols: 80, rows: 24 });
+    const read = collect(proc);
+    proc.write(`__REQUEST_PERMISSION__:${JSON.stringify({
+      locations: [{ path: `${process.cwd()}/x.ts` }], kind: 'edit',
+      options: [
+        { kind: 'allow_once', name: 'Allow', optionId: 'allow' },
+        { kind: 'reject_always', name: 'Always Reject', optionId: 'always-reject' },
+      ],
+    })}`);
+    await waitFor(() => read().includes('PERMISSION_RESULT:'));
+    expect(read()).toContain('PERMISSION_RESULT:always-reject');
+    proc.kill();
+  });
+
+  it('a blocked decision with NO reject option at all cancels rather than falling back to allow', async () => {
+    const decideBlocked = (): DecideBlockedResult => ({ collisions: [], blocked: true });
+    const adapter = new AcpAdapter(
+      { resolveWorkspaceId: () => 'ws_1', decideBlocked },
+      process.execPath, [FAKE_AGENT],
+    );
+    const proc = adapter.spawn({ cwd: process.cwd(), env: { CW_SESSION_ID: 's_1' }, cols: 80, rows: 24 });
+    const read = collect(proc);
+    proc.write(`__REQUEST_PERMISSION__:${JSON.stringify({
+      locations: [{ path: `${process.cwd()}/x.ts` }], kind: 'edit',
+      options: [{ kind: 'allow_once', name: 'Allow', optionId: 'allow' }],
+    })}`);
+    await waitFor(() => read().includes('PERMISSION_RESULT:'));
+    expect(read()).toContain('PERMISSION_RESULT:cancelled');
+    proc.kill();
+  });
+
+  it('a location outside the worktree is skipped (not checked, not denied) if it is the only location', async () => {
+    const decideBlocked = (): DecideBlockedResult => {
+      throw new Error('must not be called for a location outside the worktree');
+    };
+    const adapter = new AcpAdapter(
+      { resolveWorkspaceId: () => 'ws_1', decideBlocked },
+      process.execPath, [FAKE_AGENT],
+    );
+    const proc = adapter.spawn({ cwd: process.cwd(), env: { CW_SESSION_ID: 's_1' }, cols: 80, rows: 24 });
+    const read = collect(proc);
+    proc.write(`__REQUEST_PERMISSION__:${JSON.stringify({ locations: [{ path: '/etc/passwd' }], kind: 'edit' })}`);
+    await waitFor(() => read().includes('PERMISSION_RESULT:'));
+    expect(read()).toContain('PERMISSION_RESULT:allow');
+    proc.kill();
+  });
+
+  it('a read-only tool call (kind: read) is allowed even with a location that would otherwise block — the policy is about write-write collisions', async () => {
+    const decideBlocked = (): DecideBlockedResult => {
+      throw new Error('must not be called for a read-only tool call');
+    };
+    const adapter = new AcpAdapter(
+      { resolveWorkspaceId: () => 'ws_1', decideBlocked },
+      process.execPath, [FAKE_AGENT],
+    );
+    const proc = adapter.spawn({ cwd: process.cwd(), env: { CW_SESSION_ID: 's_1' }, cols: 80, rows: 24 });
+    const read = collect(proc);
+    proc.write(`__REQUEST_PERMISSION__:${JSON.stringify({ locations: [{ path: `${process.cwd()}/x.ts` }], kind: 'read' })}`);
+    await waitFor(() => read().includes('PERMISSION_RESULT:'));
+    expect(read()).toContain('PERMISSION_RESULT:allow');
+    proc.kill();
+  });
+
+  it('stderr output from the child is surfaced via onData (an unauthenticated/failing agent is not silently wedged)', async () => {
+    const adapter = new AcpAdapter(NOOP_DEPS, 'sh', ['-c', 'echo AUTH_ERROR >&2; sleep 5']);
+    const proc = adapter.spawn({ cwd: process.cwd(), env: {}, cols: 80, rows: 24 });
+    const read = collect(proc);
+    await waitFor(() => read().includes('AUTH_ERROR'));
+    proc.kill();
+  });
+
   it('resize is a no-op (no throw) — ACP has no terminal concept', async () => {
     const adapter = new AcpAdapter(NOOP_DEPS, process.execPath, [FAKE_AGENT]);
     const proc = adapter.spawn({ cwd: process.cwd(), env: {}, cols: 80, rows: 24 });
