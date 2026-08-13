@@ -60,10 +60,23 @@ function renderSessionUpdate(update: SessionUpdate): string {
  * session id or a recordUsage failure is a silent no-op, never surfaced to the agent,
  * because usage accounting is best-effort observability and must never break a turn.
  */
+/**
+ * `cost.currency` is a required field of ACP's `Cost` type whenever `cost` is present
+ * (ISO 4217, e.g. "USD", "EUR") — crossweave's `cost_spent_usd` column has no currency
+ * of its own (it is USD-denominated by construction, matching Claude Code's own
+ * `cost.total_cost_usd`), so a non-USD report is skipped rather than silently
+ * mislabeled as dollars. Case-insensitive: the schema doesn't mandate a case, and
+ * treating "usd"/"USD" differently would be a needless footgun.
+ */
+function usdCostAmount(update: Extract<SessionUpdate, { sessionUpdate: 'usage_update' }>): number | undefined {
+  if (update.cost === undefined || update.cost === null) return undefined;
+  return update.cost.currency.toUpperCase() === 'USD' ? update.cost.amount : undefined;
+}
+
 function reportUsageUpdate(update: SessionUpdate, sessionId: string | undefined, deps: AcpAdapterDeps): void {
   if (update.sessionUpdate !== 'usage_update' || sessionId === undefined) return;
   try {
-    deps.recordUsage({ sessionId, tokensUsed: update.used, costUsd: update.cost?.amount });
+    deps.recordUsage({ sessionId, tokensUsed: update.used, costUsd: usdCostAmount(update) });
   } catch {
     // Best-effort — see the doc comment above.
   }

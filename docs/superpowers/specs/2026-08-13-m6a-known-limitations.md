@@ -21,15 +21,47 @@ change, a `refreshInterval` timer if configured) — not continuously. A long si
 (a big tool call, an extended thinking block) shows stale spend until the turn's
 message lands. Acceptable for a budget meter, not for anything time-critical.
 
-## ACP's `cost` field is optional and agent-dependent
+## ACP's `used` field is context-window occupancy, not cumulative spend — unlike Claude Code's
+
+Found during final review, not anticipated at design time: ACP's `usage_update.used`
+(mapped to `session.token_spent` for T1 sessions) is "tokens currently in context" per
+the SDK's own schema — it can DECREASE after a compaction, the opposite of Claude
+Code's statusLine path, which writes a genuinely monotonic cumulative total to the same
+column. A long T1 session that has compacted several times will show a `token_spent`
+figure far below its real cumulative usage, and an `OVER BUDGET` marker set by
+`--budget-tokens` can un-trip after a compaction even though total spend never went
+down. `cost_spent_usd` does not have this problem — ACP's `Cost.amount` genuinely is
+documented as cumulative session cost, same as Claude Code's `cost.total_cost_usd`.
+No fix exists without a materially different integration: ACP's `session/update` has
+no stable cumulative-token field today (`Session.totalTokens` exists in some schema
+drafts but is marked unstable and is not carried on `usage_update`), so this is
+recorded as a known limitation rather than worked around.
+
+## ACP's `cost` field is optional, agent-dependent, and only trusted when the currency is USD
 
 `UsageUpdate.cost` is optional in the ACP schema — an agent that never populates it
-means `costSpentUsd` simply never updates for that session over the ACP (T1) path;
-`tokenSpent` (from `used`) is more reliably present, since it is a required field of
-the schema. Whether a given ACP agent populates `cost` is entirely outside
-crossweave's control and could change with no code change on crossweave's side either
-way (same "implementation-quality, not structural" caveat M5b's known-limitations doc
-already documents for `AcpAdapter`'s `locations` dependency).
+means `costSpentUsd` simply never updates for that session over the ACP (T1) path.
+`Cost.currency` is a required field of the schema when `cost` IS present (ISO 4217,
+e.g. `"USD"`, `"EUR"`) and crossweave's `cost_spent_usd` column has no currency of its
+own — it is USD-denominated by construction (Claude Code's own `cost.total_cost_usd`
+is always USD). `src/adapters/acp.ts`'s usage-reporting only records `cost.amount` when
+`cost.currency` is `'USD'` (case-insensitive); a non-USD report is skipped exactly like
+an absent `cost` field already was, rather than silently mislabeling a EUR or JPY
+figure as dollars. Whether a given ACP agent populates `cost` at all, or in what
+currency, is entirely outside crossweave's control and could change with no code
+change on crossweave's side either way (same "implementation-quality, not structural"
+caveat M5b's known-limitations doc already documents for `AcpAdapter`'s `locations`
+dependency).
+
+## Claude Code's own `statusLine` setting is silently overridden inside a crossweave session
+
+`radarHookSettings()` (`src/adapters/claude-pty.ts`) injects a `statusLine` entry into
+the `--settings` JSON every crossweave-managed Claude Code session is spawned with,
+alongside the pre-existing `PreToolUse` hook. A user with their own custom
+`~/.claude/settings.json` `statusLine` configured loses it for the duration of any
+crossweave session — the injected one takes precedence. Not currently configurable;
+would need a way to compose with (or fall back to) a user's existing statusLine, which
+is out of scope for M6a.
 
 ## No auto-pause, no OpenTUI, no per-turn granularity
 

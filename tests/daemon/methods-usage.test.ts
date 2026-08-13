@@ -57,3 +57,41 @@ describe('session.reportUsage RPC', () => {
     await expect(methods['session.reportUsage']!({}, ctx)).rejects.toThrow();
   });
 });
+
+describe('session.new RPC: budget params', () => {
+  test('budgetTokens/budgetUsd reach the stored row through the RPC layer, not just SessionManager.create directly', async () => {
+    const db = openDatabase(':memory:');
+    new WorkspaceRepo(db).insert({
+      id: 'ws_1', name: 'w', rootPath: '/tmp/w', createdAt: 'now',
+      defaultIsolation: 'worktree', safeModeTier: 'T2',
+    });
+    const methods = buildMethods(db, '/tmp/w', () => ({
+      kind: 'claude', enforcementTier: 'T2',
+      spawn: () => { throw new Error('not used in this test'); },
+    }));
+    const result = (await methods['session.new']!(
+      { workspaceId: 'ws_1', name: 'budgeted', agent: 'claude', worktree: false, budgetTokens: 100000, budgetUsd: 5 },
+      ctx,
+    )) as { tokenBudget: number | null; costBudgetUsd: number | null };
+    expect(result.tokenBudget).toBe(100000);
+    expect(result.costBudgetUsd).toBe(5);
+  });
+
+  test('omitted budget params leave both budgets null through the RPC layer', async () => {
+    const db = openDatabase(':memory:');
+    new WorkspaceRepo(db).insert({
+      id: 'ws_1', name: 'w', rootPath: '/tmp/w', createdAt: 'now',
+      defaultIsolation: 'worktree', safeModeTier: 'T2',
+    });
+    const methods = buildMethods(db, '/tmp/w', () => ({
+      kind: 'claude', enforcementTier: 'T2',
+      spawn: () => { throw new Error('not used in this test'); },
+    }));
+    const result = (await methods['session.new']!(
+      { workspaceId: 'ws_1', name: 'unbudgeted', agent: 'claude', worktree: false },
+      ctx,
+    )) as { tokenBudget: number | null; costBudgetUsd: number | null };
+    expect(result.tokenBudget).toBeNull();
+    expect(result.costBudgetUsd).toBeNull();
+  });
+});

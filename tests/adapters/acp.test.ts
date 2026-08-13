@@ -72,6 +72,42 @@ describe('AcpAdapter', () => {
     proc.kill();
   });
 
+  it('a usage_update with a non-USD currency: recordUsage gets tokens but costUsd is skipped, not mislabeled', async () => {
+    const seen: RecordUsageParams[] = [];
+    const adapter = new AcpAdapter(
+      {
+        resolveWorkspaceId: () => 'ws_1',
+        decideBlocked: () => ({ collisions: [], blocked: false }),
+        recordUsage: (params) => { seen.push(params); },
+      },
+      process.execPath, [FAKE_AGENT],
+    );
+    const proc = adapter.spawn({ cwd: process.cwd(), env: { CW_SESSION_ID: 's_1' }, cols: 80, rows: 24 });
+    const read = collect(proc);
+    proc.write(`__USAGE_UPDATE__:${JSON.stringify({ used: 16700, size: 200000, cost: { amount: 0.0123, currency: 'EUR' } })}`);
+    await waitFor(() => read().includes('USAGE_REPORTED'));
+    expect(seen).toEqual([{ sessionId: 's_1', tokensUsed: 16700, costUsd: undefined }]);
+    proc.kill();
+  });
+
+  it('a usage_update with a lowercase "usd" currency is still trusted (case-insensitive)', async () => {
+    const seen: RecordUsageParams[] = [];
+    const adapter = new AcpAdapter(
+      {
+        resolveWorkspaceId: () => 'ws_1',
+        decideBlocked: () => ({ collisions: [], blocked: false }),
+        recordUsage: (params) => { seen.push(params); },
+      },
+      process.execPath, [FAKE_AGENT],
+    );
+    const proc = adapter.spawn({ cwd: process.cwd(), env: { CW_SESSION_ID: 's_1' }, cols: 80, rows: 24 });
+    const read = collect(proc);
+    proc.write(`__USAGE_UPDATE__:${JSON.stringify({ used: 16700, size: 200000, cost: { amount: 0.0123, currency: 'usd' } })}`);
+    await waitFor(() => read().includes('USAGE_REPORTED'));
+    expect(seen).toEqual([{ sessionId: 's_1', tokensUsed: 16700, costUsd: 0.0123 }]);
+    proc.kill();
+  });
+
   it('a usage_update with no cost field: recordUsage gets tokens only, costUsd undefined', async () => {
     const seen: RecordUsageParams[] = [];
     const adapter = new AcpAdapter(

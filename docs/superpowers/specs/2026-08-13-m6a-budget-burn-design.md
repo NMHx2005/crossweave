@@ -44,9 +44,19 @@ tracked in its own design.
   not deltas.
 - **ACP (T1)**: `session/update` has a `usage_update` variant, native to the protocol schema —
   `UsageUpdate { used: uint64, size: uint64, cost?: { amount: number, currency: string } }`.
-  `used`/`size` are context-window tokens (used vs. total); `cost` is optional (not every ACP
-  agent populates it) and, per real-world issue trackers checked during research, Anthropic's
-  own `claude-agent-acp` bridge does populate it. Cumulative, same as the statusLine case.
+  `used`/`size` are context-window tokens (used vs. total). Per the SDK's own schema,
+  `used` is "tokens currently in context" — context-window OCCUPANCY, not a cumulative
+  running total: it can DECREASE after a compaction, unlike Claude Code's statusLine
+  path, which reports a genuinely monotonic total. crossweave stores both into the same
+  `session.token_spent` column regardless (§3.2), so that column means a different
+  thing depending on which adapter reported it — documented as a known limitation
+  (`docs/superpowers/specs/2026-08-13-m6a-known-limitations.md`), not silently implied
+  to be consistent. `cost.amount`, by contrast, genuinely IS "cumulative session cost"
+  per the same schema — only the token half of ACP's report is the wrong kind of
+  number, not the cost half. `cost`'s `currency` field is also required by the schema
+  and must be checked before trusting `amount` as USD (§3.2's `recordUsage` caller in
+  `src/adapters/acp.ts` only records cost when `currency` is `'USD'`, case-insensitive
+  — a non-USD report is skipped exactly like an absent `cost` field already is).
   `PromptResponse` itself carries no usage field — `usage_update` is the only source.
 - **Neither source is authoritative billing data.** Anthropic's own docs state this explicitly
   for both the statusLine payload and the SDK's cost fields ("client-side estimates... do not
