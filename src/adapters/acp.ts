@@ -1,5 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { Readable, Writable } from 'node:stream';
+import { relative } from 'node:path';
+import { realpathSync } from 'node:fs';
 import {
   ClientSideConnection, ndJsonStream, PROTOCOL_VERSION,
   type Agent, type Client, type RequestPermissionRequest, type RequestPermissionResponse,
@@ -7,13 +9,13 @@ import {
 } from '@agentclientprotocol/sdk';
 import type { EnforcementTier } from '../db/repositories/session.js';
 import type { AgentAdapter, AgentProcess, SpawnOptions } from './types.js';
+import { assertContained } from '../core/paths.js';
+import type { DecideBlockedParams, DecideBlockedResult } from '../radar/decision.js';
 
-/**
- * Filled in by Task 4 with `resolveWorkspaceId`/`decideBlocked` — deliberately empty
- * here so Task 3's diff and Task 4's diff both touch this same, single declaration
- * rather than one renaming what the other introduced.
- */
-export interface AcpAdapterDeps {}
+export interface AcpAdapterDeps {
+  resolveWorkspaceId(sessionId: string): string;
+  decideBlocked(params: DecideBlockedParams): DecideBlockedResult;
+}
 
 /** Deliver to every listener even when one of them throws — same fan-out contract as ClaudePtyAdapter's. */
 function fanOut<T>(listeners: ReadonlyArray<(value: T) => void>, value: T): void {
@@ -47,6 +49,48 @@ function renderSessionUpdate(update: SessionUpdate): string {
   }
 }
 
+type PermissionDecision = 'allow_once' | 'reject_once';
+
+/**
+ * Fails CLOSED on any internal error (missing session id, decideBlocked throwing) —
+ * deliberately the OPPOSITE of the Claude Code hook's fail-open posture
+ * (docs/superpowers/specs/2026-08-12-m5a-known-limitations.md). The hook is a separate
+ * subprocess with real daemon-unreachable/timeout failure modes it must degrade
+ * through gracefully; this handler runs in-process, in the same daemon, so an error
+ * here is a genuine internal bug, not legitimate unreachability — and T1 is supposed
+ * to be the STRONG enforcement tier. A location outside the worktree root, or a
+ * decideBlocked call that throws, denies rather than silently allowing.
+ */
+function decideRequestPermission(
+  params: RequestPermissionRequest,
+  cwd: string,
+  sessionId: string | undefined,
+  deps: AcpAdapterDeps,
+): PermissionDecision {
+  if (sessionId === undefined) return 'reject_once';
+
+  const locations = params.toolCall.locations ?? [];
+  if (locations.length === 0) return 'allow_once'; // nothing to check against
+
+  try {
+    const workspaceId = deps.resolveWorkspaceId(sessionId);
+    const realCwd = realpathSync(cwd);
+    for (const location of locations) {
+      let relPath: string;
+      try {
+        relPath = relative(realCwd, assertContained(cwd, location.path));
+      } catch {
+        continue; // path escapes the worktree — not this adapter's problem, matches the hook's precedent
+      }
+      const result = deps.decideBlocked({ workspaceId, sessionId, path: relPath });
+      if (result.blocked) return 'reject_once';
+    }
+    return 'allow_once';
+  } catch {
+    return 'reject_once';
+  }
+}
+
 class AcpProcess implements AgentProcess {
   readonly pid: number;
   private readonly dataListeners: Array<(chunk: string) => void> = [];
@@ -57,7 +101,7 @@ class AcpProcess implements AgentProcess {
   private sessionId: string | undefined;
   private readonly pendingWrites: string[] = [];
 
-  constructor(command: string, args: string[], opts: SpawnOptions, _deps: AcpAdapterDeps) {
+  constructor(command: string, args: string[], opts: SpawnOptions, deps: AcpAdapterDeps) {
     this.child = spawn(command, args, { cwd: opts.cwd, env: { ...process.env, ...opts.env } });
     this.pid = this.child.pid ?? -1;
 
@@ -90,8 +134,8 @@ class AcpProcess implements AgentProcess {
 
     const clientImpl: Client = {
       requestPermission: async (params: RequestPermissionRequest): Promise<RequestPermissionResponse> => {
-        // Stub — Task 4 replaces this with the real decideBlocked-backed decision.
-        const chosen = params.options.find((o) => o.kind === 'allow_once') ?? params.options[0];
+        const decision = decideRequestPermission(params, opts.cwd, opts.env.CW_SESSION_ID, deps);
+        const chosen = params.options.find((o) => o.kind === decision) ?? params.options[0];
         if (chosen === undefined) {
           return { outcome: { outcome: 'cancelled' } };
         }
