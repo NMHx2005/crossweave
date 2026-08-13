@@ -7,6 +7,7 @@ import { FileClaimRepo } from '../../src/db/repositories/file-claim.js';
 import { WorkspaceManager } from '../../src/domain/workspace.js';
 import { SessionManager } from '../../src/domain/session.js';
 import { decideBlocked } from '../../src/radar/decision.js';
+import { recordUsage } from '../../src/domain/usage.js';
 import { AcpAdapter, type AcpAdapterDeps } from '../../src/adapters/acp.js';
 import { CrossweaveError } from '../../src/core/errors.js';
 
@@ -66,6 +67,7 @@ describe('AcpAdapter composed with the real decideBlocked (not a stub)', () => {
         return row.workspaceId;
       },
       decideBlocked: (params) => decideBlocked({ fileClaims, workspaces, sessions }, params),
+      recordUsage: (params) => recordUsage({ sessions: sessionsRepo }, params),
     };
 
     const adapter = new AcpAdapter(cursorDeps, process.execPath, [FAKE_AGENT]);
@@ -100,6 +102,7 @@ describe('AcpAdapter composed with the real decideBlocked (not a stub)', () => {
         return row.workspaceId;
       },
       decideBlocked: (params) => decideBlocked({ fileClaims, workspaces, sessions }, params),
+      recordUsage: (params) => recordUsage({ sessions: sessionsRepo }, params),
     };
 
     const adapter = new AcpAdapter(cursorDeps, process.execPath, [FAKE_AGENT]);
@@ -108,6 +111,45 @@ describe('AcpAdapter composed with the real decideBlocked (not a stub)', () => {
     proc.write(`__REQUEST_PERMISSION__:${JSON.stringify({ locations: [{ path: `${process.cwd()}/nobody-else-touched-this.ts` }], kind: 'edit' })}`);
     await waitFor(() => read().includes('PERMISSION_RESULT:'));
     expect(read()).toContain('PERMISSION_RESULT:allow');
+    proc.kill();
+  });
+
+  it('a usage_update notification, through the exact wiring buildMethods uses, writes to the real session row', async () => {
+    const db = openDatabase(':memory:');
+    new WorkspaceRepo(db).insert({
+      id: 'ws_1', name: 'w', rootPath: process.cwd(), createdAt: 'now',
+      defaultIsolation: 'worktree', safeModeTier: 'T1',
+    });
+    const sessionsRepo = new SessionRepo(db);
+    sessionsRepo.insert({
+      id: 's_1', workspaceId: 'ws_1', name: 's_1', agentKind: 'cursor', adapter: 'cursor',
+      status: 'running', worktreePath: process.cwd(), branch: 'cw/s_1', createdAt: 'now',
+      lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costBudgetUsd: null,
+      costSpentUsd: 0, enforcementTier: 'T1', pid: null,
+    });
+
+    const workspaces = new WorkspaceManager(db);
+    const sessions = new SessionManager(db);
+    const fileClaims = new FileClaimRepo(db);
+    const cursorDeps: AcpAdapterDeps = {
+      resolveWorkspaceId: (sessionId) => {
+        const row = sessionsRepo.findById(sessionId);
+        if (!row) throw new CrossweaveError('SESSION_NOT_FOUND', `No such session: ${sessionId}`);
+        return row.workspaceId;
+      },
+      decideBlocked: (params) => decideBlocked({ fileClaims, workspaces, sessions }, params),
+      recordUsage: (params) => recordUsage({ sessions: sessionsRepo }, params),
+    };
+
+    const adapter = new AcpAdapter(cursorDeps, process.execPath, [FAKE_AGENT]);
+    const proc = adapter.spawn({ cwd: process.cwd(), env: { CW_SESSION_ID: 's_1' }, cols: 80, rows: 24 });
+    const read = collect(proc);
+    proc.write(`__USAGE_UPDATE__:${JSON.stringify({ used: 16700, size: 200000, cost: { amount: 0.0123, currency: 'USD' } })}`);
+    await waitFor(() => read().includes('USAGE_REPORTED'));
+
+    const row = sessionsRepo.findById('s_1')!;
+    expect(row.tokenSpent).toBe(16700);
+    expect(row.costSpentUsd).toBeCloseTo(0.0123);
     proc.kill();
   });
 });

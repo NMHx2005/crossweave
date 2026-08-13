@@ -12,10 +12,12 @@ import type { AgentAdapter, AgentProcess, SpawnOptions } from './types.js';
 import { assertContained } from '../core/paths.js';
 import type { DecideBlockedParams, DecideBlockedResult } from '../radar/decision.js';
 import { CrossweaveError } from '../core/errors.js';
+import type { RecordUsageParams } from '../domain/usage.js';
 
 export interface AcpAdapterDeps {
   resolveWorkspaceId(sessionId: string): string;
   decideBlocked(params: DecideBlockedParams): DecideBlockedResult;
+  recordUsage(params: RecordUsageParams): void;
 }
 
 /** Deliver to every listener even when one of them throws — same fan-out contract as ClaudePtyAdapter's. */
@@ -47,6 +49,23 @@ function renderSessionUpdate(update: SessionUpdate): string {
       return `[cursor: ${update.status ?? 'update'} ${update.toolCallId}]\n`;
     default:
       return '';
+  }
+}
+
+/**
+ * M6a: ACP's usage_update is native to the protocol (design doc §2) — used/size are
+ * context-window tokens, cost is optional and agent-dependent. Reported in-process,
+ * no RPC, mirroring decideRequestPermission's own reasoning for calling decideBlocked
+ * directly. Unlike decideRequestPermission, this is NOT a safety decision — a missing
+ * session id or a recordUsage failure is a silent no-op, never surfaced to the agent,
+ * because usage accounting is best-effort observability and must never break a turn.
+ */
+function reportUsageUpdate(update: SessionUpdate, sessionId: string | undefined, deps: AcpAdapterDeps): void {
+  if (update.sessionUpdate !== 'usage_update' || sessionId === undefined) return;
+  try {
+    deps.recordUsage({ sessionId, tokensUsed: update.used, costUsd: update.cost?.amount });
+  } catch {
+    // Best-effort — see the doc comment above.
   }
 }
 
@@ -174,6 +193,7 @@ class AcpProcess implements AgentProcess {
         return { outcome: { outcome: 'selected', optionId: chosen.optionId } };
       },
       sessionUpdate: async (params: SessionNotification): Promise<void> => {
+        reportUsageUpdate(params.update, opts.env.CW_SESSION_ID, deps);
         fanOut(this.dataListeners, renderSessionUpdate(params.update));
       },
     };

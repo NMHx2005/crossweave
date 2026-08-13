@@ -2,13 +2,14 @@ import { describe, it, expect } from 'bun:test';
 import { fileURLToPath } from 'node:url';
 import { AcpAdapter } from '../../src/adapters/acp.js';
 import type { DecideBlockedParams, DecideBlockedResult } from '../../src/radar/decision.js';
+import type { RecordUsageParams } from '../../src/domain/usage.js';
 
 const FAKE_AGENT = fileURLToPath(new URL('../helpers/fake-acp-agent.ts', import.meta.url));
 
 // Task 4 widened AcpAdapterDeps to require resolveWorkspaceId/decideBlocked; these
 // pre-existing tests exercise transport/lifecycle only and never call requestPermission,
 // so a no-op stub satisfying the interface is all they need.
-const NOOP_DEPS = { resolveWorkspaceId: () => 'ws_1', decideBlocked: () => ({ collisions: [], blocked: false }) };
+const NOOP_DEPS = { resolveWorkspaceId: () => 'ws_1', recordUsage: () => {}, decideBlocked: () => ({ collisions: [], blocked: false }) };
 
 function collect(proc: { onData(cb: (c: string) => void): void }): () => string {
   let buf = '';
@@ -53,10 +54,78 @@ describe('AcpAdapter', () => {
     proc.kill();
   });
 
+  it('a usage_update notification calls recordUsage with tokens and cost', async () => {
+    const seen: RecordUsageParams[] = [];
+    const adapter = new AcpAdapter(
+      {
+        resolveWorkspaceId: () => 'ws_1',
+        decideBlocked: () => ({ collisions: [], blocked: false }),
+        recordUsage: (params) => { seen.push(params); },
+      },
+      process.execPath, [FAKE_AGENT],
+    );
+    const proc = adapter.spawn({ cwd: process.cwd(), env: { CW_SESSION_ID: 's_1' }, cols: 80, rows: 24 });
+    const read = collect(proc);
+    proc.write(`__USAGE_UPDATE__:${JSON.stringify({ used: 16700, size: 200000, cost: { amount: 0.0123, currency: 'USD' } })}`);
+    await waitFor(() => read().includes('USAGE_REPORTED'));
+    expect(seen).toEqual([{ sessionId: 's_1', tokensUsed: 16700, costUsd: 0.0123 }]);
+    proc.kill();
+  });
+
+  it('a usage_update with no cost field: recordUsage gets tokens only, costUsd undefined', async () => {
+    const seen: RecordUsageParams[] = [];
+    const adapter = new AcpAdapter(
+      {
+        resolveWorkspaceId: () => 'ws_1',
+        decideBlocked: () => ({ collisions: [], blocked: false }),
+        recordUsage: (params) => { seen.push(params); },
+      },
+      process.execPath, [FAKE_AGENT],
+    );
+    const proc = adapter.spawn({ cwd: process.cwd(), env: { CW_SESSION_ID: 's_1' }, cols: 80, rows: 24 });
+    const read = collect(proc);
+    proc.write(`__USAGE_UPDATE__:${JSON.stringify({ used: 500, size: 200000 })}`);
+    await waitFor(() => read().includes('USAGE_REPORTED'));
+    expect(seen).toEqual([{ sessionId: 's_1', tokensUsed: 500, costUsd: undefined }]);
+    proc.kill();
+  });
+
+  it('a usage_update with no CW_SESSION_ID in env: recordUsage is never called (best-effort, no session to attribute it to)', async () => {
+    const adapter = new AcpAdapter(
+      {
+        resolveWorkspaceId: () => 'ws_1',
+        decideBlocked: () => ({ collisions: [], blocked: false }),
+        recordUsage: () => { throw new Error('must not be called with no session id'); },
+      },
+      process.execPath, [FAKE_AGENT],
+    );
+    const proc = adapter.spawn({ cwd: process.cwd(), env: {}, cols: 80, rows: 24 });
+    const read = collect(proc);
+    proc.write(`__USAGE_UPDATE__:${JSON.stringify({ used: 500, size: 200000 })}`);
+    await waitFor(() => read().includes('USAGE_REPORTED'));
+    proc.kill();
+  });
+
+  it('a usage_update where recordUsage throws does not crash the adapter or break subsequent onData', async () => {
+    const adapter = new AcpAdapter(
+      {
+        resolveWorkspaceId: () => 'ws_1',
+        decideBlocked: () => ({ collisions: [], blocked: false }),
+        recordUsage: () => { throw new Error('simulated DB error'); },
+      },
+      process.execPath, [FAKE_AGENT],
+    );
+    const proc = adapter.spawn({ cwd: process.cwd(), env: { CW_SESSION_ID: 's_1' }, cols: 80, rows: 24 });
+    const read = collect(proc);
+    proc.write(`__USAGE_UPDATE__:${JSON.stringify({ used: 500, size: 200000 })}`);
+    await waitFor(() => read().includes('USAGE_REPORTED'));
+    proc.kill();
+  });
+
   it('a clean permission request (decideBlocked returns not blocked) resolves to allow', async () => {
     const decideBlocked = (): DecideBlockedResult => ({ collisions: [], blocked: false });
     const adapter = new AcpAdapter(
-      { resolveWorkspaceId: () => 'ws_1', decideBlocked },
+      { resolveWorkspaceId: () => 'ws_1', recordUsage: () => {}, decideBlocked },
       process.execPath, [FAKE_AGENT],
     );
     const proc = adapter.spawn({ cwd: process.cwd(), env: { CW_SESSION_ID: 's_1' }, cols: 80, rows: 24 });
@@ -70,7 +139,7 @@ describe('AcpAdapter', () => {
   it('a blocked permission request (decideBlocked returns blocked) resolves to reject', async () => {
     const decideBlocked = (): DecideBlockedResult => ({ collisions: [], blocked: true });
     const adapter = new AcpAdapter(
-      { resolveWorkspaceId: () => 'ws_1', decideBlocked },
+      { resolveWorkspaceId: () => 'ws_1', recordUsage: () => {}, decideBlocked },
       process.execPath, [FAKE_AGENT],
     );
     const proc = adapter.spawn({ cwd: process.cwd(), env: { CW_SESSION_ID: 's_1' }, cols: 80, rows: 24 });
@@ -88,7 +157,7 @@ describe('AcpAdapter', () => {
       return { collisions: [], blocked: params.path === 'b.ts' };
     };
     const adapter = new AcpAdapter(
-      { resolveWorkspaceId: () => 'ws_1', decideBlocked },
+      { resolveWorkspaceId: () => 'ws_1', recordUsage: () => {}, decideBlocked },
       process.execPath, [FAKE_AGENT],
     );
     const proc = adapter.spawn({ cwd: process.cwd(), env: { CW_SESSION_ID: 's_1' }, cols: 80, rows: 24 });
@@ -107,7 +176,7 @@ describe('AcpAdapter', () => {
       throw new Error('must not be called when locations is empty');
     };
     const adapter = new AcpAdapter(
-      { resolveWorkspaceId: () => 'ws_1', decideBlocked },
+      { resolveWorkspaceId: () => 'ws_1', recordUsage: () => {}, decideBlocked },
       process.execPath, [FAKE_AGENT],
     );
     const proc = adapter.spawn({ cwd: process.cwd(), env: { CW_SESSION_ID: 's_1' }, cols: 80, rows: 24 });
@@ -123,7 +192,7 @@ describe('AcpAdapter', () => {
       throw new Error('simulated internal error');
     };
     const adapter = new AcpAdapter(
-      { resolveWorkspaceId: () => 'ws_1', decideBlocked },
+      { resolveWorkspaceId: () => 'ws_1', recordUsage: () => {}, decideBlocked },
       process.execPath, [FAKE_AGENT],
     );
     const proc = adapter.spawn({ cwd: process.cwd(), env: { CW_SESSION_ID: 's_1' }, cols: 80, rows: 24 });
@@ -139,7 +208,7 @@ describe('AcpAdapter', () => {
       throw new Error('must not be called when there is no session id to resolve');
     };
     const adapter = new AcpAdapter(
-      { resolveWorkspaceId: () => 'ws_1', decideBlocked },
+      { resolveWorkspaceId: () => 'ws_1', recordUsage: () => {}, decideBlocked },
       process.execPath, [FAKE_AGENT],
     );
     const proc = adapter.spawn({ cwd: process.cwd(), env: {}, cols: 80, rows: 24 });
@@ -153,7 +222,7 @@ describe('AcpAdapter', () => {
   it('a blocked decision with no reject_once option falls back within the reject CLASS (reject_always), never to allow', async () => {
     const decideBlocked = (): DecideBlockedResult => ({ collisions: [], blocked: true });
     const adapter = new AcpAdapter(
-      { resolveWorkspaceId: () => 'ws_1', decideBlocked },
+      { resolveWorkspaceId: () => 'ws_1', recordUsage: () => {}, decideBlocked },
       process.execPath, [FAKE_AGENT],
     );
     const proc = adapter.spawn({ cwd: process.cwd(), env: { CW_SESSION_ID: 's_1' }, cols: 80, rows: 24 });
@@ -173,7 +242,7 @@ describe('AcpAdapter', () => {
   it('a blocked decision with NO reject option at all cancels rather than falling back to allow', async () => {
     const decideBlocked = (): DecideBlockedResult => ({ collisions: [], blocked: true });
     const adapter = new AcpAdapter(
-      { resolveWorkspaceId: () => 'ws_1', decideBlocked },
+      { resolveWorkspaceId: () => 'ws_1', recordUsage: () => {}, decideBlocked },
       process.execPath, [FAKE_AGENT],
     );
     const proc = adapter.spawn({ cwd: process.cwd(), env: { CW_SESSION_ID: 's_1' }, cols: 80, rows: 24 });
@@ -192,7 +261,7 @@ describe('AcpAdapter', () => {
       throw new Error('must not be called for a location outside the worktree');
     };
     const adapter = new AcpAdapter(
-      { resolveWorkspaceId: () => 'ws_1', decideBlocked },
+      { resolveWorkspaceId: () => 'ws_1', recordUsage: () => {}, decideBlocked },
       process.execPath, [FAKE_AGENT],
     );
     const proc = adapter.spawn({ cwd: process.cwd(), env: { CW_SESSION_ID: 's_1' }, cols: 80, rows: 24 });
@@ -208,7 +277,7 @@ describe('AcpAdapter', () => {
       throw new Error('must not be called for a read-only tool call');
     };
     const adapter = new AcpAdapter(
-      { resolveWorkspaceId: () => 'ws_1', decideBlocked },
+      { resolveWorkspaceId: () => 'ws_1', recordUsage: () => {}, decideBlocked },
       process.execPath, [FAKE_AGENT],
     );
     const proc = adapter.spawn({ cwd: process.cwd(), env: { CW_SESSION_ID: 's_1' }, cols: 80, rows: 24 });

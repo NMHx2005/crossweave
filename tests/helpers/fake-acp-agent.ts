@@ -57,6 +57,21 @@ async function prompt(params: acp.PromptRequest, cx: acp.AgentContext): Promise<
     return { stopReason: 'end_turn' };
   }
 
+  const usageMarker = '__USAGE_UPDATE__:';
+  if (text.startsWith(usageMarker)) {
+    const parsed = JSON.parse(text.slice(usageMarker.length)) as {
+      used: number;
+      size: number;
+      cost?: { amount: number; currency: string };
+    };
+    await cx.notify(acp.methods.client.session.update, {
+      sessionId,
+      update: { sessionUpdate: 'usage_update', used: parsed.used, size: parsed.size, cost: parsed.cost },
+    });
+    await sendText(cx, sessionId, 'USAGE_REPORTED');
+    return { stopReason: 'end_turn' };
+  }
+
   const marker = '__REQUEST_PERMISSION__:';
   if (text.startsWith(marker)) {
     const parsed = JSON.parse(text.slice(marker.length)) as {

@@ -12,6 +12,7 @@ describe('createAdapter', () => {
     const a = createAdapter('cursor', {
       resolveWorkspaceId: () => 'ws_1',
       decideBlocked: () => ({ collisions: [], blocked: false }),
+      recordUsage: () => {},
     });
     expect(a.kind).toBe('cursor');
     expect(a.enforcementTier).toBe('T1');
