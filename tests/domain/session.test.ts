@@ -43,6 +43,21 @@ describe('SessionManager.create', () => {
     expect(s.branch).toBeNull();
   });
 
+  it('threads budgetTokens/budgetUsd into the created row when provided', async () => {
+    const s = await sessions.create({
+      workspaceId, name: 'budgeted', agent: 'claude', worktree: true,
+      budgetTokens: 100000, budgetUsd: 5,
+    });
+    expect(s.tokenBudget).toBe(100000);
+    expect(s.costBudgetUsd).toBe(5);
+  });
+
+  it("leaves both budgets null when neither is provided (today's default, unchanged)", async () => {
+    const s = await sessions.create({ workspaceId, name: 'unbudgeted', agent: 'claude', worktree: true });
+    expect(s.tokenBudget).toBeNull();
+    expect(s.costBudgetUsd).toBeNull();
+  });
+
   it('rejects a duplicate session name', async () => {
     await sessions.create({ workspaceId, name: 'dup', agent: 'claude', worktree: true });
     await expect(

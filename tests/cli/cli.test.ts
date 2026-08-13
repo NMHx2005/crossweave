@@ -67,6 +67,31 @@ describe('cw CLI', () => {
     expect((await cw(['session', 'list'])).stdout).toContain('no sessions');
   }, 60_000);
 
+  it('session new accepts --budget-tokens/--budget-usd, and list shows live spend', async () => {
+    await cw(['init']);
+    const created = await cw([
+      'session', 'new', '--name', 'budgeted', '--agent', 'claude',
+      '--budget-tokens', '1000', '--budget-usd', '5',
+    ]);
+    expect(created.exitCode).toBe(0);
+
+    const listed = await cw(['session', 'list']);
+    expect(listed.stdout).toContain('SPEND');
+    expect(listed.stdout).toContain('budgeted');
+    // A freshly created session has spent nothing yet, and nothing exceeds a budget.
+    expect(listed.stdout).toContain('$0.0000/0.0k');
+    expect(listed.stdout).not.toContain('OVER BUDGET');
+  }, 60_000);
+
+  it('rejects a non-numeric --budget-usd on exactly one stderr line', async () => {
+    await cw(['init']);
+    const r = await cw(['session', 'new', '--name', 'bad-budget', '--agent', 'claude', '--budget-usd', 'not-a-number']);
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toContain('INVALID_ARGUMENTS:');
+    const lines = r.stderr.trimEnd().split('\n');
+    expect(lines).toHaveLength(1);
+  }, 30_000);
+
   it('workspace safe-mode shows and sets the tier, including T1', async () => {
     await cw(['init']);
     expect((await cw(['workspace', 'safe-mode'])).stdout.trim()).toBe('T2');

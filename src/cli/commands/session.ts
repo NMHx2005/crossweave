@@ -6,6 +6,42 @@ import { attachCommand } from './attach.js';
 interface Session {
   id: string; name: string; status: string; agentKind: string;
   enforcementTier: string; worktreePath: string | null; branch: string | null;
+  tokenSpent: number; tokenBudget: number | null;
+  costSpentUsd: number; costBudgetUsd: number | null;
+}
+
+/** The subset of Session's fields formatSpend needs — kept separate so the CLI unit
+ * tests (tests/cli/session.test.ts) can pass a plain object without every field. */
+interface SpendFields {
+  tokenSpent: number; tokenBudget: number | null;
+  costSpentUsd: number; costBudgetUsd: number | null;
+}
+
+/** Exported for direct testing. citty has no numeric arg type (only string, boolean,
+ * positional, enum) — flags declared `type: 'string'` are parsed here instead. */
+export function parseOptionalNumberArg(flag: string, raw: string | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) {
+    throw new CrossweaveError('INVALID_ARGUMENTS', `${flag} must be a number, got: ${raw}`);
+  }
+  return n;
+}
+
+/**
+ * Always shows current spend (design doc §1: "cw session list showing real, live
+ * spend" is M6a's own success criterion, independent of whether a budget is set) and
+ * appends a plain-text "OVER BUDGET" marker — no color/TTY-detection logic, matching
+ * this CLI's tab-separated, script-parseable output convention — when spend exceeds a
+ * budget that IS set. Exported for direct testing.
+ */
+export function formatSpend(s: SpendFields): string {
+  const costPart = `$${s.costSpentUsd.toFixed(4)}`;
+  const tokenPart = `${(s.tokenSpent / 1000).toFixed(1)}k`;
+  const overCost = s.costBudgetUsd !== null && s.costSpentUsd > s.costBudgetUsd;
+  const overTokens = s.tokenBudget !== null && s.tokenSpent > s.tokenBudget;
+  const marker = overCost || overTokens ? ' OVER BUDGET' : '';
+  return `${costPart}/${tokenPart}${marker}`;
 }
 
 export const sessionCommand = defineCommand({
@@ -21,9 +57,13 @@ export const sessionCommand = defineCommand({
         name: { type: 'string', required: true, description: 'Session name' },
         agent: { type: 'string', default: 'claude', description: 'Agent kind' },
         worktree: { type: 'boolean', default: true, description: 'Isolate in a git worktree' },
+        'budget-tokens': { type: 'string', description: 'Warn once cumulative tokens spent exceeds this' },
+        'budget-usd': { type: 'string', description: 'Warn once cumulative cost (USD) exceeds this' },
       },
       async run({ args }) {
         try {
+          const budgetTokens = parseOptionalNumberArg('--budget-tokens', args['budget-tokens']);
+          const budgetUsd = parseOptionalNumberArg('--budget-usd', args['budget-usd']);
           await withClient(async (client) => {
             const workspaceId = await currentWorkspaceId(client);
             const worktree = args.worktree;
@@ -34,7 +74,7 @@ export const sessionCommand = defineCommand({
               );
             }
             const s = await client.call<Session>('session.new', {
-              workspaceId, name: args.name, agent: args.agent, worktree,
+              workspaceId, name: args.name, agent: args.agent, worktree, budgetTokens, budgetUsd,
             });
             process.stdout.write(
               `${s.name}\t${s.status}\t${s.enforcementTier}\t${s.worktreePath ?? '-'}\n`,
@@ -52,10 +92,10 @@ export const sessionCommand = defineCommand({
             const workspaceId = await currentWorkspaceId(client);
             const rows = await client.call<Session[]>('session.list', { workspaceId });
             if (rows.length === 0) { process.stdout.write('no sessions\n'); return; }
-            process.stdout.write('NAME\tSTATUS\tAGENT\tTIER\tBRANCH\n');
+            process.stdout.write('NAME\tSTATUS\tAGENT\tTIER\tBRANCH\tSPEND\n');
             for (const s of rows) {
               process.stdout.write(
-                `${s.name}\t${s.status}\t${s.agentKind}\t${s.enforcementTier}\t${s.branch ?? '-'}\n`,
+                `${s.name}\t${s.status}\t${s.agentKind}\t${s.enforcementTier}\t${s.branch ?? '-'}\t${formatSpend(s)}\n`,
               );
             }
           });

@@ -296,6 +296,8 @@ export function buildMethods(
         name: str(p, 'name'),
         agent: str(p, 'agent'),
         worktree: bool(p, 'worktree', true),
+        budgetTokens: optionalNum(p, 'budgetTokens'),
+        budgetUsd: optionalNum(p, 'budgetUsd'),
       }),
     'session.list': (p) => sessions.list(str(p, 'workspaceId')),
     'session.rename': (p) =>

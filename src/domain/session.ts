@@ -17,6 +17,8 @@ export interface CreateSessionOptions {
   name: string;
   agent: string;
   worktree: boolean;
+  budgetTokens?: number;
+  budgetUsd?: number;
 }
 
 /**
@@ -111,8 +113,8 @@ export class SessionManager {
       branch,
       createdAt: now,
       lastActiveAt: now,
-      tokenBudget: null,
-      tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null,
+      tokenBudget: opts.budgetTokens ?? null,
+      tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: opts.budgetUsd ?? null,
       enforcementTier: adapter.enforcementTier,
       pid: null,
     };
