@@ -20,12 +20,12 @@ describe('converge.status RPC', () => {
     sessions.insert({
       id: 's_a', workspaceId: 'ws_1', name: 'a', agentKind: 'claude', adapter: 'claude',
       status: 'running', worktreePath: tmpdir(), branch: 'cw/a', createdAt: 'now',
-      lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, enforcementTier: 'T3', pid: null,
+      lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
     });
     sessions.insert({
       id: 's_b', workspaceId: 'ws_1', name: 'b', agentKind: 'claude', adapter: 'claude',
       status: 'running', worktreePath: tmpdir(), branch: 'cw/b', createdAt: 'now',
-      lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, enforcementTier: 'T3', pid: null,
+      lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
     });
     new MergeTrialRepo(db).insert({
       id: 'mt_1', workspaceId: 'ws_1', ts: 'now', branches: ['cw/a', 'cw/b'], result: 'conflict', detail: 'x.ts',
@@ -54,7 +54,7 @@ describe('converge.status RPC', () => {
       sessions.insert({
         id: `s_${i}`, workspaceId: 'ws_1', name: `s${i}`, agentKind: 'claude', adapter: 'claude',
         status: 'running', worktreePath: tmpdir(), branch: `cw/s${i}`, createdAt: 'now',
-        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, enforcementTier: 'T3', pid: null,
+        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
       });
     }
 
@@ -89,7 +89,7 @@ describe('converge.status RPC', () => {
       sessions.insert({
         id, workspaceId: 'ws_1', name: id.slice(2), agentKind: 'claude', adapter: 'claude',
         status: 'running', worktreePath: tmpdir(), branch, createdAt,
-        lastActiveAt: createdAt, tokenBudget: null, tokenSpent: 0, enforcementTier: 'T3', pid: null,
+        lastActiveAt: createdAt, tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
       });
     }
     new MergeTrialRepo(db).insert({

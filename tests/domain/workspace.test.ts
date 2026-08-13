@@ -66,7 +66,7 @@ describe('WorkspaceManager.delete', () => {
       id: newId('s'), workspaceId: ws.id, name: 'auth', agentKind: 'claude',
       adapter: 'claude-pty', status: 'running', worktreePath: null, branch: null,
       createdAt: '2026-08-09T00:00:00.000Z', lastActiveAt: '2026-08-09T00:00:00.000Z',
-      tokenBudget: null, tokenSpent: 0, enforcementTier: 'T3', pid: null,
+      tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
     });
     expect(() => mgr.delete(ws.id, {})).toThrowError(
       expect.objectContaining({ code: 'WORKSPACE_HAS_LIVE_SESSIONS' }) as unknown as Error,
@@ -80,7 +80,7 @@ describe('WorkspaceManager.delete', () => {
       id: newId('s'), workspaceId: ws.id, name: 'auth', agentKind: 'claude',
       adapter: 'claude-pty', status: 'running', worktreePath: null, branch: null,
       createdAt: '2026-08-09T00:00:00.000Z', lastActiveAt: '2026-08-09T00:00:00.000Z',
-      tokenBudget: null, tokenSpent: 0, enforcementTier: 'T3', pid: null,
+      tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
     });
     mgr.delete(ws.id, { force: true });
     expect(mgr.list()).toHaveLength(0);
@@ -105,7 +105,7 @@ describe('WorkspaceManager.info', () => {
       id: newId('s'), workspaceId: ws.id, name: '__integration__', agentKind: 'integration',
       adapter: 'integration', status: 'idle', worktreePath: '/tmp/integration', branch: 'cw/integration',
       createdAt: '2026-08-09T00:00:00.000Z', lastActiveAt: '2026-08-09T00:00:00.000Z',
-      tokenBudget: null, tokenSpent: 0, enforcementTier: 'T3', pid: null,
+      tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
     });
     expect(mgr.info(ws.id).sessions).toHaveLength(0);
   });

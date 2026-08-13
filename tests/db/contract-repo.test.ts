@@ -15,7 +15,7 @@ function seed(db: ReturnType<typeof openDatabase>) {
     sessions.insert({
       id, workspaceId: 'ws_1', name: id, agentKind: 'claude', adapter: 'claude',
       status: 'idle', worktreePath: `/tmp/w/${id}`, branch: `cw/${id}`, createdAt: 'now',
-      lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, enforcementTier: 'T3', pid: null,
+      lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
     });
   }
 }

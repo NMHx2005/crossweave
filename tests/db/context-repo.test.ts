@@ -34,7 +34,7 @@ beforeEach(async () => {
   new SessionRepo(db).insert({
     id: sessionId, workspaceId, name: 'a', agentKind: 'claude', adapter: 'claude', status: 'idle',
     worktreePath: null, branch: null, createdAt: '2026-08-10T00:00:00.000Z',
-    lastActiveAt: '2026-08-10T00:00:00.000Z', tokenBudget: null, tokenSpent: 0,
+    lastActiveAt: '2026-08-10T00:00:00.000Z', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null,
     enforcementTier: 'T3', pid: null,
   });
   repo = new ContextRepo(db);

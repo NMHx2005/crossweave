@@ -18,13 +18,13 @@ describe('decideBlocked', () => {
     sessions.insert({
       id: 's_1', workspaceId: 'ws_1', name: 's_1', agentKind: 'claude', adapter: 'claude',
       status: 'running', worktreePath: '/tmp/w/s_1', branch: 'cw/s_1', createdAt: 'now',
-      lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, enforcementTier: querierTier, pid: null,
+      lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: querierTier, pid: null,
     });
     if (withCollision) {
       sessions.insert({
         id: 's_2', workspaceId: 'ws_1', name: 's_2', agentKind: 'claude', adapter: 'claude',
         status: 'running', worktreePath: '/tmp/w/s_2', branch: 'cw/s_2', createdAt: 'now',
-        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, enforcementTier: 'T2', pid: null,
+        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T2', pid: null,
       });
       new FileClaimRepo(db).upsert({
         id: 'fc_1', sessionId: 's_2', workspaceId: 'ws_1', path: 'src/x.ts', symbol: 'foo',

@@ -20,7 +20,7 @@ async function setup(fixture: GitFixture) {
   new SessionRepo(db).insert({
     id: 's_1', workspaceId: 'ws_1', name: 'a', agentKind: 'claude', adapter: 'claude',
     status: 'idle', worktreePath: fixture.root, branch: 'main', createdAt: 'now',
-    lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, enforcementTier: 'T3', pid: null,
+    lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
   });
   const claims = new FileClaimRepo(db);
   return { db, claims, indexer: new RadarIndexer(db) };

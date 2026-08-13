@@ -14,7 +14,7 @@ function seed(db: ReturnType<typeof openDatabase>) {
   sessions.insert({
     id: 's_1', workspaceId: 'ws_1', name: 'a', agentKind: 'claude', adapter: 'claude',
     status: 'idle', worktreePath: '/tmp/w/a', branch: 'cw/a', createdAt: 'now',
-    lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, enforcementTier: 'T3', pid: null,
+    lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
   });
   return { workspaces, sessions };
 }
@@ -74,7 +74,7 @@ describe('FileClaimRepo', () => {
     sessions.insert({
       id: 's_2', workspaceId: 'ws_1', name: 'b', agentKind: 'claude', adapter: 'claude',
       status: 'idle', worktreePath: '/tmp/w/b', branch: 'cw/b', createdAt: 'now',
-      lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, enforcementTier: 'T3', pid: null,
+      lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
     });
     const repo = new FileClaimRepo(db);
     repo.upsert(row({ id: 'fc_1', sessionId: 's_1' }));

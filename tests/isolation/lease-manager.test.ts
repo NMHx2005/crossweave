@@ -26,7 +26,7 @@ function addSession(workspaceId: string, name: string): string {
     id, workspaceId, name, agentKind: 'claude', adapter: 'claude', status: 'idle',
     worktreePath: null, branch: null,
     createdAt: '2026-08-10T00:00:00.000Z', lastActiveAt: '2026-08-10T00:00:00.000Z',
-    tokenBudget: null, tokenSpent: 0, enforcementTier: 'T3', pid: null,
+    tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
   });
   return id;
 }

@@ -112,7 +112,7 @@ export class SessionManager {
       createdAt: now,
       lastActiveAt: now,
       tokenBudget: null,
-      tokenSpent: 0,
+      tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null,
       enforcementTier: adapter.enforcementTier,
       pid: null,
     };

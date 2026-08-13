@@ -16,6 +16,8 @@ export interface SessionRow {
   lastActiveAt: string;
   tokenBudget: number | null;
   tokenSpent: number;
+  costBudgetUsd: number | null;
+  costSpentUsd: number;
   enforcementTier: EnforcementTier;
   pid: number | null;
 }
@@ -33,13 +35,16 @@ interface SessionRecord {
   last_active_at: string;
   token_budget: number | null;
   token_spent: number;
+  cost_budget_usd: number | null;
+  cost_spent_usd: number;
   enforcement_tier: string;
   pid: number | null;
 }
 
 const COLUMNS =
   'id, workspace_id, name, agent_kind, adapter, status, worktree_path, branch, ' +
-  'created_at, last_active_at, token_budget, token_spent, enforcement_tier, pid';
+  'created_at, last_active_at, token_budget, token_spent, enforcement_tier, pid, ' +
+  'cost_budget_usd, cost_spent_usd';
 
 const LIVE_STATUSES = ['idle', 'running', 'waiting'] as const;
 
@@ -57,6 +62,8 @@ function toRow(r: SessionRecord): SessionRow {
     lastActiveAt: r.last_active_at,
     tokenBudget: r.token_budget,
     tokenSpent: r.token_spent,
+    costBudgetUsd: r.cost_budget_usd,
+    costSpentUsd: r.cost_spent_usd,
     enforcementTier: r.enforcement_tier as EnforcementTier,
     pid: r.pid,
   };
@@ -67,11 +74,12 @@ export class SessionRepo {
 
   insert(row: SessionRow): void {
     this.db
-      .prepare(`INSERT INTO session (${COLUMNS}) VALUES (${'?, '.repeat(13)}?)`)
+      .prepare(`INSERT INTO session (${COLUMNS}) VALUES (${'?, '.repeat(15)}?)`)
       .run(
         row.id, row.workspaceId, row.name, row.agentKind, row.adapter, row.status,
         row.worktreePath, row.branch, row.createdAt, row.lastActiveAt,
         row.tokenBudget, row.tokenSpent, row.enforcementTier, row.pid,
+        row.costBudgetUsd, row.costSpentUsd,
       );
   }
 
@@ -111,6 +119,27 @@ export class SessionRepo {
     this.db
       .prepare('UPDATE session SET status = ?, pid = ?, last_active_at = ? WHERE id = ?')
       .run(status, pid, new Date().toISOString(), id);
+  }
+
+  /**
+   * Both usage sources (Claude Code's statusLine, ACP's usage_update) report
+   * CUMULATIVE totals, not deltas — this writes whichever field(s) were provided
+   * straight through, no arithmetic. Mirrors updateStatus's plain-UPDATE style.
+   */
+  updateUsage(id: string, usage: { tokensSpent?: number; costSpentUsd?: number }): void {
+    const sets: string[] = [];
+    const values: (string | number)[] = [];
+    if (usage.tokensSpent !== undefined) {
+      sets.push('token_spent = ?');
+      values.push(usage.tokensSpent);
+    }
+    if (usage.costSpentUsd !== undefined) {
+      sets.push('cost_spent_usd = ?');
+      values.push(usage.costSpentUsd);
+    }
+    if (sets.length === 0) return;
+    values.push(id);
+    this.db.prepare(`UPDATE session SET ${sets.join(', ')} WHERE id = ?`).run(...values);
   }
 
   rename(id: string, name: string): void {

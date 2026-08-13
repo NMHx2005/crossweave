@@ -41,7 +41,7 @@ describe('contract.declare RPC', () => {
       new SessionRepo(db).insert({
         id: 's_owner', workspaceId: 'ws_1', name: 's_owner', agentKind: 'claude', adapter: 'claude',
         status: 'running', worktreePath: ownerWorktree, branch: 'cw/s_owner', createdAt: 'now',
-        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, enforcementTier: 'T3', pid: null,
+        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
       });
 
       const methods = buildMethods(db, mainRoot);
@@ -84,7 +84,7 @@ describe('contract.declare RPC', () => {
       new SessionRepo(db).insert({
         id: 's_owner', workspaceId: 'ws_1', name: 's_owner', agentKind: 'claude', adapter: 'claude',
         status: 'running', worktreePath: ownerWorktree, branch: 'cw/s_owner', createdAt: 'now',
-        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, enforcementTier: 'T3', pid: null,
+        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
       });
 
       const methods = buildMethods(db, mainRoot);

@@ -27,6 +27,8 @@ function makeRow(overrides: Partial<SessionRow> = {}): SessionRow {
     lastActiveAt: '2026-08-09T00:00:00.000Z',
     tokenBudget: null,
     tokenSpent: 0,
+    costBudgetUsd: null,
+    costSpentUsd: 0,
     enforcementTier: 'T3',
     pid: null,
     ...overrides,
@@ -58,6 +60,49 @@ describe('SessionRepo', () => {
     const row = makeRow();
     repo.insert(row);
     expect(repo.findById(row.id)).toEqual(row);
+  });
+
+  it('round-trips cost columns', () => {
+    const row = makeRow({ costBudgetUsd: 5, costSpentUsd: 1.2345 });
+    repo.insert(row);
+    expect(repo.findById(row.id)).toEqual(row);
+  });
+
+  it('updateUsage writes only the provided fields, leaving the other untouched', () => {
+    const row = makeRow({ tokenSpent: 0, costSpentUsd: 0 });
+    repo.insert(row);
+
+    repo.updateUsage(row.id, { tokensSpent: 15500 });
+    let after = repo.findById(row.id)!;
+    expect(after.tokenSpent).toBe(15500);
+    expect(after.costSpentUsd).toBe(0);
+
+    repo.updateUsage(row.id, { costSpentUsd: 0.0123 });
+    after = repo.findById(row.id)!;
+    expect(after.tokenSpent).toBe(15500);
+    expect(after.costSpentUsd).toBeCloseTo(0.0123);
+  });
+
+  it('updateUsage with both fields updates both together', () => {
+    const row = makeRow();
+    repo.insert(row);
+    repo.updateUsage(row.id, { tokensSpent: 100, costSpentUsd: 0.5 });
+    const after = repo.findById(row.id)!;
+    expect(after.tokenSpent).toBe(100);
+    expect(after.costSpentUsd).toBe(0.5);
+  });
+
+  it('updateUsage with neither field is a no-op', () => {
+    const row = makeRow({ tokenSpent: 7, costSpentUsd: 0.1 });
+    repo.insert(row);
+    repo.updateUsage(row.id, {});
+    const after = repo.findById(row.id)!;
+    expect(after.tokenSpent).toBe(7);
+    expect(after.costSpentUsd).toBe(0.1);
+  });
+
+  it('updateUsage against an unknown id is a silent no-op, not a throw', () => {
+    expect(() => repo.updateUsage('s_ghost', { tokensSpent: 1 })).not.toThrow();
   });
 
   it('finds by name within a workspace', () => {

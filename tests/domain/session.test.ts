@@ -91,7 +91,7 @@ describe('SessionManager.resolve and rename', () => {
     sessionRepo.insert({
       id: 's_integration', workspaceId, name: '__integration__', agentKind: 'integration', adapter: 'integration',
       status: 'idle', worktreePath: '/tmp/integration', branch: 'cw/integration', createdAt: 'now',
-      lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, enforcementTier: 'T3', pid: null,
+      lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
     });
     expect(() => sessions.resolve(workspaceId, '__integration__')).toThrowError(
       expect.objectContaining({ code: 'SESSION_NOT_FOUND' }) as unknown as Error,
@@ -173,7 +173,7 @@ describe('SessionManager session name validation', () => {
     sessionRepo.insert({
       id: 's_integration', workspaceId, name: '__integration__', agentKind: 'integration', adapter: 'integration',
       status: 'idle', worktreePath: '/tmp/integration', branch: 'cw/integration', createdAt: 'now',
-      lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, enforcementTier: 'T3', pid: null,
+      lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
     });
     expect(sessions.list(workspaceId).map((s) => s.id)).not.toContain('s_integration');
   });

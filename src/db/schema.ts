@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 
 /**
  * Each migration is a list of single statements, never one multi-statement blob.
@@ -187,5 +187,13 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
     test_command_hash TEXT NOT NULL,
     trusted_at        TEXT NOT NULL
   )`,
+  ],
+  [
+    // Budget/burn backend (M6a): cost accounting alongside the token accounting
+    // M0 already had columns for but never wrote to. Independent, optional
+    // budgets — a session can have a token budget, a cost budget, both, or
+    // neither (design doc §3.1).
+    `ALTER TABLE session ADD COLUMN cost_spent_usd REAL NOT NULL DEFAULT 0`,
+    `ALTER TABLE session ADD COLUMN cost_budget_usd REAL`,
   ],
 ];

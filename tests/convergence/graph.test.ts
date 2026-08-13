@@ -11,7 +11,7 @@ function session(id: string, branch: string, createdAt: string): SessionRow {
   return {
     id, workspaceId: 'ws_1', name: id, agentKind: 'claude', adapter: 'claude', status: 'running',
     worktreePath: `/tmp/${id}`, branch, createdAt, lastActiveAt: createdAt,
-    tokenBudget: null, tokenSpent: 0, enforcementTier: 'T3', pid: null,
+    tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
   };
 }
 
