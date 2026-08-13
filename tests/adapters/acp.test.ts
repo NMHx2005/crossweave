@@ -61,4 +61,11 @@ describe('AcpAdapter', () => {
     proc.kill();
     await expect(exited).resolves.toBeTypeOf('number');
   });
+
+  it('a spawn failure (e.g. command not found) surfaces via onExit, not an uncaught crash', async () => {
+    const adapter = new AcpAdapter({}, 'this-binary-does-not-exist-xyz', []);
+    const proc = adapter.spawn({ cwd: process.cwd(), env: {}, cols: 80, rows: 24 });
+    const code = await new Promise<number>((res) => proc.onExit(res));
+    expect(code).not.toBe(0);
+  });
 });

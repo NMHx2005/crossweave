@@ -66,6 +66,15 @@ class AcpProcess implements AgentProcess {
       fanOut(this.exitListeners, this.exitCode);
     });
 
+    // Node's `spawn` emits 'error' asynchronously (e.g. ENOENT when the command isn't on
+    // PATH) — an EventEmitter's unhandled 'error' event throws and would crash the whole
+    // host process, not just this adapter. Route it through the same exit-notification
+    // path 'exit' uses instead; `?? 1` avoids double-notifying if both somehow fire.
+    this.child.on('error', () => {
+      this.exitCode = this.exitCode ?? 1;
+      fanOut(this.exitListeners, this.exitCode);
+    });
+
     // Web Streams, not Node streams — ndJsonStream's contract (verified against the
     // SDK's own examples, not guessed): (output-we-write-to, input-we-read-from).
     const input = Writable.toWeb(this.child.stdin!);
