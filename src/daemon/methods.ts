@@ -27,6 +27,8 @@ import { ConfigTrustRepo } from '../db/repositories/config-trust.js';
 import { buildConflictGraph, recommendOrder } from '../convergence/graph.js';
 import { landSession } from '../convergence/land.js';
 import { hashTestCommand, isTestCommandTrusted } from '../convergence/trust.js';
+import { createAdapter } from '../adapters/registry.js';
+import type { AcpAdapterDeps } from '../adapters/acp.js';
 
 function str(params: Record<string, unknown>, key: string): string {
   const v = params[key];
@@ -79,8 +81,24 @@ export function buildMethods(
   opts: { startBackgroundJobs?: boolean } = {},
 ): Record<string, MethodHandler> {
   const workspaces = new WorkspaceManager(db);
-  const sessions = new SessionManager(db, adapterFactory, config);
+  // Constructed before `sessions` (SessionManager) deliberately: the default
+  // adapterFactory closure below needs `sessionsRepo`/`fileClaims` already built —
+  // both are cheap, stateless wrappers around `db`, so building them slightly earlier
+  // than their other uses later in this function costs nothing.
   const sessionsRepo = new SessionRepo(db);
+  const fileClaims = new FileClaimRepo(db);
+  const cursorDeps: AcpAdapterDeps = {
+    resolveWorkspaceId: (sessionId) => {
+      const row = sessionsRepo.findById(sessionId);
+      if (!row) throw new CrossweaveError('SESSION_NOT_FOUND', `No such session: ${sessionId}`);
+      return row.workspaceId;
+    },
+    decideBlocked: (params) => decideBlocked({ fileClaims, workspaces, sessions }, params),
+  };
+  // A caller-supplied adapterFactory (every existing test) is used AS-IS, unwrapped —
+  // it's a full override, not something this daemon's cursor deps should be spliced
+  // into. Only the real, no-override daemon path gets the deps-injected default.
+  const sessions = new SessionManager(db, adapterFactory ?? ((kind) => createAdapter(kind, cursorDeps)), config);
   const leaseManager = new LeaseManager(db, projectRoot, config);
   // Nothing a previous daemon held can have survived its death, and a lease left
   // marked active would permanently shrink the pool.
@@ -89,7 +107,6 @@ export function buildMethods(
   const ledger = new EventLedger(db, projectRoot);
   const bus = new MessageBus(db, sessions);
   const contextStore = new ContextStore(db);
-  const fileClaims = new FileClaimRepo(db);
   const contracts = new ContractService(db);
   const radarWatchers = new RadarWatcherRegistry(db, bus, contracts);
   const configTrust = new ConfigTrustRepo(db);

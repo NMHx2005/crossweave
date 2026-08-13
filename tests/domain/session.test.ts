@@ -52,7 +52,7 @@ describe('SessionManager.create', () => {
 
   it('rejects an unknown agent before creating a worktree', async () => {
     await expect(
-      sessions.create({ workspaceId, name: 'x', agent: 'cursor', worktree: true }),
+      sessions.create({ workspaceId, name: 'x', agent: 'bogus', worktree: true }),
     ).rejects.toMatchObject({ code: 'UNKNOWN_AGENT' });
     expect(sessions.list(workspaceId)).toHaveLength(0);
   });

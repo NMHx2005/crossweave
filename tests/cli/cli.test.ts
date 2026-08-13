@@ -67,7 +67,7 @@ describe('cw CLI', () => {
     expect((await cw(['session', 'list'])).stdout).toContain('no sessions');
   }, 60_000);
 
-  it('workspace safe-mode shows and sets the tier, rejecting T1', async () => {
+  it('workspace safe-mode shows and sets the tier, including T1', async () => {
     await cw(['init']);
     expect((await cw(['workspace', 'safe-mode'])).stdout.trim()).toBe('T2');
 
@@ -77,9 +77,11 @@ describe('cw CLI', () => {
 
     expect((await cw(['workspace', 'safe-mode'])).stdout.trim()).toBe('T3');
 
-    const rejectT1 = await cw(['workspace', 'safe-mode', 'T1']);
-    expect(rejectT1.exitCode).toBe(1);
-    expect(rejectT1.stderr).toContain('SAFE_MODE_TIER_UNAVAILABLE');
+    const setT1 = await cw(['workspace', 'safe-mode', 'T1']);
+    expect(setT1.exitCode).toBe(0);
+    expect(setT1.stdout).toContain('safe mode: T1');
+
+    expect((await cw(['workspace', 'safe-mode'])).stdout.trim()).toBe('T1');
   }, 30_000);
 
   it('exits non-zero with the error code on a bad session name', async () => {

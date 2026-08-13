@@ -124,21 +124,15 @@ export class WorkspaceManager {
   }
 
   /**
-   * T1 is rejected outright rather than silently accepted as if it were T2: no
-   * ACP-based adapter exists yet (M5a's scope), and accepting it would tell the
-   * user they have stronger enforcement than the system can actually provide.
+   * T1 became a real, acceptable tier in M5b — AcpAdapter (Cursor over native ACP) now
+   * provides it. The reject-T1 gate that lived here through M5a is gone; any string
+   * outside {T1, T2, T3} is still rejected.
    */
   setSafeMode(idOrName: string, tier: string): WorkspaceRow {
     const workspace = this.resolve(idOrName);
-    if (tier === 'T1') {
-      throw new CrossweaveError(
-        'SAFE_MODE_TIER_UNAVAILABLE',
-        'T1 requires an ACP-based adapter, which crossweave does not have yet. Use T2 or T3.',
-      );
-    }
-    // Narrows `tier` to 'T2' | 'T3' by control-flow analysis — no cast needed.
-    if (tier !== 'T2' && tier !== 'T3') {
-      throw new CrossweaveError('INVALID_PARAMS', `safeModeTier must be T2 or T3, got: ${tier}`);
+    // Narrows `tier` to 'T1' | 'T2' | 'T3' by control-flow analysis — no cast needed.
+    if (tier !== 'T1' && tier !== 'T2' && tier !== 'T3') {
+      throw new CrossweaveError('INVALID_PARAMS', `safeModeTier must be T1, T2 or T3, got: ${tier}`);
     }
     this.workspaces.updateSafeModeTier(workspace.id, tier);
     return { ...workspace, safeModeTier: tier };
