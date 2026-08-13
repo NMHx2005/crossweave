@@ -495,7 +495,7 @@ async function prompt(params: acp.PromptRequest, cx: acp.AgentContext): Promise<
 }
 
 const input = Writable.toWeb(process.stdout);
-const output = Readable.toWeb(process.stdin) as ReadableStream<Uint8Array>;
+const output = Readable.toWeb(process.stdin) as unknown as ReadableStream<Uint8Array>;
 
 acp
   .agent({ name: 'fake-acp-agent' })
@@ -536,6 +536,16 @@ line to match whatever `bun install` actually wrote — check with `git status -
 before committing.)
 
 ---
+
+> **Addendum, added after Task 2's implementation (not in the original brief text Task 2
+> worked from, but incorporated into Task 3's code below):** Task 2 found that this repo's
+> pinned `typescript@^7.0.2` rejects a direct `as ReadableStream<Uint8Array>` cast on
+> `Readable.toWeb()`'s return value — `node:stream`'s Web-Streams type is structurally
+> distinct from the global DOM-lib `ReadableStream` this project's tsconfig resolves, and
+> TS refuses the cast as "neither type sufficiently overlaps." The fix, already applied in
+> Task 3's code below, is `as unknown as ReadableStream<Uint8Array>` — zero runtime effect,
+> standard idiom for this exact situation. If Task 4 or later needs another `Readable.toWeb`/
+> `Writable.toWeb` conversion, use the same double-cast.
 
 ### Task 3: `AcpAdapter` — protocol translation (spawn, write, onData, kill)
 
@@ -710,7 +720,14 @@ class AcpProcess implements AgentProcess {
     // Web Streams, not Node streams — ndJsonStream's contract (verified against the
     // SDK's own examples, not guessed): (output-we-write-to, input-we-read-from).
     const input = Writable.toWeb(this.child.stdin!);
-    const output = Readable.toWeb(this.child.stdout!) as ReadableStream<Uint8Array>;
+    // `as unknown as`, not a direct `as` — Task 2 hit this exact cast rejection first:
+    // `node:stream`'s `Readable.toWeb()` returns a `node:stream/web` ReadableStream, a
+    // structurally distinct declaration from the global DOM-lib ReadableStream this
+    // project's tsconfig resolves. TS 7.0.2 (this repo's pinned compiler) correctly
+    // refuses the direct cast as "neither type sufficiently overlaps" even though the
+    // two are runtime-compatible — this is the standard idiom for that case, zero
+    // runtime effect (type assertions never affect emitted JS).
+    const output = Readable.toWeb(this.child.stdout!) as unknown as ReadableStream<Uint8Array>;
     const stream = ndJsonStream(input, output);
 
     const clientImpl: Client = {
