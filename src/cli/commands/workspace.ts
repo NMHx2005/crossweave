@@ -58,10 +58,10 @@ export const workspaceCommand = defineCommand({
     'safe-mode': defineCommand({
       meta: {
         name: 'safe-mode',
-        description: "Show or set this workspace's Safe Mode floor (T2 blocks write-write collisions and is the default for new workspaces; T3 is advisory-only; T1 is rejected — no ACP adapter yet)",
+        description: "Show or set this workspace's Safe Mode floor (T1/T2 block write-write collisions — T1 via a native ACP adapter like Cursor, T2 via the Claude Code hook; T2 is the default for new workspaces; T3 is advisory-only)",
       },
       args: {
-        tier: { type: 'positional', description: 'T2 or T3 — omit to show the current tier', required: false },
+        tier: { type: 'positional', description: 'T1, T2 or T3 — omit to show the current tier', required: false },
       },
       async run({ args }) {
         try {
