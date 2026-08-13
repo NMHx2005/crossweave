@@ -194,13 +194,11 @@ describe('WorkspaceManager.setSafeMode', () => {
     expect(mgr.resolve(ws.id).safeModeTier).toBe('T3');
   });
 
-  it('rejects T1 with SAFE_MODE_TIER_UNAVAILABLE — no ACP adapter exists yet', () => {
+  it('accepts T1, now that AcpAdapter exists', () => {
     const ws = mgr.init('/tmp/projects/app');
-    expect(() => mgr.setSafeMode(ws.id, 'T1')).toThrowError(
-      expect.objectContaining({ code: 'SAFE_MODE_TIER_UNAVAILABLE' }) as unknown as Error,
-    );
-    // Unchanged — a rejected set must not partially apply.
-    expect(mgr.resolve(ws.id).safeModeTier).toBe('T2');
+    const updated = mgr.setSafeMode(ws.id, 'T1');
+    expect(updated.safeModeTier).toBe('T1');
+    expect(mgr.resolve(ws.id).safeModeTier).toBe('T1');
   });
 
   it('rejects garbage input with INVALID_PARAMS', () => {

@@ -18,7 +18,7 @@ import { createMcpServer, type McpServerHandle } from '../mcp/server.js';
 import { buildTools } from '../mcp/tools.js';
 import { RadarWatcherRegistry } from './watcher.js';
 import { FileClaimRepo } from '../db/repositories/file-claim.js';
-import { checkCollisions } from '../radar/collisions.js';
+import { decideBlocked } from '../radar/decision.js';
 import { ContractService, parseFqn } from '../radar/contracts.js';
 import { assertContained } from '../core/paths.js';
 import { ConvergenceScheduler } from './convergence-scheduler.js';
@@ -27,6 +27,8 @@ import { ConfigTrustRepo } from '../db/repositories/config-trust.js';
 import { buildConflictGraph, recommendOrder } from '../convergence/graph.js';
 import { landSession } from '../convergence/land.js';
 import { hashTestCommand, isTestCommandTrusted } from '../convergence/trust.js';
+import { createAdapter } from '../adapters/registry.js';
+import type { AcpAdapterDeps } from '../adapters/acp.js';
 
 function str(params: Record<string, unknown>, key: string): string {
   const v = params[key];
@@ -79,8 +81,24 @@ export function buildMethods(
   opts: { startBackgroundJobs?: boolean } = {},
 ): Record<string, MethodHandler> {
   const workspaces = new WorkspaceManager(db);
-  const sessions = new SessionManager(db, adapterFactory, config);
+  // Constructed before `sessions` (SessionManager) deliberately: the default
+  // adapterFactory closure below needs `sessionsRepo`/`fileClaims` already built —
+  // both are cheap, stateless wrappers around `db`, so building them slightly earlier
+  // than their other uses later in this function costs nothing.
   const sessionsRepo = new SessionRepo(db);
+  const fileClaims = new FileClaimRepo(db);
+  const cursorDeps: AcpAdapterDeps = {
+    resolveWorkspaceId: (sessionId) => {
+      const row = sessionsRepo.findById(sessionId);
+      if (!row) throw new CrossweaveError('SESSION_NOT_FOUND', `No such session: ${sessionId}`);
+      return row.workspaceId;
+    },
+    decideBlocked: (params) => decideBlocked({ fileClaims, workspaces, sessions }, params),
+  };
+  // A caller-supplied adapterFactory (every existing test) is used AS-IS, unwrapped —
+  // it's a full override, not something this daemon's cursor deps should be spliced
+  // into. Only the real, no-override daemon path gets the deps-injected default.
+  const sessions = new SessionManager(db, adapterFactory ?? ((kind) => createAdapter(kind, cursorDeps)), config);
   const leaseManager = new LeaseManager(db, projectRoot, config);
   // Nothing a previous daemon held can have survived its death, and a lease left
   // marked active would permanently shrink the pool.
@@ -89,7 +107,6 @@ export function buildMethods(
   const ledger = new EventLedger(db, projectRoot);
   const bus = new MessageBus(db, sessions);
   const contextStore = new ContextStore(db);
-  const fileClaims = new FileClaimRepo(db);
   const contracts = new ContractService(db);
   const radarWatchers = new RadarWatcherRegistry(db, bus, contracts);
   const configTrust = new ConfigTrustRepo(db);
@@ -342,24 +359,15 @@ export function buildMethods(
       const workspaceId = str(p, 'workspaceId');
       const sessionId = str(p, 'sessionId');
       const symbol = optionalStr(p, 'symbol');
-      const collisions = checkCollisions(fileClaims, {
-        workspaceId,
-        sessionId,
-        path: str(p, 'path'),
-        symbol,
-      });
-      // checkCollisions stays pure (FileClaimRepo only, no session lookups —
-      // see Task 6's unit tests). Session NAMES are a display concern, added
-      // here where `sessions` is already in scope, for the one consumer that
-      // needs a human-readable name: Task 9's hook advisory text.
-      //
-      // `blocked` is computed HERE, not in the hook, so the policy (workspace
-      // floor x this session's own capability x whether a collision even
-      // exists) is defined exactly once — a future ACP permission-boundary
-      // handler (M5b) needs the identical decision over a different transport.
-      const safeModeTier = workspaces.resolve(workspaceId).safeModeTier;
-      const enforcementTier = sessions.resolve(workspaceId, sessionId).enforcementTier;
-      const blocked = safeModeTier !== 'T3' && enforcementTier !== 'T3' && collisions.length > 0;
+      // Session NAMES are a display concern, added here where `sessions` is already in
+      // scope, for the one consumer that needs a human-readable name: the hook's
+      // advisory text. The blocking POLICY itself lives in decideBlocked, not here —
+      // see its own doc comment for why (M5b's ACP permission handler needs the
+      // identical decision, in-process, with no transport of its own).
+      const { collisions, blocked } = decideBlocked(
+        { fileClaims, workspaces, sessions },
+        { workspaceId, sessionId, path: str(p, 'path'), symbol },
+      );
       return {
         blocked,
         collisions: collisions.map((c) => ({

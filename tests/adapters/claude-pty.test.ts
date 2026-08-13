@@ -180,7 +180,7 @@ describe('createAdapter', () => {
   });
 
   it('throws UNKNOWN_AGENT for an unsupported kind', () => {
-    expect(() => createAdapter('cursor')).toThrowError(
+    expect(() => createAdapter('bogus')).toThrowError(
       expect.objectContaining({ code: 'UNKNOWN_AGENT' }) as unknown as Error,
     );
   });
