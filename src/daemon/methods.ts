@@ -29,6 +29,7 @@ import { landSession } from '../convergence/land.js';
 import { hashTestCommand, isTestCommandTrusted } from '../convergence/trust.js';
 import { createAdapter } from '../adapters/registry.js';
 import type { AcpAdapterDeps } from '../adapters/acp.js';
+import { recordUsage } from '../domain/usage.js';
 
 function str(params: Record<string, unknown>, key: string): string {
   const v = params[key];
@@ -54,6 +55,11 @@ function num(params: Record<string, unknown>, key: string): number {
     throw new CrossweaveError('INVALID_PARAMS', `Expected number param: ${key}`);
   }
   return v;
+}
+
+function optionalNum(params: Record<string, unknown>, key: string): number | undefined {
+  const v = params[key];
+  return typeof v === 'number' ? v : undefined;
 }
 
 /**
@@ -331,6 +337,21 @@ export function buildMethods(
     'session.resize': (p) => {
       const row = sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName'));
       runtime.resize(row.id, row.name, num(p, 'cols'), num(p, 'rows'));
+      return { ok: true };
+    },
+
+    // No workspaceId in the params, deliberately: this is a high-frequency,
+    // best-effort call (Claude Code's statusLine fires after every assistant
+    // message, debounced 300ms) and the caller already knows the exact session
+    // id — resolving through `sessions.resolve` would add a workspace lookup with
+    // no purpose. An unknown sessionId is a silent no-op (recordUsage's own
+    // contract), matching this call's "never block the agent" bar.
+    'session.reportUsage': async (p) => {
+      recordUsage({ sessions: sessionsRepo }, {
+        sessionId: str(p, 'sessionId'),
+        tokensUsed: optionalNum(p, 'tokensUsed'),
+        costUsd: optionalNum(p, 'costUsd'),
+      });
       return { ok: true };
     },
 
