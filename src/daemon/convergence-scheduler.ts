@@ -10,6 +10,9 @@ import type { ConfigTrustRepo } from '../db/repositories/config-trust.js';
 import { ensureIntegrationWorktree, withIntegrationLease, withIntegrationWorktreeLock } from '../convergence/integration-worktree.js';
 import { runMergeTrial, resetIntegration } from '../convergence/trial.js';
 import { isTestCommandTrusted } from '../convergence/trust.js';
+import { notify, type NotifyDispatcherDeps } from '../notify/dispatcher.js';
+import { NotificationGate } from '../radar/noise.js';
+import type { MergeTrialRow } from '../db/repositories/merge-trial.js';
 
 const TICK_MS = 5_000;
 // Sorted-pair dedup keys accumulate one entry per unique (branch@head, branch@head)
@@ -85,6 +88,11 @@ export class ConvergenceScheduler {
     private readonly config: CrossweaveConfig,
     private readonly leaseManager: LeaseManager,
     private readonly configTrust: ConfigTrustRepo,
+    // M6b: defaults to a real gate but a no-op send, so every existing 5-arg
+    // construction (production and every prior test) keeps compiling and running
+    // unchanged — only a caller that explicitly wants convergence notifications
+    // needs to pass a real one.
+    private readonly notifyDeps: NotifyDispatcherDeps = { gate: new NotificationGate(), isEnabled: () => true, send: () => {} },
   ) {
     this.workspaces = new WorkspaceRepo(db);
     this.sessions = new SessionRepo(db);
@@ -146,6 +154,42 @@ export class ConvergenceScheduler {
     }
   }
 
+  /**
+   * Every `MergeTrialRepo.insert` in this class goes through here instead of
+   * calling it directly (M6b) — the one place a pairwise (exactly 2 branches)
+   * trial's result is compared against that same sorted pair's most recent
+   * prior trial, firing a `convergence` notify event when it differs. A
+   * full-integration trial (3+ branches) never compares or notifies — design
+   * doc §2 scopes this event to pairwise trials only. The prior result is
+   * looked up BEFORE inserting the new row, since inserting first would make
+   * "most recent" trivially match the row just inserted.
+   */
+  private recordTrial(row: {
+    id: string; workspaceId: string; ts: string; branches: string[];
+    result: MergeTrialRow['result']; detail: string | null;
+  }): void {
+    let prior: MergeTrialRow['result'] | undefined;
+    if (row.branches.length === 2) {
+      const key = [...row.branches].sort().join('|');
+      const existing = this.mergeTrials
+        .listByWorkspace(row.workspaceId)
+        .filter((t) => t.branches.length === 2 && [...t.branches].sort().join('|') === key);
+      prior = existing.length > 0 ? existing[existing.length - 1]!.result : undefined;
+    }
+
+    this.mergeTrials.insert(row);
+
+    if (row.branches.length === 2 && prior !== undefined && prior !== row.result) {
+      const [branchA, branchB] = row.branches as [string, string];
+      const active = this.activeBranchSessions(row.workspaceId);
+      const sessionA = active.find((s) => s.branch === branchA)?.name ?? branchA;
+      const sessionB = active.find((s) => s.branch === branchB)?.name ?? branchB;
+      notify(this.notifyDeps, {
+        kind: 'convergence', sessionA, sessionB, from: prior, to: row.result, workspaceId: row.workspaceId,
+      });
+    }
+  }
+
   private async tickWorkspace(workspaceId: string, projectRoot: string): Promise<void> {
     const active = this.activeBranchSessions(workspaceId);
     if (active.length < 2) return; // nothing to pair against
@@ -202,7 +246,7 @@ export class ConvergenceScheduler {
 
             const result = await runMergeTrial(integration.path, base, [branchA, branchB]);
             resetIntegration(integration.path, base);
-            this.mergeTrials.insert({
+            this.recordTrial({
               id: newId('mt'), workspaceId, ts: new Date().toISOString(),
               branches: [branchA, branchB], result: result.result, detail: result.detail,
             });
@@ -262,7 +306,7 @@ export class ConvergenceScheduler {
       try {
         const result = await runMergeTrial(integrationPath, base, branches);
         if (result.result === 'conflict') {
-          this.mergeTrials.insert({
+          this.recordTrial({
             id: newId('mt'), workspaceId, ts: new Date().toISOString(),
             branches, result: 'conflict', detail: result.detail,
           });
@@ -271,7 +315,7 @@ export class ConvergenceScheduler {
 
         const testCommand = this.config.converge.testCommand;
         if (testCommand === undefined) {
-          this.mergeTrials.insert({
+          this.recordTrial({
             id: newId('mt'), workspaceId, ts: new Date().toISOString(),
             branches, result: 'unverified', detail: null,
           });
@@ -284,7 +328,7 @@ export class ConvergenceScheduler {
           process.stderr.write(
             `crossweave: converge.testCommand is set but not trusted for workspace ${workspaceId} — run \`cw config trust\`. Skipping test run.\n`,
           );
-          this.mergeTrials.insert({
+          this.recordTrial({
             id: newId('mt'), workspaceId, ts: new Date().toISOString(),
             branches, result: 'unverified', detail: null,
           });
@@ -306,7 +350,7 @@ export class ConvergenceScheduler {
           }
         });
 
-        this.mergeTrials.insert({
+        this.recordTrial({
           id: newId('mt'), workspaceId, ts: new Date().toISOString(),
           branches,
           result: testResult.code === 0 ? 'clean' : 'test_fail',

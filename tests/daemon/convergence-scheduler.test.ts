@@ -10,6 +10,8 @@ import { ConvergenceScheduler } from '../../src/daemon/convergence-scheduler.js'
 import { hashTestCommand } from '../../src/convergence/trust.js';
 import { DEFAULT_CONFIG } from '../../src/core/config.js';
 import { makeGitFixture, commitFile, type GitFixture } from '../helpers/git-fixture.js';
+import { NotificationGate } from '../../src/radar/noise.js';
+import type { NotifyDispatcherDeps } from '../../src/notify/dispatcher.js';
 
 async function branchWithFile(root: string, branch: string, file: string, content: string): Promise<void> {
   await $`git checkout -q -b ${branch}`.cwd(root).quiet();
@@ -318,6 +320,131 @@ describe('ConvergenceScheduler', () => {
     } finally {
       await fixtureA.cleanup();
       await fixtureB.cleanup();
+    }
+  });
+});
+
+describe('ConvergenceScheduler: convergence notify', () => {
+  // ConvergenceScheduler calls the real notify() (Task 2) with these deps —
+  // notify()'s own dispatch logic is already covered by Task 2's own tests, so
+  // what THIS file needs to prove is that `recordTrial` calls notify() with the
+  // right event at all, which is observable through `send` actually firing.
+  function captureSentMessages(): { deps: NotifyDispatcherDeps; messages: string[] } {
+    const messages: string[] = [];
+    return {
+      messages,
+      deps: { gate: new NotificationGate(), isEnabled: () => true, send: (_title, message) => { messages.push(message); } },
+    };
+  }
+
+  test('a pairwise trial result changing from clean to conflict fires a convergence notify event', async () => {
+    const fixture = await makeGitFixture();
+    try {
+      await commitFile(fixture.root, 'shared.txt', 'base\n', 'seed');
+      // cw/a starts untouched relative to shared.txt; cw/b changes it. Merging the
+      // two together has nothing to conflict over yet — first trial is 'clean'.
+      await $`git checkout -q -b cw/a`.cwd(fixture.root).quiet();
+      await commitFile(fixture.root, 'a.txt', 'a\n', 'add a');
+      await $`git checkout -q main`.cwd(fixture.root).quiet();
+      await $`git checkout -q -b cw/b`.cwd(fixture.root).quiet();
+      await commitFile(fixture.root, 'shared.txt', 'from b\n', 'b edits shared');
+      await $`git checkout -q main`.cwd(fixture.root).quiet();
+
+      const db = openDatabase(':memory:');
+      new WorkspaceRepo(db).insert({
+        id: 'ws_1', name: 'w', rootPath: fixture.root, createdAt: 'now',
+        defaultIsolation: 'worktree', safeModeTier: 'T1',
+      });
+      const sessions = new SessionRepo(db);
+      const config = { ...DEFAULT_CONFIG, converge: { ...DEFAULT_CONFIG.converge, trialDebounceMs: 0 } };
+      const leaseManager = new LeaseManager(db, fixture.root, config);
+      const configTrust = new ConfigTrustRepo(db);
+      const { deps: notifyDeps, messages } = captureSentMessages();
+      const scheduler = new ConvergenceScheduler(db, fixture.root, config, leaseManager, configTrust, notifyDeps);
+      sessions.insert({
+        id: 's_a', workspaceId: 'ws_1', name: 'auth', agentKind: 'claude', adapter: 'claude',
+        status: 'running', worktreePath: fixture.root, branch: 'cw/a', createdAt: 'now',
+        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+      });
+      sessions.insert({
+        id: 's_b', workspaceId: 'ws_1', name: 'payments', agentKind: 'claude', adapter: 'claude',
+        status: 'running', worktreePath: fixture.root, branch: 'cw/b', createdAt: 'now',
+        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+      });
+
+      await scheduler.tick();
+      const firstPairwise = new MergeTrialRepo(db).listByWorkspace('ws_1').filter((t) => t.branches.length === 2);
+      expect(firstPairwise).toHaveLength(1);
+      expect(firstPairwise[0]?.result).toBe('clean');
+      expect(messages).toHaveLength(0); // nothing to compare against on the first-ever trial
+
+      // Now make cw/a ALSO touch shared.txt, diverging from cw/b's own edit —
+      // merging the two together will now genuinely conflict. This changes cw/a's
+      // head, which is what makes the next tick() re-trial this pair at all.
+      await $`git checkout -q cw/a`.cwd(fixture.root).quiet();
+      await commitFile(fixture.root, 'shared.txt', 'from a\n', 'a also edits shared');
+      await $`git checkout -q main`.cwd(fixture.root).quiet();
+
+      await scheduler.tick();
+      const secondPairwise = new MergeTrialRepo(db).listByWorkspace('ws_1').filter((t) => t.branches.length === 2);
+      expect(secondPairwise).toHaveLength(2);
+      expect(secondPairwise[1]?.result).toBe('conflict');
+
+      expect(messages).toHaveLength(1);
+      expect(messages[0]).toContain('auth');
+      expect(messages[0]).toContain('payments');
+      expect(messages[0]).toContain('clean');
+      expect(messages[0]).toContain('conflict');
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
+  test('a full-integration trial (3+ branches) never fires a convergence notify event', async () => {
+    const fixture = await makeGitFixture();
+    try {
+      await commitFile(fixture.root, 'base.txt', 'base\n', 'seed');
+      for (const [branch, file] of [['cw/a', 'a.txt'], ['cw/b', 'b.txt'], ['cw/c', 'c.txt']] as const) {
+        await $`git checkout -q -b ${branch}`.cwd(fixture.root).quiet();
+        await commitFile(fixture.root, file, `${file}\n`, `add ${file}`);
+        await $`git checkout -q main`.cwd(fixture.root).quiet();
+      }
+
+      const db = openDatabase(':memory:');
+      new WorkspaceRepo(db).insert({
+        id: 'ws_1', name: 'w', rootPath: fixture.root, createdAt: 'now',
+        defaultIsolation: 'worktree', safeModeTier: 'T1',
+      });
+      const sessions = new SessionRepo(db);
+      // fullIntegrationIntervalMs: 0 makes maybeRunFullIntegration actually run on
+      // this same tick, producing a 3-branch trial — the case under test.
+      const config = {
+        ...DEFAULT_CONFIG,
+        converge: { ...DEFAULT_CONFIG.converge, trialDebounceMs: 0, fullIntegrationIntervalMs: 0 },
+      };
+      const leaseManager = new LeaseManager(db, fixture.root, config);
+      const configTrust = new ConfigTrustRepo(db);
+      const { deps: notifyDeps, messages } = captureSentMessages();
+      const scheduler = new ConvergenceScheduler(db, fixture.root, config, leaseManager, configTrust, notifyDeps);
+      let i = 0;
+      for (const branch of ['cw/a', 'cw/b', 'cw/c']) {
+        sessions.insert({
+          id: `s_${i}`, workspaceId: 'ws_1', name: `s${i}`, agentKind: 'claude', adapter: 'claude',
+          status: 'running', worktreePath: fixture.root, branch, createdAt: 'now',
+          lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+        });
+        i += 1;
+      }
+
+      await scheduler.tick();
+      const fullIntegration = new MergeTrialRepo(db).listByWorkspace('ws_1').filter((t) => t.branches.length > 2);
+      expect(fullIntegration).toHaveLength(1); // the 3-branch trial did run
+      // The pairwise trials (a-b, a-c, b-c) are all 'clean' — none differ from a
+      // prior trial either (all first-ever for their pair) — so `messages` must stay
+      // empty regardless of the 3-branch trial's own result.
+      expect(messages).toHaveLength(0);
+    } finally {
+      await fixture.cleanup();
     }
   });
 });

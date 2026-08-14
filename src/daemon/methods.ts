@@ -139,7 +139,7 @@ export function buildMethods(
     send: platformSend(),
   };
   const radarWatchers = new RadarWatcherRegistry(db, bus, contracts, notifyGate, notifyDeps);
-  const convergenceScheduler = new ConvergenceScheduler(db, projectRoot, config, leaseManager, configTrust);
+  const convergenceScheduler = new ConvergenceScheduler(db, projectRoot, config, leaseManager, configTrust, notifyDeps);
   // Constructed always, started only by the real daemon. Every test that calls
   // buildMethods() to exercise one RPC in isolation goes straight to db.close()
   // without daemon.shutdown, so an unconditional start() leaks a live 5s timer
