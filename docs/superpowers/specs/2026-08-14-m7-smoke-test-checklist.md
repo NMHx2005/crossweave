@@ -14,6 +14,10 @@ covers.
 - [ ] Deliberately corrupt one byte of a downloaded binary before checksum
       verification runs (or point `checksums.txt` at the wrong file):
       script hard-fails, nothing is moved into `$INSTALL_DIR`.
+- [ ] `checksums.txt` missing the target's entry entirely → hard-fail,
+      nothing installed.
+- [ ] No `sha256sum` or `shasum` on `PATH` → clean error, nothing
+      installed.
 - [ ] Re-run install after `cw config update-check off`: the reinstalled
       config.json still has `updateCheck: false`, not reset to `true`.
 - [ ] `~/.local/bin` not on `PATH`: script prints the export line, doesn't

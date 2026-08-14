@@ -47,15 +47,31 @@ curl -fsSL -o "$tmp/cw-$TARGET" "${base_url}cw-$TARGET"
 curl -fsSL -o "$tmp/cwd-$TARGET" "${base_url}cwd-$TARGET"
 curl -fsSL -o "$tmp/checksums.txt" "${base_url}checksums.txt"
 
+if command -v sha256sum >/dev/null 2>&1; then
+  sha256_check() { sha256sum -c -; }
+elif command -v shasum >/dev/null 2>&1; then
+  sha256_check() { shasum -a 256 -c -; }
+else
+  echo "crossweave: neither sha256sum nor shasum found — cannot verify checksums, aborting" >&2
+  exit 1
+fi
+
+verify_one() {
+  entry_name="$1"
+  line=$(awk -v n="$entry_name" '$2 == n { print }' "$tmp/checksums.txt")
+  if [ -z "$line" ]; then
+    echo "crossweave: no checksum entry for $entry_name in checksums.txt — aborting, nothing installed" >&2
+    exit 1
+  fi
+  printf '%s\n' "$line" | (cd "$tmp" && sha256_check) || {
+    echo "crossweave: checksum verification FAILED for $entry_name — aborting, nothing installed" >&2
+    exit 1
+  }
+}
+
 echo "crossweave: verifying checksums..."
-(cd "$tmp" && grep "cw-$TARGET\$" checksums.txt | sha256sum -c -) || {
-  echo "crossweave: checksum verification FAILED for cw-$TARGET — aborting, nothing installed" >&2
-  exit 1
-}
-(cd "$tmp" && grep "cwd-$TARGET\$" checksums.txt | sha256sum -c -) || {
-  echo "crossweave: checksum verification FAILED for cwd-$TARGET — aborting, nothing installed" >&2
-  exit 1
-}
+verify_one "cw-$TARGET"
+verify_one "cwd-$TARGET"
 
 mkdir -p "$INSTALL_DIR"
 mv "$tmp/cw-$TARGET" "$INSTALL_DIR/cw"
