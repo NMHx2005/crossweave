@@ -38,6 +38,16 @@ cosmetic polish was judged not worth the interface churn (every existing
 blocked notification's session identifier is therefore the raw session id, not its
 human-chosen name.
 
+## Background collision notifications show the session id, not its friendly name
+
+The background collision path (`src/radar/retro-notify.ts`'s `notifyCollisions`)
+reports both sides of a collision by raw session id. The live-hook collision path
+(`radar.check`'s RPC handler) resolves both sides to their display name via
+`sessions.resolve(...).name`. This is the same category of gap as the T1/ACP
+blocked-notification limitation above, on the opposite path — not fixed in M6b for
+the same reason (interface-widening cost judged not worth it for a notification
+title's cosmetic polish).
+
 ## `land`/`convergence` throttle coalesces per session (or per pair), not per distinct outcome
 
 A session that lands successfully, is re-landed, and fails within the same
