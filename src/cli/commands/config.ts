@@ -1,6 +1,7 @@
 import { defineCommand } from 'citty';
 import { CrossweaveError } from '../../core/errors.js';
 import { withClient, fail, currentWorkspaceId } from '../context.js';
+import { loadGlobalConfig, saveGlobalConfig } from '../../update/global-config.js';
 
 interface TrustResult { trusted: boolean; testCommand: string }
 interface NotifyStatus { enabled: boolean; collision: boolean; blocked: boolean; land: boolean; convergence: boolean }
@@ -98,7 +99,31 @@ const notifyCommand = defineCommand({
   },
 });
 
+const updateCheckCommand = defineCommand({
+  meta: { name: 'update-check', description: 'Enable or disable the background version check' },
+  subCommands: {
+    on: defineCommand({
+      meta: { name: 'on', description: 'Enable the background version check' },
+      run() {
+        try {
+          saveGlobalConfig({ ...loadGlobalConfig(), updateCheck: true });
+          process.stdout.write('update-check on\n');
+        } catch (err) { fail(err); }
+      },
+    }),
+    off: defineCommand({
+      meta: { name: 'off', description: 'Disable the background version check' },
+      run() {
+        try {
+          saveGlobalConfig({ ...loadGlobalConfig(), updateCheck: false });
+          process.stdout.write('update-check off\n');
+        } catch (err) { fail(err); }
+      },
+    }),
+  },
+});
+
 export const configCommand = defineCommand({
   meta: { name: 'config', description: 'Manage crossweave.config.json trust and notify preferences' },
-  subCommands: { trust: trustCommand, untrust: untrustCommand, status: statusCommand, notify: notifyCommand },
+  subCommands: { trust: trustCommand, untrust: untrustCommand, status: statusCommand, notify: notifyCommand, 'update-check': updateCheckCommand },
 });

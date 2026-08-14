@@ -5,6 +5,7 @@ import { crossweaveDir, findProjectRoot } from '../core/paths.js';
 import { VERSION } from '../core/version.js';
 import { DaemonClient } from '../client/rpc-client.js';
 import { CrossweaveError } from '../core/errors.js';
+import { checkForUpdate } from '../update/checker.js';
 import { initCommand, workspaceCommand, gcCommand } from './commands/workspace.js';
 import { sessionCommand } from './commands/session.js';
 import { blameCommand } from './commands/blame.js';
@@ -14,6 +15,7 @@ import { contractCommand } from './commands/contract.js';
 import { convergeCommand } from './commands/converge.js';
 import { landCommand } from './commands/land.js';
 import { configCommand } from './commands/config.js';
+import { updateCommand } from './commands/update.js';
 import { fail } from './context.js';
 
 const daemonCommand = defineCommand({
@@ -80,7 +82,29 @@ const main = defineCommand({
     converge: convergeCommand,
     land: landCommand,
     config: configCommand,
+    update: updateCommand,
   },
 });
 
-void runMain(main);
+// 'radar-hook'/'session-usage-hook' are internal plumbing, never user-facing invocations.
+// 'update' is skipped for a different reason: it just replaced the on-disk binary and reset
+// the update-check cache, but this process's own `VERSION` constant is still the pre-update
+// value — running the check here would immediately nag about the version it just installed.
+const INTERNAL_COMMANDS = new Set(['radar-hook', 'session-usage-hook', 'update']);
+
+// Mirrors citty's own `runMain` version-branch check exactly (node_modules/citty/dist/index.mjs:
+// `rawArgs.length === 1 && builtinFlags.version.includes(rawArgs[0])`, where `rawArgs` is
+// `process.argv.slice(2)`) — unlike `--help` and the error path, that branch does NOT call
+// process.exit(), so a bare `cw --version`/`cw -v` falls through to here and must not have a
+// notice appended after the version line.
+const isBareVersionFlag = process.argv.length === 3 && ['--version', '-v'].includes(process.argv[2] ?? '');
+
+await runMain(main);
+if (!isBareVersionFlag && !INTERNAL_COMMANDS.has(process.argv[2] ?? '')) {
+  try {
+    const notice = await checkForUpdate(VERSION);
+    if (notice !== undefined) process.stdout.write(notice + '\n');
+  } catch {
+    // never let a broken update check take down an otherwise-successful command
+  }
+}

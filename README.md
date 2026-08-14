@@ -27,13 +27,14 @@ design and the milestone-by-milestone rollout.
 
 Core loop (workspace/session management, worktree isolation, Collision
 Radar, Convergence Engine, Safe Mode enforcement, budget tracking, push
-notifications) is built and tested. Two things are **not** built yet:
+notifications) is built and tested. One thing is **not** built yet:
 
 - **No TUI.** There's no live dashboard — you follow along via `cw ... list`/
   `status` commands and desktop notifications.
-- **No installer.** Today crossweave only runs from a source checkout (see
-  Install below). No `curl | sh` script, no package-manager tap, and no
-  self-update mechanism exist yet.
+- **No release cut yet.** The installer, release pipeline, and self-update
+  check (M7) are built, but the first real GitHub release hasn't been
+  tagged — `curl | sh` won't have anything to download until then. Build
+  from source in the meantime (see Install below).
 
 Known gaps are tracked in
 `docs/superpowers/specs/2026-08-14-known-limitations-digest.md` (the
@@ -48,23 +49,29 @@ lean on crossweave for anything you'd be upset to lose.
   target)
 - git
 
-## Install (from source — today's only option)
+## Install
 
 ```bash
-git clone <this-repo> crossweave
+curl -fsSL https://raw.githubusercontent.com/NMHx2005/crossweave/main/install.sh | sh
+```
+
+Installs `cw`/`cwd` to `~/.local/bin` for macOS (arm64/x64) and Linux
+(x64) — see `install.sh` at the repo root for exactly what it does
+(checksum-verified download, no `sudo`, no shell rc file edits).
+
+`cw` checks for a newer version in the background (cached, at most once a
+day) and tells you to run `cw update` when one exists — never installs
+anything without you running that command. Turn it off with `cw config
+update-check off`.
+
+### From source (for crossweave's own development)
+
+```bash
+git clone https://github.com/NMHx2005/crossweave crossweave
 cd crossweave
 bun install
 bun run scripts/build.ts   # produces dist/cw and dist/cwd
 ```
-
-Put `dist/` on your `PATH`, or invoke the binaries directly:
-
-```bash
-export PATH="$PWD/dist:$PATH"
-```
-
-`cw` is the CLI you run; `cwd` is the daemon it starts automatically the
-first time you need it — you never run `cwd` by hand.
 
 ## Quickstart
 
