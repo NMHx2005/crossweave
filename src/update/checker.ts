@@ -48,6 +48,10 @@ export async function checkForUpdate(currentVersion: string, deps: UpdateCheckDe
   if (latest === null || !isNewerVersion(latest, currentVersion)) return undefined;
   if (cfg.lastNotifiedVersion === latest) return undefined;
 
-  saveGlobalConfig({ ...loadGlobalConfig(deps.homeDir), lastKnownLatest: latest, lastNotifiedVersion: latest }, deps.homeDir);
+  try {
+    saveGlobalConfig({ ...loadGlobalConfig(deps.homeDir), lastKnownLatest: latest, lastNotifiedVersion: latest }, deps.homeDir);
+  } catch {
+    return undefined; // dedup-write failure — swallowed, same posture as the fetch/parse failures above
+  }
   return `crossweave: ${latest} is available (you have v${currentVersion.replace(/^v/, '')}) — run 'cw update' to install it.`;
 }

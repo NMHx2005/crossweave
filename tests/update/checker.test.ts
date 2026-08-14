@@ -1,9 +1,10 @@
 import { describe, expect, test, beforeEach, afterEach } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { checkForUpdate } from '../../src/update/checker.js';
 import { loadGlobalConfig, saveGlobalConfig, DEFAULT_GLOBAL_CONFIG } from '../../src/update/global-config.js';
+import { globalCrossweaveDir } from '../../src/core/paths.js';
 
 let home: string;
 beforeEach(() => { home = mkdtempSync(join(tmpdir(), 'cw-checker-')); });
@@ -79,5 +80,30 @@ describe('checkForUpdate', () => {
     const failFetch = (async () => new Response('', { status: 500 })) as unknown as typeof fetch;
     const notice = await checkForUpdate('0.1.0', { homeDir: home, fetchFn: failFetch });
     expect(notice).toBeUndefined();
+  });
+
+  test('a saveGlobalConfig failure during the notify-dedup write does not throw', async () => {
+    // Prime a fresh, already-fetched cache so checkForUpdate takes the cache-hit
+    // path straight to the dedup write below, without calling fetchFn at all.
+    const now = 1_000_000_000_000;
+    saveGlobalConfig(
+      { ...DEFAULT_GLOBAL_CONFIG, lastCheckedAt: new Date(now).toISOString(), lastKnownLatest: 'v0.2.0' },
+      home,
+    );
+    const configFile = join(globalCrossweaveDir(home), 'config.json');
+    chmodSync(configFile, 0o444); // read-only: the dedup write's writeFileSync will throw EACCES
+    const unreachableFetch = (async () => {
+      throw new Error('fetchFn must not be called on a cache hit');
+    }) as unknown as typeof fetch;
+    try {
+      const notice = await checkForUpdate('0.1.0', {
+        homeDir: home,
+        fetchFn: unreachableFetch,
+        clock: () => now + 1_000, // well within the 24h cache window
+      });
+      expect(notice).toBeUndefined();
+    } finally {
+      chmodSync(configFile, 0o644); // restore write access for afterEach's rmSync
+    }
   });
 });
