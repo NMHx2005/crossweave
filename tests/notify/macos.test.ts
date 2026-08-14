@@ -40,6 +40,46 @@ describe('sendMacNotification argv construction', () => {
     expect(tn!.args).not.toContain('cw session attach auth');
   });
 
+  test('a clickCommand element containing $(...) is inert to /bin/sh -c, the shell terminal-notifier re-executes -execute through on click', async () => {
+    const calls: { cmd: string; args: string[] }[] = [];
+    mock.module('node:child_process', () => ({
+      execFileSync: (cmd: string, args: string[]) => {
+        calls.push({ cmd, args });
+        if (cmd === 'which') return 'Users/x/bin/terminal-notifier\n';
+        return '';
+      },
+    }));
+    const { sendMacNotification, __resetTerminalNotifierCacheForTests } = await import('../../src/notify/macos.js');
+    __resetTerminalNotifierCacheForTests();
+    sendMacNotification('crossweave', 'auth blocked', ['cw', 'session', 'attach', 'sym$(echo INJECTED)']);
+
+    const tn = calls.find((c) => c.cmd.includes('terminal-notifier'))!;
+    const executeIndex = tn.args.indexOf('-execute');
+    const executeValue = tn.args[executeIndex + 1]!;
+    expect(executeValue.startsWith('osascript -e ')).toBe(true);
+
+    // Reproduce julienXX/terminal-notifier's own re-exec of -execute's value:
+    // `/bin/sh -c <executeValue>` (AppDelegate.m: `task.launchPath = @"/bin/sh";
+    // task.arguments = @[@"-c", command]`). Swap the leading `osascript -e` for a
+    // harmless `printf '%s'` so we observe exactly what sh hands the command as its
+    // argument, without opening a real Terminal window or invoking osascript.
+    const probeCommand = executeValue.replace(/^osascript -e /, "printf '%s' ");
+    const probeResult = originalChildProcess.execFileSync('/bin/sh', ['-c', probeCommand], { encoding: 'utf8' }) as string;
+
+    // Note: a bare `.toContain('INJECTED')` would prove nothing either way — that
+    // substring appears in the safe literal text too (it's the tail of
+    // `$(echo INJECTED)`). The actual signal is whether `$(echo INJECTED)` survives
+    // *intact* — if sh had performed command substitution (the pre-fix bug), that
+    // whole substring would be gone, replaced by just the word `INJECTED` with no
+    // `$(echo ` / `)` around it. An exact match against the known-good literal script
+    // pins this down precisely: this is character-for-character what `do script`'s
+    // AppleScript argument looks like when nothing sh-relevant ever fired.
+    const expectedScript =
+      'tell application "Terminal" to do script "\'cw\' \'session\' \'attach\' \'sym$(echo INJECTED)\'"\n' +
+      'tell application "Terminal" to activate';
+    expect(probeResult).toBe(expectedScript);
+  });
+
   test('terminal-notifier absent: falls back to osascript, passive only', async () => {
     const calls: { cmd: string; args: string[] }[] = [];
     mock.module('node:child_process', () => ({

@@ -27,6 +27,19 @@ function resolveTerminalNotifier(): string | undefined {
 }
 
 /**
+ * Wraps `s` as a single POSIX `sh` word: everything between the quotes is fully
+ * literal (no `$`, backtick, or `\` expansion) except embedded `'` characters,
+ * closed/re-opened/escaped via the standard `'\''` trick. Used both for the
+ * `do script` payload below (protecting Terminal.app's own shell) and, in
+ * `sendMacNotification`, for the whole `osascript -e` argument (protecting
+ * `/bin/sh -c`, which is what `terminal-notifier` re-executes `-execute` through
+ * on click — see that call site's comment).
+ */
+function posixSingleQuote(s: string): string {
+  return `'${s.replace(/'/g, "'\\''")}'`;
+}
+
+/**
  * Opens Terminal.app running `command` — not the user's actual preferred terminal
  * (iTerm2, kitty, etc.) if different, a known limitation (design doc §6). Built as an
  * AppleScript `do script` argument, itself one argv element to `osascript` — never a
@@ -37,7 +50,7 @@ function resolveTerminalNotifier(): string | undefined {
  * path/symbol containing a literal `"`.
  */
 function openTerminalScript(command: string[]): string {
-  const shellCommand = command.map((c) => `'${c.replace(/'/g, "'\\''")}'`).join(' ');
+  const shellCommand = command.map((c) => posixSingleQuote(c)).join(' ');
   return `tell application "Terminal" to do script ${JSON.stringify(shellCommand)}\ntell application "Terminal" to activate`;
 }
 
@@ -46,7 +59,14 @@ export function sendMacNotification(title: string, message: string, clickCommand
   if (tn !== undefined) {
     const args = ['-title', title, '-message', message];
     if (clickCommand !== undefined) {
-      args.push('-execute', `osascript -e ${JSON.stringify(openTerminalScript(clickCommand))}`);
+      // `terminal-notifier` runs `-execute`'s value via `NSTask` as `/bin/sh -c
+      // <value>` when the user clicks the notification (julienXX/terminal-notifier's
+      // AppDelegate.m). `JSON.stringify` produces a *double*-quoted script argument,
+      // and POSIX `sh -c` still performs `$`/backtick command substitution inside
+      // double quotes — so a `clickCommand` element containing `$(...)` would execute
+      // before osascript ever runs. `posixSingleQuote` on the whole script argument
+      // closes that: single-quoted content is fully inert to `sh`.
+      args.push('-execute', `osascript -e ${posixSingleQuote(openTerminalScript(clickCommand))}`);
     }
     execFileSync(tn, args, { stdio: 'ignore' });
     return;
