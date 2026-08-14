@@ -1,6 +1,7 @@
 import { lstatSync, readlinkSync, realpathSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { homedir } from 'node:os';
 import { CrossweaveError } from './errors.js';
 
 export function findProjectRoot(startDir: string): string {
@@ -18,6 +19,10 @@ export function findProjectRoot(startDir: string): string {
 
 export function crossweaveDir(projectRoot: string): string {
   return join(projectRoot, '.crossweave');
+}
+
+export function globalCrossweaveDir(homeDir: string = homedir()): string {
+  return join(homeDir, '.crossweave');
 }
 
 const MAX_SYMLINK_HOPS = 32;
