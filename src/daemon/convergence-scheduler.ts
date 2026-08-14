@@ -77,6 +77,13 @@ export class ConvergenceScheduler {
   // every one after it — independently of every other workspace.
   private readonly lastFullIntegrationAt = new Map<string, number>(); // workspaceId -> ts ms
   private readonly constructedAt = Date.now();
+  // A full-integration trial can have branches.length === 2 whenever exactly 2
+  // sessions are active — the same shape a genuine pairwise trial has. Branch
+  // count alone can't tell them apart, so recordTrial's caller says explicitly
+  // which kind a trial is, and this set tracks full-integration trial ids so
+  // they're excluded from the pairwise prior-lookup in either direction.
+  // Process-lifetime only, same as triedPairs/lastTrialHead/lastFullIntegrationAt.
+  private readonly fullIntegrationTrialIds = new Set<string>();
 
   private readonly workspaces: WorkspaceRepo;
   private readonly sessions: SessionRepo;
@@ -156,28 +163,38 @@ export class ConvergenceScheduler {
 
   /**
    * Every `MergeTrialRepo.insert` in this class goes through here instead of
-   * calling it directly (M6b) — the one place a pairwise (exactly 2 branches)
-   * trial's result is compared against that same sorted pair's most recent
-   * prior trial, firing a `convergence` notify event when it differs. A
-   * full-integration trial (3+ branches) never compares or notifies — design
-   * doc §2 scopes this event to pairwise trials only. The prior result is
+   * calling it directly (M6b) — the one place a pairwise trial's result is
+   * compared against that same sorted pair's most recent prior pairwise trial,
+   * firing a `convergence` notify event when it differs. A full-integration
+   * trial never compares or notifies — design doc §2 scopes this event to
+   * pairwise trials only. Which kind a trial is comes from the explicit
+   * `pairwise` flag, NOT `branches.length === 2` — a full-integration trial
+   * can ALSO have exactly 2 branches whenever exactly 2 sessions happen to be
+   * active, so branch count alone can't distinguish them; full-integration
+   * trial ids are tracked in `fullIntegrationTrialIds` and excluded from the
+   * pairwise prior-lookup so one never poisons the other. The prior result is
    * looked up BEFORE inserting the new row, since inserting first would make
    * "most recent" trivially match the row just inserted.
    */
   private recordTrial(row: {
     id: string; workspaceId: string; ts: string; branches: string[];
     result: MergeTrialRow['result']; detail: string | null;
+    pairwise: boolean;
   }): void {
     let prior: MergeTrialRow['result'] | undefined;
-    if (row.branches.length === 2) {
+    if (row.pairwise && row.branches.length === 2) {
       const key = [...row.branches].sort().join('|');
       const existing = this.mergeTrials
         .listByWorkspace(row.workspaceId)
-        .filter((t) => t.branches.length === 2 && [...t.branches].sort().join('|') === key);
+        .filter((t) => t.branches.length === 2 && !this.fullIntegrationTrialIds.has(t.id) && [...t.branches].sort().join('|') === key);
       prior = existing.length > 0 ? existing[existing.length - 1]!.result : undefined;
     }
 
     this.mergeTrials.insert(row);
+    if (!row.pairwise) {
+      this.fullIntegrationTrialIds.add(row.id);
+      return;
+    }
 
     if (row.branches.length === 2 && prior !== undefined && prior !== row.result) {
       const [branchA, branchB] = row.branches as [string, string];
@@ -249,6 +266,7 @@ export class ConvergenceScheduler {
             this.recordTrial({
               id: newId('mt'), workspaceId, ts: new Date().toISOString(),
               branches: [branchA, branchB], result: result.result, detail: result.detail,
+              pairwise: true,
             });
             this.rememberPair(pairKey);
           }
@@ -309,6 +327,7 @@ export class ConvergenceScheduler {
           this.recordTrial({
             id: newId('mt'), workspaceId, ts: new Date().toISOString(),
             branches, result: 'conflict', detail: result.detail,
+            pairwise: false,
           });
           return;
         }
@@ -318,6 +337,7 @@ export class ConvergenceScheduler {
           this.recordTrial({
             id: newId('mt'), workspaceId, ts: new Date().toISOString(),
             branches, result: 'unverified', detail: null,
+            pairwise: false,
           });
           return;
         }
@@ -331,6 +351,7 @@ export class ConvergenceScheduler {
           this.recordTrial({
             id: newId('mt'), workspaceId, ts: new Date().toISOString(),
             branches, result: 'unverified', detail: null,
+            pairwise: false,
           });
           return;
         }
@@ -355,6 +376,7 @@ export class ConvergenceScheduler {
           branches,
           result: testResult.code === 0 ? 'clean' : 'test_fail',
           detail: testResult.code === 0 ? null : testResult.tail,
+          pairwise: false,
         });
       } finally {
         // Covers every exit from the try above, including a throw from

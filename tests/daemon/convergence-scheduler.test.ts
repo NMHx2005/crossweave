@@ -447,4 +447,62 @@ describe('ConvergenceScheduler: convergence notify', () => {
       await fixture.cleanup();
     }
   });
+
+  test('Finding 3 regression: with exactly 2 active sessions, a full-integration trial never fires a convergence notify even when its result differs from the genuine pairwise trial for that pair', async () => {
+    const fixture = await makeGitFixture();
+    try {
+      await branchWithFile(fixture.root, 'cw/a', 'a.txt', 'a\n');
+      await branchWithFile(fixture.root, 'cw/b', 'b.txt', 'b\n');
+
+      const db = openDatabase(':memory:');
+      new WorkspaceRepo(db).insert({
+        id: 'ws_1', name: 'w', rootPath: fixture.root, createdAt: 'now',
+        defaultIsolation: 'worktree', safeModeTier: 'T1',
+      });
+      const sessions = new SessionRepo(db);
+      // With exactly 2 active sessions, maybeRunFullIntegration's own trial
+      // ALSO has branches.length === 2 — the same shape a genuine pairwise
+      // trial has (Finding 3 of the M6b final review). fullIntegrationIntervalMs:
+      // 0 makes it run on the SAME tick, right after the pairwise sweep. No
+      // testCommand configured means it records 'unverified', genuinely
+      // differing from the pairwise trial's 'clean' result for the same pair —
+      // exactly the case that must NOT be misread as a pairwise state change.
+      const config = {
+        ...DEFAULT_CONFIG,
+        converge: { ...DEFAULT_CONFIG.converge, trialDebounceMs: 0, fullIntegrationIntervalMs: 0 },
+      };
+      const leaseManager = new LeaseManager(db, fixture.root, config);
+      const configTrust = new ConfigTrustRepo(db);
+      const { deps: notifyDeps, messages } = captureSentMessages();
+      const scheduler = new ConvergenceScheduler(db, fixture.root, config, leaseManager, configTrust, notifyDeps);
+      sessions.insert({
+        id: 's_a', workspaceId: 'ws_1', name: 'a', agentKind: 'claude', adapter: 'claude',
+        status: 'running', worktreePath: fixture.root, branch: 'cw/a', createdAt: 'now',
+        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+      });
+      sessions.insert({
+        id: 's_b', workspaceId: 'ws_1', name: 'b', agentKind: 'claude', adapter: 'claude',
+        status: 'running', worktreePath: fixture.root, branch: 'cw/b', createdAt: 'now',
+        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+      });
+
+      await scheduler.tick();
+
+      const trials = new MergeTrialRepo(db).listByWorkspace('ws_1').filter((t) => t.branches.length === 2);
+      // Both the pairwise sweep AND maybeRunFullIntegration recorded a
+      // 2-branch trial this tick — 2 rows, not 1.
+      expect(trials).toHaveLength(2);
+      expect(trials.some((t) => t.result === 'clean')).toBe(true);
+      expect(trials.some((t) => t.result === 'unverified')).toBe(true);
+
+      // Before the fix, recordTrial inferred "pairwise" purely from
+      // branches.length === 2, so the full-integration row above would be
+      // compared against the pairwise row's 'clean' result and fire a
+      // spurious convergence notify purely because both trials happened to
+      // involve the same 2 branches.
+      expect(messages).toHaveLength(0);
+    } finally {
+      await fixture.cleanup();
+    }
+  });
 });
