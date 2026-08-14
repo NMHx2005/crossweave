@@ -593,6 +593,57 @@ describe('land.session RPC', () => {
       await fixture.cleanup();
     }
   }, 10_000);
+
+  test('a successful land still returns the real LandResult unchanged, notify() wiring does not alter it', async () => {
+    const fixture = await makeGitFixture();
+    try {
+      const db = openDatabase(':memory:');
+      new WorkspaceRepo(db).insert({
+        id: 'ws_1', name: 'w', rootPath: fixture.root, createdAt: 'now',
+        defaultIsolation: 'worktree', safeModeTier: 'T1',
+      });
+      const methods = buildMethods(db, fixture.root);
+      const ctx = { notify: () => undefined, onClose: () => undefined };
+
+      const created = (await methods['session.new']!(
+        { workspaceId: 'ws_1', name: 'a', agent: 'claude', worktree: true }, ctx,
+      )) as { worktreePath: string };
+      await commitFile(created.worktreePath, 'work.txt', 'work\n', 'agent commit');
+
+      const result = (await methods['land.session']!({ workspaceId: 'ws_1', idOrName: 'a', force: false }, ctx)) as LandResult;
+      expect(result.status).toBe('landed');
+      expect(result.baseBranch).toBe('main');
+    } finally {
+      await fixture.cleanup();
+    }
+  }, 10_000);
+
+  test('a failed land still throws the real error unchanged, notify() wiring does not swallow it', async () => {
+    const fixture = await makeGitFixture();
+    try {
+      await commitFile(fixture.root, 'shared.txt', 'base\n', 'seed');
+      await $`git checkout -q -b cw/a`.cwd(fixture.root).quiet();
+      await commitFile(fixture.root, 'shared.txt', 'from a\n', 'a edits shared');
+      await $`git checkout -q main`.cwd(fixture.root).quiet();
+      await commitFile(fixture.root, 'shared.txt', 'from main\n', 'main edits shared too');
+
+      const db = openDatabase(':memory:');
+      new WorkspaceRepo(db).insert({
+        id: 'ws_1', name: 'w', rootPath: fixture.root, createdAt: 'now',
+        defaultIsolation: 'worktree', safeModeTier: 'T1',
+      });
+      const sessions = new SessionRepo(db);
+      insertSession(sessions, { id: 's_a', name: 'a', worktreePath: fixture.root, branch: 'cw/a' });
+      const methods = buildMethods(db, fixture.root);
+      const ctx = { notify: () => undefined, onClose: () => undefined };
+
+      await expect(
+        methods['land.session']!({ workspaceId: 'ws_1', idOrName: 'a', force: false }, ctx),
+      ).rejects.toMatchObject({ code: 'LAND_CONFLICT' });
+    } finally {
+      await fixture.cleanup();
+    }
+  });
 });
 
 describe('cw land all (RPC-level, converge.status + land.session directly — not a spawned CLI process)', () => {

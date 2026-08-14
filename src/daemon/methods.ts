@@ -526,10 +526,22 @@ export function buildMethods(
       if (force && target.status === 'running') {
         await sessions.kill(workspaceId, target.id, { removeWorktree: false });
       }
-      return landSession(
-        { db, projectRoot, sessions: sessionsRepo, leaseManager, ledger, config, configTrust },
-        workspaceId, target.id, { force },
-      );
+      // notify() failing/throwing is already caught inside notify() itself (design
+      // doc §3.5) — the try/catch here exists ONLY to observe landSession's own
+      // outcome for the notification's content, and re-throws unconditionally so the
+      // caller's real result/error is never altered by this wiring.
+      try {
+        const result = await landSession(
+          { db, projectRoot, sessions: sessionsRepo, leaseManager, ledger, config, configTrust },
+          workspaceId, target.id, { force },
+        );
+        notify(notifyDeps, { kind: 'land', session: target.name, ok: true, baseBranch: result.baseBranch, workspaceId });
+        return result;
+      } catch (err) {
+        const reason = err instanceof CrossweaveError ? err.code : String(err);
+        notify(notifyDeps, { kind: 'land', session: target.name, ok: false, reason, workspaceId });
+        throw err;
+      }
     },
 
     'config.trust': (p) => {
