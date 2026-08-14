@@ -109,7 +109,7 @@ memorable raw-GitHub URL, and `scripts/` already holds this project's own
 dev tooling with a different audience).
 
 ```
-curl -fsSL https://raw.githubusercontent.com/<org>/<repo>/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/NMHx2005/crossweave/main/install.sh | sh
 ```
 
 Behavior:
@@ -119,7 +119,7 @@ Behavior:
    `arm64` Linux) → print a clear one-line error naming what's missing and
    exit non-zero — never silently fall back to a wrong binary.
 2. Resolve the latest release via the GitHub API
-   (`https://api.github.com/repos/<org>/<repo>/releases/latest`) unless
+   (`https://api.github.com/repos/NMHx2005/crossweave/releases/latest`) unless
    `CW_INSTALL_VERSION` is set in the environment (pins a specific
    version — used by the self-update path, §6, so both share one code
    path instead of two separately-maintained download implementations).
@@ -177,7 +177,7 @@ never blocking the command itself. Skipped entirely if `updateCheck` is
 keeps this off the GitHub API's unauthenticated 60-req/hour rate limit —
 a single local install checking at most once a day is nowhere near it).
 The check itself: `GET
-https://api.github.com/repos/<org>/<repo>/releases/latest`, compare its
+https://api.github.com/repos/NMHx2005/crossweave/releases/latest`, compare its
 tag against `installedVersion` (semver comparison, not string equality —
 a `v0.10.0` must sort after `v0.9.0`). Network failure or non-2xx response
 is swallowed silently (same posture as M6b's notify-degrade philosophy —
