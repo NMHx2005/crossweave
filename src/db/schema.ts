@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 8;
+export const SCHEMA_VERSION = 9;
 
 /**
  * Each migration is a list of single statements, never one multi-statement blob.
@@ -195,5 +195,21 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
     // neither (design doc §3.1).
     `ALTER TABLE session ADD COLUMN cost_spent_usd REAL NOT NULL DEFAULT 0`,
     `ALTER TABLE session ADD COLUMN cost_budget_usd REAL`,
+  ],
+  [
+    // Push notifications (M6b): per-workspace notify preference, mirroring
+    // config_trust's exact shape — a missing row means "every default is on",
+    // not "nothing configured yet fails closed". Read live through an RPC
+    // (never cached into a CrossweaveConfig snapshot), so a `cw config notify
+    // off` takes effect on the very next event, no daemon restart needed —
+    // see design doc §3.3's own correction note for why that matters.
+    `CREATE TABLE notify_config (
+    workspace_id TEXT PRIMARY KEY REFERENCES workspace(id) ON DELETE CASCADE,
+    enabled      INTEGER NOT NULL DEFAULT 1,
+    collision    INTEGER NOT NULL DEFAULT 1,
+    blocked      INTEGER NOT NULL DEFAULT 1,
+    land         INTEGER NOT NULL DEFAULT 1,
+    convergence  INTEGER NOT NULL DEFAULT 1
+  )`,
   ],
 ];
