@@ -111,6 +111,7 @@ export function buildMethods(
     },
     decideBlocked: (params) => decideBlocked({ fileClaims, workspaces, sessions }, params),
     recordUsage: (params) => recordUsage({ sessions: sessionsRepo }, params),
+    notify: (event) => notify(notifyDeps, event),
   };
   // A caller-supplied adapterFactory (every existing test) is used AS-IS, unwrapped —
   // it's a full override, not something this daemon's cursor deps should be spliced

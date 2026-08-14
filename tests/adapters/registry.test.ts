@@ -13,6 +13,7 @@ describe('createAdapter', () => {
       resolveWorkspaceId: () => 'ws_1',
       decideBlocked: () => ({ collisions: [], blocked: false }),
       recordUsage: () => {},
+      notify: () => {},
     });
     expect(a.kind).toBe('cursor');
     expect(a.enforcementTier).toBe('T1');

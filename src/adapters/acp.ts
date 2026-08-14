@@ -13,11 +13,13 @@ import { assertContained } from '../core/paths.js';
 import type { DecideBlockedParams, DecideBlockedResult } from '../radar/decision.js';
 import { CrossweaveError } from '../core/errors.js';
 import type { RecordUsageParams } from '../domain/usage.js';
+import type { NotifyEvent } from '../notify/dispatcher.js';
 
 export interface AcpAdapterDeps {
   resolveWorkspaceId(sessionId: string): string;
   decideBlocked(params: DecideBlockedParams): DecideBlockedResult;
   recordUsage(params: RecordUsageParams): void;
+  notify(event: NotifyEvent): void;
 }
 
 /** Deliver to every listener even when one of them throws — same fan-out contract as ClaudePtyAdapter's. */
@@ -130,7 +132,16 @@ function decideRequestPermission(
         return 'reject_once';
       }
       const result = deps.decideBlocked({ workspaceId, sessionId, path: relPath });
-      if (result.blocked) return 'reject_once';
+      if (result.blocked) {
+        // Only the genuine "decideBlocked said blocked" case notifies — the
+        // catch below (an internal error: resolveWorkspaceId/decideBlocked
+        // throwing) also fails closed but is NOT a collision block, and firing
+        // a "blocked" notification there would misreport what actually
+        // happened (design doc §2 lists this as a policy decision, not an
+        // error path).
+        deps.notify({ kind: 'blocked', session: sessionId, path: relPath, symbol: null, workspaceId });
+        return 'reject_once';
+      }
     }
     return 'allow_once';
   } catch {

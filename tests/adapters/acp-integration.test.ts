@@ -68,6 +68,7 @@ describe('AcpAdapter composed with the real decideBlocked (not a stub)', () => {
       },
       decideBlocked: (params) => decideBlocked({ fileClaims, workspaces, sessions }, params),
       recordUsage: (params) => recordUsage({ sessions: sessionsRepo }, params),
+      notify: () => {},
     };
 
     const adapter = new AcpAdapter(cursorDeps, process.execPath, [FAKE_AGENT]);
@@ -103,6 +104,7 @@ describe('AcpAdapter composed with the real decideBlocked (not a stub)', () => {
       },
       decideBlocked: (params) => decideBlocked({ fileClaims, workspaces, sessions }, params),
       recordUsage: (params) => recordUsage({ sessions: sessionsRepo }, params),
+      notify: () => {},
     };
 
     const adapter = new AcpAdapter(cursorDeps, process.execPath, [FAKE_AGENT]);
@@ -139,6 +141,7 @@ describe('AcpAdapter composed with the real decideBlocked (not a stub)', () => {
       },
       decideBlocked: (params) => decideBlocked({ fileClaims, workspaces, sessions }, params),
       recordUsage: (params) => recordUsage({ sessions: sessionsRepo }, params),
+      notify: () => {},
     };
 
     const adapter = new AcpAdapter(cursorDeps, process.execPath, [FAKE_AGENT]);
