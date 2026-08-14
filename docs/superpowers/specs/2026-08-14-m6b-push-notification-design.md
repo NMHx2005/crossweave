@@ -64,7 +64,9 @@ export type NotifyEvent =
 
 export interface NotifyDispatcherDeps {
   gate: NotificationGate; // the ONE instance buildMethods constructs and injects into RadarWatcherRegistry — see the correction below
-  config: CrossweaveConfig;
+  // Reads the notify_config DB table (§3.3's correction) — NOT a static CrossweaveConfig
+  // snapshot, so a `cw config notify off` takes effect on the next event, no daemon restart.
+  isEnabled: (workspaceId: string, kind: NotifyEvent['kind']) => boolean;
   /** Injected so tests never spawn a real process — see §5. */
   send: (title: string, message: string, clickCommand: string[] | undefined) => void;
 }
@@ -72,8 +74,9 @@ export interface NotifyDispatcherDeps {
 export function notify(deps: NotifyDispatcherDeps, event: NotifyEvent): void
 ```
 
-`notify` is responsible for: checking `config.notify.enabled` and the per-event
-`config.notify.events[kind]` flag (§3.3); formatting the title/message/click command
+`notify` is responsible for: checking `deps.isEnabled(event.workspaceId, event.kind)`
+(§3.3 — a master-off workspace or a per-event-off toggle both resolve to `false` here,
+`notify` itself doesn't need to know which); formatting the title/message/click command
 per §2's table; and calling `deps.send(...)`. It never throws — every failure inside
 `notify` (a formatting bug, a `send` error) is caught and logged once, matching §3.5's
 degrade posture, because a notification is observability, not a safety mechanism, the
@@ -187,30 +190,48 @@ elsewhere in the daemon) rather than shelling out to `which` on every notificati
   mechanism (§0 research finding, stated directly in chat during brainstorming and
   restated here for the record). Same argv-array-only construction rule applies.
 
-### 3.3 Config
+### 3.3 Config — a DB table, not `crossweave.config.json`
 
-```ts
-// src/core/config.ts — CrossweaveConfig gains:
-notify: {
-  enabled: boolean;
-  events: { collision: boolean; blocked: boolean; land: boolean; convergence: boolean };
-};
+**Correction found while writing the implementation plan:** the original draft put
+`notify.enabled`/`events` inside `CrossweaveConfig`, read from `crossweave.config.json`
+the same way `ports`/`disk`/`converge` are. That does not actually work: `buildMethods`
+loads `config` ONCE, as a plain (non-reactive) parameter default
+(`config: CrossweaveConfig = loadConfig(projectRoot)`), and every existing RPC handler
+closes over that one frozen snapshot for the daemon's entire lifetime. `cw config
+notify off` editing the on-disk JSON file would have no effect on the ALREADY-RUNNING
+daemon's notification behavior until the next daemon restart — silently broken, not a
+minor rough edge. `cw config trust`/`untrust` already solves the identical problem for
+`converge.testCommand`'s trust bit: it is NOT part of `CrossweaveConfig` either — it
+lives in its own DB table (`config_trust`, `src/db/repositories/config-trust.ts`),
+mutated and read live through an RPC (`config.trust`/`config.status`/`config.untrust`),
+so a change takes effect on the very next call, no restart needed. M6b's notify
+preference follows the exact same shape:
+
+```sql
+-- new migration, schema v9
+CREATE TABLE notify_config (
+  workspace_id TEXT PRIMARY KEY REFERENCES workspace(id) ON DELETE CASCADE,
+  enabled      INTEGER NOT NULL DEFAULT 1,
+  collision    INTEGER NOT NULL DEFAULT 1,
+  blocked      INTEGER NOT NULL DEFAULT 1,
+  land         INTEGER NOT NULL DEFAULT 1,
+  convergence  INTEGER NOT NULL DEFAULT 1
+)
 ```
 
-`DEFAULT_CONFIG.notify` is `{ enabled: true, events: { collision: true, blocked: true,
-land: true, convergence: true } }` — on by default, matching M6a's own "the user sees
-value immediately, opts out if it's noise" posture. A config file missing the `notify`
-key entirely (every workspace's `crossweave.config.json` predating M6b) merges against
-this default the same way every other `CrossweaveConfig` sub-object already does.
+No row for a workspace means "every default is on" (matches `config_trust`'s own
+"absence means not-yet-trusted" convention, just inverted — absence here means
+"nothing has been toggled off yet"), so `notify()` (§3.1) treats a missing row
+identically to a row where every column is `1`. `NotifyDispatcherDeps.config` from the
+original draft is replaced with a small `NotifyConfigRepo` read (`isEnabled(workspaceId,
+kind): boolean`) instead of a static `CrossweaveConfig` snapshot.
 
-`cw config notify on|off [--event collision|blocked|land|convergence]` — omitting
-`--event` sets the master `enabled` switch; with `--event`, sets that one key in
-`events` without touching `enabled` or the other three. Mirrors `cw workspace
-safe-mode <tier>`'s existing shape (a subcommand that reads current state with no args,
-sets it with one). Writes through to the on-disk `crossweave.config.json`, the same
-file `loadConfig`/`DEFAULT_CONFIG` already read/merge — exact read-modify-write
-mechanics are a plan-level decision (whether a config-writing helper already exists
-elsewhere in this codebase for `cw config trust`/`untrust` to reuse, or this is new).
+`cw config notify on|off [--event collision|blocked|land|convergence]` calls a new RPC
+(`config.setNotify`, mirroring `config.trust`/`config.untrust`'s existing shape exactly)
+— omitting `--event` sets the master `enabled` column; with `--event`, sets that one
+column without touching the others. `cw config status` (existing command, currently
+`converge.testCommand`-only) gains a notify section reporting the current per-event
+state, reading through the same repo.
 
 ### 3.4 Platform detection
 
@@ -283,8 +304,9 @@ ConvergenceScheduler.tick() records a new MergeTrialRepo row
   make `process.platform` overridable in a test (this project's established idiom
   elsewhere, e.g. `clock` injected into `NotificationGate` itself, is to inject rather
   than monkey-patch a global).
-- CLI: `cw config notify on/off` round-trips through a real `crossweave.config.json`,
-  matching the existing `tests/cli/cli.test.ts` end-to-end pattern.
+- CLI: `cw config notify on/off [--event]` round-trips through the real `notify_config`
+  table via a live daemon, matching the existing `cw config trust`/`untrust` coverage
+  pattern in `tests/cli/cli.test.ts`.
 
 ## 6. Known limitations (recorded honestly at implementation time, not deferred silently)
 
@@ -311,8 +333,6 @@ ConvergenceScheduler.tick() records a new MergeTrialRepo row
 - Any new transport: webhook, Slack, ntfy.sh, email.
 - An internal daemon pub/sub event stream for M6c's TUI to subscribe to live — M6c's
   own problem if it turns out to need one.
-- Per-workspace (vs. global) config — `notify` lives in the same `crossweave.config.json`
-  every other per-workspace setting already does, no new scoping mechanism.
 - Notification history / a `cw notify log` command to review past notifications —
   the event ledger (`cw blame`) already covers forensics; this milestone's
   notifications are ephemeral, at-a-glance signals only.
