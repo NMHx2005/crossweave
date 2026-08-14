@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadGlobalConfig } from '../../update/global-config.js';
-import { DEFAULT_REPO } from '../../update/checker.js';
+import { DEFAULT_REPO, resolveLatestTag } from '../../update/checker.js';
 import { CrossweaveError } from '../../core/errors.js';
 import { fail } from '../context.js';
 
@@ -16,12 +16,18 @@ export const updateCommand = defineCommand({
   meta: { name: 'update', description: "Download and install the latest crossweave release" },
   async run() {
     try {
+      if (process.env.CW_UPDATE_BASE_URL !== undefined) {
+        process.stderr.write('crossweave: CW_UPDATE_BASE_URL override is set — downloading from a non-default location (dev/test only, not the real release host)\n');
+      }
       const repo = DEFAULT_REPO;
       const cfg = loadGlobalConfig();
-      const version = process.env.CW_INSTALL_VERSION ?? cfg.lastKnownLatest;
+      let version = process.env.CW_INSTALL_VERSION ?? cfg.lastKnownLatest;
       if (version === null) {
-        process.stdout.write("no newer version known — run any 'cw' command first, or set CW_INSTALL_VERSION\n");
-        return;
+        version = await resolveLatestTag() ?? null;
+        if (version === null) {
+          process.stdout.write('could not resolve the latest release — check your network connection, or set CW_INSTALL_VERSION\n');
+          return;
+        }
       }
       const base = process.env.CW_UPDATE_BASE_URL ?? `https://github.com/${repo}/releases/download/${version}/`;
 

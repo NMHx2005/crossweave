@@ -86,7 +86,11 @@ const main = defineCommand({
   },
 });
 
-const INTERNAL_COMMANDS = new Set(['radar-hook', 'session-usage-hook']);
+// 'radar-hook'/'session-usage-hook' are internal plumbing, never user-facing invocations.
+// 'update' is skipped for a different reason: it just replaced the on-disk binary and reset
+// the update-check cache, but this process's own `VERSION` constant is still the pre-update
+// value — running the check here would immediately nag about the version it just installed.
+const INTERNAL_COMMANDS = new Set(['radar-hook', 'session-usage-hook', 'update']);
 
 // Mirrors citty's own `runMain` version-branch check exactly (node_modules/citty/dist/index.mjs:
 // `rawArgs.length === 1 && builtinFlags.version.includes(rawArgs[0])`, where `rawArgs` is
