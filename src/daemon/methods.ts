@@ -403,6 +403,7 @@ export function buildMethods(
     'radar.check': (p) => {
       const workspaceId = str(p, 'workspaceId');
       const sessionId = str(p, 'sessionId');
+      const path = str(p, 'path');
       const symbol = optionalStr(p, 'symbol');
       // Session NAMES are a display concern, added here where `sessions` is already in
       // scope, for the one consumer that needs a human-readable name: the hook's
@@ -411,15 +412,28 @@ export function buildMethods(
       // identical decision, in-process, with no transport of its own).
       const { collisions, blocked } = decideBlocked(
         { fileClaims, workspaces, sessions },
-        { workspaceId, sessionId, path: str(p, 'path'), symbol },
+        { workspaceId, sessionId, path, symbol },
       );
-      return {
-        blocked,
-        collisions: collisions.map((c) => ({
-          ...c,
-          sessionName: sessions.resolve(workspaceId, c.sessionId).name,
-        })),
-      };
+      const querySessionName = sessions.resolve(workspaceId, sessionId).name;
+      // M6b: this is the LIVE-hook collision path — deliberately not
+      // radar-hook.ts, whose own gate is a fresh instance per subprocess and
+      // provides no real cross-call throttling (design doc §3.1's correction
+      // note). notifyGate is the SAME instance RadarWatcherRegistry's
+      // background path uses, injected above.
+      if (blocked) {
+        notify(notifyDeps, { kind: 'blocked', session: querySessionName, path, symbol: symbol ?? null, workspaceId });
+      }
+      const collisionsWithNames = collisions.map((c) => ({
+        ...c,
+        sessionName: sessions.resolve(workspaceId, c.sessionId).name,
+      }));
+      for (const c of collisionsWithNames) {
+        notify(notifyDeps, {
+          kind: 'collision', sessionA: querySessionName, sessionB: c.sessionName,
+          path: c.path, symbol: c.symbol, workspaceId,
+        });
+      }
+      return { blocked, collisions: collisionsWithNames };
     },
 
     'contract.declare': (p) => {
