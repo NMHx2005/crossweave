@@ -30,7 +30,7 @@ VERSION="${CW_INSTALL_VERSION:-}"
 
 api_url="https://api.github.com/repos/$REPO/releases/latest"
 if [ -n "$VERSION" ]; then
-  base_url="https://github.com/$REPO/releases/download/$VERSION"
+  base_url="https://github.com/$REPO/releases/download/$VERSION/"
 else
   base_url=$(curl -fsSL "$api_url" | grep -o '"browser_download_url": *"[^"]*checksums.txt"' | sed -E 's/.*"(https:[^"]*)checksums.txt"/\1/')
   if [ -z "$base_url" ]; then
