@@ -5,16 +5,21 @@ import { writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { makeGitFixture, type GitFixture } from '../helpers/git-fixture.js';
 
 const CLI = fileURLToPath(new URL('../../src/cli/index.ts', import.meta.url));
 let fx: GitFixture;
+let testHome: string | undefined;
 
 interface CwResult { exitCode: number; stdout: string; stderr: string }
 
-async function run(cwd: string, args: string[]): Promise<CwResult> {
+async function run(cwd: string, args: string[], env?: Record<string, string>): Promise<CwResult> {
+  const envToPassed = env ? { ...process.env, ...env } : process.env;
   const proc = Bun.spawn([process.execPath, CLI, ...args], {
     cwd,
+    env: envToPassed,
     stdout: 'pipe',
     stderr: 'pipe',
   });
@@ -25,8 +30,8 @@ async function run(cwd: string, args: string[]): Promise<CwResult> {
   return { exitCode: await proc.exited, stdout, stderr };
 }
 
-function cw(args: string[]): Promise<CwResult> {
-  return run(fx.root, args);
+function cw(args: string[], env?: Record<string, string>): Promise<CwResult> {
+  return run(fx.root, args, env);
 }
 
 beforeEach(async () => { fx = await makeGitFixture(); });
@@ -119,6 +124,22 @@ describe('cw CLI', () => {
     expect(r.exitCode).toBe(1);
     expect(r.stderr).toContain('INVALID_ARGUMENTS:');
   }, 30_000);
+
+  it('config update-check on/off toggles global state', async () => {
+    testHome = mkdtempSync(join(tmpdir(), 'cw-config-update-check-'));
+    try {
+      const env = { HOME: testHome };
+      const off = await cw(['config', 'update-check', 'off'], env);
+      expect(off.exitCode).toBe(0);
+      expect(off.stdout).toContain('off');
+
+      const on = await cw(['config', 'update-check', 'on'], env);
+      expect(on.exitCode).toBe(0);
+      expect(on.stdout).toContain('on');
+    } finally {
+      if (testHome) rmSync(testHome, { recursive: true, force: true });
+    }
+  });
 
   it('workspace safe-mode shows and sets the tier, including T1', async () => {
     await cw(['init']);
