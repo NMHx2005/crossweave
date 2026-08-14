@@ -86,8 +86,15 @@ const main = defineCommand({
 
 const INTERNAL_COMMANDS = new Set(['radar-hook', 'session-usage-hook']);
 
+// Mirrors citty's own `runMain` version-branch check exactly (node_modules/citty/dist/index.mjs:
+// `rawArgs.length === 1 && builtinFlags.version.includes(rawArgs[0])`, where `rawArgs` is
+// `process.argv.slice(2)`) — unlike `--help` and the error path, that branch does NOT call
+// process.exit(), so a bare `cw --version`/`cw -v` falls through to here and must not have a
+// notice appended after the version line.
+const isBareVersionFlag = process.argv.length === 3 && ['--version', '-v'].includes(process.argv[2] ?? '');
+
 await runMain(main);
-if (!INTERNAL_COMMANDS.has(process.argv[2] ?? '')) {
+if (!isBareVersionFlag && !INTERNAL_COMMANDS.has(process.argv[2] ?? '')) {
   try {
     const notice = await checkForUpdate(VERSION);
     if (notice !== undefined) process.stdout.write(notice + '\n');

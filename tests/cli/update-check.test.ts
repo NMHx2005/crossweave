@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { makeGitFixture, type GitFixture } from '../helpers/git-fixture.js';
+import { VERSION } from '../../src/core/version.js';
 
 const CLI = fileURLToPath(new URL('../../src/cli/index.ts', import.meta.url));
 let fx: GitFixture;
@@ -76,6 +77,25 @@ describe('update check wiring', () => {
       const stdout = await new Response(proc.stdout).text();
       await proc.exited;
       expect(stdout).not.toContain('v999.0.0');
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test('a bare --version prints only the version line, never an update notice', async () => {
+    // citty's runMain does NOT process.exit() on its --version branch (unlike --help and
+    // the error path), so it falls through to the update-check block same as any other
+    // successful command — this must be explicitly skipped. Regression for the gap found
+    // in review of this task: `cw --version` leaked the notice after the version line.
+    const server = Bun.serve({
+      port: 0,
+      fetch: () => new Response(JSON.stringify({ tag_name: 'v999.0.0' }), { status: 200 }),
+    });
+    try {
+      const r = await run(['--version'], { HOME: home, CW_UPDATE_API_BASE: `http://127.0.0.1:${server.port}` });
+      expect(r.stdout.trim()).toBe(VERSION);
+      expect(r.stdout).not.toContain('v999.0.0');
+      expect(r.stdout).not.toContain('cw update');
     } finally {
       server.stop(true);
     }
