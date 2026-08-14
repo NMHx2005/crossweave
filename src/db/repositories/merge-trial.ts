@@ -42,10 +42,6 @@ export class MergeTrialRepo {
       .run(row.id, row.workspaceId, row.ts, JSON.stringify(row.branches), row.result, row.detail);
   }
 
-  persistTrial(row: MergeTrialRow): void {
-    this.insert(row);
-  }
-
   listByWorkspace(workspaceId: string): MergeTrialRow[] {
     return (
       this.db

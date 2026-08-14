@@ -177,7 +177,7 @@ export class ConvergenceScheduler {
       prior = existing.length > 0 ? existing[existing.length - 1]!.result : undefined;
     }
 
-    this.mergeTrials.persistTrial(row);
+    this.mergeTrials.insert(row);
 
     if (row.branches.length === 2 && prior !== undefined && prior !== row.result) {
       const [branchA, branchB] = row.branches as [string, string];
