@@ -94,7 +94,12 @@ export function buildMethods(
   projectRoot: string,
   adapterFactory?: AdapterFactory,
   config: CrossweaveConfig = loadConfig(projectRoot),
-  opts: { startBackgroundJobs?: boolean } = {},
+  opts: {
+    startBackgroundJobs?: boolean;
+    // Injected so tests can assert on notification call counts without spawning a
+    // real terminal-notifier/osascript process — defaults to the real platform send.
+    notifySend?: (title: string, message: string, clickCommand: string[] | undefined) => void;
+  } = {},
 ): Record<string, MethodHandler> {
   const workspaces = new WorkspaceManager(db);
   // Constructed before `sessions` (SessionManager) deliberately: the default
@@ -136,7 +141,7 @@ export function buildMethods(
   const notifyDeps: NotifyDispatcherDeps = {
     gate: notifyGate,
     isEnabled: (workspaceId, kind) => notifyConfig.isEnabled(workspaceId, kind),
-    send: platformSend(),
+    send: opts.notifySend ?? platformSend(),
   };
   const radarWatchers = new RadarWatcherRegistry(db, bus, contracts, notifyGate, notifyDeps);
   const convergenceScheduler = new ConvergenceScheduler(db, projectRoot, config, leaseManager, configTrust, notifyDeps);
@@ -428,7 +433,14 @@ export function buildMethods(
         ...c,
         sessionName: sessions.resolve(workspaceId, c.sessionId).name,
       }));
+      // Gated explicitly here — collision's own gateKey() (dispatcher.ts) returns
+      // undefined by design, since the intent is that the CALLER already gated once.
+      // The background path (retro-notify.ts's notifyCollisions) does that; this
+      // live-hook path is the other caller and must do the same, against the
+      // SAME notifyGate instance and the SAME key shape (raw partner session id,
+      // not the resolved display name) so both paths dedup against one budget.
       for (const c of collisionsWithNames) {
+        if (!notifyGate.shouldNotify(c.sessionId, c.path, c.symbol)) continue;
         notify(notifyDeps, {
           kind: 'collision', sessionA: querySessionName, sessionB: c.sessionName,
           path: c.path, symbol: c.symbol, workspaceId,

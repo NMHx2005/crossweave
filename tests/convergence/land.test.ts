@@ -562,7 +562,7 @@ describe('land.session RPC', () => {
         id: 'ws_1', name: 'w', rootPath: fixture.root, createdAt: 'now',
         defaultIsolation: 'worktree', safeModeTier: 'T1',
       });
-      const methods = buildMethods(db, fixture.root, stubbornAdapterFactory);
+      const methods = buildMethods(db, fixture.root, stubbornAdapterFactory, undefined, { notifySend: () => {} });
       const ctx = { notify: () => undefined, onClose: () => undefined };
 
       const created = (await methods['session.new']!(
@@ -602,7 +602,7 @@ describe('land.session RPC', () => {
         id: 'ws_1', name: 'w', rootPath: fixture.root, createdAt: 'now',
         defaultIsolation: 'worktree', safeModeTier: 'T1',
       });
-      const methods = buildMethods(db, fixture.root);
+      const methods = buildMethods(db, fixture.root, undefined, undefined, { notifySend: () => {} });
       const ctx = { notify: () => undefined, onClose: () => undefined };
 
       const created = (await methods['session.new']!(
@@ -634,7 +634,7 @@ describe('land.session RPC', () => {
       });
       const sessions = new SessionRepo(db);
       insertSession(sessions, { id: 's_a', name: 'a', worktreePath: fixture.root, branch: 'cw/a' });
-      const methods = buildMethods(db, fixture.root);
+      const methods = buildMethods(db, fixture.root, undefined, undefined, { notifySend: () => {} });
       const ctx = { notify: () => undefined, onClose: () => undefined };
 
       await expect(
@@ -657,7 +657,7 @@ describe('cw land all (RPC-level, converge.status + land.session directly — no
         id: 'ws_1', name: 'w', rootPath: fixture.root, createdAt: 'now',
         defaultIsolation: 'worktree', safeModeTier: 'T1',
       });
-      const methods = buildMethods(db, fixture.root);
+      const methods = buildMethods(db, fixture.root, undefined, undefined, { notifySend: () => {} });
 
       const a = (await methods['session.new']!({ workspaceId: 'ws_1', name: 'a', agent: 'claude', worktree: true }, ctx)) as { id: string; worktreePath: string };
       await commitFile(a.worktreePath, 'a.txt', 'a\n', 'add a');
@@ -711,7 +711,7 @@ describe('cw land all (RPC-level, converge.status + land.session directly — no
       // Fails exactly when the integration worktree contains FAIL_MARKER.txt —
       // only B's branch adds it, so only B's land trips LAND_TEST_FAILED.
       const config = withTestCommand('test ! -f FAIL_MARKER.txt');
-      const methods = buildMethods(db, fixture.root, undefined, config);
+      const methods = buildMethods(db, fixture.root, undefined, config, { notifySend: () => {} });
       await methods['config.trust']!({ workspaceId: 'ws_1' }, ctx);
 
       const a = (await methods['session.new']!({ workspaceId: 'ws_1', name: 'a', agent: 'claude', worktree: true }, ctx)) as { id: string; worktreePath: string };
