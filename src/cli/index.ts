@@ -5,6 +5,7 @@ import { crossweaveDir, findProjectRoot } from '../core/paths.js';
 import { VERSION } from '../core/version.js';
 import { DaemonClient } from '../client/rpc-client.js';
 import { CrossweaveError } from '../core/errors.js';
+import { checkForUpdate } from '../update/checker.js';
 import { initCommand, workspaceCommand, gcCommand } from './commands/workspace.js';
 import { sessionCommand } from './commands/session.js';
 import { blameCommand } from './commands/blame.js';
@@ -83,4 +84,14 @@ const main = defineCommand({
   },
 });
 
-void runMain(main);
+const INTERNAL_COMMANDS = new Set(['radar-hook', 'session-usage-hook']);
+
+await runMain(main);
+if (!INTERNAL_COMMANDS.has(process.argv[2] ?? '')) {
+  try {
+    const notice = await checkForUpdate(VERSION);
+    if (notice !== undefined) process.stdout.write(notice + '\n');
+  } catch {
+    // never let a broken update check take down an otherwise-successful command
+  }
+}
