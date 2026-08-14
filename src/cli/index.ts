@@ -16,6 +16,7 @@ import { convergeCommand } from './commands/converge.js';
 import { landCommand } from './commands/land.js';
 import { configCommand } from './commands/config.js';
 import { updateCommand } from './commands/update.js';
+import { tuiCommand } from './commands/tui.js';
 import { fail } from './context.js';
 
 const daemonCommand = defineCommand({
@@ -83,6 +84,7 @@ const main = defineCommand({
     land: landCommand,
     config: configCommand,
     update: updateCommand,
+    tui: tuiCommand,
   },
 });
 
