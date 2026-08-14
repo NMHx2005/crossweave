@@ -39,10 +39,10 @@ adds a notification *side effect* at each, not new detection logic:
 
 | Event | Existing detection point | Fires when |
 |---|---|---|
-| `collision` | `src/radar/retro-notify.ts`'s `notifyCollisions` (background `fs.watch` path) and `src/cli/commands/radar-hook.ts`'s `runRadarHook` (live `PreToolUse` path) | `NotificationGate.shouldNotify` returns `true` for a collision neither path has recently reported — reusing the exact same gate instance/semantics both paths already share, not a new one |
+| `collision` | `src/radar/retro-notify.ts`'s `notifyCollisions` (background `fs.watch` path, called from `src/daemon/watcher.ts`'s `RadarWatcherRegistry`) and `src/daemon/methods.ts`'s `'radar.check'` RPC handler (live `PreToolUse` hook path — **not** `src/cli/commands/radar-hook.ts` itself, see §3.1 correction) | `NotificationGate.shouldNotify` returns `true` for a collision this daemon-persistent gate has not recently reported |
 | `blocked` | `src/daemon/methods.ts`'s `'radar.check'` RPC handler (T2 hook path) and `src/adapters/acp.ts`'s `decideRequestPermission` (T1 in-process path) | `decideBlocked(...).blocked === true` at either call site |
 | `land` | `src/daemon/methods.ts`'s `'land.session'` RPC handler | `landSession(...)` resolves (success) or rejects (failure) |
-| `convergence` | `src/daemon/convergence-scheduler.ts`'s `tick()` | A pairwise trial's `result` (`'clean' \| 'conflict' \| 'test_fail' \| 'unverified'`) differs from that same sorted pair's most recent prior trial in `MergeTrialRepo` |
+| `convergence` | `src/daemon/convergence-scheduler.ts`'s `tick()` | A trial with exactly 2 `branches` (`MergeTrialRow.result`, one of `'clean' \| 'conflict' \| 'test_fail' \| 'unverified'`) differs from that same sorted branch-pair's most recent prior trial in `MergeTrialRepo` — `ConvergenceScheduler` only has branch names natively (not session names); `sessionA`/`sessionB` in the event are resolved via `SessionRepo.listByWorkspace(...).find(s => s.branch === branchX)`, falling back to the raw branch name if no live session still owns it (the session could have been removed since the trial ran) |
 
 ## 3. Design
 
@@ -60,10 +60,10 @@ export type NotifyEvent =
   | { kind: 'blocked'; session: string; path: string; symbol: string | null; workspaceId: string }
   | { kind: 'land'; session: string; ok: true; baseBranch: string; workspaceId: string }
   | { kind: 'land'; session: string; ok: false; reason: string; workspaceId: string }
-  | { kind: 'convergence'; sessionA: string; sessionB: string; from: TrialResult; to: TrialResult; workspaceId: string };
+  | { kind: 'convergence'; sessionA: string; sessionB: string; from: MergeTrialResult; to: MergeTrialResult; workspaceId: string };
 
 export interface NotifyDispatcherDeps {
-  gate: NotificationGate; // the SAME instance already threaded through RadarWatcherRegistry/radar-hook, not a new one
+  gate: NotificationGate; // the ONE instance buildMethods constructs and injects into RadarWatcherRegistry — see the correction below
   config: CrossweaveConfig;
   /** Injected so tests never spawn a real process — see §5. */
   send: (title: string, message: string, clickCommand: string[] | undefined) => void;
@@ -79,21 +79,57 @@ per §2's table; and calling `deps.send(...)`. It never throws — every failure
 degrade posture, because a notification is observability, not a safety mechanism, the
 same posture M6a's `recordUsage` already established for its own best-effort callers.
 
+**Correction found while writing the implementation plan, before any code was
+written:** the original draft of this section assumed `src/cli/commands/radar-hook.ts`'s
+own module-level `NotificationGate` (used to throttle the hook's in-terminal advisory
+text) was the same instance — or at least equivalent, cross-call-persistent — as
+`RadarWatcherRegistry`'s. It is not. `radar-hook.ts`'s gate is constructed fresh **per
+subprocess**: `cw radar-hook` is a brand-new process for every single `PreToolUse`
+call (M3's own design doc states this explicitly: "Cross-process persistence is out of
+scope for M3 — each `cw radar-hook` invocation is a fresh process, so this really only
+coalesces within a single invocation's lifetime"). A gate that resets on every call
+provides no real throttling at all — wiring the OS notification through it would fire
+a desktop banner on very nearly every live-hook collision, defeating the whole point
+of gating. The fix: the live-hook collision notification is **not** dispatched from
+`radar-hook.ts`. It is dispatched from `src/daemon/methods.ts`'s `'radar.check'` RPC
+handler instead — which already runs inside the long-lived daemon process, the same
+process `RadarWatcherRegistry` lives in. `radar-hook.ts` itself is untouched by M6b:
+it keeps computing and returning `blocked`/`collisions` exactly as it does today, with
+its own ephemeral gate governing only its own advisory-text throttling, unrelated to
+and unaffected by M6b.
+
+To make `radar.check` and the background watcher share ONE real gate (not two
+separate persistent-but-distinct ones, which would let the same collision double-fire
+a banner if both paths noticed it near-simultaneously), `RadarWatcherRegistry` gains an
+injected `gate` constructor parameter instead of constructing its own
+(`private readonly gate = new NotificationGate();` today) — `buildMethods` constructs
+one `NotificationGate` and passes it both into `new RadarWatcherRegistry(db, bus,
+contracts, gate)` and into every `NotifyDispatcherDeps` it builds for the other three
+event types. The parameter defaults to `new NotificationGate()` so every existing
+`RadarWatcherRegistry` test that constructs it without a fourth argument keeps working
+unchanged.
+
 **Gating is asymmetric by design, not uniform inside `notify`:**
 
-- **`collision`** does NOT gate a second time inside `notify`. Both existing call sites
-  (`retro-notify.ts`, `radar-hook.ts`) already call `gate.shouldNotify(sessionId, path,
-  symbol)` once, today, to decide whether to render the advisory context text at all —
-  `notify(deps, { kind: 'collision', ... })` is only ever called from inside that
-  `if (shouldNotify)` branch, so gating it again inside `notify` would consume a
-  second slot from the same 6-per-10-minute budget for what is conceptually one event,
-  silently halving the effective advisory-text budget the moment M6b ships. The
-  desktop notification piggybacks on a decision already made, at zero extra gate cost.
+- **`collision` via the background watcher path** does NOT gate a second time inside
+  `notify`. `notifyCollisions` (`retro-notify.ts`) already calls
+  `gate.shouldNotify(sessionId, path, symbol)` once, today, against
+  `RadarWatcherRegistry`'s own persistent gate, to decide whether to send the
+  system-trust advisory message at all — `notify(deps, { kind: 'collision', ... })` is
+  only ever called from inside that `if (shouldNotify)` branch, piggybacking on a
+  decision already made against a real persistent gate, at zero extra cost.
+- **`collision` via the live hook path** gates inside `notify` itself, because there is
+  no persistent caller-side check to piggyback on (see the correction above) —
+  `'radar.check'`'s handler calls `notify(deps, { kind: 'collision', ... })` for every
+  collision `decideBlocked`/`checkCollisions` reports, and `notify` consults the SAME
+  gate instance the background watcher path uses (see below), with the same
+  `(sessionId, path, symbol)` key shape — so a collision the background watcher already
+  reported recently does not also fire a second banner the moment a live hook call
+  happens to see it too, and vice versa.
 - **`blocked`, `land`, `convergence`** have no existing caller-side gate check to
-  piggyback on, so `notify` consults `deps.gate.shouldNotify` itself, with its own key,
-  spending from the SAME shared `NotificationGate` instance (the user's own choice: one
-  shared mechanism, not a separate stricter one) but under a namespace that can never
-  collide with `collision`'s `(sessionId, path, symbol)` keys:
+  piggyback on either, so `notify` consults that same shared gate, with its own key,
+  under a namespace that can never collide with `collision`'s
+  `(sessionId, path, symbol)` keys:
   - `blocked`: `(session, path, symbol)` — identical shape, reused directly. A session
     blocked repeatedly on the exact same path/symbol coalesces like a collision would;
     blocked on a different path is a new notification.
@@ -199,11 +235,18 @@ send) or crash the daemon.
 ## 4. Data flow
 
 ```
-Radar collision (background fs.watch OR live PreToolUse hook)
+Radar collision, background fs.watch path (RadarWatcherRegistry -> notifyCollisions)
   -> gate.shouldNotify(sessionId, path, symbol) === true   [existing call, unchanged]
-  -> (advisory text renders, as it already does today)
-  -> notify(deps, { kind: 'collision', ... })              [no 2nd gate check]
+  -> (system-trust advisory message sends, as it already does today)
+  -> notify(deps, { kind: 'collision', ... })              [no 2nd gate check — piggybacks]
   -> config check -> sendMacNotification(...)
+
+Radar collision, live PreToolUse hook path (radar-hook.ts -> radar.check RPC)
+  -> radar.check's handler computes collisions via decideBlocked/checkCollisions
+     (radar-hook.ts's own advisory-text response is unchanged, unaffected by M6b)
+  -> for each collision: notify(deps, { kind: 'collision', ... })
+  -> config check -> gate.shouldNotify(sessionId, path, symbol) [SAME gate instance
+     RadarWatcherRegistry uses] -> sendMacNotification(...)
 
 Write blocked (radar.check RPC OR AcpAdapter.decideRequestPermission)
   -> decideBlocked(...).blocked === true
