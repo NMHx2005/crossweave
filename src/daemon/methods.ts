@@ -31,6 +31,9 @@ import { hashTestCommand, isTestCommandTrusted } from '../convergence/trust.js';
 import { createAdapter } from '../adapters/registry.js';
 import type { AcpAdapterDeps } from '../adapters/acp.js';
 import { recordUsage } from '../domain/usage.js';
+import { NotificationGate } from '../radar/noise.js';
+import { notify, type NotifyDispatcherDeps } from '../notify/dispatcher.js';
+import { platformSend } from '../notify/macos.js';
 
 function str(params: Record<string, unknown>, key: string): string {
   const v = params[key];
@@ -122,9 +125,19 @@ export function buildMethods(
   const bus = new MessageBus(db, sessions);
   const contextStore = new ContextStore(db);
   const contracts = new ContractService(db);
-  const radarWatchers = new RadarWatcherRegistry(db, bus, contracts);
+  // Constructed here, once, and threaded into both collision-detection paths
+  // (RadarWatcherRegistry below, and radar.check's own handler further down) so a
+  // collision either path notices shares exactly one throttle budget — see
+  // src/radar/retro-notify.ts's own doc comment and design doc §3.1's correction.
+  const notifyGate = new NotificationGate();
   const configTrust = new ConfigTrustRepo(db);
   const notifyConfig = new NotifyConfigRepo(db);
+  const notifyDeps: NotifyDispatcherDeps = {
+    gate: notifyGate,
+    isEnabled: (workspaceId, kind) => notifyConfig.isEnabled(workspaceId, kind),
+    send: platformSend(),
+  };
+  const radarWatchers = new RadarWatcherRegistry(db, bus, contracts, notifyGate, notifyDeps);
   const convergenceScheduler = new ConvergenceScheduler(db, projectRoot, config, leaseManager, configTrust);
   // Constructed always, started only by the real daemon. Every test that calls
   // buildMethods() to exercise one RPC in isolation goes straight to db.close()

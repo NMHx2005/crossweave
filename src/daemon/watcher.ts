@@ -9,6 +9,7 @@ import { NotificationGate } from '../radar/noise.js';
 import { notifyCollisions } from '../radar/retro-notify.js';
 import type { MessageBus } from '../domain/bus.js';
 import type { ContractService } from '../radar/contracts.js';
+import type { NotifyDispatcherDeps } from '../notify/dispatcher.js';
 
 const DEBOUNCE_MS = 500;
 
@@ -25,13 +26,18 @@ const DEBOUNCE_MS = 500;
 export class RadarWatcherRegistry {
   private readonly indexer: RadarIndexer;
   private readonly claims: FileClaimRepo;
-  private readonly gate = new NotificationGate();
   private readonly watchers = new Map<string, { fsWatcher: FSWatcher; debouncer: ReturnType<typeof createDebouncer> }>();
 
   constructor(
     db: Database,
     private readonly bus: MessageBus,
     private readonly contracts: ContractService,
+    // M6b: injected rather than owned, so buildMethods can hand this same instance
+    // to radar.check's RPC handler too — one real gate for both the background and
+    // live-hook collision-detection paths, not two separate ones that could
+    // double-notify the same collision (design doc §3.1's correction note).
+    private readonly gate: NotificationGate = new NotificationGate(),
+    private readonly notifyDeps: NotifyDispatcherDeps = { gate, isEnabled: () => true, send: () => {} },
   ) {
     this.indexer = new RadarIndexer(db);
     this.claims = new FileClaimRepo(db);
@@ -80,9 +86,11 @@ export class RadarWatcherRegistry {
    */
   private async reindexAndNotify(session: IndexableSession): Promise<void> {
     await this.indexer.reindexSession(session);
-    notifyCollisions(this.claims, this.bus, this.gate, {
-      workspaceId: session.workspaceId, sessionId: session.id,
-    });
+    notifyCollisions(
+      this.claims, this.bus, this.gate,
+      { workspaceId: session.workspaceId, sessionId: session.id },
+      this.notifyDeps,
+    );
 
     // Nothing declared in this workspace — skip the file-read-and-check
     // sweep entirely rather than opening every changed file for nothing.

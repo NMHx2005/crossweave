@@ -7,6 +7,7 @@ import { MessageBus } from '../../src/domain/bus.js';
 import { SessionManager } from '../../src/domain/session.js';
 import { NotificationGate } from '../../src/radar/noise.js';
 import { notifyCollisions } from '../../src/radar/retro-notify.js';
+import type { NotifyDispatcherDeps } from '../../src/notify/dispatcher.js';
 
 function seed(db: ReturnType<typeof openDatabase>) {
   new WorkspaceRepo(db).insert({
@@ -37,8 +38,9 @@ describe('notifyCollisions', () => {
       kind: 'function', headSha: 'sha', bodyHash: 'h2', firstSeen: 'now', lastSeen: 'now',
     });
     const bus = new MessageBus(db, new SessionManager(db));
+    const notifyDeps: NotifyDispatcherDeps = { gate: new NotificationGate(), isEnabled: () => true, send: () => {} };
 
-    notifyCollisions(claims, bus, new NotificationGate(), { workspaceId: 'ws_1', sessionId: 's_1' });
+    notifyCollisions(claims, bus, new NotificationGate(), { workspaceId: 'ws_1', sessionId: 's_1' }, notifyDeps);
 
     const inbox = bus.inbox('ws_1', 's_2');
     expect(inbox).toHaveLength(1);
@@ -60,10 +62,64 @@ describe('notifyCollisions', () => {
     });
     const bus = new MessageBus(db, new SessionManager(db));
     const gate = new NotificationGate();
+    const notifyDeps: NotifyDispatcherDeps = { gate, isEnabled: () => true, send: () => {} };
 
-    notifyCollisions(claims, bus, gate, { workspaceId: 'ws_1', sessionId: 's_1' });
-    notifyCollisions(claims, bus, gate, { workspaceId: 'ws_1', sessionId: 's_1' });
+    notifyCollisions(claims, bus, gate, { workspaceId: 'ws_1', sessionId: 's_1' }, notifyDeps);
+    notifyCollisions(claims, bus, gate, { workspaceId: 'ws_1', sessionId: 's_1' }, notifyDeps);
 
+    expect(bus.inbox('ws_1', 's_2')).toHaveLength(1);
+  });
+
+  test('a collision also fires a desktop notification, sharing the SAME gate the advisory message used', () => {
+    const db = openDatabase(':memory:');
+    seed(db);
+    const claims = new FileClaimRepo(db);
+    claims.upsert({
+      id: 'fc_1', sessionId: 's_1', workspaceId: 'ws_1', path: 'src/x.ts', symbol: 'foo',
+      kind: 'function', headSha: 'sha', bodyHash: 'h1', firstSeen: 'now', lastSeen: 'now',
+    });
+    claims.upsert({
+      id: 'fc_2', sessionId: 's_2', workspaceId: 'ws_1', path: 'src/x.ts', symbol: 'foo',
+      kind: 'function', headSha: 'sha', bodyHash: 'h2', firstSeen: 'now', lastSeen: 'now',
+    });
+    const bus = new MessageBus(db, new SessionManager(db));
+    const gate = new NotificationGate();
+    const sent: string[] = [];
+    const notifyDeps: NotifyDispatcherDeps = {
+      gate, isEnabled: () => true,
+      send: (_title, message) => { sent.push(message); },
+    };
+
+    notifyCollisions(claims, bus, gate, { workspaceId: 'ws_1', sessionId: 's_1' }, notifyDeps);
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toContain('src/x.ts');
+    // The advisory bus message ALSO went out — proving both piggyback on the same
+    // single gate.shouldNotify call, not two independent throttles.
+    expect(bus.inbox('ws_1', 's_2')).toHaveLength(1);
+  });
+
+  test('a second call within the gate window sends neither the advisory message nor a second notification', () => {
+    const db = openDatabase(':memory:');
+    seed(db);
+    const claims = new FileClaimRepo(db);
+    claims.upsert({
+      id: 'fc_1', sessionId: 's_1', workspaceId: 'ws_1', path: 'src/x.ts', symbol: 'foo',
+      kind: 'function', headSha: 'sha', bodyHash: 'h1', firstSeen: 'now', lastSeen: 'now',
+    });
+    claims.upsert({
+      id: 'fc_2', sessionId: 's_2', workspaceId: 'ws_1', path: 'src/x.ts', symbol: 'foo',
+      kind: 'function', headSha: 'sha', bodyHash: 'h2', firstSeen: 'now', lastSeen: 'now',
+    });
+    const bus = new MessageBus(db, new SessionManager(db));
+    const gate = new NotificationGate();
+    const sent: string[] = [];
+    const notifyDeps: NotifyDispatcherDeps = { gate, isEnabled: () => true, send: (_t, m) => { sent.push(m); } };
+
+    notifyCollisions(claims, bus, gate, { workspaceId: 'ws_1', sessionId: 's_1' }, notifyDeps);
+    notifyCollisions(claims, bus, gate, { workspaceId: 'ws_1', sessionId: 's_1' }, notifyDeps);
+
+    expect(sent).toHaveLength(1);
     expect(bus.inbox('ws_1', 's_2')).toHaveLength(1);
   });
 });
