@@ -92,6 +92,34 @@ describe('cw CLI', () => {
     expect(lines).toHaveLength(1);
   }, 30_000);
 
+  it('cw config notify on/off round-trips through config status, overall and per-event', async () => {
+    await cw(['init']);
+    const initialStatus = await cw(['config', 'status']);
+    expect(initialStatus.stdout).toContain('notify: on');
+    expect(initialStatus.stdout).toContain('collision=on');
+
+    const offAll = await cw(['config', 'notify', 'off']);
+    expect(offAll.exitCode).toBe(0);
+    expect((await cw(['config', 'status'])).stdout).toContain('notify: off');
+
+    const onAll = await cw(['config', 'notify', 'on']);
+    expect(onAll.exitCode).toBe(0);
+    expect((await cw(['config', 'status'])).stdout).toContain('notify: on');
+
+    const offOneEvent = await cw(['config', 'notify', 'off', '--event', 'collision']);
+    expect(offOneEvent.exitCode).toBe(0);
+    const status = await cw(['config', 'status']);
+    expect(status.stdout).toContain('collision=off');
+    expect(status.stdout).toContain('blocked=on'); // untouched
+  }, 30_000);
+
+  it('rejects an invalid --event value', async () => {
+    await cw(['init']);
+    const r = await cw(['config', 'notify', 'off', '--event', 'bogus']);
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toContain('INVALID_ARGUMENTS:');
+  }, 30_000);
+
   it('workspace safe-mode shows and sets the tier, including T1', async () => {
     await cw(['init']);
     expect((await cw(['workspace', 'safe-mode'])).stdout.trim()).toBe('T2');

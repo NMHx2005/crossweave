@@ -24,6 +24,7 @@ import { assertContained } from '../core/paths.js';
 import { ConvergenceScheduler } from './convergence-scheduler.js';
 import { MergeTrialRepo } from '../db/repositories/merge-trial.js';
 import { ConfigTrustRepo } from '../db/repositories/config-trust.js';
+import { NotifyConfigRepo, type NotifyEventKind } from '../db/repositories/notify-config.js';
 import { buildConflictGraph, recommendOrder } from '../convergence/graph.js';
 import { landSession } from '../convergence/land.js';
 import { hashTestCommand, isTestCommandTrusted } from '../convergence/trust.js';
@@ -60,6 +61,12 @@ function num(params: Record<string, unknown>, key: string): number {
 function optionalNum(params: Record<string, unknown>, key: string): number | undefined {
   const v = params[key];
   return typeof v === 'number' ? v : undefined;
+}
+
+function optionalEventKind(params: Record<string, unknown>, key: string): NotifyEventKind | undefined {
+  const v = params[key];
+  if (v === 'collision' || v === 'blocked' || v === 'land' || v === 'convergence') return v;
+  return undefined;
 }
 
 /**
@@ -117,6 +124,7 @@ export function buildMethods(
   const contracts = new ContractService(db);
   const radarWatchers = new RadarWatcherRegistry(db, bus, contracts);
   const configTrust = new ConfigTrustRepo(db);
+  const notifyConfig = new NotifyConfigRepo(db);
   const convergenceScheduler = new ConvergenceScheduler(db, projectRoot, config, leaseManager, configTrust);
   // Constructed always, started only by the real daemon. Every test that calls
   // buildMethods() to exercise one RPC in isolation goes straight to db.close()
@@ -511,7 +519,33 @@ export function buildMethods(
       const workspaceId = str(p, 'workspaceId');
       const testCommand = config.converge.testCommand;
       const trusted = testCommand !== undefined && isTestCommandTrusted(testCommand, configTrust, workspaceId);
-      return { testCommand: testCommand ?? null, trusted };
+      const n = notifyConfig.get(workspaceId);
+      // Explicit field list rather than spreading `n` directly, so the shape is
+      // identical whether or not a row exists yet — `n` also carries `workspaceId`,
+      // which the CLI/client side has no use for and shouldn't have to ignore.
+      return {
+        testCommand: testCommand ?? null,
+        trusted,
+        notify: {
+          enabled: n?.enabled ?? true,
+          collision: n?.collision ?? true,
+          blocked: n?.blocked ?? true,
+          land: n?.land ?? true,
+          convergence: n?.convergence ?? true,
+        },
+      };
+    },
+
+    'config.setNotify': (p) => {
+      const workspaceId = str(p, 'workspaceId');
+      const event = optionalEventKind(p, 'event');
+      const enabled = bool(p, 'enabled', true);
+      if (event === undefined) {
+        notifyConfig.setEnabled(workspaceId, enabled);
+      } else {
+        notifyConfig.setEvent(workspaceId, event, enabled);
+      }
+      return notifyConfig.get(workspaceId) ?? { workspaceId, enabled: true, collision: true, blocked: true, land: true, convergence: true };
     },
 
     'config.untrust': (p) => {
