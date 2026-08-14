@@ -12,6 +12,7 @@ import { runMergeTrial, resetIntegration } from '../convergence/trial.js';
 import { isTestCommandTrusted } from '../convergence/trust.js';
 import { notify, type NotifyDispatcherDeps } from '../notify/dispatcher.js';
 import { NotificationGate } from '../radar/noise.js';
+import { BroadcastRegistry } from './broadcast.js';
 import type { MergeTrialRow } from '../db/repositories/merge-trial.js';
 
 const TICK_MS = 5_000;
@@ -100,6 +101,10 @@ export class ConvergenceScheduler {
     // unchanged — only a caller that explicitly wants convergence notifications
     // needs to pass a real one.
     private readonly notifyDeps: NotifyDispatcherDeps = { gate: new NotificationGate(), isEnabled: () => true, send: () => {} },
+    // Same default-instance rationale as `notifyDeps` above — every existing
+    // construction (production and every prior test) keeps compiling and
+    // running unchanged.
+    private readonly broadcastRegistry: BroadcastRegistry = new BroadcastRegistry(),
   ) {
     this.workspaces = new WorkspaceRepo(db);
     this.sessions = new SessionRepo(db);
@@ -201,9 +206,11 @@ export class ConvergenceScheduler {
       const active = this.activeBranchSessions(row.workspaceId);
       const sessionA = active.find((s) => s.branch === branchA)?.name ?? branchA;
       const sessionB = active.find((s) => s.branch === branchB)?.name ?? branchB;
-      notify(this.notifyDeps, {
-        kind: 'convergence', sessionA, sessionB, from: prior, to: row.result, workspaceId: row.workspaceId,
-      });
+      const event = {
+        kind: 'convergence' as const, sessionA, sessionB, from: prior, to: row.result, workspaceId: row.workspaceId,
+      };
+      notify(this.notifyDeps, event);
+      this.broadcastRegistry.broadcast('tui.event', event);
     }
   }
 

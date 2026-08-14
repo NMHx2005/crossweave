@@ -160,4 +160,38 @@ describe('radar.check RPC', () => {
 
     expect(collisionSends).toBe(1);
   });
+
+  test('a collision broadcasts tui.event to a subscribed connection', async () => {
+    const db = openDatabase(':memory:');
+    new WorkspaceRepo(db).insert({
+      id: 'ws_1', name: 'w', rootPath: '/tmp/w', createdAt: 'now',
+      defaultIsolation: 'worktree', safeModeTier: 'T1',
+    });
+    const sessions = new SessionRepo(db);
+    for (const id of ['s_1', 's_2']) {
+      sessions.insert({
+        id, workspaceId: 'ws_1', name: id, agentKind: 'claude', adapter: 'claude',
+        status: 'running', worktreePath: `/tmp/w/${id}`, branch: `cw/${id}`, createdAt: 'now',
+        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+      });
+    }
+    new FileClaimRepo(db).upsert({
+      id: 'fc_1', sessionId: 's_2', workspaceId: 'ws_1', path: 'src/x.ts', symbol: 'foo',
+      kind: 'function', headSha: 'sha', bodyHash: 'h2', firstSeen: 'now', lastSeen: 'now',
+    });
+
+    const methods = buildMethods(db, '/tmp/w', undefined, undefined, { notifySend: () => {} });
+    const broadcasts: Array<[string, unknown]> = [];
+    const subscriberCtx = { notify: (m: string, p: unknown) => broadcasts.push([m, p]), onClose: () => undefined };
+    await methods['daemon.subscribe']!({}, subscriberCtx);
+
+    await methods['radar.check']!(
+      { workspaceId: 'ws_1', sessionId: 's_1', path: 'src/x.ts', symbol: 'foo' },
+      ctx,
+    );
+
+    const tuiEvents = broadcasts.filter(([m]) => m === 'tui.event');
+    expect(tuiEvents).toHaveLength(1);
+    expect((tuiEvents[0]![1] as { kind: string }).kind).toBe('collision');
+  });
 });

@@ -8,6 +8,7 @@ import { SessionManager } from '../../src/domain/session.js';
 import { NotificationGate } from '../../src/radar/noise.js';
 import { notifyCollisions } from '../../src/radar/retro-notify.js';
 import type { NotifyDispatcherDeps } from '../../src/notify/dispatcher.js';
+import { BroadcastRegistry } from '../../src/daemon/broadcast.js';
 
 function seed(db: ReturnType<typeof openDatabase>) {
   new WorkspaceRepo(db).insert({
@@ -40,7 +41,7 @@ describe('notifyCollisions', () => {
     const bus = new MessageBus(db, new SessionManager(db));
     const notifyDeps: NotifyDispatcherDeps = { gate: new NotificationGate(), isEnabled: () => true, send: () => {} };
 
-    notifyCollisions(claims, bus, new NotificationGate(), { workspaceId: 'ws_1', sessionId: 's_1' }, notifyDeps);
+    notifyCollisions(claims, bus, new NotificationGate(), { workspaceId: 'ws_1', sessionId: 's_1' }, notifyDeps, new BroadcastRegistry());
 
     const inbox = bus.inbox('ws_1', 's_2');
     expect(inbox).toHaveLength(1);
@@ -64,8 +65,9 @@ describe('notifyCollisions', () => {
     const gate = new NotificationGate();
     const notifyDeps: NotifyDispatcherDeps = { gate, isEnabled: () => true, send: () => {} };
 
-    notifyCollisions(claims, bus, gate, { workspaceId: 'ws_1', sessionId: 's_1' }, notifyDeps);
-    notifyCollisions(claims, bus, gate, { workspaceId: 'ws_1', sessionId: 's_1' }, notifyDeps);
+    const broadcastRegistry = new BroadcastRegistry();
+    notifyCollisions(claims, bus, gate, { workspaceId: 'ws_1', sessionId: 's_1' }, notifyDeps, broadcastRegistry);
+    notifyCollisions(claims, bus, gate, { workspaceId: 'ws_1', sessionId: 's_1' }, notifyDeps, broadcastRegistry);
 
     expect(bus.inbox('ws_1', 's_2')).toHaveLength(1);
   });
@@ -90,7 +92,7 @@ describe('notifyCollisions', () => {
       send: (_title, message) => { sent.push(message); },
     };
 
-    notifyCollisions(claims, bus, gate, { workspaceId: 'ws_1', sessionId: 's_1' }, notifyDeps);
+    notifyCollisions(claims, bus, gate, { workspaceId: 'ws_1', sessionId: 's_1' }, notifyDeps, new BroadcastRegistry());
 
     expect(sent).toHaveLength(1);
     expect(sent[0]).toContain('src/x.ts');
@@ -116,8 +118,9 @@ describe('notifyCollisions', () => {
     const sent: string[] = [];
     const notifyDeps: NotifyDispatcherDeps = { gate, isEnabled: () => true, send: (_t, m) => { sent.push(m); } };
 
-    notifyCollisions(claims, bus, gate, { workspaceId: 'ws_1', sessionId: 's_1' }, notifyDeps);
-    notifyCollisions(claims, bus, gate, { workspaceId: 'ws_1', sessionId: 's_1' }, notifyDeps);
+    const broadcastRegistry = new BroadcastRegistry();
+    notifyCollisions(claims, bus, gate, { workspaceId: 'ws_1', sessionId: 's_1' }, notifyDeps, broadcastRegistry);
+    notifyCollisions(claims, bus, gate, { workspaceId: 'ws_1', sessionId: 's_1' }, notifyDeps, broadcastRegistry);
 
     expect(sent).toHaveLength(1);
     expect(bus.inbox('ws_1', 's_2')).toHaveLength(1);

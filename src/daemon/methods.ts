@@ -34,6 +34,7 @@ import { recordUsage } from '../domain/usage.js';
 import { NotificationGate } from '../radar/noise.js';
 import { notify, type NotifyDispatcherDeps } from '../notify/dispatcher.js';
 import { platformSend } from '../notify/macos.js';
+import { BroadcastRegistry } from './broadcast.js';
 
 function str(params: Record<string, unknown>, key: string): string {
   const v = params[key];
@@ -116,7 +117,14 @@ export function buildMethods(
     },
     decideBlocked: (params) => decideBlocked({ fileClaims, workspaces, sessions }, params),
     recordUsage: (params) => recordUsage({ sessions: sessionsRepo }, params),
-    notify: (event) => notify(notifyDeps, event),
+    // Also broadcasts `tui.event` — this is the ACP adapter's ONLY route to
+    // notifyDeps (it never calls notify(notifyDeps, ...) directly, see
+    // src/adapters/acp.ts's decideRequestPermission), so this closure is the
+    // choke point where a subscribed TUI reaches the ACP blocked path too.
+    notify: (event) => {
+      notify(notifyDeps, event);
+      broadcastRegistry.broadcast('tui.event', event);
+    },
   };
   // A caller-supplied adapterFactory (every existing test) is used AS-IS, unwrapped —
   // it's a full override, not something this daemon's cursor deps should be spliced
@@ -143,8 +151,12 @@ export function buildMethods(
     isEnabled: (workspaceId, kind) => notifyConfig.isEnabled(workspaceId, kind),
     send: opts.notifySend ?? platformSend(),
   };
-  const radarWatchers = new RadarWatcherRegistry(db, bus, contracts, notifyGate, notifyDeps);
-  const convergenceScheduler = new ConvergenceScheduler(db, projectRoot, config, leaseManager, configTrust, notifyDeps);
+  // Lets any number of `daemon.subscribe`d connections (the TUI) receive
+  // `tui.event`/`tui.invalidate` as they happen — see src/daemon/broadcast.ts's
+  // own doc comment.
+  const broadcastRegistry = new BroadcastRegistry();
+  const radarWatchers = new RadarWatcherRegistry(db, bus, contracts, notifyGate, notifyDeps, broadcastRegistry);
+  const convergenceScheduler = new ConvergenceScheduler(db, projectRoot, config, leaseManager, configTrust, notifyDeps, broadcastRegistry);
   // Constructed always, started only by the real daemon. Every test that calls
   // buildMethods() to exercise one RPC in isolation goes straight to db.close()
   // without daemon.shutdown, so an unconditional start() leaks a live 5s timer
@@ -317,15 +329,18 @@ export function buildMethods(
     'workspace.gc': async (p) => collectGarbage(db, str(p, 'id')),
     'workspace.setSafeMode': (p) => workspaces.setSafeMode(str(p, 'id'), str(p, 'tier')),
 
-    'session.new': (p) =>
-      sessions.create({
+    'session.new': (p) => {
+      const row = sessions.create({
         workspaceId: str(p, 'workspaceId'),
         name: str(p, 'name'),
         agent: str(p, 'agent'),
         worktree: bool(p, 'worktree', true),
         budgetTokens: optionalNum(p, 'budgetTokens'),
         budgetUsd: optionalNum(p, 'budgetUsd'),
-      }),
+      });
+      broadcastRegistry.broadcast('tui.invalidate', {});
+      return row;
+    },
     'session.list': (p) => sessions.list(str(p, 'workspaceId')),
     'session.rename': (p) =>
       sessions.rename(str(p, 'workspaceId'), str(p, 'idOrName'), str(p, 'newName')),
@@ -333,10 +348,12 @@ export function buildMethods(
       await sessions.kill(str(p, 'workspaceId'), str(p, 'idOrName'), {
         removeWorktree: bool(p, 'removeWorktree', false),
       });
+      broadcastRegistry.broadcast('tui.invalidate', {});
       return { ok: true };
     },
     'session.rm': async (p) => {
       await sessions.remove(str(p, 'workspaceId'), str(p, 'idOrName'));
+      broadcastRegistry.broadcast('tui.invalidate', {});
       return { ok: true };
     },
 
@@ -398,6 +415,7 @@ export function buildMethods(
       await runtime.stop(row.id);
       leaseManager.release(row.id);
       if (handle !== undefined) await closeMcpServer(row.id, handle);
+      broadcastRegistry.broadcast('tui.invalidate', {});
       return { ok: true };
     },
 
@@ -427,7 +445,9 @@ export function buildMethods(
       // note). notifyGate is the SAME instance RadarWatcherRegistry's
       // background path uses, injected above.
       if (blocked) {
-        notify(notifyDeps, { kind: 'blocked', session: querySessionName, path, symbol: symbol ?? null, workspaceId });
+        const event = { kind: 'blocked' as const, session: querySessionName, path, symbol: symbol ?? null, workspaceId };
+        notify(notifyDeps, event);
+        broadcastRegistry.broadcast('tui.event', event);
       }
       const collisionsWithNames = collisions.map((c) => ({
         ...c,
@@ -441,10 +461,12 @@ export function buildMethods(
       // not the resolved display name) so both paths dedup against one budget.
       for (const c of collisionsWithNames) {
         if (!notifyGate.shouldNotify(c.sessionId, c.path, c.symbol)) continue;
-        notify(notifyDeps, {
-          kind: 'collision', sessionA: querySessionName, sessionB: c.sessionName,
+        const event = {
+          kind: 'collision' as const, sessionA: querySessionName, sessionB: c.sessionName,
           path: c.path, symbol: c.symbol, workspaceId,
-        });
+        };
+        notify(notifyDeps, event);
+        broadcastRegistry.broadcast('tui.event', event);
       }
       return { blocked, collisions: collisionsWithNames };
     },
@@ -548,11 +570,16 @@ export function buildMethods(
           { db, projectRoot, sessions: sessionsRepo, leaseManager, ledger, config, configTrust },
           workspaceId, target.id, { force },
         );
-        notify(notifyDeps, { kind: 'land', session: target.name, ok: true, baseBranch: result.baseBranch, workspaceId });
+        const event = { kind: 'land' as const, session: target.name, ok: true as const, baseBranch: result.baseBranch, workspaceId };
+        notify(notifyDeps, event);
+        broadcastRegistry.broadcast('tui.event', event);
+        broadcastRegistry.broadcast('tui.invalidate', {});
         return result;
       } catch (err) {
         const reason = err instanceof CrossweaveError ? err.code : String(err);
-        notify(notifyDeps, { kind: 'land', session: target.name, ok: false, reason, workspaceId });
+        const event = { kind: 'land' as const, session: target.name, ok: false as const, reason, workspaceId };
+        notify(notifyDeps, event);
+        broadcastRegistry.broadcast('tui.event', event);
         throw err;
       }
     },
@@ -603,6 +630,15 @@ export function buildMethods(
     'config.untrust': (p) => {
       configTrust.clear(str(p, 'workspaceId'));
       return { trusted: false };
+    },
+
+    // The TUI's live feed: no params, subscribes this connection to every future
+    // `tui.event`/`tui.invalidate` broadcast until it closes (see
+    // src/daemon/broadcast.ts's own doc comment for the two message kinds).
+    'daemon.subscribe': (_p, ctx) => {
+      const unsubscribe = broadcastRegistry.subscribe(ctx.notify.bind(ctx));
+      ctx.onClose(unsubscribe);
+      return { subscribed: true };
     },
 
     'daemon.shutdown': async () => {

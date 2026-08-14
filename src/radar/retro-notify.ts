@@ -3,6 +3,7 @@ import type { MessageBus } from '../domain/bus.js';
 import { checkCollisions } from './collisions.js';
 import type { NotificationGate } from './noise.js';
 import { notify, type NotifyDispatcherDeps } from '../notify/dispatcher.js';
+import type { BroadcastRegistry } from '../daemon/broadcast.js';
 
 export interface RetroNotifyOpts {
   workspaceId: string;
@@ -29,6 +30,7 @@ export function notifyCollisions(
   gate: NotificationGate,
   opts: RetroNotifyOpts,
   notifyDeps: NotifyDispatcherDeps,
+  broadcastRegistry: BroadcastRegistry,
 ): void {
   for (const claim of claims.listBySession(opts.sessionId)) {
     const collisions = checkCollisions(claims, {
@@ -48,10 +50,12 @@ export function notifyCollisions(
           `crossweave Radar: session ${opts.sessionId} also has divergent changes to ${collision.path}` +
           `${collision.symbol ? ` (${collision.symbol})` : ''}.`,
       });
-      notify(notifyDeps, {
-        kind: 'collision', sessionA: opts.sessionId, sessionB: collision.sessionId,
+      const event = {
+        kind: 'collision' as const, sessionA: opts.sessionId, sessionB: collision.sessionId,
         path: collision.path, symbol: collision.symbol, workspaceId: opts.workspaceId,
-      });
+      };
+      notify(notifyDeps, event);
+      broadcastRegistry.broadcast('tui.event', event);
     }
   }
 }

@@ -618,6 +618,40 @@ describe('land.session RPC', () => {
     }
   }, 10_000);
 
+  test('a successful land broadcasts tui.invalidate to a subscribed connection', async () => {
+    const fixture = await makeGitFixture();
+    try {
+      const db = openDatabase(':memory:');
+      new WorkspaceRepo(db).insert({
+        id: 'ws_1', name: 'w', rootPath: fixture.root, createdAt: 'now',
+        defaultIsolation: 'worktree', safeModeTier: 'T1',
+      });
+      const methods = buildMethods(db, fixture.root, undefined, undefined, { notifySend: () => {} });
+      const ctx = { notify: () => undefined, onClose: () => undefined };
+
+      const created = (await methods['session.new']!(
+        { workspaceId: 'ws_1', name: 'a', agent: 'claude', worktree: true }, ctx,
+      )) as { worktreePath: string };
+      await commitFile(created.worktreePath, 'work.txt', 'work\n', 'agent commit');
+
+      const broadcasts: Array<[string, unknown]> = [];
+      const subscriberCtx = { notify: (m: string, p: unknown) => broadcasts.push([m, p]), onClose: () => undefined };
+      await methods['daemon.subscribe']!({}, subscriberCtx);
+
+      const result = (await methods['land.session']!({ workspaceId: 'ws_1', idOrName: 'a', force: false }, ctx)) as LandResult;
+      expect(result.status).toBe('landed');
+
+      const invalidations = broadcasts.filter(([m]) => m === 'tui.invalidate');
+      expect(invalidations).toHaveLength(1);
+      expect(invalidations[0]![1]).toEqual({});
+      // land.session also still fires its own tui.event via the notify wrapper.
+      const events = broadcasts.filter(([m]) => m === 'tui.event');
+      expect(events.some(([, p]) => (p as { kind: string }).kind === 'land')).toBe(true);
+    } finally {
+      await fixture.cleanup();
+    }
+  }, 10_000);
+
   test('a failed land still throws the real error unchanged, notify() wiring does not swallow it', async () => {
     const fixture = await makeGitFixture();
     try {

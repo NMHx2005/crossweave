@@ -10,6 +10,7 @@ import { notifyCollisions } from '../radar/retro-notify.js';
 import type { MessageBus } from '../domain/bus.js';
 import type { ContractService } from '../radar/contracts.js';
 import type { NotifyDispatcherDeps } from '../notify/dispatcher.js';
+import { BroadcastRegistry } from './broadcast.js';
 
 const DEBOUNCE_MS = 500;
 
@@ -38,6 +39,7 @@ export class RadarWatcherRegistry {
     // double-notify the same collision (design doc §3.1's correction note).
     private readonly gate: NotificationGate = new NotificationGate(),
     private readonly notifyDeps: NotifyDispatcherDeps = { gate, isEnabled: () => true, send: () => {} },
+    private readonly broadcastRegistry: BroadcastRegistry = new BroadcastRegistry(),
   ) {
     this.indexer = new RadarIndexer(db);
     this.claims = new FileClaimRepo(db);
@@ -89,7 +91,7 @@ export class RadarWatcherRegistry {
     notifyCollisions(
       this.claims, this.bus, this.gate,
       { workspaceId: session.workspaceId, sessionId: session.id },
-      this.notifyDeps,
+      this.notifyDeps, this.broadcastRegistry,
     );
 
     // Nothing declared in this workspace — skip the file-read-and-check
