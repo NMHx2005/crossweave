@@ -28,8 +28,7 @@ interface ConvergeStatus {
 }
 
 // Populated by the initial fetch in `run()` below and read by the panes Tasks 4-6
-// add (session list, convergence matrix, workspace/budget info) — this task's only
-// consumer of its own module state is proving the fetch/store plumbing works.
+// add (session list, convergence matrix, workspace/budget info).
 let latestSessions: SessionRow[] = [];
 let latestConvergeStatus: ConvergeStatus | null = null;
 let latestWorkspaceInfo: WorkspaceInfo | null = null;
@@ -67,6 +66,60 @@ export function formatStatusBar(
     `${ws.name}  |  ${count} session${count === 1 ? '' : 's'}  |  ` +
     `$${totalCost.toFixed(2)} spent  |  disk ${humanBytes(disk.usedBytes)}/${humanBytes(disk.limitBytes)}`
   );
+}
+
+/**
+ * `converge.status`'s `pairwise` entries carry branch names (`trial.branches`,
+ * see the `'converge.status'` handler in src/daemon/methods.ts), not session
+ * names — the RPC never resolves them. `branchToSessionName` (built from the
+ * same `session.list` rows already fetched for the session-list pane, via
+ * `SessionRow.branch`) does that resolution here, so the matrix reads by
+ * session name like every other pane instead of leaking raw branch names.
+ * An unresolvable branch (session gone, or literally not found) falls back to
+ * showing the pair as unknown rather than crashing or guessing.
+ */
+export function formatConvergenceMatrix(
+  sessionNames: string[],
+  pairwise: { a: string; b: string; result: string }[],
+  branchToSessionName: Map<string, string>,
+): string[][] {
+  const grid: string[][] = sessionNames.map((_, i) => sessionNames.map((_, j) => (i === j ? '—' : '?')));
+  for (const p of pairwise) {
+    const i = sessionNames.indexOf(branchToSessionName.get(p.a) ?? p.a);
+    const j = sessionNames.indexOf(branchToSessionName.get(p.b) ?? p.b);
+    if (i === -1 || j === -1 || i === j) continue;
+    // Only clean/not-clean is shown — 'test_fail' and 'unverified' trials still
+    // mean "don't land this pair together", same practical signal as 'conflict'.
+    const cell = p.result === 'clean' ? 'clean' : 'conflict';
+    grid[i]![j] = cell;
+    grid[j]![i] = cell;
+  }
+  return grid;
+}
+
+function branchToSessionNameMap(sessions: SessionRow[]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const s of sessions) {
+    if (s.branch) map.set(s.branch, s.name);
+  }
+  return map;
+}
+
+/** Renders `formatConvergenceMatrix`'s grid as a monospaced text table, matching
+ * how `cw converge status` (src/cli/commands/converge.ts) already reports pairs. */
+function renderConvergenceMatrixText(sessionNames: string[], grid: string[][]): string {
+  if (sessionNames.length === 0) return 'no active sessions';
+  const colWidth = Math.max(...sessionNames.map((n) => n.length), 'conflict'.length) + 1;
+  const pad = (s: string) => s.padEnd(colWidth);
+  const header = pad('') + sessionNames.map(pad).join('');
+  const rows = sessionNames.map((name, i) => pad(name) + grid[i]!.map(pad).join(''));
+  return [header, ...rows].join('\n');
+}
+
+function convergenceMatrixText(sessions: SessionRow[], convergeStatus: ConvergeStatus): string {
+  const sessionNames = sessions.map((s) => s.name);
+  const grid = formatConvergenceMatrix(sessionNames, convergeStatus.pairwise, branchToSessionNameMap(sessions));
+  return renderConvergenceMatrixText(sessionNames, grid);
 }
 
 function sessionsToOptions(sessions: SessionRow[]): SelectOption[] {
@@ -125,6 +178,7 @@ export const tuiCommand = defineCommand({
       const ws = await conn.call<WorkspaceInit>('workspace.init', {});
 
       let sessionListPane: SelectRenderable | undefined;
+      let convergenceMatrixPane: TextRenderable | undefined;
       let statusBarPane: TextRenderable | undefined;
 
       /**
@@ -143,6 +197,7 @@ export const tuiCommand = defineCommand({
         latestConvergeStatus = convergeStatus;
         latestWorkspaceInfo = workspaceInfo;
         if (sessionListPane) sessionListPane.options = sessionsToOptions(sessions);
+        if (convergenceMatrixPane) convergenceMatrixPane.content = convergenceMatrixText(sessions, convergeStatus);
         if (statusBarPane) statusBarPane.content = formatStatusBar(workspaceInfo.workspace, sessions, workspaceInfo.disk);
       }
 
@@ -188,6 +243,23 @@ export const tuiCommand = defineCommand({
         options: sessionsToOptions(latestSessions),
       });
       root.add(sessionListPane);
+
+      const convergenceBox = new BoxRenderable(renderer, {
+        id: 'convergence-matrix-box',
+        width: '100%',
+        height: 'auto',
+        borderStyle: 'single',
+        title: 'Convergence',
+        titleAlignment: 'left',
+      });
+      root.add(convergenceBox);
+      convergenceMatrixPane = new TextRenderable(renderer, {
+        id: 'convergence-matrix',
+        width: '100%',
+        height: 'auto',
+        content: latestConvergeStatus ? convergenceMatrixText(latestSessions, latestConvergeStatus) : '',
+      });
+      convergenceBox.add(convergenceMatrixPane);
 
       statusBarPane = new TextRenderable(renderer, {
         id: 'status-bar',

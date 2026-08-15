@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { formatSessionRow, formatStatusBar } from '../../src/cli/commands/tui.js';
+import { formatConvergenceMatrix, formatSessionRow, formatStatusBar } from '../../src/cli/commands/tui.js';
 
 describe('formatSessionRow', () => {
   test('running session shows a filled dot and its tier', () => {
@@ -55,5 +55,62 @@ describe('formatStatusBar', () => {
     );
     expect(out).toContain('1 session');
     expect(out).not.toContain('1 sessions');
+  });
+});
+
+describe('formatConvergenceMatrix', () => {
+  // `converge.status`'s `pairwise` entries carry branch names, not session
+  // names (see src/daemon/methods.ts's 'converge.status' handler — it never
+  // resolves them). `alice`/`bob` double as both branch and session name in
+  // these first two cases purely for brevity; the dedicated resolution test
+  // below is the one that actually proves branch->name lookup works.
+  const identityMap = new Map([['alice', 'alice'], ['bob', 'bob']]);
+
+  test('builds a symmetric grid from pairwise results', () => {
+    const grid = formatConvergenceMatrix(
+      ['alice', 'bob'],
+      [{ a: 'alice', b: 'bob', result: 'clean' }],
+      identityMap,
+    );
+    expect(grid[0]![1]).toBe('clean');
+    expect(grid[1]![0]).toBe('clean'); // symmetric
+    expect(grid[0]![0]).toBe('—'); // diagonal
+  });
+
+  test('a pair with no trial yet shows unknown', () => {
+    const grid = formatConvergenceMatrix(['alice', 'bob'], [], new Map());
+    expect(grid[0]![1]).toBe('?');
+  });
+
+  test('resolves branch names to session names via the lookup, not the raw pairwise a/b', () => {
+    const branchToSessionName = new Map([
+      ['feature/alice-x', 'alice'],
+      ['feature/bob-y', 'bob'],
+    ]);
+    const grid = formatConvergenceMatrix(
+      ['alice', 'bob'],
+      [{ a: 'feature/alice-x', b: 'feature/bob-y', result: 'conflict' }],
+      branchToSessionName,
+    );
+    expect(grid[0]![1]).toBe('conflict');
+    expect(grid[1]![0]).toBe('conflict');
+  });
+
+  test('a non-clean, non-conflict trial result (e.g. test_fail) still reads as not-clean', () => {
+    const grid = formatConvergenceMatrix(
+      ['alice', 'bob'],
+      [{ a: 'alice', b: 'bob', result: 'test_fail' }],
+      identityMap,
+    );
+    expect(grid[0]![1]).toBe('conflict');
+  });
+
+  test('a branch missing from the lookup does not crash and leaves the pair unknown', () => {
+    const grid = formatConvergenceMatrix(
+      ['alice', 'bob'],
+      [{ a: 'unknown-branch', b: 'bob', result: 'clean' }],
+      new Map([['bob', 'bob']]),
+    );
+    expect(grid[0]![1]).toBe('?');
   });
 });
