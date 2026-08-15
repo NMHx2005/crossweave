@@ -35,6 +35,7 @@ import { NotificationGate } from '../radar/noise.js';
 import { notify, type NotifyDispatcherDeps } from '../notify/dispatcher.js';
 import { platformSend } from '../notify/macos.js';
 import { BroadcastRegistry } from './broadcast.js';
+import { measureWorktrees } from '../isolation/disk-guard.js';
 
 function str(params: Record<string, unknown>, key: string): string {
   const v = params[key];
@@ -321,7 +322,18 @@ export function buildMethods(
 
     'workspace.init': (p) => workspaces.init(projectRoot, optionalStr(p, 'name')),
     'workspace.list': () => workspaces.list(),
-    'workspace.info': (p) => workspaces.info(str(p, 'id')),
+    // Enriched with disk usage at this RPC-handler layer, not inside
+    // `WorkspaceManager.info()` — that domain method's `{workspace, sessions}` shape
+    // stays the single source of truth other callers (tests, future non-TUI callers)
+    // rely on; `measureWorktrees` (M1's Disk Guard, already the basis for
+    // `assertDiskAvailable` and `collectGarbage`) is real, already-tested disk data,
+    // not a placeholder.
+    'workspace.info': (p) => {
+      const id = str(p, 'id');
+      const info = workspaces.info(id);
+      const usedBytes = measureWorktrees(db, id).reduce((sum, d) => sum + d.bytes, 0);
+      return { ...info, disk: { usedBytes, limitBytes: config.disk.perWorkspaceBytes } };
+    },
     'workspace.delete': (p) => {
       workspaces.delete(str(p, 'id'), { force: bool(p, 'force', false) });
       return { ok: true };

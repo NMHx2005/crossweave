@@ -28,21 +28,31 @@ describe('formatSessionRow', () => {
 });
 
 describe('formatStatusBar', () => {
-  test('aggregates session count and total burn', () => {
+  test('aggregates session count, total burn, and disk usage', () => {
     const sessions = [
       { costSpentUsd: 1.0 }, { costSpentUsd: 0.24 },
     ] as any;
-    // `WorkspaceInfo` (src/domain/workspace.ts) carries only `{ workspace, sessions }` —
-    // there is no disk-usage field anywhere on `WorkspaceRow` or `WorkspaceInfo`, so
-    // (unlike the brief's illustrative `diskInfo` sketch) this function takes no
-    // third argument; the status bar reports what the fetched data actually has.
-    const out = formatStatusBar({ id: 'ws_1', name: 'w' } as any, sessions);
+    // `disk` is real data as of this fix round: `workspace.info`'s RPC handler
+    // (src/daemon/methods.ts) enriches `WorkspaceManager.info()`'s `{workspace,
+    // sessions}` with usage measured by `measureWorktrees` (M1's Disk Guard,
+    // src/isolation/disk-guard.ts) — not a placeholder shape.
+    const out = formatStatusBar(
+      { id: 'ws_1', name: 'w' } as any,
+      sessions,
+      { usedBytes: 4_200_000_000, limitBytes: 20_000_000_000 },
+    );
     expect(out).toContain('w');
     expect(out).toContain('2 session');
     expect(out).toContain('1.24');
+    expect(out).toContain('3.9GB');
+    expect(out).toContain('18.6GB');
   });
   test('singular session count is not pluralized', () => {
-    const out = formatStatusBar({ id: 'ws_1', name: 'solo' } as any, [{ costSpentUsd: 0 }] as any);
+    const out = formatStatusBar(
+      { id: 'ws_1', name: 'solo' } as any,
+      [{ costSpentUsd: 0 }] as any,
+      { usedBytes: 0, limitBytes: 1 },
+    );
     expect(out).toContain('1 session');
     expect(out).not.toContain('1 sessions');
   });

@@ -12,10 +12,14 @@ import { loadConfig } from '../../core/config.js';
 import { connectOrStart, type DaemonClient } from '../../client/rpc-client.js';
 import { fail } from '../context.js';
 import type { SessionRow } from '../../db/repositories/session.js';
+import { humanBytes } from '../../isolation/disk-guard.js';
 
 interface WorkspaceInit { id: string; name: string }
 interface Workspace { id: string; name: string; rootPath: string; safeModeTier: string }
-interface WorkspaceInfo { workspace: Workspace; sessions: SessionRow[] }
+interface DiskInfo { usedBytes: number; limitBytes: number }
+// `disk` is an RPC-layer enrichment (see 'workspace.info' in src/daemon/methods.ts) —
+// `WorkspaceManager.info()` itself still only returns `{workspace, sessions}`.
+interface WorkspaceInfo { workspace: Workspace; sessions: SessionRow[]; disk: DiskInfo }
 interface ConvergeStatus {
   pairwise: { a: string; b: string; result: string }[];
   fullIntegration: { result: string; ts: string; detail: string | null } | null;
@@ -48,15 +52,21 @@ export function formatSessionRow(row: SessionRow): { text: string; dot: '●' | 
 }
 
 /**
- * `WorkspaceInfo` (src/domain/workspace.ts) is `{ workspace: WorkspaceRow, sessions:
- * SessionRow[] }` — there is no disk-usage field anywhere on `WorkspaceRow`, so this
- * only aggregates what `workspace.info`/`session.list` actually return: name,
- * session count, total burn.
+ * `disk` comes from `workspace.info`'s RPC-layer enrichment (src/daemon/methods.ts),
+ * backed by `measureWorktrees` (M1's Disk Guard, src/isolation/disk-guard.ts) —
+ * `WorkspaceManager.info()` itself doesn't carry it, only the RPC response does.
  */
-export function formatStatusBar(ws: { name: string }, sessions: SessionRow[]): string {
+export function formatStatusBar(
+  ws: { name: string },
+  sessions: SessionRow[],
+  disk: { usedBytes: number; limitBytes: number },
+): string {
   const totalCost = sessions.reduce((sum, s) => sum + s.costSpentUsd, 0);
   const count = sessions.length;
-  return `${ws.name}  |  ${count} session${count === 1 ? '' : 's'}  |  $${totalCost.toFixed(2)} spent`;
+  return (
+    `${ws.name}  |  ${count} session${count === 1 ? '' : 's'}  |  ` +
+    `$${totalCost.toFixed(2)} spent  |  disk ${humanBytes(disk.usedBytes)}/${humanBytes(disk.limitBytes)}`
+  );
 }
 
 function sessionsToOptions(sessions: SessionRow[]): SelectOption[] {
@@ -133,7 +143,7 @@ export const tuiCommand = defineCommand({
         latestConvergeStatus = convergeStatus;
         latestWorkspaceInfo = workspaceInfo;
         if (sessionListPane) sessionListPane.options = sessionsToOptions(sessions);
-        if (statusBarPane) statusBarPane.content = formatStatusBar(workspaceInfo.workspace, sessions);
+        if (statusBarPane) statusBarPane.content = formatStatusBar(workspaceInfo.workspace, sessions, workspaceInfo.disk);
       }
 
       // Registered before daemon.subscribe (matching attach.ts's established
@@ -141,7 +151,15 @@ export const tuiCommand = defineCommand({
       // instant subscription takes effect — even before the panes below exist — is
       // never missed.
       conn.onNotification((method) => {
-        if (method === 'tui.invalidate') void refresh();
+        // A refresh failure (daemon restart, workspace deleted mid-session) must not
+        // become an unhandled rejection in this long-running interactive command —
+        // matches watcher.ts/convergence-scheduler.ts's own fire-and-forget
+        // background-tick pattern (log and keep the dashboard up, don't crash it).
+        if (method === 'tui.invalidate') {
+          void refresh().catch((err: unknown) => {
+            process.stderr.write(`crossweave: tui refresh failed: ${String(err)}\n`);
+          });
+        }
       });
       await conn.call('daemon.subscribe', {});
       await refresh();
@@ -175,7 +193,9 @@ export const tuiCommand = defineCommand({
         id: 'status-bar',
         width: '100%',
         height: 1,
-        content: latestWorkspaceInfo ? formatStatusBar(latestWorkspaceInfo.workspace, latestSessions) : '',
+        content: latestWorkspaceInfo
+          ? formatStatusBar(latestWorkspaceInfo.workspace, latestSessions, latestWorkspaceInfo.disk)
+          : '',
       });
       root.add(statusBarPane);
 
