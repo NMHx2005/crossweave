@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { confirmWithLayerPaused, landAllInOrder } from '../../src/cli/commands/tui.js';
+import { confirmWithLayerPaused, landAllInOrder, resolveSelfInvocation } from '../../src/cli/commands/tui.js';
 
 describe('landAllInOrder', () => {
   test('lands each name in order, stopping at the first failure', async () => {
@@ -64,5 +64,20 @@ describe('confirmWithLayerPaused', () => {
     };
     await expect(confirmWithLayerPaused(unregister, register, waitForKey)).rejects.toThrow('boom');
     expect(calls).toEqual(['unregister', 'register']);
+  });
+});
+
+describe('resolveSelfInvocation', () => {
+  // Real captured values (see task-8-report.md) — not fabricated shapes.
+  test('source mode: [execPath, argv[1]] — the bun runtime plus the real script path', () => {
+    const argv = ['/opt/homebrew/Cellar/bun/1.3.14/bin/bun', '/repo/src/cli/index.ts', 'tui'];
+    const execPath = '/opt/homebrew/Cellar/bun/1.3.14/bin/bun';
+    expect(resolveSelfInvocation(argv, execPath)).toEqual([execPath, '/repo/src/cli/index.ts']);
+  });
+
+  test('compiled mode: [execPath] alone — argv[1] is the unusable /$bunfs/ virtual path', () => {
+    const argv = ['bun', '/$bunfs/root/cw', 'tui'];
+    const execPath = '/repo/dist/cw';
+    expect(resolveSelfInvocation(argv, execPath)).toEqual([execPath]);
   });
 });

@@ -6,7 +6,9 @@ import {
   InputRenderable,
   InputRenderableEvents,
   SelectRenderable,
+  SelectRenderableEvents,
   TextRenderable,
+  type CliRenderer,
   type KeyEvent,
   type SelectOption,
 } from '@opentui/core';
@@ -175,6 +177,62 @@ export async function confirmWithLayerPaused(
     return key.name === 'y';
   } finally {
     registerLayer();
+  }
+}
+
+/**
+ * Determines how to re-invoke this same `cw` process as a child (for `session
+ * attach`) — verified against real `process.argv`/`process.execPath` output
+ * in both run modes (see task-8-report.md's "Step 1 observations" for the
+ * exact captured values), not assumed from the plan's illustrative snippet.
+ *
+ * Source mode (`bun src/cli/index.ts tui`): `execPath` is bun's own runtime
+ * binary and `argv[1]` is the real, spawnable path to `src/cli/index.ts` —
+ * `[execPath, argv[1]]` re-invokes exactly that, without relying on `bun`
+ * being resolvable via `PATH` (unlike spawning the literal string `'bun'`).
+ *
+ * Compiled mode (`dist/cw`, built via `bun build --compile`): `argv[1]` is
+ * Bun's own internal virtual-filesystem path (`/$bunfs/root/cw`), not a real
+ * file — spawning it fails. `execPath`, however, resolves to the compiled
+ * binary's own real absolute path in this mode (confirmed for both relative
+ * and absolute invocation of the binary), so `[execPath]` alone re-invokes
+ * the binary itself, argv and all.
+ *
+ * The `/$bunfs/` prefix on `argv[1]` is the one observable difference between
+ * the two modes, so it's what tells them apart here.
+ */
+export function resolveSelfInvocation(argv: string[], execPath: string): string[] {
+  const scriptPath = argv[1];
+  if (scriptPath?.startsWith('/$bunfs/')) return [execPath];
+  return [execPath, scriptPath as string];
+}
+
+/**
+ * Attach-in-place (design doc §4.4): suspends this TUI's own renderer, runs
+ * `cw session attach <name>` as a child process with inherited stdio so it
+ * gets the real terminal directly (scrollback replay, raw mode, the Ctrl-]
+ * detach convention — all already handled by src/cli/commands/attach.ts,
+ * zero new PTY-relay code here), waits for it to exit, then resumes.
+ *
+ * `renderer.suspend()`/`.resume()` (not `.pause()`/`.start()`, and definitely
+ * not `.stop()` — see `waitForQuit`'s doc comment above on why `.stop()` is
+ * wrong for anything terminal-restoring) are real methods on the installed
+ * @opentui/core's `CliRenderer` (confirmed by reading
+ * node_modules/@opentui/core/chunk-bun-*.js directly, not just its .d.ts):
+ * `suspend()` turns off raw mode, pauses stdin, and removes the library's own
+ * exit listeners; `resume()` reverses all of that. The `finally` guarantees
+ * `resume()` still runs even if the attached process is killed out from under
+ * it (e.g. from a third terminal) rather than exiting cleanly.
+ */
+async function attachToSession(name: string, renderer: CliRenderer, selfInvocation: string[]): Promise<void> {
+  renderer.suspend();
+  try {
+    const proc = Bun.spawn([...selfInvocation, 'session', 'attach', name], {
+      stdio: ['inherit', 'inherit', 'inherit'],
+    });
+    await proc.exited;
+  } finally {
+    renderer.resume();
   }
 }
 
@@ -634,6 +692,40 @@ export const tuiCommand = defineCommand({
           uiBusy = false;
         }
       }
+
+      // Computed once, not per-attach: `process.argv`/`process.execPath` don't
+      // change while this process is running, so the same invocation is valid
+      // for every Enter press.
+      const selfInvocation = resolveSelfInvocation(process.argv, process.execPath);
+
+      /**
+       * Enter on the selected session — design doc §4.4. Wired to
+       * `SelectRenderable`'s own `ITEM_SELECTED` event (fired from its
+       * built-in `return`/`linefeed` key handling, confirmed against
+       * node_modules/@opentui/core's actual `SelectRenderable.selectCurrent`),
+       * not a new keymap binding: `return` doesn't collide with any of the
+       * keymap layer's own keys ('n'/'l'/'shift+l'/'k'/'g') below, so no
+       * unregister/re-register dance is needed here the way `confirmDestructive`
+       * needs one for its y/n prompt.
+       */
+      async function attachSelected(): Promise<void> {
+        if (uiBusy) return;
+        const session = getSelectedSession();
+        if (!session) {
+          setActionStatus('no session selected');
+          return;
+        }
+        uiBusy = true;
+        try {
+          await attachToSession(session.name, renderer, selfInvocation);
+          setActionStatus(`detached from ${session.name}`);
+        } catch (err) {
+          setActionStatus(`attach failed: ${(err as Error).message}`);
+        } finally {
+          uiBusy = false;
+        }
+      }
+      sessionList.on(SelectRenderableEvents.ITEM_SELECTED, () => void attachSelected());
 
       // `createDefaultOpenTuiKeymap`, not the bare `createOpenTuiKeymap`: the
       // core keymap ships with zero binding parsers registered (confirmed
