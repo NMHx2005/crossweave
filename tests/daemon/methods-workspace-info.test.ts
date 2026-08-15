@@ -61,4 +61,51 @@ describe('workspace.info RPC', () => {
     expect(result.disk.usedBytes).toBe(0);
     expect(result.disk.limitBytes).toBe(DEFAULT_CONFIG.disk.perWorkspaceBytes);
   });
+
+  test('excludes the integration/scratch session\'s bytes from usedBytes, same as info.sessions already excludes it from the list', async () => {
+    const normalWorktree = await mkdtemp(join(tmpdir(), 'cw-wsinfo-normal-'));
+    const integrationWorktree = await mkdtemp(join(tmpdir(), 'cw-wsinfo-integration-'));
+    try {
+      await writeFile(join(normalWorktree, 'payload.bin'), Buffer.alloc(4096));
+      // Deliberately larger than the normal session's file: if the integration
+      // session's bytes leaked into the sum, this test would still pass on a
+      // >=4096 assertion, so it has to actually outweigh the normal session's
+      // bytes for an equality/upper-bound assertion to catch a regression.
+      await writeFile(join(integrationWorktree, 'payload.bin'), Buffer.alloc(65536));
+
+      const db = openDatabase(':memory:');
+      new WorkspaceRepo(db).insert({
+        id: 'ws_3', name: 'w', rootPath: '/tmp/w', createdAt: 'now',
+        defaultIsolation: 'worktree', safeModeTier: 'T2',
+      });
+      const sessions = new SessionRepo(db);
+      sessions.insert({
+        id: 's_normal', workspaceId: 'ws_3', name: 's_normal', agentKind: 'claude', adapter: 'claude',
+        status: 'running', worktreePath: normalWorktree, branch: 'cw/s_normal', createdAt: 'now',
+        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costBudgetUsd: null,
+        costSpentUsd: 0, enforcementTier: 'T2', pid: null,
+      });
+      // Same agentKind/adapter/name shape WorkspaceManager.info()'s own regression
+      // test (tests/domain/workspace.test.ts) uses for this session kind.
+      sessions.insert({
+        id: 's_integration', workspaceId: 'ws_3', name: '__integration__', agentKind: 'integration',
+        adapter: 'integration', status: 'idle', worktreePath: integrationWorktree, branch: 'cw/integration',
+        createdAt: 'now', lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costBudgetUsd: null,
+        costSpentUsd: 0, enforcementTier: 'T3', pid: null,
+      });
+
+      const methods = buildMethods(db, '/tmp/w');
+      const result = (await methods['workspace.info']!({ id: 'ws_3' }, ctx)) as {
+        sessions: unknown[];
+        disk: { usedBytes: number };
+      };
+
+      expect(result.sessions).toHaveLength(1);
+      expect(result.disk.usedBytes).toBeGreaterThanOrEqual(4096);
+      expect(result.disk.usedBytes).toBeLessThan(65536);
+    } finally {
+      await rm(normalWorktree, { recursive: true, force: true });
+      await rm(integrationWorktree, { recursive: true, force: true });
+    }
+  });
 });

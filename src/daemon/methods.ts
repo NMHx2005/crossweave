@@ -331,7 +331,17 @@ export function buildMethods(
     'workspace.info': (p) => {
       const id = str(p, 'id');
       const info = workspaces.info(id);
-      const usedBytes = measureWorktrees(db, id).reduce((sum, d) => sum + d.bytes, 0);
+      // `measureWorktrees` sums EVERY worktree, including the internal integration/
+      // scratch session — correct for its original M1 callers (assertDiskAvailable,
+      // collectGarbage), which legitimately want total-including-everything. A
+      // user-facing figure must not, same as `info.sessions` itself already excludes
+      // it (see WorkspaceManager.info()'s own filter) — so restrict the sum to the
+      // session ids `info.sessions` actually shows the user, rather than changing
+      // `measureWorktrees`'s own signature/behavior.
+      const visibleIds = new Set(info.sessions.map((s) => s.id));
+      const usedBytes = measureWorktrees(db, id)
+        .filter((d) => visibleIds.has(d.sessionId))
+        .reduce((sum, d) => sum + d.bytes, 0);
       return { ...info, disk: { usedBytes, limitBytes: config.disk.perWorkspaceBytes } };
     },
     'workspace.delete': (p) => {
