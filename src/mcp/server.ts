@@ -1,6 +1,24 @@
 import { createServer, type Server as NetServer, type Socket } from 'node:net';
-import { chmodSync, existsSync, statSync, unlinkSync } from 'node:fs';
+import { chmodSync, existsSync, unlinkSync } from 'node:fs';
 import { framedLines, handleMcpMessage, mcpSocketPath, type McpTool } from './protocol.js';
+
+/**
+ * Current claim holder per socket path, process-wide.
+ *
+ * Ownership used to be decided by comparing inode numbers (statSync at bind
+ * time vs. at close time), but that has two problems: an inode is only
+ * unique among files that exist at the same time — not a stable identity
+ * across a delete then a fresh create at the same path, and on Linux tmpfs
+ * (where `os.tmpdir()` usually lands) a freed inode can be handed straight
+ * back out to the very next file created there. And bind time itself is too
+ * late: the underlying socket file can already exist on disk before the
+ * `'listening'` event fires, so a concurrent close() elsewhere could still
+ * race it. `createMcpServer()` claims its token here synchronously, before
+ * any async bind/close work starts — JS is single-threaded, so two calls can
+ * never interleave, and whichever call happened last deterministically holds
+ * the claim, regardless of how their async bind/close operations resolve.
+ */
+const socketOwners = new Map<string, object>();
 
 export interface McpServerHandle {
   socketPath: string;
@@ -38,6 +56,14 @@ export function createMcpServer(
   tools: McpTool[],
 ): McpServerHandle {
   const socketPath = mcpSocketPath(sessionId);
+  // Claimed synchronously, before any async bind/close work starts — see
+  // `socketOwners`'s doc comment. `createMcpServer()` calls can't interleave
+  // with each other (JS is single-threaded), so whichever call happens last
+  // wins the claim deterministically, regardless of how the two instances'
+  // async bind/close operations end up racing afterward.
+  const myToken = {};
+  socketOwners.set(socketPath, myToken);
+
   if (existsSync(socketPath)) {
     try {
       unlinkSync(socketPath);
@@ -85,17 +111,6 @@ export function createMcpServer(
   });
 
   let bound = false;
-  /**
-   * The inode of the socket file THIS server created, captured at bind time.
-   *
-   * A socket path is a name, and a session id can be bound twice in quick succession
-   * (a stop racing a resume — the daemon dispatches socket messages unserialized).
-   * Unlinking by name on close then deletes whatever currently answers to that name,
-   * which may be a NEWER server's socket: it reports `listening()` true while nothing
-   * can connect to it any more. Comparing inodes is what makes close() delete only
-   * its own file.
-   */
-  let boundInode: number | undefined;
   let settleReady: (v: boolean) => void = () => undefined;
   const readyPromise = new Promise<boolean>((resolve) => {
     settleReady = resolve;
@@ -113,23 +128,14 @@ export function createMcpServer(
     } catch {
       // Best effort — the socket still works even if the mode couldn't be tightened.
     }
-    try {
-      boundInode = statSync(socketPath).ino;
-    } catch {
-      // Without an inode close() simply won't unlink; a leftover socket file is far
-      // better than deleting a live server's.
-    }
     settleReady(true);
   });
 
   /** Removes the socket file only while it is still the one this server bound. */
   function unlinkOwnSocketFile(): void {
-    if (boundInode === undefined) return; // Never bound: nothing here is ours.
-    try {
-      if (statSync(socketPath).ino !== boundInode) return; // A newer server owns this name now.
-    } catch {
-      return; // Already gone.
-    }
+    if (!bound) return; // Never actually bound: nothing here is ours to reclaim.
+    if (socketOwners.get(socketPath) !== myToken) return; // A newer server claimed this name since.
+    socketOwners.delete(socketPath);
     try {
       unlinkSync(socketPath);
     } catch {
