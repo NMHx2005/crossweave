@@ -181,6 +181,23 @@ export function buildMethods(
     void collectOrphans(db, ws.id).catch(() => undefined);
   }
 
+  /**
+   * `workspace.info`'s disk-usage figure is a synchronous, recursive filesystem walk
+   * (`measureWorktrees` → `directorySize`, src/isolation/disk-guard.ts) that blocks
+   * this single-threaded daemon for its whole duration. M1's original callers
+   * (`assertDiskAvailable`, `cw gc`) invoked it rarely; the TUI (Task 4) now calls
+   * this same handler on every `tui.invalidate` — after every session mutation,
+   * including N times back-to-back during `L` (land-all)'s loop. A short TTL cache
+   * per workspace id avoids re-walking the filesystem for calls that land within the
+   * same window. 3000ms: long enough to absorb a burst of back-to-back invalidates
+   * (a single land-all run, or several panes refreshing together) while still short
+   * enough that `cw workspace info`/`cw workspace list` (which read this same
+   * handler) never show a figure more than a few seconds stale. Lives for the
+   * daemon process's lifetime, same as `notifyGate`/`broadcastRegistry` above.
+   */
+  const DISK_USAGE_CACHE_TTL_MS = 3000;
+  const diskUsageCache = new Map<string, { value: { usedBytes: number; limitBytes: number }; computedAt: number }>();
+
   /** The server that is a session's CURRENT one. Never holds a closing server. */
   const mcpServers = new Map<string, McpServerHandle>();
   /**
@@ -331,24 +348,37 @@ export function buildMethods(
     'workspace.info': (p) => {
       const id = str(p, 'id');
       const info = workspaces.info(id);
-      // `measureWorktrees` sums EVERY worktree, including the internal integration/
-      // scratch session — correct for its original M1 callers (assertDiskAvailable,
-      // collectGarbage), which legitimately want total-including-everything. A
-      // user-facing figure must not, same as `info.sessions` itself already excludes
-      // it (see WorkspaceManager.info()'s own filter) — so restrict the sum to the
-      // session ids `info.sessions` actually shows the user, rather than changing
-      // `measureWorktrees`'s own signature/behavior.
-      const visibleIds = new Set(info.sessions.map((s) => s.id));
-      const usedBytes = measureWorktrees(db, id)
-        .filter((d) => visibleIds.has(d.sessionId))
-        .reduce((sum, d) => sum + d.bytes, 0);
-      return { ...info, disk: { usedBytes, limitBytes: config.disk.perWorkspaceBytes } };
+      const cached = diskUsageCache.get(id);
+      const now = Date.now();
+      let disk: { usedBytes: number; limitBytes: number };
+      if (cached && now - cached.computedAt < DISK_USAGE_CACHE_TTL_MS) {
+        disk = cached.value;
+      } else {
+        // `measureWorktrees` sums EVERY worktree, including the internal integration/
+        // scratch session — correct for its original M1 callers (assertDiskAvailable,
+        // collectGarbage), which legitimately want total-including-everything. A
+        // user-facing figure must not, same as `info.sessions` itself already excludes
+        // it (see WorkspaceManager.info()'s own filter) — so restrict the sum to the
+        // session ids `info.sessions` actually shows the user, rather than changing
+        // `measureWorktrees`'s own signature/behavior.
+        const visibleIds = new Set(info.sessions.map((s) => s.id));
+        const usedBytes = measureWorktrees(db, id)
+          .filter((d) => visibleIds.has(d.sessionId))
+          .reduce((sum, d) => sum + d.bytes, 0);
+        disk = { usedBytes, limitBytes: config.disk.perWorkspaceBytes };
+        diskUsageCache.set(id, { value: disk, computedAt: now });
+      }
+      return { ...info, disk };
     },
     'workspace.delete': (p) => {
       workspaces.delete(str(p, 'id'), { force: bool(p, 'force', false) });
       return { ok: true };
     },
-    'workspace.gc': async (p) => collectGarbage(db, str(p, 'id')),
+    'workspace.gc': async (p) => {
+      const result = await collectGarbage(db, str(p, 'id'));
+      broadcastRegistry.broadcast('tui.invalidate', {});
+      return result;
+    },
     'workspace.setSafeMode': (p) => workspaces.setSafeMode(str(p, 'id'), str(p, 'tier')),
 
     'session.new': (p) => {

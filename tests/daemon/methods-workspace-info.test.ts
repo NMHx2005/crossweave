@@ -108,4 +108,49 @@ describe('workspace.info RPC', () => {
       await rm(integrationWorktree, { recursive: true, force: true });
     }
   });
+
+  // Important 3 (final-review fix wave): `measureWorktrees` is a fully synchronous
+  // recursive filesystem walk that blocks the whole (single-threaded) daemon — the
+  // TUI calls this handler on every `tui.invalidate`, i.e. after every session
+  // mutation. A short TTL cache avoids re-walking within the same window. Proven
+  // here deterministically (no clock mocking needed): grow the worktree between two
+  // calls that land well within the 3s TTL, and confirm the SECOND call still
+  // reports the FIRST call's (now stale) figure — i.e. it reused the cache instead
+  // of re-measuring.
+  test('repeated calls within the TTL window reuse the cached disk figure instead of re-measuring', async () => {
+    const worktree = await mkdtemp(join(tmpdir(), 'cw-wsinfo-cache-'));
+    try {
+      await writeFile(join(worktree, 'payload.bin'), Buffer.alloc(4096));
+
+      const db = openDatabase(':memory:');
+      new WorkspaceRepo(db).insert({
+        id: 'ws_cache', name: 'w', rootPath: '/tmp/w', createdAt: 'now',
+        defaultIsolation: 'worktree', safeModeTier: 'T2',
+      });
+      new SessionRepo(db).insert({
+        id: 's_1', workspaceId: 'ws_cache', name: 's_1', agentKind: 'claude', adapter: 'claude',
+        status: 'running', worktreePath: worktree, branch: 'cw/s_1', createdAt: 'now',
+        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costBudgetUsd: null,
+        costSpentUsd: 0, enforcementTier: 'T2', pid: null,
+      });
+
+      const methods = buildMethods(db, '/tmp/w');
+      const first = (await methods['workspace.info']!({ id: 'ws_cache' }, ctx)) as {
+        disk: { usedBytes: number };
+      };
+      expect(first.disk.usedBytes).toBeGreaterThanOrEqual(4096);
+
+      // Grow the worktree well past the first measurement — if the second call
+      // re-walked the filesystem, it would see this and the two figures would
+      // differ.
+      await writeFile(join(worktree, 'more.bin'), Buffer.alloc(65536));
+
+      const second = (await methods['workspace.info']!({ id: 'ws_cache' }, ctx)) as {
+        disk: { usedBytes: number };
+      };
+      expect(second.disk.usedBytes).toBe(first.disk.usedBytes);
+    } finally {
+      await rm(worktree, { recursive: true, force: true });
+    }
+  });
 });
