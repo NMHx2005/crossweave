@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { formatConvergenceMatrix, formatSessionRow, formatStatusBar } from '../../src/cli/commands/tui.js';
+import { formatConvergenceMatrix, formatFeedLine, formatSessionRow, formatStatusBar } from '../../src/cli/commands/tui.js';
+import { format, type NotifyEvent } from '../../src/notify/dispatcher.js';
 
 describe('formatSessionRow', () => {
   test('running session shows a filled dot and its tier', () => {
@@ -112,5 +113,35 @@ describe('formatConvergenceMatrix', () => {
       new Map([['bob', 'bob']]),
     );
     expect(grid[0]![1]).toBe('?');
+  });
+});
+
+describe('radar feed line formatting', () => {
+  test('a collision tui.event produces the same text format() would give the desktop notification', () => {
+    const event: NotifyEvent = {
+      kind: 'collision', sessionA: 'alice', sessionB: 'bob', path: 'src/x.ts', symbol: 'foo', workspaceId: 'ws_1',
+    };
+    const formatted = format(event);
+    const line = formatFeedLine(event);
+    // Reuses format()'s own fields verbatim, not a parallel reimplementation of the
+    // event -> text logic — this is the whole point (design doc §3.2): the feed
+    // pane and the desktop notification must never drift apart.
+    expect(line).toContain(formatted.title);
+    expect(line).toContain(formatted.message);
+  });
+
+  test('a blocked tui.event also reuses format() verbatim', () => {
+    const event: NotifyEvent = { kind: 'blocked', session: 'alice', path: 'src/y.ts', symbol: null, workspaceId: 'ws_1' };
+    const formatted = format(event);
+    const line = formatFeedLine(event);
+    expect(line).toContain(formatted.title);
+    expect(line).toContain(formatted.message);
+  });
+
+  test('prefixes a timestamp ahead of the formatted text', () => {
+    const event: NotifyEvent = { kind: 'land', session: 'alice', ok: true, baseBranch: 'main', workspaceId: 'ws_1' };
+    const formatted = format(event);
+    const line = formatFeedLine(event);
+    expect(line.indexOf(formatted.title)).toBeGreaterThan(0);
   });
 });

@@ -13,6 +13,7 @@ import { connectOrStart, type DaemonClient } from '../../client/rpc-client.js';
 import { fail } from '../context.js';
 import type { SessionRow } from '../../db/repositories/session.js';
 import { humanBytes } from '../../isolation/disk-guard.js';
+import { format, type NotifyEvent } from '../../notify/dispatcher.js';
 
 interface WorkspaceInit { id: string; name: string }
 interface Workspace { id: string; name: string; rootPath: string; safeModeTier: string }
@@ -32,6 +33,15 @@ interface ConvergeStatus {
 let latestSessions: SessionRow[] = [];
 let latestConvergeStatus: ConvergeStatus | null = null;
 let latestWorkspaceInfo: WorkspaceInfo | null = null;
+
+// Unlike the three `latestX` above, this isn't refetched by `refresh()` — it only
+// ever grows from live `'tui.event'` notifications (see `appendFeedLine` below).
+// Kept module-level (not just on the pane) for the same reason `latestSessions`
+// etc. are: `'tui.event'` notifications can arrive before `feedPane` is mounted
+// (the gap between `daemon.subscribe` and `createCliRenderer` below), so the text
+// must survive until the pane exists to read it.
+const FEED_MAX_LINES = 200;
+let latestFeedLines: string[] = [];
 
 /**
  * Pure data → string formatting, kept separate from the OpenTUI wiring below so it
@@ -95,6 +105,17 @@ export function formatConvergenceMatrix(
     grid[j]![i] = cell;
   }
   return grid;
+}
+
+/**
+ * Thin wrapper around `format()` (src/notify/dispatcher.ts) — a timestamp prefixed
+ * onto the exact same title/message text the desktop notification uses. Deliberately
+ * not a parallel reimplementation: reusing `format()` verbatim is what keeps the
+ * feed pane and the OS notification from drifting apart (design doc §3.2).
+ */
+export function formatFeedLine(event: NotifyEvent): string {
+  const { title, message } = format(event);
+  return `${new Date().toLocaleTimeString()}  ${title}: ${message}`;
 }
 
 function branchToSessionNameMap(sessions: SessionRow[]): Map<string, string> {
@@ -180,6 +201,22 @@ export const tuiCommand = defineCommand({
       let sessionListPane: SelectRenderable | undefined;
       let convergenceMatrixPane: TextRenderable | undefined;
       let statusBarPane: TextRenderable | undefined;
+      let feedPane: TextRenderable | undefined;
+
+      /**
+       * Appends one line per `'tui.event'`, capped at `FEED_MAX_LINES` so a
+       * long-running `cw tui` process never grows this pane's backing text
+       * unboundedly. Scrolled to the bottom on every append so the newest line
+       * (design doc §4.1: "newest at the bottom") is always the one visible.
+       */
+      function appendFeedLine(event: NotifyEvent): void {
+        latestFeedLines.push(formatFeedLine(event));
+        if (latestFeedLines.length > FEED_MAX_LINES) latestFeedLines = latestFeedLines.slice(-FEED_MAX_LINES);
+        if (feedPane) {
+          feedPane.content = latestFeedLines.join('\n');
+          feedPane.scrollY = feedPane.maxScrollY;
+        }
+      }
 
       /**
        * Both the initial data load and every `'tui.invalidate'`-triggered reload run
@@ -205,7 +242,7 @@ export const tuiCommand = defineCommand({
       // register-before-subscribe pattern) so an invalidate broadcast that lands the
       // instant subscription takes effect — even before the panes below exist — is
       // never missed.
-      conn.onNotification((method) => {
+      conn.onNotification((method, params) => {
         // A refresh failure (daemon restart, workspace deleted mid-session) must not
         // become an unhandled rejection in this long-running interactive command —
         // matches watcher.ts/convergence-scheduler.ts's own fire-and-forget
@@ -214,6 +251,11 @@ export const tuiCommand = defineCommand({
           void refresh().catch((err: unknown) => {
             process.stderr.write(`crossweave: tui refresh failed: ${String(err)}\n`);
           });
+        } else if (method === 'tui.event') {
+          // `params` is the full notify()-event payload (design doc §3.2) — the
+          // daemon broadcasts it verbatim (src/daemon/methods.ts), so it's trusted
+          // to already match `NotifyEvent`'s shape without further validation here.
+          appendFeedLine(params as NotifyEvent);
         }
       });
       await conn.call('daemon.subscribe', {});
@@ -260,6 +302,24 @@ export const tuiCommand = defineCommand({
         content: latestConvergeStatus ? convergenceMatrixText(latestSessions, latestConvergeStatus) : '',
       });
       convergenceBox.add(convergenceMatrixPane);
+
+      const radarFeedBox = new BoxRenderable(renderer, {
+        id: 'radar-feed-box',
+        width: '100%',
+        height: 8,
+        borderStyle: 'single',
+        title: 'Radar feed',
+        titleAlignment: 'left',
+      });
+      root.add(radarFeedBox);
+      feedPane = new TextRenderable(renderer, {
+        id: 'radar-feed',
+        width: '100%',
+        height: '100%',
+        content: latestFeedLines.join('\n'),
+      });
+      radarFeedBox.add(feedPane);
+      feedPane.scrollY = feedPane.maxScrollY;
 
       statusBarPane = new TextRenderable(renderer, {
         id: 'status-bar',

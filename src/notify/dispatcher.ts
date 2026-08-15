@@ -27,8 +27,13 @@ function symbolSuffix(symbol: string | null): string {
  * Formats one event into (title, message, clickCommand). A pure function of the
  * event alone — no gating, no I/O — kept separate from `notify` so the "what does
  * this event look like" question is easy to unit test independently of throttling.
+ *
+ * Exported so the TUI's radar feed pane (src/cli/commands/tui.ts) can reuse it
+ * verbatim for its feed lines — the feed's text and the desktop notification's
+ * text must never drift apart (design doc §3.2), which only holds if both call
+ * this same function.
  */
-function format(event: NotifyEvent): { title: string; message: string; clickCommand: string[] } {
+export function format(event: NotifyEvent): { title: string; message: string; clickCommand: string[] } {
   switch (event.kind) {
     case 'collision':
       return {
