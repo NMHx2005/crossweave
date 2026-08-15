@@ -150,6 +150,34 @@ export async function landAllInOrder(
   return { landed, failedAt: undefined };
 }
 
+/**
+ * Pure sequencing behind the y/n confirm prompt's "unregister the action
+ * layer, wait for a key, re-register it" flow — see `confirmDestructive`'s
+ * own doc comment in `run()` for WHY this ordering matters (a real
+ * @opentui/keymap + terminal race between the keymap's prepended listener
+ * and this prompt's own one-shot listener). Takes `unregisterLayer`/
+ * `registerLayer`/`waitForKey` as injected dependencies, mirroring
+ * `landAllInOrder`'s pattern above, so the CALL ORDER (unregister before
+ * waiting, register after any answer, including on an unexpected key or a
+ * rejected wait) is covered by a test that doesn't need a real renderer.
+ * This does not, and cannot without a live terminal, prove the underlying
+ * keymap race itself stays closed — only that a future refactor can't
+ * silently drop the unregister/re-register calls.
+ */
+export async function confirmWithLayerPaused(
+  unregisterLayer: () => void,
+  registerLayer: () => void,
+  waitForKey: () => Promise<{ name: string }>,
+): Promise<boolean> {
+  unregisterLayer();
+  try {
+    const key = await waitForKey();
+    return key.name === 'y';
+  } finally {
+    registerLayer();
+  }
+}
+
 function branchToSessionNameMap(sessions: SessionRow[]): Map<string, string> {
   const map = new Map<string, string>();
   for (const s of sessions) {
@@ -397,25 +425,66 @@ export const tuiCommand = defineCommand({
       // move focus off `sessionList` (brief: "a simple TextRenderable ... plus a
       // one-shot keypress listener, not a full modal component"). Without this
       // flag, e.g. pressing 'n' while a kill confirm is showing would ALSO open
-      // the new-session form — `preventDefault` on the matched binding does not
-      // stop a directly-attached `renderer.keyInput` listener (confirm's own,
-      // or `waitForQuit`'s) from receiving the same raw keypress, since that's
-      // just another EventEmitter subscriber, not something the keymap library
-      // can suppress. This flag is the actual guarantee, not event ordering.
+      // the new-session form. This is a SEPARATE problem from the keymap-vs-
+      // confirm race handled by `unregisterActionLayer` below — this flag
+      // guards against a SECOND action starting; that mechanism guards against
+      // the confirm's own y/n listener losing keys to the still-registered layer.
       let uiBusy = false;
+
+      // Assigned once the keymap layer is actually registered, further down —
+      // `confirmDestructive` only ever CALLS this at real keypress time (long
+      // after setup finishes), not at definition time, so forward-referencing
+      // it here through the closure is safe.
+      let unregisterActionLayer: () => void;
 
       function getSelectedSession(): SessionRow | undefined {
         return latestSessions[sessionList.getSelectedIndex()];
       }
 
-      /** One-shot y/n confirm, per design doc §5.4 — any key other than 'y' cancels. */
+      /**
+       * One-shot y/n confirm, per design doc §5.4 — any key other than 'y'
+       * cancels.
+       *
+       * Delegates the unregister/wait/re-register sequencing to
+       * `confirmWithLayerPaused` (see its own doc comment for the full
+       * mechanism). Unregistering the action-layer bindings (`k`/`g`/etc.)
+       * for the duration of the prompt is load-bearing, not defensive:
+       * `renderer.keyInput` is actually `InternalKeyHandler` (undeclared in
+       * @opentui/core's own .d.ts — confirmed by reading
+       * node_modules/@opentui/core/chunk-bun-*.js directly), whose `emit()`
+       * override iterates 'keypress' listeners one at a time and stops
+       * calling later ones the instant a listener sets
+       * `event.propagationStopped`. The keymap's own listener is prepended
+       * (`onKeyPress` uses `prependListener`), so it always runs before this
+       * function's `.once` listener — and it DOES call
+       * `event.stopPropagation()` for every one of this layer's 5 bindings,
+       * since a `cmd` handler returning `undefined` (all 5 of ours do) is
+       * treated as "handled" by `executeResolvedCommand`, regardless of
+       * whether the handler body itself no-ops via `uiBusy`. Without the
+       * unregister, pressing `n`/`l`/`shift+l`/`k`/`g` while a confirm is
+       * showing would be silently eaten by the keymap layer before this
+       * `.once` listener ever sees it — breaking "any other key cancels" for
+       * exactly the keys a user is likely to press next.
+       *
+       * `unregisterLayer` here is only ever reached from `killSelected`/
+       * `runGc`'s bindings, both deferred via `queueMicrotask` — never
+       * synchronously nested inside the keymap's own dispatch call stack for
+       * the keypress that triggered it, which the library's own docs warn
+       * against ("Structural re-entry is not supported. Do not register or
+       * unregister layers ... while a dispatch is in flight."). The
+       * re-register (in `confirmWithLayerPaused`'s `finally`, after
+       * `waitForKey`'s promise settles) runs even later, on its own
+       * microtask turn — safely clear of that same concern.
+       */
       function confirmDestructive(prompt: string): Promise<boolean> {
         setActionStatus(`${prompt} (y/n)`);
-        return new Promise<boolean>((resolve) => {
-          renderer.keyInput.once('keypress', (key: KeyEvent) => {
-            resolve(key.name === 'y');
-          });
-        });
+        return confirmWithLayerPaused(
+          () => unregisterActionLayer(),
+          () => {
+            unregisterActionLayer = registerActionLayer();
+          },
+          () => new Promise<KeyEvent>((resolve) => renderer.keyInput.once('keypress', resolve)),
+        );
       }
 
       async function openNewSessionForm(): Promise<void> {
@@ -571,7 +640,7 @@ export const tuiCommand = defineCommand({
       // against node_modules/@opentui/keymap/src/index.js — a bare keymap
       // throws "No keymap binding parsers are registered" for any string-keyed
       // binding, caught per-binding and turned into a silently-dropped
-      // 'binding-compile-error'). `createDefaultOpenTuiKeymap` registers
+      // 'binding-parse-error'). `createDefaultOpenTuiKeymap` registers
       // `registerDefaultKeys` first, which is what actually parses plain keys
       // like 'n'/'l'/'L'/'k'/'g'.
       //
@@ -582,23 +651,39 @@ export const tuiCommand = defineCommand({
       // target on every keypress, so moving focus off `sessionList` deactivates
       // the whole layer without any manual enable/disable bookkeeping.
       const keymap = createDefaultOpenTuiKeymap(renderer);
-      keymap.registerLayer({
-        target: sessionList,
-        targetMode: 'focus',
-        bindings: [
-          { key: 'n', cmd: () => void openNewSessionForm() },
-          { key: 'l', cmd: () => void landSelected() },
-          // Not 'L': this library's own key names are lowercase with a separate
-          // `shift` flag (confirmed against @opentui/core's own default Textarea
-          // bindings, e.g. `{ name: 'a', ctrl: true, shift: true }` for
-          // ctrl+shift+a) — `'L'` would compile to `{name:'L', shift:false}`,
-          // which a real capital-L keypress (`{name:'l', shift:true}`) never
-          // matches. `'shift+l'` is this library's spelling for "capital L".
-          { key: 'shift+l', cmd: () => void landAll() },
-          { key: 'k', cmd: () => void killSelected() },
-          { key: 'g', cmd: () => void runGc() },
-        ],
-      });
+      // Factored out (not an inline `keymap.registerLayer({...})` call) so
+      // `confirmDestructive` above can unregister and re-register it around a
+      // y/n confirm — see that function's own doc comment for why.
+      function registerActionLayer(): () => void {
+        return keymap.registerLayer({
+          target: sessionList,
+          targetMode: 'focus',
+          bindings: [
+            { key: 'n', cmd: () => void openNewSessionForm() },
+            { key: 'l', cmd: () => void landSelected() },
+            // Not 'L': this library's own key names are lowercase with a
+            // separate `shift` flag (confirmed against @opentui/core's own
+            // default Textarea bindings, e.g. `{ name: 'a', ctrl: true,
+            // shift: true }` for ctrl+shift+a) — `'L'` would compile to
+            // `{name:'L', shift:false}`, which a real capital-L keypress
+            // (`{name:'l', shift:true}`) never matches. `'shift+l'` is this
+            // library's spelling for "capital L".
+            { key: 'shift+l', cmd: () => void landAll() },
+            // Deferred via `queueMicrotask`, unlike the 3 bindings above:
+            // `killSelected`/`runGc` call `confirmDestructive`, which
+            // unregisters this very layer. Doing that synchronously here
+            // would be nested inside the keymap's own live dispatch call
+            // stack for this keypress (`handleKeyEvent` → `dispatchLayers` →
+            // `runBinding` → this `cmd`) — unsupported structural re-entry
+            // per the library's own docs. Deferring to a microtask runs it
+            // after that dispatch has fully unwound, still strictly before
+            // any later keypress (a macrotask) can arrive.
+            { key: 'k', cmd: () => { queueMicrotask(() => void killSelected()); } },
+            { key: 'g', cmd: () => { queueMicrotask(() => void runGc()); } },
+          ],
+        });
+      }
+      unregisterActionLayer = registerActionLayer();
 
       renderer.start();
 
