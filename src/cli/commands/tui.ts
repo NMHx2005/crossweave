@@ -1,5 +1,5 @@
 import { defineCommand } from 'citty';
-import { createCliRenderer, BoxRenderable } from '@opentui/core';
+import { createCliRenderer, BoxRenderable, CliRenderEvents } from '@opentui/core';
 import { findProjectRoot } from '../../core/paths.js';
 import { loadConfig } from '../../core/config.js';
 import { connectOrStart, type DaemonClient } from '../../client/rpc-client.js';
@@ -23,6 +23,36 @@ let latestSessions: SessionRow[] = [];
 let latestConvergeStatus: ConvergeStatus | null = null;
 let latestWorkspaceInfo: WorkspaceInfo | null = null;
 
+/**
+ * Duck-typed subset of `CliRenderer` this needs — narrow enough that a test can
+ * fake it without spinning up a real renderer (which needs a real TTY).
+ */
+interface QuitAwareRenderer {
+  on(event: string, listener: () => void): void;
+  keyInput: { on(event: 'keypress', listener: (key: { name: string }) => void): void };
+  destroy(): void;
+}
+
+/**
+ * Resolves once the renderer is actually destroyed — whether that's triggered by
+ * 'q' here or by the library's own signal-triggered `exitHandler` (SIGINT/SIGTERM/
+ * etc., see `createCliRenderer`'s call site) — never by `renderer.stop()`, which
+ * only clears internal timers/control-state and never restores the terminal
+ * (no `stdin.setRawMode(false)`, no alternate-screen teardown — verified against
+ * `node_modules/@opentui/core`'s actual `cleanupBeforeDestroy`/`finalizeDestroy`).
+ * Using the renderer's own 'destroy' event as the single completion signal means
+ * every path that ends in a real terminal restore also lets `run()` reach its
+ * `finally` and close the daemon connection, instead of only 'q' being able to.
+ */
+export function waitForQuit(renderer: QuitAwareRenderer): Promise<void> {
+  return new Promise<void>((resolve) => {
+    renderer.on(CliRenderEvents.DESTROY, () => resolve());
+    renderer.keyInput.on('keypress', (key) => {
+      if (key.name === 'q') renderer.destroy();
+    });
+  });
+}
+
 export const tuiCommand = defineCommand({
   meta: { name: 'tui', description: 'Live dashboard — sessions, radar, convergence, budget' },
   async run() {
@@ -31,14 +61,10 @@ export const tuiCommand = defineCommand({
     // lifetime, closing it only on quit. See plan Global Constraints.
     const projectRoot = findProjectRoot(process.cwd());
     loadConfig(projectRoot);
-    let client: DaemonClient;
+    let client: DaemonClient | undefined;
     try {
       client = await connectOrStart(projectRoot);
-    } catch (err) {
-      fail(err);
-    }
 
-    try {
       const ws = await client.call<WorkspaceInit>('workspace.init', {});
       // Subscribed before the initial fetch below so an invalidate broadcast that
       // lands mid-fetch is never missed — the panes added in Tasks 4-6 re-fetch on
@@ -54,7 +80,12 @@ export const tuiCommand = defineCommand({
       latestConvergeStatus = convergeStatus;
       latestWorkspaceInfo = workspaceInfo;
 
-      const renderer = await createCliRenderer({ exitOnCtrlC: false, exitSignals: [] });
+      // No `exitSignals` override: the library's own default (SIGINT/SIGTERM/SIGHUP/
+      // etc.) must stay wired up, or none of those signals ever restore the terminal
+      // — `renderer.destroy()` is the only thing that calls `stdin.setRawMode(false)`
+      // and tears down the alternate screen, and an empty `exitSignals` array disables
+      // the library's own signal-triggered call to it entirely.
+      const renderer = await createCliRenderer({ exitOnCtrlC: false });
       const root = new BoxRenderable(renderer, {
         id: 'root',
         width: '100%',
@@ -66,16 +97,11 @@ export const tuiCommand = defineCommand({
       renderer.root.add(root);
       renderer.start();
 
-      await new Promise<void>((resolve) => {
-        renderer.keyInput.on('keypress', (key) => {
-          if (key.name === 'q') {
-            renderer.stop();
-            resolve();
-          }
-        });
-      });
+      await waitForQuit(renderer);
+    } catch (err) {
+      fail(err);
     } finally {
-      client.close();
+      client?.close();
     }
   },
 });
