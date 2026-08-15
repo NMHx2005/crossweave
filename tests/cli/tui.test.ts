@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { waitForQuit, buildActionLayerBindings } from '../../src/cli/commands/tui.js';
+import { waitForQuit, buildActionLayerBindings, destroyRendererBeforeReporting } from '../../src/cli/commands/tui.js';
 
 /**
  * A fake `CliRenderer` narrow enough to match `waitForQuit`'s `QuitAwareRenderer`
@@ -94,5 +94,53 @@ describe('buildActionLayerBindings — q (quit)', () => {
     expect(typeof q!.cmd).toBe('function');
     (q!.cmd as () => void)();
     expect(destroyed).toBe(true);
+  });
+});
+
+/**
+ * Important 4 regression guard: a synchronous throw during renderer setup used to
+ * reach `catch (err) { fail(err) }` with the renderer cleanup living in `finally` —
+ * dead code, since `fail()` calls `process.exit()`, which terminates the process
+ * before any pending `finally` block runs (confirmed empirically against this
+ * repo's real Bun runtime, not just theorized). `destroyRendererBeforeReporting`
+ * is `run()`'s `catch` block extracted so this ORDER (destroy, then report) is
+ * provable without a real renderer/TTY or an actual `process.exit()` call — the
+ * fake `report` below stands in for `fail`, and if destroy ran AFTER report in a
+ * future regression, this test would still catch it (report's own callback
+ * records call order, not just call count).
+ */
+describe('destroyRendererBeforeReporting', () => {
+  it('destroys the renderer BEFORE reporting the error', () => {
+    const calls: string[] = [];
+    const renderer = { destroy: () => calls.push('destroy') };
+    const err = new Error('setup exploded');
+    let reportedErr: unknown;
+    const report = (e: unknown) => {
+      calls.push('report');
+      reportedErr = e;
+    };
+    destroyRendererBeforeReporting(renderer, err, report);
+    expect(calls).toEqual(['destroy', 'report']);
+    expect(reportedErr).toBe(err);
+  });
+
+  it('reports the error without throwing when the renderer is undefined (setup failed before it was ever assigned)', () => {
+    const calls: string[] = [];
+    const err = new Error('setup exploded before createCliRenderer resolved');
+    const report = () => calls.push('report');
+    expect(() => destroyRendererBeforeReporting(undefined, err, report)).not.toThrow();
+    expect(calls).toEqual(['report']);
+  });
+
+  it('propagates if destroy() itself throws, skipping report — documents the behavior rather than hiding it; real CliRenderer.destroy() is confirmed idempotent/non-throwing (see waitForQuit\'s doc comment), so this path is not expected to occur in practice', () => {
+    const calls: string[] = [];
+    const renderer = {
+      destroy: () => {
+        throw new Error('destroy exploded');
+      },
+    };
+    const report = () => calls.push('report');
+    expect(() => destroyRendererBeforeReporting(renderer, new Error('x'), report)).toThrow('destroy exploded');
+    expect(calls).toEqual([]);
   });
 });

@@ -244,6 +244,30 @@ export function buildActionLayerBindings(actions: ActionLayerActions): Binding<R
 }
 
 /**
+ * The `run()` `catch` block's cleanup-then-report sequencing (Important 4 fix) —
+ * extracted so a test can assert the ORDER without a real renderer/TTY. `report`
+ * stands in for `fail()` (src/cli/context.ts), which calls `process.exit()` —
+ * and `process.exit()` terminates the process immediately, before any pending
+ * `finally` block runs (confirmed empirically in this repo's Bun 1.3.14). That is
+ * exactly why this cleanup must happen in `catch`, BEFORE calling `report`, and
+ * not in `finally`: anything after `report` in this same function, `finally`
+ * included, is unreachable on the real `fail()` path. `renderer` is optional and
+ * a plain `{ destroy(): void }` (not the full `CliRenderer`) so a test can inject
+ * a fake — covers both "renderer setup never got far enough to be assigned"
+ * (`undefined`, `?.destroy()` no-ops) and "already destroyed via some other path"
+ * (idempotent, per `CliRenderer.destroy()`'s own `_isDestroyed` guard — see
+ * `waitForQuit`'s doc comment above).
+ */
+export function destroyRendererBeforeReporting(
+  renderer: { destroy(): void } | undefined,
+  err: unknown,
+  report: (err: unknown) => void,
+): void {
+  renderer?.destroy();
+  report(err);
+}
+
+/**
  * Determines how to re-invoke this same `cw` process as a child (for `session
  * attach`) — verified against real `process.argv`/`process.execPath` output
  * in both run modes (see task-8-report.md's "Step 1 observations" for the
@@ -373,19 +397,24 @@ export const tuiCommand = defineCommand({
     const projectRoot = findProjectRoot(process.cwd());
     loadConfig(projectRoot);
     let client: DaemonClient | undefined;
-    // Hoisted so `finally` below can reach it (Important 4 fix): any synchronous
-    // throw between `createCliRenderer()` returning and `waitForQuit` being reached
-    // — the ~90 lines of `BoxRenderable`/`SelectRenderable`/`TextRenderable`
-    // construction and `keymap.registerLayer` calls in between — used to propagate
-    // straight to `catch (err) { fail(err) }`, and `fail()` calls `process.exit(1)`
-    // with the terminal still in raw mode and the alternate screen still active,
-    // leaving the user's shell broken with no explanation. This is a SEPARATE
-    // binding from the `const renderer` created inside `try` below (which every
-    // other closure in this function keeps using unchanged) — it exists purely so
-    // `finally` has a reference to call `.destroy()` on, idempotent-safe whether or
-    // not `q`/a signal already destroyed it (confirmed against
-    // node_modules/@opentui/core's actual `CliRenderer.destroy()`: it no-ops if
-    // `_isDestroyed` is already true).
+    // Hoisted so the `catch` block below can reach it (Important 4 fix): any
+    // synchronous throw between `createCliRenderer()` returning and `waitForQuit`
+    // being reached — the ~90 lines of `BoxRenderable`/`SelectRenderable`/
+    // `TextRenderable` construction and `keymap.registerLayer` calls in between —
+    // used to propagate straight to `catch (err) { fail(err) }`, and `fail()` calls
+    // `process.exit(1)` with the terminal still in raw mode and the alternate screen
+    // still active, leaving the user's shell broken with no explanation. This is a
+    // SEPARATE binding from the `const renderer` created inside `try` below (which
+    // every other closure in this function keeps using unchanged) — it exists purely
+    // so `catch` has a reference to call `.destroy()` on BEFORE calling `fail(err)`,
+    // not in `finally`: `process.exit()` terminates the process immediately, before
+    // any pending `finally` block runs (confirmed empirically in this repo's Bun
+    // 1.3.14 — a `finally` after a `process.exit()` call never executes), so a
+    // `finally`-only cleanup would be dead code on exactly this path. `.destroy()` is
+    // idempotent-safe whether or not `q`/a signal already destroyed it (confirmed
+    // against node_modules/@opentui/core's actual `CliRenderer.destroy()`: it no-ops
+    // if `_isDestroyed` is already true), and safe if renderer setup never got far
+    // enough to assign it (stays `undefined`, `?.destroy()` no-ops).
     let rendererForCleanup: CliRenderer | undefined;
     try {
       client = await connectOrStart(projectRoot);
@@ -870,9 +899,27 @@ export const tuiCommand = defineCommand({
 
       await waitForQuit(renderer);
     } catch (err) {
-      fail(err);
+      // Renderer cleanup MUST happen here, before `fail(err)` — not in `finally`.
+      // `fail()` (src/cli/context.ts) calls `process.exit(1)`, and `process.exit()`
+      // terminates the process immediately, before any pending `finally` block runs
+      // (confirmed empirically in this repo's Bun 1.3.14: a `try { throw } catch {
+      // process.exit(1) } finally { ... }` never executes the `finally` body). A
+      // `rendererForCleanup?.destroy()` in `finally` was therefore dead code on
+      // exactly the path Important 4 (final review) was about — a synchronous throw
+      // during renderer setup still left the terminal in raw mode with the alternate
+      // screen active. `?.destroy()` stays a safe no-op if `renderer` was never
+      // assigned (setup failed before `createCliRenderer` returned) or if it was
+      // already destroyed via some other path (idempotent — see `waitForQuit`'s doc
+      // comment on `CliRenderer.destroy()`'s `_isDestroyed` guard). Delegated to
+      // `destroyRendererBeforeReporting` (top of file) purely so the ORDER (destroy
+      // before report) is covered by a test that doesn't need a real renderer/TTY.
+      destroyRendererBeforeReporting(rendererForCleanup, err, fail);
     } finally {
-      rendererForCleanup?.destroy();
+      // `client?.close()` is, today, ALSO unreachable on this same catch path (`fail`
+      // exits before `finally` runs) — but that's harmless and pre-existing: process
+      // exit closes the socket anyway. Left in `finally` rather than moved, since the
+      // normal (non-throwing) quit path still relies on `finally` to close it after
+      // `waitForQuit` resolves.
       client?.close();
     }
   },
