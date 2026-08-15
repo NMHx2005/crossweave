@@ -18,6 +18,9 @@
       },
     },
   },
+  "patchedDependencies": {
+    "web-tree-sitter@0.26.12": "patches/web-tree-sitter@0.26.12.patch",
+  },
   "packages": {
     "@agentclientprotocol/sdk": ["@agentclientprotocol/sdk@1.3.0", "", { "peerDependencies": { "zod": "^3.25.0 || ^4.0.0" } }, "sha512-i3h/efaeuMUFAO1HSfo97QZQnnvMd7wWBYtBsdL6UMZg3a78sk3Ffya5Xu7C7tYsXomXoDXJBAzQF2PcFKAhIQ=="],
 
