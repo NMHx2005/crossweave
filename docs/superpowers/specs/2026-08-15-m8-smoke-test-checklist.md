@@ -52,7 +52,7 @@
 - [ ] **Tab/Enter moves to agent**: Press Enter; focus moves to the agent field (default value is `claude`).
 - [ ] **Escape cancels**: Press Escape in either field. The form closes without creating a session.
 - [ ] **Enter creates session**: In the agent field, enter a valid agent name (e.g., `claude`) and press Enter. The new session is created; the form closes.
-- [ ] **Typed characters reach form**: While in the name/agent fields, typed characters (including letters that are also keybindings: `l`, `k`, `n`, `g`) are sent to the input field, not interpreted as commands.
+- [ ] **Typed characters reach form**: While in the name/agent fields, typed characters (including letters that are also keybindings: `l`, `x`, `n`, `g`, `q`) are sent to the input field, not interpreted as commands.
 - [ ] **Invalid input rejected**: If name or agent field is empty, press Enter; a status message appears (e.g., `name required`), and the form stays open. Try entering a valid name and proceeding.
 
 ### Key: `l` (Land Selected Session)
@@ -65,17 +65,19 @@
 - [ ] **Stops at first failure**: If one session fails to land, the message shows which sessions landed and which one it stopped at (e.g., `landed alice, bob; failed at charlie: <reason>`).
 - [ ] **All success case**: If all sessions land, the message lists all of them and no `failed at` clause.
 
-### Key: `k` (Kill Selected Session)
-- [ ] **Confirm prompt appears**: Press `k` with a session selected. The status line changes to `kill <name>? (y/n)`.
+### Key: `x` (Kill Selected Session)
+- [ ] **`x`, not `k`**: rebound in the final-review fix wave — `@opentui/core`'s `SelectRenderable` ships its own default `k` → move-up binding (alongside `j` → move-down), which the old `k` kill binding silently shadowed (vim-style "move up" never worked; `k` opened a kill confirm instead, risking an accidental kill from reflexive `y` muscle memory). Confirm arrow-key/`j`/`k` navigation all move the selection normally, with `k` moving up (not opening a confirm).
+- [ ] **Confirm prompt appears**: Press `x` with a session selected. The status line changes to `kill <name>? (y/n)`.
 - [ ] **y confirms**: Press `y`. The session is killed; status changes to `killed <name>`.
-- [ ] **Any other key cancels**: Press `k`, then press `n` (or any key except `y`). The prompt disappears; the session is **not** killed.
-- [ ] **Other keybindings blocked during confirm**: Press `k` for a confirm, then quickly press `n` (new session), `l` (land), or `g` (gc). The confirm prompt stays and waits for `y`/`n`; the other key does **not** fire until the confirm is answered. (This was the race-condition bug found in Task 7's review.)
+- [ ] **Any other key cancels**: Press `x`, then press `n` (or any key except `y`, including `q`). The prompt disappears; the session is **not** killed (and the TUI does **not** quit).
+- [ ] **Other keybindings blocked during confirm**: Press `x` for a confirm, then quickly press `n` (new session), `l` (land), `g` (gc), or `q` (quit). The confirm prompt stays and waits for `y`/`n`; the other key does **not** fire until the confirm is answered. (This was the race-condition bug found in Task 7's review; `q` joined this same protection in the final-review fix wave — see the Quit section below.)
 
 ### Key: `g` (Garbage Collection)
 - [ ] **Confirm prompt appears**: Press `g`. The status line changes to `run gc? (y/n)`.
 - [ ] **y confirms**: Press `y`. Garbage collection runs (old worktrees deleted); status changes to `gc complete`.
 - [ ] **Any other key cancels**: Press `g`, then press `n`. The prompt disappears; gc does **not** run.
-- [ ] **Confirm blocks other keys**: Same as `k` — pressing `g` for confirm, then `l` quickly should **not** land a session until you answer the `y`/`n` prompt.
+- [ ] **Confirm blocks other keys**: Same as `x` — pressing `g` for confirm, then `l` quickly should **not** land a session until you answer the `y`/`n` prompt.
+- [ ] **Dashboard refreshes after gc**: After a `g` gc completes, the session list, convergence matrix, and disk figure in the status bar all update to reflect anything gc removed — no manual refresh or restart needed.
 
 ---
 
@@ -108,6 +110,8 @@
 - [ ] **q exits cleanly**: Run `cw tui`, then press `q`. The TUI exits; the shell prompt returns.
 - [ ] **Terminal restored**: After quitting, the terminal is in normal mode (raw mode off, alternate screen gone, echo on).
 - [ ] **Daemon connection closed**: No orphaned daemon processes are left behind.
+- [ ] **q does not fire on ordinary text** (Critical 1 fix): `q` is now part of the same focus-scoped action layer as `n`/`l`/`shift+l`/`x`/`g`, not a separate global raw listener. Press `n` to open the new-session form and type a name containing "q" (e.g. `query-api`) into the name/agent fields — the TUI must **not** quit; the letter reaches the input field like any other. Escape out of the form afterward.
+- [ ] **q does not fire during a confirm**: Press `x` (or `g`) to open a y/n confirm, then press `q`. The confirm must be **cancelled** (same as any non-`y` key), and the TUI must **not** quit. Quit only fires on the next `q` press after the confirm is answered.
 
 ### Terminal Resize
 - [ ] **Resize while TUI is running**: Run `cw tui`, then resize the terminal window (e.g., drag the terminal window corner or use `stty rows N cols M`).
@@ -131,7 +135,7 @@
 - [ ] **No sessions yet**: Create a workspace and run `cw tui` without creating any sessions. The session list is empty; status bar shows `0 sessions`. Other panes show appropriate empty states.
 - [ ] **Session list changes mid-run**: In the TUI, open a second terminal and run `cw session new other`. The session list in the TUI updates within a few seconds (via `tui.invalidate` broadcast).
 - [ ] **Workspace deleted mid-run**: In a second terminal, run `cw workspace delete <current-workspace-name>` while the TUI is open. The TUI catches the error (e.g., workspace not found on next refresh) and reports it on the status line; does not crash.
-- [ ] **Daemon restarts mid-run**: Stop the daemon from another terminal (`cw daemon stop`). The next command in the TUI that needs the daemon (e.g., landing, gc) reconnects and/or re-launches the daemon. Does not hang.
+- [ ] **Daemon dies mid-run** (corrected in the final-review fix wave — the item previously here claimed an automatic reconnect that does not exist in this codebase): Stop the daemon from another terminal (`cw daemon stop`, or kill it). There is **no** automatic reconnect or daemon re-launch. The action-status line shows `daemon connection lost — press q to exit` (via `conn.onClose`) as soon as the connection drops. Any action attempted afterward (`l`, `x`, `g`, etc.) fails fast with its own error on the status line, same as any other RPC failure. Panes stop updating (no more `tui.invalidate`/`tui.event` can arrive). Does not hang. The user must press `q` to quit and re-run `cw tui` to reconnect — `cw tui` itself has no retry loop.
 
 ---
 

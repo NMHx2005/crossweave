@@ -10,9 +10,11 @@ import {
   TextRenderable,
   type CliRenderer,
   type KeyEvent,
+  type Renderable,
   type SelectOption,
 } from '@opentui/core';
 import { createDefaultOpenTuiKeymap } from '@opentui/keymap/opentui';
+import type { Binding } from '@opentui/keymap';
 import { findProjectRoot } from '../../core/paths.js';
 import { loadConfig } from '../../core/config.js';
 import { connectOrStart, type DaemonClient } from '../../client/rpc-client.js';
@@ -180,6 +182,67 @@ export async function confirmWithLayerPaused(
   }
 }
 
+/** Injected actions behind {@link buildActionLayerBindings} — one per key binding. */
+export interface ActionLayerActions {
+  newSession: () => void;
+  land: () => void;
+  landAll: () => void;
+  kill: () => void;
+  gc: () => void;
+  quit: () => void;
+}
+
+/**
+ * Builds the action layer's key bindings — factored out of `registerActionLayer`
+ * (in `run()`) purely so a test can assert on the array directly (see
+ * tests/cli/tui.test.ts) without a live keymap/renderer, mirroring
+ * `confirmWithLayerPaused`'s injected-dependencies pattern above.
+ *
+ * `q` (quit) is deliberately in THIS SAME array as the other 5 keys (Critical 1
+ * fix): `registerActionLayer` scopes the whole array to `sessionList`'s focus via
+ * `targetMode: 'focus'`, so `q` now inherits the exact same scoping (inert while
+ * the new-session form has focus) and the exact same unregister/re-register-
+ * around-a-confirm behavior `confirmDestructive` already provides for the other
+ * 5 — instead of running as a separate, unscoped raw keypress listener that used
+ * to fire even while a form field or a y/n confirm had the user's attention (e.g.
+ * typing a session name containing "q", like `query-api`, used to instantly quit).
+ *
+ * `x`, not `k` (Important 6 fix): `@opentui/core`'s `SelectRenderable` ships its
+ * own default `k` → move-up binding (confirmed against
+ * node_modules/@opentui/core's `defaultSelectKeybindings`, alongside `j` →
+ * move-down, already relied on above). This layer's `k` ran first and stopped
+ * propagation, so vim-style up-navigation was silently dead — worse, it opened a
+ * kill confirmation instead, which a reflexive `y` (muscle memory for "yes, go
+ * up") could turn into an actual accidental session kill, undermining the
+ * destructive-confirmation requirement (design doc §5.4) even though a confirm
+ * prompt was technically still shown. `x` is confirmed (same source) not to
+ * collide with `defaultSelectKeybindings` or any other key this layer/app uses.
+ */
+export function buildActionLayerBindings(actions: ActionLayerActions): Binding<Renderable, KeyEvent>[] {
+  return [
+    { key: 'n', cmd: actions.newSession },
+    { key: 'l', cmd: actions.land },
+    // Not 'L': this library's own key names are lowercase with a separate
+    // `shift` flag (confirmed against @opentui/core's own default Textarea
+    // bindings, e.g. `{ name: 'a', ctrl: true, shift: true }` for
+    // ctrl+shift+a) — `'L'` would compile to `{name:'L', shift:false}`, which
+    // a real capital-L keypress (`{name:'l', shift:true}`) never matches.
+    // `'shift+l'` is this library's spelling for "capital L".
+    { key: 'shift+l', cmd: actions.landAll },
+    // Deferred via `queueMicrotask`, unlike the 3 bindings above: `kill`/`gc`
+    // call `confirmDestructive`, which unregisters this very layer. Doing that
+    // synchronously here would be nested inside the keymap's own live dispatch
+    // call stack for this keypress (`handleKeyEvent` → `dispatchLayers` →
+    // `runBinding` → this `cmd`) — unsupported structural re-entry per the
+    // library's own docs. Deferring to a microtask runs it after that dispatch
+    // has fully unwound, still strictly before any later keypress (a
+    // macrotask) can arrive.
+    { key: 'x', cmd: () => { queueMicrotask(actions.kill); } },
+    { key: 'g', cmd: () => { queueMicrotask(actions.gc); } },
+    { key: 'q', cmd: actions.quit },
+  ];
+}
+
 /**
  * Determines how to re-invoke this same `cw` process as a child (for `session
  * attach`) — verified against real `process.argv`/`process.execPath` output
@@ -274,27 +337,30 @@ function sessionsToOptions(sessions: SessionRow[]): SelectOption[] {
  */
 interface QuitAwareRenderer {
   on(event: string, listener: () => void): void;
-  keyInput: { on(event: 'keypress', listener: (key: { name: string }) => void): void };
-  destroy(): void;
 }
 
 /**
  * Resolves once the renderer is actually destroyed — whether that's triggered by
- * 'q' here or by the library's own signal-triggered `exitHandler` (SIGINT/SIGTERM/
- * etc., see `createCliRenderer`'s call site) — never by `renderer.stop()`, which
- * only clears internal timers/control-state and never restores the terminal
- * (no `stdin.setRawMode(false)`, no alternate-screen teardown — verified against
+ * the `q` keymap binding (see `buildActionLayerBindings` above — Critical 1 fix:
+ * `q` used to be a raw, unscoped `keyInput.on('keypress', ...)` listener registered
+ * directly by THIS function, which is what let it quit the whole TUI on an ordinary
+ * "q" keystroke typed into the new-session form or a y/n confirm; it is now just
+ * another binding in the same focus-scoped action layer as n/l/shift+l/x/g, subject
+ * to the identical scoping and the identical pause-during-confirm behavior) or by
+ * the library's own signal-triggered `exitHandler` (SIGINT/SIGTERM/etc., see
+ * `createCliRenderer`'s call site) — never by `renderer.stop()`, which only clears
+ * internal timers/control-state and never restores the terminal (no
+ * `stdin.setRawMode(false)`, no alternate-screen teardown — verified against
  * `node_modules/@opentui/core`'s actual `cleanupBeforeDestroy`/`finalizeDestroy`).
  * Using the renderer's own 'destroy' event as the single completion signal means
  * every path that ends in a real terminal restore also lets `run()` reach its
  * `finally` and close the daemon connection, instead of only 'q' being able to.
+ * This function no longer listens for keypresses itself — quitting is now entirely
+ * the keymap binding's job, same as every other action in this file.
  */
 export function waitForQuit(renderer: QuitAwareRenderer): Promise<void> {
   return new Promise<void>((resolve) => {
     renderer.on(CliRenderEvents.DESTROY, () => resolve());
-    renderer.keyInput.on('keypress', (key) => {
-      if (key.name === 'q') renderer.destroy();
-    });
   });
 }
 
@@ -307,6 +373,20 @@ export const tuiCommand = defineCommand({
     const projectRoot = findProjectRoot(process.cwd());
     loadConfig(projectRoot);
     let client: DaemonClient | undefined;
+    // Hoisted so `finally` below can reach it (Important 4 fix): any synchronous
+    // throw between `createCliRenderer()` returning and `waitForQuit` being reached
+    // — the ~90 lines of `BoxRenderable`/`SelectRenderable`/`TextRenderable`
+    // construction and `keymap.registerLayer` calls in between — used to propagate
+    // straight to `catch (err) { fail(err) }`, and `fail()` calls `process.exit(1)`
+    // with the terminal still in raw mode and the alternate screen still active,
+    // leaving the user's shell broken with no explanation. This is a SEPARATE
+    // binding from the `const renderer` created inside `try` below (which every
+    // other closure in this function keeps using unchanged) — it exists purely so
+    // `finally` has a reference to call `.destroy()` on, idempotent-safe whether or
+    // not `q`/a signal already destroyed it (confirmed against
+    // node_modules/@opentui/core's actual `CliRenderer.destroy()`: it no-ops if
+    // `_isDestroyed` is already true).
+    let rendererForCleanup: CliRenderer | undefined;
     try {
       client = await connectOrStart(projectRoot);
       // Narrowed, non-optional binding: `refresh` below is a nested function, and TS
@@ -385,6 +465,7 @@ export const tuiCommand = defineCommand({
       // and tears down the alternate screen, and an empty `exitSignals` array disables
       // the library's own signal-triggered call to it entirely.
       const renderer = await createCliRenderer({ exitOnCtrlC: false });
+      rendererForCleanup = renderer;
       const root = new BoxRenderable(renderer, {
         id: 'root',
         width: '100%',
@@ -477,6 +558,18 @@ export const tuiCommand = defineCommand({
         actionStatusPane.content = text;
       }
 
+      // Important 5 fix: without this, a dropped daemon connection (daemon crash,
+      // `cw daemon stop` from another terminal) was invisible — RPC calls fail fast
+      // per-action (already surfaced via `setActionStatus` in each action's own
+      // catch), but the panes themselves keep showing stale pre-death data forever,
+      // since no further `tui.invalidate`/`tui.event` can ever arrive. `conn.onClose`
+      // (src/client/rpc-client.ts) fires exactly once, whether the connection died
+      // from a socket 'error', 'close', or 'end' — this is deliberately the only
+      // reconnect-adjacent behavior this command has; there is no actual reconnect
+      // logic, the user must quit (`q` still works — the daemon connection dying
+      // doesn't affect the renderer) and re-run `cw tui`.
+      conn.onClose(() => setActionStatus('daemon connection lost — press q to exit'));
+
       // Guards every action below against re-entrancy: a keymap binding stays
       // "active" (still matched against `sessionList`'s focus) for the whole
       // duration of a y/n confirm, since the confirm prompt deliberately doesn't
@@ -505,7 +598,7 @@ export const tuiCommand = defineCommand({
        *
        * Delegates the unregister/wait/re-register sequencing to
        * `confirmWithLayerPaused` (see its own doc comment for the full
-       * mechanism). Unregistering the action-layer bindings (`k`/`g`/etc.)
+       * mechanism). Unregistering the action-layer bindings (`x`/`g`/etc.)
        * for the duration of the prompt is load-bearing, not defensive:
        * `renderer.keyInput` is actually `InternalKeyHandler` (undeclared in
        * @opentui/core's own .d.ts — confirmed by reading
@@ -515,14 +608,21 @@ export const tuiCommand = defineCommand({
        * `event.propagationStopped`. The keymap's own listener is prepended
        * (`onKeyPress` uses `prependListener`), so it always runs before this
        * function's `.once` listener — and it DOES call
-       * `event.stopPropagation()` for every one of this layer's 5 bindings,
-       * since a `cmd` handler returning `undefined` (all 5 of ours do) is
+       * `event.stopPropagation()` for every one of this layer's 6 bindings,
+       * since a `cmd` handler returning `undefined` (all 6 of ours do) is
        * treated as "handled" by `executeResolvedCommand`, regardless of
        * whether the handler body itself no-ops via `uiBusy`. Without the
-       * unregister, pressing `n`/`l`/`shift+l`/`k`/`g` while a confirm is
+       * unregister, pressing `n`/`l`/`shift+l`/`x`/`g`/`q` while a confirm is
        * showing would be silently eaten by the keymap layer before this
        * `.once` listener ever sees it — breaking "any other key cancels" for
        * exactly the keys a user is likely to press next.
+       *
+       * `q` is one of the 6 (Critical 1 fix), so it is unregistered here too:
+       * pressing `q` while a confirm is showing does NOT quit — the layer's `q`
+       * binding is gone for the duration, so the keypress instead reaches this
+       * function's own `.once` listener below, which treats any non-'y' key
+       * (including 'q') as "cancel". Quit only actually fires the next time `q`
+       * is pressed after the layer is re-registered.
        *
        * `unregisterLayer` here is only ever reached from `killSelected`/
        * `runGc`'s bindings, both deferred via `queueMicrotask` — never
@@ -704,7 +804,7 @@ export const tuiCommand = defineCommand({
        * built-in `return`/`linefeed` key handling, confirmed against
        * node_modules/@opentui/core's actual `SelectRenderable.selectCurrent`),
        * not a new keymap binding: `return` doesn't collide with any of the
-       * keymap layer's own keys ('n'/'l'/'shift+l'/'k'/'g') below, so no
+       * keymap layer's own keys ('n'/'l'/'shift+l'/'x'/'g'/'q') below, so no
        * unregister/re-register dance is needed here the way `confirmDestructive`
        * needs one for its y/n prompt.
        */
@@ -734,45 +834,34 @@ export const tuiCommand = defineCommand({
       // binding, caught per-binding and turned into a silently-dropped
       // 'binding-parse-error'). `createDefaultOpenTuiKeymap` registers
       // `registerDefaultKeys` first, which is what actually parses plain keys
-      // like 'n'/'l'/'L'/'k'/'g'.
+      // like 'n'/'l'/'L'/'x'/'g'/'q'.
       //
       // Scoped to `sessionList`'s own focus (targetMode: 'focus'), not a global
-      // layer: this is what keeps these 5 keys from firing while the new-session
+      // layer: this is what keeps these 6 keys from firing while the new-session
       // form has focus (letters typed into the name/agent fields must reach the
       // `InputRenderable`s, not this layer) — the keymap re-checks the focused
       // target on every keypress, so moving focus off `sessionList` deactivates
-      // the whole layer without any manual enable/disable bookkeeping.
+      // the whole layer without any manual enable/disable bookkeeping. `q` is
+      // part of this same layer (Critical 1 fix) specifically to inherit this
+      // scoping — see `buildActionLayerBindings`'s own doc comment.
       const keymap = createDefaultOpenTuiKeymap(renderer);
       // Factored out (not an inline `keymap.registerLayer({...})` call) so
       // `confirmDestructive` above can unregister and re-register it around a
-      // y/n confirm — see that function's own doc comment for why.
+      // y/n confirm — see that function's own doc comment for why. The actual
+      // bindings array comes from `buildActionLayerBindings` (top of file), kept
+      // separate so it's testable without a live keymap/renderer.
       function registerActionLayer(): () => void {
         return keymap.registerLayer({
           target: sessionList,
           targetMode: 'focus',
-          bindings: [
-            { key: 'n', cmd: () => void openNewSessionForm() },
-            { key: 'l', cmd: () => void landSelected() },
-            // Not 'L': this library's own key names are lowercase with a
-            // separate `shift` flag (confirmed against @opentui/core's own
-            // default Textarea bindings, e.g. `{ name: 'a', ctrl: true,
-            // shift: true }` for ctrl+shift+a) — `'L'` would compile to
-            // `{name:'L', shift:false}`, which a real capital-L keypress
-            // (`{name:'l', shift:true}`) never matches. `'shift+l'` is this
-            // library's spelling for "capital L".
-            { key: 'shift+l', cmd: () => void landAll() },
-            // Deferred via `queueMicrotask`, unlike the 3 bindings above:
-            // `killSelected`/`runGc` call `confirmDestructive`, which
-            // unregisters this very layer. Doing that synchronously here
-            // would be nested inside the keymap's own live dispatch call
-            // stack for this keypress (`handleKeyEvent` → `dispatchLayers` →
-            // `runBinding` → this `cmd`) — unsupported structural re-entry
-            // per the library's own docs. Deferring to a microtask runs it
-            // after that dispatch has fully unwound, still strictly before
-            // any later keypress (a macrotask) can arrive.
-            { key: 'k', cmd: () => { queueMicrotask(() => void killSelected()); } },
-            { key: 'g', cmd: () => { queueMicrotask(() => void runGc()); } },
-          ],
+          bindings: buildActionLayerBindings({
+            newSession: () => void openNewSessionForm(),
+            land: () => void landSelected(),
+            landAll: () => void landAll(),
+            kill: () => void killSelected(),
+            gc: () => void runGc(),
+            quit: () => renderer.destroy(),
+          }),
         });
       }
       unregisterActionLayer = registerActionLayer();
@@ -783,6 +872,7 @@ export const tuiCommand = defineCommand({
     } catch (err) {
       fail(err);
     } finally {
+      rendererForCleanup?.destroy();
       client?.close();
     }
   },
