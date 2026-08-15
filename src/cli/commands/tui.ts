@@ -1,5 +1,12 @@
 import { defineCommand } from 'citty';
-import { createCliRenderer, BoxRenderable, CliRenderEvents } from '@opentui/core';
+import {
+  createCliRenderer,
+  BoxRenderable,
+  CliRenderEvents,
+  SelectRenderable,
+  TextRenderable,
+  type SelectOption,
+} from '@opentui/core';
 import { findProjectRoot } from '../../core/paths.js';
 import { loadConfig } from '../../core/config.js';
 import { connectOrStart, type DaemonClient } from '../../client/rpc-client.js';
@@ -22,6 +29,42 @@ interface ConvergeStatus {
 let latestSessions: SessionRow[] = [];
 let latestConvergeStatus: ConvergeStatus | null = null;
 let latestWorkspaceInfo: WorkspaceInfo | null = null;
+
+/**
+ * Pure data → string formatting, kept separate from the OpenTUI wiring below so it
+ * is unit-testable without a real terminal (see tests/cli/tui-panes.test.ts).
+ *
+ * Dot mapping follows the same live/idle/terminal grouping already used elsewhere
+ * in the domain layer (src/domain/bus.ts groups 'running'+'waiting' as live;
+ * src/domain/gc.ts and src/domain/session.ts group 'dead'+'landed' as terminal),
+ * not an invented one.
+ */
+export function formatSessionRow(row: SessionRow): { text: string; dot: '●' | '○' | '✕' } {
+  const dot: '●' | '○' | '✕' =
+    row.status === 'running' || row.status === 'waiting' ? '●' :
+    row.status === 'dead' || row.status === 'landed' ? '✕' : '○';
+  const text = `${row.name}  ${row.status}  ${row.enforcementTier}  $${row.costSpentUsd.toFixed(2)}`;
+  return { text, dot };
+}
+
+/**
+ * `WorkspaceInfo` (src/domain/workspace.ts) is `{ workspace: WorkspaceRow, sessions:
+ * SessionRow[] }` — there is no disk-usage field anywhere on `WorkspaceRow`, so this
+ * only aggregates what `workspace.info`/`session.list` actually return: name,
+ * session count, total burn.
+ */
+export function formatStatusBar(ws: { name: string }, sessions: SessionRow[]): string {
+  const totalCost = sessions.reduce((sum, s) => sum + s.costSpentUsd, 0);
+  const count = sessions.length;
+  return `${ws.name}  |  ${count} session${count === 1 ? '' : 's'}  |  $${totalCost.toFixed(2)} spent`;
+}
+
+function sessionsToOptions(sessions: SessionRow[]): SelectOption[] {
+  return sessions.map((row) => {
+    const { text, dot } = formatSessionRow(row);
+    return { name: `${dot} ${text}`, description: row.branch ?? row.worktreePath ?? row.id, value: row.id };
+  });
+}
 
 /**
  * Duck-typed subset of `CliRenderer` this needs — narrow enough that a test can
@@ -64,21 +107,44 @@ export const tuiCommand = defineCommand({
     let client: DaemonClient | undefined;
     try {
       client = await connectOrStart(projectRoot);
+      // Narrowed, non-optional binding: `refresh` below is a nested function, and TS
+      // does not carry the `client is DaemonClient` narrowing from the assignment
+      // above across a closure boundary.
+      const conn = client;
 
-      const ws = await client.call<WorkspaceInit>('workspace.init', {});
-      // Subscribed before the initial fetch below so an invalidate broadcast that
-      // lands mid-fetch is never missed — the panes added in Tasks 4-6 re-fetch on
-      // 'tui.invalidate' via client.onNotification.
-      await client.call('daemon.subscribe', {});
+      const ws = await conn.call<WorkspaceInit>('workspace.init', {});
 
-      const [sessions, convergeStatus, workspaceInfo] = await Promise.all([
-        client.call<SessionRow[]>('session.list', { workspaceId: ws.id }),
-        client.call<ConvergeStatus>('converge.status', { workspaceId: ws.id }),
-        client.call<WorkspaceInfo>('workspace.info', { id: ws.id }),
-      ]);
-      latestSessions = sessions;
-      latestConvergeStatus = convergeStatus;
-      latestWorkspaceInfo = workspaceInfo;
+      let sessionListPane: SelectRenderable | undefined;
+      let statusBarPane: TextRenderable | undefined;
+
+      /**
+       * Both the initial data load and every `'tui.invalidate'`-triggered reload run
+       * through this one function — it always updates the module-level `latestX`
+       * state, and updates the rendered panes too whenever they've been mounted
+       * (they haven't yet the first time this runs, before `createCliRenderer`).
+       */
+      async function refresh(): Promise<void> {
+        const [sessions, convergeStatus, workspaceInfo] = await Promise.all([
+          conn.call<SessionRow[]>('session.list', { workspaceId: ws.id }),
+          conn.call<ConvergeStatus>('converge.status', { workspaceId: ws.id }),
+          conn.call<WorkspaceInfo>('workspace.info', { id: ws.id }),
+        ]);
+        latestSessions = sessions;
+        latestConvergeStatus = convergeStatus;
+        latestWorkspaceInfo = workspaceInfo;
+        if (sessionListPane) sessionListPane.options = sessionsToOptions(sessions);
+        if (statusBarPane) statusBarPane.content = formatStatusBar(workspaceInfo.workspace, sessions);
+      }
+
+      // Registered before daemon.subscribe (matching attach.ts's established
+      // register-before-subscribe pattern) so an invalidate broadcast that lands the
+      // instant subscription takes effect — even before the panes below exist — is
+      // never missed.
+      conn.onNotification((method) => {
+        if (method === 'tui.invalidate') void refresh();
+      });
+      await conn.call('daemon.subscribe', {});
+      await refresh();
 
       // No `exitSignals` override: the library's own default (SIGINT/SIGTERM/SIGHUP/
       // etc.) must stay wired up, or none of those signals ever restore the terminal
@@ -93,8 +159,26 @@ export const tuiCommand = defineCommand({
         borderStyle: 'rounded',
         title: `crossweave — ${ws.name}`,
         titleAlignment: 'left',
+        flexDirection: 'column',
       });
       renderer.root.add(root);
+
+      sessionListPane = new SelectRenderable(renderer, {
+        id: 'session-list',
+        width: '100%',
+        flexGrow: 1,
+        options: sessionsToOptions(latestSessions),
+      });
+      root.add(sessionListPane);
+
+      statusBarPane = new TextRenderable(renderer, {
+        id: 'status-bar',
+        width: '100%',
+        height: 1,
+        content: latestWorkspaceInfo ? formatStatusBar(latestWorkspaceInfo.workspace, latestSessions) : '',
+      });
+      root.add(statusBarPane);
+
       renderer.start();
 
       await waitForQuit(renderer);
