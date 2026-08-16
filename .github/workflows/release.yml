@@ -25,8 +25,18 @@ jobs:
     needs: verify-version
     strategy:
       matrix:
-        target: [darwin-arm64, darwin-x64, linux-x64]
-    runs-on: ubuntu-latest
+        # @opentui/core (M8) ships per-platform optional native packages;
+        # `bun install` only installs the ones matching the CURRENT host, so
+        # cross-compiling a darwin target from ubuntu-latest can't resolve
+        # them. Build each target on a runner that's actually that platform.
+        include:
+          - target: darwin-arm64
+            os: macos-14
+          - target: darwin-x64
+            os: macos-13
+          - target: linux-x64
+            os: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
