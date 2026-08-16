@@ -1,6 +1,6 @@
 {
   "name": "crossweave",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Make N parallel AI coding agents on one repo safe and mergeable",
   "license": "MIT",
   "type": "module",
