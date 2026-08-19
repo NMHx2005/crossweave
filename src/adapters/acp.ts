@@ -165,7 +165,13 @@ class AcpProcess implements AgentProcess {
     this.child = spawn(command, args, { cwd: opts.cwd, env: { ...process.env, ...opts.env } });
     this.pid = this.child.pid ?? -1;
 
+    // Guarded by `this.exitCode !== null`: the handshake-timeout handler below can
+    // already have declared the session dead (SIGKILL + exitCode 1) before this
+    // 'exit' event lands — a SIGKILLed child reports `code: null, signal: 'SIGKILL'`,
+    // which would otherwise overwrite the real exit code with a fabricated 0 and
+    // fan out a second, contradictory onExit call. First writer wins.
     this.child.on('exit', (code) => {
+      if (this.exitCode !== null) return;
       this.exitCode = code ?? 0;
       fanOut(this.exitListeners, this.exitCode);
     });
@@ -173,9 +179,10 @@ class AcpProcess implements AgentProcess {
     // Node's `spawn` emits 'error' asynchronously (e.g. ENOENT when the command isn't on
     // PATH) — an EventEmitter's unhandled 'error' event throws and would crash the whole
     // host process, not just this adapter. Route it through the same exit-notification
-    // path 'exit' uses instead; `?? 1` avoids double-notifying if both somehow fire.
+    // path 'exit' uses instead; guarded the same way, for the same reason.
     this.child.on('error', () => {
-      this.exitCode = this.exitCode ?? 1;
+      if (this.exitCode !== null) return;
+      this.exitCode = 1;
       fanOut(this.exitListeners, this.exitCode);
     });
 
@@ -259,10 +266,14 @@ class AcpProcess implements AgentProcess {
     // `running` forever with every write() queued. Fail loudly instead: kill the
     // child, surface the reason, and exit so the runtime marks the session dead.
     const timeout = setTimeout(() => {
-      if (this.sessionId !== undefined) return;
+      if (this.sessionId !== undefined || this.exitCode !== null) return;
       this.child.kill('SIGKILL');
+      // Set before fanOut, and before kill()'s own 'exit' event can land, so the
+      // 'exit'/'error' handlers above see this session as already dead and skip
+      // their own fanOut — exitListeners must fire exactly once for this death.
+      this.exitCode = 1;
       fanOut(this.dataListeners, 'crossweave: cursor-agent did not respond to the ACP handshake in 15s. Current cursor-agent builds removed ACP support — use `--agent claude` or `--agent cursor-print`.\n');
-      fanOut(this.exitListeners, 1);
+      fanOut(this.exitListeners, this.exitCode);
     }, ACP_HANDSHAKE_TIMEOUT_MS);
 
     handshake

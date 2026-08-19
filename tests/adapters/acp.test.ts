@@ -440,4 +440,22 @@ describe('AcpAdapter', () => {
     expect(read()).toContain('did not respond');
     proc.kill();
   }, 25_000);
+
+  it('a handshake timeout fires onExit exactly once with code 1 — the SIGKILLed child\'s real exit event must not overwrite it with a fabricated 0', async () => {
+    const adapter = new AcpAdapter(NOOP_DEPS, process.execPath, [SILENT_AGENT]);
+    const proc = adapter.spawn({ cwd: process.cwd(), env: {}, cols: 80, rows: 24 });
+    const exitCodes: number[] = [];
+    proc.onExit((code) => { exitCodes.push(code); });
+    await waitFor(() => exitCodes.length > 0, 20_000);
+    // The Promise.race-based test above only observes the FIRST onExit call, which
+    // is why this bug slipped through — give the SIGKILLed child's real 'exit'
+    // event (fired moments after the timeout's kill()) time to land, and prove it
+    // does NOT silently re-fire onExit with a second, fabricated "clean" code.
+    await new Promise((r) => setTimeout(r, 2_000));
+    expect(exitCodes).toEqual([1]);
+    // A late subscriber replays the stored exit code synchronously (see onExit) —
+    // proves the underlying value itself settled at 1, not a stale/overwritten 0.
+    const late = await new Promise<number>((resolve) => proc.onExit(resolve));
+    expect(late).toBe(1);
+  }, 25_000);
 });
