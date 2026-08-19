@@ -160,8 +160,10 @@ class AcpProcess implements AgentProcess {
   private readonly connection: ClientSideConnection;
   private sessionId: string | undefined;
   private readonly pendingWrites: string[] = [];
+  // Set once, in the constructor below, right after the handshake timer is created.
+  private readonly handshakeTimeout: NodeJS.Timeout;
 
-  constructor(command: string, args: string[], opts: SpawnOptions, deps: AcpAdapterDeps) {
+  constructor(command: string, args: string[], opts: SpawnOptions, deps: AcpAdapterDeps, handshakeTimeoutMs: number) {
     this.child = spawn(command, args, { cwd: opts.cwd, env: { ...process.env, ...opts.env } });
     this.pid = this.child.pid ?? -1;
 
@@ -173,6 +175,9 @@ class AcpProcess implements AgentProcess {
     this.child.on('exit', (code) => {
       if (this.exitCode !== null) return;
       this.exitCode = code ?? 0;
+      // The process is definitively torn down — no point holding the handshake
+      // timer alive for the remainder of its window (also cleared by kill()).
+      clearTimeout(this.handshakeTimeout);
       fanOut(this.exitListeners, this.exitCode);
     });
 
@@ -183,6 +188,7 @@ class AcpProcess implements AgentProcess {
     this.child.on('error', () => {
       if (this.exitCode !== null) return;
       this.exitCode = 1;
+      clearTimeout(this.handshakeTimeout);
       fanOut(this.exitListeners, this.exitCode);
     });
 
@@ -265,20 +271,20 @@ class AcpProcess implements AgentProcess {
     // the interactive CLI, so initialize() never resolves and the session would sit
     // `running` forever with every write() queued. Fail loudly instead: kill the
     // child, surface the reason, and exit so the runtime marks the session dead.
-    const timeout = setTimeout(() => {
+    this.handshakeTimeout = setTimeout(() => {
       if (this.sessionId !== undefined || this.exitCode !== null) return;
       this.child.kill('SIGKILL');
       // Set before fanOut, and before kill()'s own 'exit' event can land, so the
       // 'exit'/'error' handlers above see this session as already dead and skip
       // their own fanOut — exitListeners must fire exactly once for this death.
       this.exitCode = 1;
-      fanOut(this.dataListeners, 'crossweave: cursor-agent did not respond to the ACP handshake in 15s. Current cursor-agent builds removed ACP support — use `--agent claude` or `--agent cursor-print`.\n');
+      fanOut(this.dataListeners, `crossweave: cursor-agent did not respond to the ACP handshake in ${handshakeTimeoutMs / 1000}s. Current cursor-agent builds removed ACP support — use \`--agent claude\` or \`--agent cursor-print\`.\n`);
       fanOut(this.exitListeners, this.exitCode);
-    }, ACP_HANDSHAKE_TIMEOUT_MS);
+    }, handshakeTimeoutMs);
 
     handshake
-      .then(() => clearTimeout(timeout))
-      .catch(() => clearTimeout(timeout));
+      .then(() => clearTimeout(this.handshakeTimeout))
+      .catch(() => clearTimeout(this.handshakeTimeout));
   }
 
   onData(cb: (chunk: string) => void): void {
@@ -305,6 +311,7 @@ class AcpProcess implements AgentProcess {
   }
 
   kill(signal?: NodeJS.Signals): void {
+    clearTimeout(this.handshakeTimeout);
     this.child.kill(signal);
   }
 }
@@ -332,9 +339,12 @@ export class AcpAdapter implements AgentAdapter {
     private readonly deps: AcpAdapterDeps,
     private readonly command = 'cursor-agent',
     private readonly args: string[] = AcpAdapter.DEFAULT_ARGS,
+    // Injectable so tests don't have to wait out the real handshake window —
+    // defaults to the module-level constant used in production.
+    private readonly handshakeTimeoutMs: number = ACP_HANDSHAKE_TIMEOUT_MS,
   ) {}
 
   spawn(opts: SpawnOptions): AgentProcess {
-    return new AcpProcess(this.command, this.args, opts, this.deps);
+    return new AcpProcess(this.command, this.args, opts, this.deps, this.handshakeTimeoutMs);
   }
 }

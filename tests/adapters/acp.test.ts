@@ -425,37 +425,65 @@ describe('AcpAdapter', () => {
   });
 
   const SILENT_AGENT = fileURLToPath(new URL('../helpers/silent-agent.ts', import.meta.url));
+  // Short injected timeout (Fix 7, M9 fix-wave): the production default
+  // (ACP_HANDSHAKE_TIMEOUT_MS, 15s) would make these two tests alone cost
+  // ~30s of real wall-clock per run. AcpAdapter's 4th constructor arg lets
+  // tests use a timeout short enough to run fast while still exercising the
+  // exact same timeout/kill/exit code path production uses.
+  const TEST_HANDSHAKE_TIMEOUT_MS = 200;
 
   it('fails fast with a clear error when the ACP handshake never resolves (cursor-agent dropped ACP)', async () => {
-    const adapter = new AcpAdapter(NOOP_DEPS, process.execPath, [SILENT_AGENT]);
+    const adapter = new AcpAdapter(NOOP_DEPS, process.execPath, [SILENT_AGENT], TEST_HANDSHAKE_TIMEOUT_MS);
     const proc = adapter.spawn({ cwd: process.cwd(), env: {}, cols: 80, rows: 24 });
     const read = collect(proc);
     const exit = new Promise<number>((resolve) => proc.onExit(resolve));
     // Spawning bun adds ~300ms; the timeout must still fire promptly.
     const code = await Promise.race([
       exit,
-      new Promise<number>((r) => setTimeout(() => r(-1), 20_000)),
+      new Promise<number>((r) => setTimeout(() => r(-1), 5_000)),
     ]);
     expect(code).toBe(1);
     expect(read()).toContain('did not respond');
+    expect(read()).toContain(`${TEST_HANDSHAKE_TIMEOUT_MS / 1000}s`);
     proc.kill();
-  }, 25_000);
+  }, 10_000);
 
   it('a handshake timeout fires onExit exactly once with code 1 — the SIGKILLed child\'s real exit event must not overwrite it with a fabricated 0', async () => {
-    const adapter = new AcpAdapter(NOOP_DEPS, process.execPath, [SILENT_AGENT]);
+    const adapter = new AcpAdapter(NOOP_DEPS, process.execPath, [SILENT_AGENT], TEST_HANDSHAKE_TIMEOUT_MS);
     const proc = adapter.spawn({ cwd: process.cwd(), env: {}, cols: 80, rows: 24 });
     const exitCodes: number[] = [];
     proc.onExit((code) => { exitCodes.push(code); });
-    await waitFor(() => exitCodes.length > 0, 20_000);
+    await waitFor(() => exitCodes.length > 0, 5_000);
     // The Promise.race-based test above only observes the FIRST onExit call, which
     // is why this bug slipped through — give the SIGKILLed child's real 'exit'
     // event (fired moments after the timeout's kill()) time to land, and prove it
     // does NOT silently re-fire onExit with a second, fabricated "clean" code.
-    await new Promise((r) => setTimeout(r, 2_000));
+    await new Promise((r) => setTimeout(r, 500));
     expect(exitCodes).toEqual([1]);
     // A late subscriber replays the stored exit code synchronously (see onExit) —
     // proves the underlying value itself settled at 1, not a stale/overwritten 0.
     const late = await new Promise<number>((resolve) => proc.onExit(resolve));
     expect(late).toBe(1);
-  }, 25_000);
+  }, 10_000);
+
+  it('kill() before the handshake settles clears the handshake timer (Fix 8a: no leaked timer)', () => {
+    // Spy on the global clearTimeout so we can prove kill() actually calls it —
+    // message-content assertions alone can't distinguish "the timer was cleared"
+    // from "the timer fired but its own guard happened to no-op", and the whole
+    // point of Fix 8a is the timer itself, not its side effects.
+    const original = globalThis.clearTimeout;
+    const cleared: unknown[] = [];
+    globalThis.clearTimeout = ((id: Parameters<typeof original>[0]) => {
+      cleared.push(id);
+      return original(id);
+    }) as typeof original;
+    try {
+      const adapter = new AcpAdapter(NOOP_DEPS, process.execPath, [SILENT_AGENT], TEST_HANDSHAKE_TIMEOUT_MS);
+      const proc = adapter.spawn({ cwd: process.cwd(), env: {}, cols: 80, rows: 24 });
+      proc.kill();
+      expect(cleared.length).toBeGreaterThan(0);
+    } finally {
+      globalThis.clearTimeout = original;
+    }
+  });
 });
