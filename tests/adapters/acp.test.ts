@@ -36,6 +36,10 @@ describe('AcpAdapter', () => {
     expect(adapter.enforcementTier).toBe('T1');
   });
 
+  it('default spawn args trust the workspace so cursor-agent never shows its interactive trust prompt', () => {
+    expect(AcpAdapter.DEFAULT_ARGS).toEqual(['--trust', 'agent', 'acp']);
+  });
+
   it('spawn -> write("__PING__") round-trips to "PONG" via onData', async () => {
     const adapter = new AcpAdapter(NOOP_DEPS, process.execPath, [FAKE_AGENT]);
     const proc = adapter.spawn({ cwd: process.cwd(), env: {}, cols: 80, rows: 24 });

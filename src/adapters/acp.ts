@@ -286,15 +286,24 @@ class AcpProcess implements AgentProcess {
  * makes — including shell execution — not just `Edit`/`Write` the way the Claude Code
  * hook's matcher does (see docs/superpowers/specs/2026-08-12-m5a-known-limitations.md).
  * That is the actual gap T1 closes over T2.
+ *
+ * `--trust` comes first because cursor-agent refuses to start a session in an
+ * untrusted directory: it shows an interactive workspace-trust prompt and exits
+ * immediately when stdin isn't one (an `cw session attach` from a terminal without
+ * that prompt flow leaves the session dead before it ever speaks ACP). crossweave
+ * sessions live in worktrees of a workspace the user already initialized with
+ * `cw init` — that init is the trust decision, so re-asking per session is wrong.
  */
 export class AcpAdapter implements AgentAdapter {
   readonly kind = 'cursor';
   readonly enforcementTier: EnforcementTier = 'T1';
 
+  static readonly DEFAULT_ARGS: string[] = ['--trust', 'agent', 'acp'];
+
   constructor(
     private readonly deps: AcpAdapterDeps,
     private readonly command = 'cursor-agent',
-    private readonly args: string[] = ['agent', 'acp'],
+    private readonly args: string[] = AcpAdapter.DEFAULT_ARGS,
   ) {}
 
   spawn(opts: SpawnOptions): AgentProcess {
