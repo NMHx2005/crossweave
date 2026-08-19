@@ -26,7 +26,13 @@ import type { EnforcementTier } from '../db/repositories/session.js';
  * The command also reads its prompt from stdin (verified with
  * `echo "say hi" | cursor-agent --trust --print --output-format stream-json
  * --stream-partial-output`) when no positional prompt argument is given, which is
- * what `PrintProcess.write()` relies on below.
+ * what `PrintProcess.write()` relies on below. That first spike piped through
+ * `echo`, which closes stdin via EOF immediately — a follow-up fix-round spike
+ * (2026-08-19, see task-3-report.md) tested the shipped `write()` shape
+ * directly (a raw pipe, `child.stdin.write(...)`, left open) and found it
+ * produces NO output at all, ever — `--print` blocks reading stdin until EOF.
+ * `write()` closes stdin right after writing for exactly this reason; see its
+ * own doc comment below for the full spike transcript.
  *
  * This is NOT the brief's placeholder shape (a flat `{type:'text', text}` object,
  * or a `tool_call` scalar field) — the real format nests rendered text at
@@ -89,6 +95,12 @@ class PrintProcess implements AgentProcess {
   private readonly exitListeners: Array<(code: number) => void> = [];
   private exitCode: number | null = null;
   private readonly child: ChildProcess;
+  // `--print` reads its whole prompt from stdin and only starts responding once
+  // it sees EOF (verified for real — see the EOF spike comment on `write()`
+  // below). One `PrintProcess` is therefore single-prompt-per-process: `write()`
+  // closes stdin right after sending the prompt, and a second call is refused
+  // rather than silently writing to an already-closed pipe.
+  private stdinEnded = false;
 
   constructor(command: string, args: string[], opts: SpawnOptions) {
     this.child = spawn(command, args, { cwd: opts.cwd, env: { ...process.env, ...opts.env } });
@@ -134,8 +146,31 @@ class PrintProcess implements AgentProcess {
     else this.exitListeners.push(cb);
   }
 
+  /**
+   * EOF spike (2026-08-19, real `cursor-agent` binary, sandbox disabled — see the
+   * fix report in task-3-report.md for full transcripts): spawned `cursor-agent`
+   * with these exact args, wrote `"say hi\n"` via `child.stdin.write(...)`, and
+   * left stdin open. Result: NO output at all — not even the `system`/`init`
+   * line that normally appears within ~200ms — for 8+ seconds; the process was
+   * clearly blocked reading stdin. The identical write immediately followed by
+   * `child.stdin.end()` produced the full stream-json transcript (init → user →
+   * thinking → assistant deltas → result) starting within ~200ms. Conclusion:
+   * `--print` mode requires stdin EOF before it begins processing the prompt —
+   * an open-forever stdin (the brief's original design, modeled on `AcpProcess`)
+   * would never produce a response. `write()` therefore ends stdin right after
+   * writing, making a `PrintProcess` single-prompt-per-process; a second
+   * `write()` call throws instead of silently writing to a dead pipe.
+   */
   write(data: string): void {
+    if (this.stdinEnded) {
+      throw new Error(
+        'PrintProcess.write() called after stdin was already closed — cursor-print (T3) ' +
+        'sessions are single-prompt-per-process; spawn a new process for the next prompt.',
+      );
+    }
+    this.stdinEnded = true;
     this.child.stdin?.write(data);
+    this.child.stdin?.end();
   }
 
   resize(_cols: number, _rows: number): void {

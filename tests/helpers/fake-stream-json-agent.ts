@@ -7,16 +7,25 @@
 // carrying `timestamp_ms`, followed once the turn settles by ONE more `assistant`
 // line repeating the full concatenated text WITHOUT `timestamp_ms`. See
 // `src/adapters/cursor-print.ts`'s header comment for the full observed transcript.
+//
+// Also mirrors the real binary's EOF-gated behavior, verified in the Task 3 fix
+// round (task-3-report.md): `--print` produces NO output at all until stdin
+// closes. This fake buffers everything written and only responds on `end`,
+// not on `data` — so a `PrintProcess.write()` that failed to close stdin would
+// make this fake hang forever too, exactly like the real binary does.
 process.stdout.write(`${JSON.stringify({ type: 'system', subtype: 'init', session_id: 'fake-session' })}\n`);
 
+let buffered = '';
 process.stdin.resume();
 process.stdin.on('data', (chunk: Buffer) => {
-  const text = chunk.toString('utf8');
-  if (text === 'RAWLINE') {
+  buffered += chunk.toString('utf8');
+});
+process.stdin.on('end', () => {
+  if (buffered === 'RAWLINE') {
     process.stdout.write('not json at all\n');
-    return;
+    process.exit(0);
   }
-  const content = [{ type: 'text', text }];
+  const content = [{ type: 'text', text: buffered }];
   process.stdout.write(`${JSON.stringify({
     type: 'assistant',
     message: { role: 'assistant', content },
@@ -27,5 +36,5 @@ process.stdin.on('data', (chunk: Buffer) => {
     type: 'assistant',
     message: { role: 'assistant', content },
   })}\n`);
+  process.exit(0);
 });
-process.stdin.on('end', () => process.exit(0));

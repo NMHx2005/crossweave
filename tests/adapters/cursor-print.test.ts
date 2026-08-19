@@ -69,4 +69,30 @@ describe('CursorPrintAdapter', () => {
     await waitFor(() => read().includes('not json at all'));
     proc.kill();
   });
+
+  // Real-binary spike (2026-08-19, `cursor-agent` --print, sandbox disabled — see
+  // task-3-report.md): writing to stdin and leaving it open produced NO output
+  // at all for 8+ seconds, while the identical write followed by `stdin.end()`
+  // produced the full transcript within ~200ms. `--print` mode is EOF-gated.
+  // The fake agent mirrors this exactly (responds on stdin 'end', not 'data'),
+  // so this test proves `write()` actually closes stdin: if it didn't, the fake
+  // would hang forever and `waitFor` would time out, just like the real binary.
+  it('closes stdin after write, so the EOF-gated fake agent responds at all', async () => {
+    const adapter = new CursorPrintAdapter(process.execPath, [FAKE_AGENT]);
+    const proc = adapter.spawn({ cwd: process.cwd(), env: {}, cols: 80, rows: 24 });
+    const read = collect(proc);
+    proc.write('eof-check');
+    await waitFor(() => read().includes('eof-check'));
+    proc.kill();
+  });
+
+  it('throws on a second write() instead of writing to an already-closed stdin', async () => {
+    const adapter = new CursorPrintAdapter(process.execPath, [FAKE_AGENT]);
+    const proc = adapter.spawn({ cwd: process.cwd(), env: {}, cols: 80, rows: 24 });
+    const read = collect(proc);
+    proc.write('first');
+    await waitFor(() => read().includes('first'));
+    expect(() => proc.write('second')).toThrow(/single-prompt-per-process/);
+    proc.kill();
+  });
 });
