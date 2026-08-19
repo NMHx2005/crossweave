@@ -1,9 +1,15 @@
 import { CrossweaveError } from '../core/errors.js';
 import { ClaudePtyAdapter } from './claude-pty.js';
 import { AcpAdapter, type AcpAdapterDeps } from './acp.js';
+import { CursorPrintAdapter } from './cursor-print.js';
 import type { AgentAdapter } from './types.js';
 
-/** M5b registers Cursor via native ACP (T1). Claude Code stays on its M5a hook path (T2). */
+/**
+ * M5b registers Cursor via native ACP (T1). Claude Code stays on its M5a hook path
+ * (T2). Task 3 adds `cursor-print` (T3) — current cursor-agent builds dropped ACP
+ * support, so this is the fallback that still works, at the cost of permission
+ * interception.
+ */
 export function createAdapter(kind: string, deps?: AcpAdapterDeps): AgentAdapter {
   if (kind === 'claude') return new ClaudePtyAdapter();
   if (kind === 'cursor') {
@@ -15,8 +21,9 @@ export function createAdapter(kind: string, deps?: AcpAdapterDeps): AgentAdapter
     }
     return new AcpAdapter(deps);
   }
+  if (kind === 'cursor-print') return new CursorPrintAdapter();
   throw new CrossweaveError(
     'UNKNOWN_AGENT',
-    `Unsupported agent kind: ${kind}. Supports: claude, cursor`,
+    `Unsupported agent kind: ${kind}. Supports: claude, cursor, cursor-print`,
   );
 }

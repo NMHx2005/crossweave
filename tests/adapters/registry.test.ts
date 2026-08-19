@@ -25,6 +25,12 @@ describe('createAdapter', () => {
     );
   });
 
+  it('returns the cursor-print adapter with T3, no deps required', () => {
+    const a = createAdapter('cursor-print');
+    expect(a.kind).toBe('cursor-print');
+    expect(a.enforcementTier).toBe('T3');
+  });
+
   it('throws UNKNOWN_AGENT for an unsupported kind', () => {
     expect(() => createAdapter('bogus')).toThrowError(
       expect.objectContaining({ code: 'UNKNOWN_AGENT' }) as unknown as Error,
