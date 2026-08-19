@@ -15,6 +15,8 @@ import { CrossweaveError } from '../core/errors.js';
 import type { RecordUsageParams } from '../domain/usage.js';
 import type { NotifyEvent } from '../notify/dispatcher.js';
 
+export const ACP_HANDSHAKE_TIMEOUT_MS = 15_000;
+
 export interface AcpAdapterDeps {
   resolveWorkspaceId(sessionId: string): string;
   decideBlocked(params: DecideBlockedParams): DecideBlockedResult;
@@ -243,14 +245,29 @@ class AcpProcess implements AgentProcess {
     // rejection has nowhere to land and surfaces as an unhandled rejection that
     // crashes the process; there is nothing further to do once killed, so it is
     // swallowed the same way `fanOut`'s per-listener errors are.
-    void (async () => {
+    const handshake: Promise<void> = (async () => {
       await connection.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} });
       const { sessionId } = await connection.newSession({ cwd: opts.cwd, mcpServers: [] });
       this.sessionId = sessionId;
       for (const text of this.pendingWrites.splice(0)) {
         void connection.prompt({ sessionId, prompt: [{ type: 'text', text }] }).catch(() => {});
       }
-    })().catch(() => {});
+    })();
+
+    // cursor-agent removed ACP support in 2026.08.x releases — `agent acp` now opens
+    // the interactive CLI, so initialize() never resolves and the session would sit
+    // `running` forever with every write() queued. Fail loudly instead: kill the
+    // child, surface the reason, and exit so the runtime marks the session dead.
+    const timeout = setTimeout(() => {
+      if (this.sessionId !== undefined) return;
+      this.child.kill('SIGKILL');
+      fanOut(this.dataListeners, 'crossweave: cursor-agent did not respond to the ACP handshake in 15s. Current cursor-agent builds removed ACP support — use `--agent claude` or `--agent cursor-print`.\n');
+      fanOut(this.exitListeners, 1);
+    }, ACP_HANDSHAKE_TIMEOUT_MS);
+
+    handshake
+      .then(() => clearTimeout(timeout))
+      .catch(() => clearTimeout(timeout));
   }
 
   onData(cb: (chunk: string) => void): void {

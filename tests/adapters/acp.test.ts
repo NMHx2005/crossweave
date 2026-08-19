@@ -423,4 +423,21 @@ describe('AcpAdapter', () => {
     const code = await new Promise<number>((res) => proc.onExit(res));
     expect(code).not.toBe(0);
   });
+
+  const SILENT_AGENT = fileURLToPath(new URL('../helpers/silent-agent.ts', import.meta.url));
+
+  it('fails fast with a clear error when the ACP handshake never resolves (cursor-agent dropped ACP)', async () => {
+    const adapter = new AcpAdapter(NOOP_DEPS, process.execPath, [SILENT_AGENT]);
+    const proc = adapter.spawn({ cwd: process.cwd(), env: {}, cols: 80, rows: 24 });
+    const read = collect(proc);
+    const exit = new Promise<number>((resolve) => proc.onExit(resolve));
+    // Spawning bun adds ~300ms; the timeout must still fire promptly.
+    const code = await Promise.race([
+      exit,
+      new Promise<number>((r) => setTimeout(() => r(-1), 20_000)),
+    ]);
+    expect(code).toBe(1);
+    expect(read()).toContain('did not respond');
+    proc.kill();
+  }, 25_000);
 });
