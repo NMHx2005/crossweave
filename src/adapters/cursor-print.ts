@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import type { AgentAdapter, AgentProcess, SpawnOptions } from './types.js';
 import type { EnforcementTier } from '../db/repositories/session.js';
+import { CrossweaveError } from '../core/errors.js';
 
 /**
  * Real invocation observed for Task 3 Step 1 (2026-08-19, cursor-agent
@@ -28,11 +29,12 @@ import type { EnforcementTier } from '../db/repositories/session.js';
  * --stream-partial-output`) when no positional prompt argument is given, which is
  * what `PrintProcess.write()` relies on below. That first spike piped through
  * `echo`, which closes stdin via EOF immediately — a follow-up fix-round spike
- * (2026-08-19, see task-3-report.md) tested the shipped `write()` shape
- * directly (a raw pipe, `child.stdin.write(...)`, left open) and found it
- * produces NO output at all, ever — `--print` blocks reading stdin until EOF.
- * `write()` closes stdin right after writing for exactly this reason; see its
- * own doc comment below for the full spike transcript.
+ * (2026-08-19, captured during the M9 Task 3 real-binary spike) tested the
+ * shipped `write()` shape directly (a raw pipe, `child.stdin.write(...)`, left
+ * open) and found it produces NO output at all, ever — `--print` blocks
+ * reading stdin until EOF. `write()` closes stdin right after the prompt is
+ * finalized for exactly this reason; see its own doc comment below for the
+ * full spike transcript.
  *
  * This is NOT the brief's placeholder shape (a flat `{type:'text', text}` object,
  * or a `tool_call` scalar field) — the real format nests rendered text at
@@ -48,12 +50,18 @@ import type { EnforcementTier } from '../db/repositories/session.js';
  * mid-turn recap right before a tool call (which additionally carries a
  * `model_call_id`) and the final end-of-response recap (which carries neither
  * field). Rendering both would print every reply twice, so only the timestamped
- * deltas are rendered; the untimestamped recap is dropped.
+ * deltas are rendered; the untimestamped recap is dropped. This timestamp_ms
+ * filter only makes sense because `--stream-partial-output` is in DEFAULT_ARGS
+ * below — if that flag is ever removed, `assistant` lines stop carrying
+ * timestamp_ms at all and this filter would silently drop every reply.
  */
 interface StreamJsonLine {
   type?: unknown;
   timestamp_ms?: unknown;
   message?: { content?: Array<{ type?: unknown; text?: unknown }> };
+  result?: unknown;
+  is_error?: unknown;
+  subtype?: unknown;
 }
 
 function renderStreamJsonLine(line: string): string {
@@ -79,6 +87,19 @@ function renderStreamJsonLine(line: string): string {
       .join('');
   }
 
+  if (obj.type === 'result') {
+    // The `result` line carries the turn's final outcome. On success its `result`
+    // string just repeats what the `assistant` lines already rendered, so the
+    // generic bracket is enough — but on failure it's the ONLY place the actual
+    // error message lives; collapsing it to `[cursor: result]` would silently
+    // discard the one thing the user needs to see. `is_error` is the primary
+    // signal (per the header comment's captured transcript); `subtype !== 'success'`
+    // is a fallback in case a future build reports failure only that way.
+    const isError = obj.is_error === true || (typeof obj.subtype === 'string' && obj.subtype !== 'success');
+    if (isError && typeof obj.result === 'string') return `${obj.result}\n`;
+    return '[cursor: result]\n';
+  }
+
   return `[cursor: ${obj.type}]\n`;
 }
 
@@ -101,6 +122,12 @@ class PrintProcess implements AgentProcess {
   // closes stdin right after sending the prompt, and a second call is refused
   // rather than silently writing to an already-closed pipe.
   private stdinEnded = false;
+  // `cw session attach` puts the terminal in raw mode and ships every keystroke
+  // as its own `write()` call (see attach.ts's `onInput`) — a naive write() that
+  // forwarded each call straight to the child and closed stdin immediately would
+  // send only the first keystroke as the whole prompt. This buffers fragments
+  // until a line terminator arrives; see `write()`'s own doc comment below.
+  private buffer = '';
 
   constructor(command: string, args: string[], opts: SpawnOptions) {
     this.child = spawn(command, args, { cwd: opts.cwd, env: { ...process.env, ...opts.env } });
@@ -147,8 +174,9 @@ class PrintProcess implements AgentProcess {
   }
 
   /**
-   * EOF spike (2026-08-19, real `cursor-agent` binary, sandbox disabled — see the
-   * fix report in task-3-report.md for full transcripts): spawned `cursor-agent`
+   * EOF spike (2026-08-19, real `cursor-agent` binary, run with this dev
+   * environment's own command-execution sandbox disabled — NOT a `cursor-agent
+   * --sandbox` flag, that flag was never touched): spawned `cursor-agent`
    * with these exact args, wrote `"say hi\n"` via `child.stdin.write(...)`, and
    * left stdin open. Result: NO output at all — not even the `system`/`init`
    * line that normally appears within ~200ms — for 8+ seconds; the process was
@@ -158,18 +186,30 @@ class PrintProcess implements AgentProcess {
    * `--print` mode requires stdin EOF before it begins processing the prompt —
    * an open-forever stdin (the brief's original design, modeled on `AcpProcess`)
    * would never produce a response. `write()` therefore ends stdin right after
-   * writing, making a `PrintProcess` single-prompt-per-process; a second
-   * `write()` call throws instead of silently writing to a dead pipe.
+   * the prompt is finalized, making a `PrintProcess` single-prompt-per-process;
+   * a second finalized `write()` call throws instead of silently writing to a
+   * dead pipe.
+   *
+   * Buffering (M9 fix-wave): `cw session attach` (attach.ts) puts stdin in raw
+   * mode and calls `write()` once per keystroke — sending each call straight to
+   * the child and closing stdin immediately would turn the FIRST keystroke into
+   * the entire prompt and kill every keystroke after it. So `write()` only
+   * accumulates into `this.buffer` until it sees a line terminator: raw-mode
+   * TTYs send `\r` for Enter, not `\n`, while piped/non-interactive input may
+   * send `\n` — both finalize. Until then the child process is never touched.
    */
   write(data: string): void {
     if (this.stdinEnded) {
-      throw new Error(
+      throw new CrossweaveError(
+        'AGENT_INPUT_CLOSED',
         'PrintProcess.write() called after stdin was already closed — cursor-print (T3) ' +
         'sessions are single-prompt-per-process; spawn a new process for the next prompt.',
       );
     }
+    this.buffer += data;
+    if (!/[\r\n]/.test(data)) return;
     this.stdinEnded = true;
-    this.child.stdin?.write(data);
+    this.child.stdin?.write(this.buffer);
     this.child.stdin?.end();
   }
 

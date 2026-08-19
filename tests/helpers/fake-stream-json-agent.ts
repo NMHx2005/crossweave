@@ -8,8 +8,8 @@
 // line repeating the full concatenated text WITHOUT `timestamp_ms`. See
 // `src/adapters/cursor-print.ts`'s header comment for the full observed transcript.
 //
-// Also mirrors the real binary's EOF-gated behavior, verified in the Task 3 fix
-// round (task-3-report.md): `--print` produces NO output at all until stdin
+// Also mirrors the real binary's EOF-gated behavior, captured during the M9
+// Task 3 real-binary spike: `--print` produces NO output at all until stdin
 // closes. This fake buffers everything written and only responds on `end`,
 // not on `data` — so a `PrintProcess.write()` that failed to close stdin would
 // make this fake hang forever too, exactly like the real binary does.
@@ -21,8 +21,23 @@ process.stdin.on('data', (chunk: Buffer) => {
   buffered += chunk.toString('utf8');
 });
 process.stdin.on('end', () => {
-  if (buffered === 'RAWLINE') {
+  // Trim the trailing `\r`/`\n` terminator (`write()`'s finalize condition,
+  // cursor-print.ts) before matching test sentinels — the sentinel itself is
+  // never part of what a real prompt would contain.
+  const trimmed = buffered.replace(/[\r\n]+$/, '');
+  if (trimmed === 'RAWLINE') {
     process.stdout.write('not json at all\n');
+    process.exit(0);
+  }
+  if (trimmed === 'ERROR_RESULT') {
+    // Error-shaped `result` line, per the real captured shape (cursor-print.ts's
+    // header comment): is_error true, subtype not "success", message in `result`.
+    process.stdout.write(`${JSON.stringify({
+      type: 'result',
+      subtype: 'error',
+      is_error: true,
+      result: 'cursor-agent failed: rate limited',
+    })}\n`);
     process.exit(0);
   }
   const content = [{ type: 'text', text: buffered }];
