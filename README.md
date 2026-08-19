@@ -6,7 +6,7 @@ cross-thread that binds them so the fabric holds together.
 [![License](https://img.shields.io/github/license/NMHx2005/crossweave)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/NMHx2005/crossweave)](https://github.com/NMHx2005/crossweave/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/NMHx2005/crossweave/ci.yml?branch=main&label=ci)](https://github.com/NMHx2005/crossweave/actions/workflows/ci.yml)
-[![Bun](https://img.shields.io/badge/bun-%3E%3D1.3.12-black)](https://bun.sh)
+[![Bun](https://img.shields.io/badge/bun-%3E%3D1.3.13-black)](https://bun.sh)
 [![Platforms](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)](#requirements)
 
 crossweave is a local-first tool that makes running many AI coding agents on
@@ -49,7 +49,7 @@ is the current published version.
 
 | | |
 |---|---|
-| Runtime | [Bun](https://bun.sh) 1.3.12+ (earlier 1.3.x has a unix-socket bug that lets a second daemon steal a live one's socket) |
+| Runtime | [Bun](https://bun.sh) 1.3.13+ (earlier 1.3.x has a unix-socket bug that lets a second daemon steal a live one's socket; 1.3.12 itself truncates the code signature on `bun build --compile` macOS output, which gets the binary SIGKILLed on launch) |
 | OS | macOS or Linux (Bun's pty support is POSIX-only; Windows is not a V1 target) |
 | VCS | git |
 | Optional | [ripgrep](https://github.com/BurntSushi/ripgrep) (`rg`) — Collision Radar's symbol-reference check degrades silently without it |
