@@ -59,8 +59,10 @@ describe('ConvergenceScheduler', () => {
 
       const trials = new MergeTrialRepo(db).listByWorkspace('ws_1');
       const pairwise = trials.filter((t) => t.branches.length === 2);
+      const expectedBaseHead = (await $`git rev-parse HEAD`.cwd(fixture.root).quiet().text()).trim();
       expect(pairwise).toHaveLength(1);
       expect(pairwise[0]?.result).toBe('clean');
+      expect(pairwise[0]?.baseHead).toBe(expectedBaseHead);
     } finally {
       await fixture.cleanup();
     }

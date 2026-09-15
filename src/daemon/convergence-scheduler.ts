@@ -183,7 +183,7 @@ export class ConvergenceScheduler {
    */
   private recordTrial(row: {
     id: string; workspaceId: string; ts: string; branches: string[];
-    result: MergeTrialRow['result']; detail: string | null;
+    result: MergeTrialRow['result']; detail: string | null; baseHead: string;
     pairwise: boolean;
   }): void {
     let prior: MergeTrialRow['result'] | undefined;
@@ -242,9 +242,6 @@ export class ConvergenceScheduler {
       if (due.length === 0) return;
     }
 
-    const base = baseHead(projectRoot);
-    if (base === undefined) return;
-
     const integration = await ensureIntegrationWorktree(this.db, workspaceId, projectRoot);
 
     if (!degraded) {
@@ -254,6 +251,9 @@ export class ConvergenceScheduler {
       // caller (a concurrent `cw land`, or this same lock's next acquisition by
       // `maybeRunFullIntegration` below) touching the SAME worktree mid-trial.
       await withIntegrationWorktreeLock(workspaceId, async () => {
+        const base = baseHead(projectRoot);
+        if (base === undefined) return;
+
         for (const session of due) {
           const branchA = session.branch as string;
           const headA = currentHead(projectRoot, branchA);
@@ -273,6 +273,7 @@ export class ConvergenceScheduler {
             this.recordTrial({
               id: newId('mt'), workspaceId, ts: new Date().toISOString(),
               branches: [branchA, branchB], result: result.result, detail: result.detail,
+              baseHead: base,
               pairwise: true,
             });
             this.rememberPair(pairKey);
@@ -284,14 +285,14 @@ export class ConvergenceScheduler {
       });
     }
 
-    await this.maybeRunFullIntegration(workspaceId, integration.sessionId, integration.path, base, active, degraded);
+    await this.maybeRunFullIntegration(workspaceId, projectRoot, integration.sessionId, integration.path, active, degraded);
   }
 
   private async maybeRunFullIntegration(
     workspaceId: string,
+    projectRoot: string,
     integrationSessionId: string,
     integrationPath: string,
-    base: string,
     active: SessionRow[],
     degraded: boolean,
   ): Promise<void> {
@@ -319,7 +320,6 @@ export class ConvergenceScheduler {
     // conflict check below still protects against wasting a test run on a
     // conflicting merge.
 
-    this.lastFullIntegrationAt.set(workspaceId, now);
     // The whole trial-through-test-through-reset sequence runs under one lock
     // acquisition: `withIntegrationLease`'s port allocation is a genuine async
     // yield (real network I/O), and the test command itself can run for a long
@@ -328,12 +328,17 @@ export class ConvergenceScheduler {
     // concurrent `cw land` (or the next tick's pairwise sweep) could reset/overwrite
     // the merged state this full-integration run is still testing against.
     await withIntegrationWorktreeLock(workspaceId, async () => {
+      const base = baseHead(projectRoot);
+      if (base === undefined) return;
+      this.lastFullIntegrationAt.set(workspaceId, now);
+
       try {
         const result = await runMergeTrial(integrationPath, base, branches);
         if (result.result === 'conflict') {
           this.recordTrial({
             id: newId('mt'), workspaceId, ts: new Date().toISOString(),
             branches, result: 'conflict', detail: result.detail,
+            baseHead: base,
             pairwise: false,
           });
           return;
@@ -344,6 +349,7 @@ export class ConvergenceScheduler {
           this.recordTrial({
             id: newId('mt'), workspaceId, ts: new Date().toISOString(),
             branches, result: 'unverified', detail: null,
+            baseHead: base,
             pairwise: false,
           });
           return;
@@ -358,6 +364,7 @@ export class ConvergenceScheduler {
           this.recordTrial({
             id: newId('mt'), workspaceId, ts: new Date().toISOString(),
             branches, result: 'unverified', detail: null,
+            baseHead: base,
             pairwise: false,
           });
           return;
@@ -383,6 +390,7 @@ export class ConvergenceScheduler {
           branches,
           result: testResult.code === 0 ? 'clean' : 'test_fail',
           detail: testResult.code === 0 ? null : testResult.tail,
+          baseHead: base,
           pairwise: false,
         });
       } finally {

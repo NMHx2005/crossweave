@@ -742,7 +742,8 @@ describe('cw land all (RPC-level, converge.status + land.session directly — no
       // conflicts — seeded directly since the scheduler is not running in this
       // test, matching the same conflict-graph shape a real tick would produce.
       new MergeTrialRepo(db).insert({
-        id: 'mt_1', workspaceId: 'ws_1', ts: 'now', branches: ['cw/a', 'cw/b'], result: 'conflict', detail: 'x.ts',
+        id: 'mt_1', workspaceId: 'ws_1', ts: 'now', branches: ['cw/a', 'cw/b'],
+        result: 'conflict', detail: 'x.ts', baseHead: '',
       });
 
       const status = (await methods['converge.status']!({ workspaceId: 'ws_1' }, ctx)) as { conflictFree: string[] };

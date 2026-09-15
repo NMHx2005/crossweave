@@ -28,7 +28,8 @@ describe('converge.status RPC', () => {
       lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
     });
     new MergeTrialRepo(db).insert({
-      id: 'mt_1', workspaceId: 'ws_1', ts: 'now', branches: ['cw/a', 'cw/b'], result: 'conflict', detail: 'x.ts',
+      id: 'mt_1', workspaceId: 'ws_1', ts: 'now', branches: ['cw/a', 'cw/b'],
+      result: 'conflict', detail: 'x.ts', baseHead: '',
     });
 
     const methods = buildMethods(db, '/tmp/w');
@@ -93,7 +94,8 @@ describe('converge.status RPC', () => {
       });
     }
     new MergeTrialRepo(db).insert({
-      id: 'mt_1', workspaceId: 'ws_1', ts: 'now', branches: ['cw/a', 'cw/b'], result: 'conflict', detail: 'x.ts',
+      id: 'mt_1', workspaceId: 'ws_1', ts: 'now', branches: ['cw/a', 'cw/b'],
+      result: 'conflict', detail: 'x.ts', baseHead: '',
     });
 
     const methods = buildMethods(db, '/tmp/w');

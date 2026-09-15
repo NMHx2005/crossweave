@@ -4,7 +4,10 @@ import type { MergeTrialRow } from '../../src/db/repositories/merge-trial.js';
 import type { SessionRow } from '../../src/db/repositories/session.js';
 
 function trial(overrides: Partial<MergeTrialRow>): MergeTrialRow {
-  return { id: 't', workspaceId: 'ws_1', ts: 'now', branches: [], result: 'clean', detail: null, ...overrides };
+  return {
+    id: 't', workspaceId: 'ws_1', ts: 'now', branches: [],
+    result: 'clean', detail: null, baseHead: 'base-current', ...overrides,
+  };
 }
 
 function session(id: string, branch: string, createdAt: string): SessionRow {

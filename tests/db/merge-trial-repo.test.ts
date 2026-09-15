@@ -6,7 +6,7 @@ import { WorkspaceRepo } from '../../src/db/repositories/workspace.js';
 function row(overrides: Partial<MergeTrialRow> = {}): MergeTrialRow {
   return {
     id: 'mt_1', workspaceId: 'ws_1', ts: 'now',
-    branches: ['cw/a', 'cw/b'], result: 'clean', detail: null,
+    branches: ['cw/a', 'cw/b'], result: 'clean', detail: null, baseHead: 'base-abc',
     ...overrides,
   };
 }
@@ -30,6 +30,7 @@ describe('MergeTrialRepo', () => {
     expect(rows[0]?.branches).toEqual(['cw/a', 'cw/b']);
     expect(rows[0]?.result).toBe('clean');
     expect(rows[0]?.detail).toBeNull();
+    expect(rows[0]?.baseHead).toBe('base-abc');
   });
 
   test('listByWorkspace orders oldest first, matching every other listByWorkspace in this codebase', () => {

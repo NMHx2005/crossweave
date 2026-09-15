@@ -9,6 +9,7 @@ export interface MergeTrialRow {
   branches: string[];
   result: MergeTrialResult;
   detail: string | null;
+  baseHead: string;
 }
 
 interface MergeTrialRecord {
@@ -18,9 +19,10 @@ interface MergeTrialRecord {
   branches: string;
   result: string;
   detail: string | null;
+  base_head: string;
 }
 
-const COLS = 'id,workspace_id,ts,branches,result,detail';
+const COLS = 'id,workspace_id,ts,branches,result,detail,base_head';
 
 function toRow(r: MergeTrialRecord): MergeTrialRow {
   return {
@@ -30,6 +32,7 @@ function toRow(r: MergeTrialRecord): MergeTrialRow {
     branches: JSON.parse(r.branches) as string[],
     result: r.result as MergeTrialResult,
     detail: r.detail,
+    baseHead: r.base_head,
   };
 }
 
@@ -38,8 +41,8 @@ export class MergeTrialRepo {
 
   insert(row: MergeTrialRow): void {
     this.db
-      .prepare(`INSERT INTO merge_trial (${COLS}) VALUES (?,?,?,?,?,?)`)
-      .run(row.id, row.workspaceId, row.ts, JSON.stringify(row.branches), row.result, row.detail);
+      .prepare(`INSERT INTO merge_trial (${COLS}) VALUES (?,?,?,?,?,?,?)`)
+      .run(row.id, row.workspaceId, row.ts, JSON.stringify(row.branches), row.result, row.detail, row.baseHead);
   }
 
   listByWorkspace(workspaceId: string): MergeTrialRow[] {

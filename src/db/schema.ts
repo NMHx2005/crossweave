@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 9;
+export const SCHEMA_VERSION = 10;
 
 /**
  * Each migration is a list of single statements, never one multi-statement blob.
@@ -211,5 +211,8 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
     land         INTEGER NOT NULL DEFAULT 1,
     convergence  INTEGER NOT NULL DEFAULT 1
   )`,
+  ],
+  [
+    `ALTER TABLE merge_trial ADD COLUMN base_head TEXT NOT NULL DEFAULT ''`,
   ],
 ];
