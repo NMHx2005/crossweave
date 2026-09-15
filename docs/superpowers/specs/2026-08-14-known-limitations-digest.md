@@ -27,12 +27,20 @@ agent-invoked script — is invisible to both Safe Mode and the Collision
 Radar. (M5a)
 
 **`converge.testCommand` is arbitrary shell, run automatically once
-trusted.** `cw config trust` is a real trust boundary, not a formality —
-don't trust a `crossweave.config.json` you didn't write yourself. (M4)
+trusted.** The `cw config trust` gate exists and must record the current
+command before crossweave will run it. Treat that gate as a real trust
+boundary, not a formality — don't trust a `crossweave.config.json` you
+didn't write yourself. (M4)
 
 **Collision Radar only attributes committed lines.** `cw blame` can't tell
 you who's editing something that hasn't been committed yet — mid-flight
 collisions rely on the live hook/watcher path, not `blame`. (M2)
+
+**Runtime leases are cooperative, not enforced isolation.** crossweave
+injects per-session port, Docker, cache, and database environment values,
+but an agent or subprocess that ignores those values can still use shared
+resources and collide with another session. Lease visibility helps diagnose
+that risk; it does not sandbox the process.
 
 ## Everyday gaps worth knowing, not blocking
 
@@ -45,7 +53,21 @@ collisions rely on the live hook/watcher path, not `blame`. (M2)
   local estimate, useful for an at-a-glance sense of spend, not for
   invoicing. (M6a)
 - A killed session's name can't be reclaimed immediately. (M0)
-- No TUI yet — see the README's Status section.
+- The live TUI has shipped, but there is no desktop client or multi-pane
+  session terminal yet.
+
+## Gaps closed after the milestone reports
+
+The milestone documents below are historical snapshots. Later reliability
+work closed these previously recorded gaps:
+
+- `ports.named` can no longer override the reserved `PORT` value.
+- `cw session rm` and `cw session kill --rm-worktree` dispose leased cache
+  directories and copied databases before deleting their lease records.
+- A squash merge whose commits produce no staged diff is a successful no-op,
+  not a false `LAND_MERGE_FAILED`.
+- `cw land all` re-fetches convergence status after each successful land
+  instead of acting on one stale initial snapshot.
 
 ## Full list, per milestone
 
