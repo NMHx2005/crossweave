@@ -53,3 +53,29 @@ A separate red test confirmed `fullIntegration.baseHead` was absent before that 
 ## Concerns
 
 None.
+
+## Review Fix: always report an empty ready set
+
+### What changed
+
+Removed the `landedAny` guard from the CLI land-all loop. Whenever a re-fetched status has no eligible candidate, `cw land all` now prints `nothing to land`, including after one or more ready sessions were landed.
+
+### Covering tests
+
+- `tests/cli/land.test.ts`
+- `tests/convergence/land.test.ts`
+
+### Command
+
+```text
+bun test tests/cli/land.test.ts tests/convergence/land.test.ts
+```
+
+### Output
+
+```text
+31 pass
+0 fail
+84 expect() calls
+Ran 31 tests across 2 files. [10.79s]
+```

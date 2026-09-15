@@ -78,12 +78,11 @@ const allCommand = defineCommand({
       assertLandConfirmed(args.yes);
       await withClient(async (client) => {
         const workspaceId = await currentWorkspaceId(client);
-        let landedAny = false;
         while (true) {
           const status = await client.call<ConvergeStatus>('converge.status', { workspaceId });
           const candidate = chooseNextLand(status, args.force);
           if (candidate === undefined) {
-            if (!landedAny) process.stdout.write('nothing to land\n');
+            process.stdout.write('nothing to land\n');
             if (!args.force && status.unknown[0] !== undefined) {
               process.stderr.write(`${status.unknown[0].reason}\n`);
             }
@@ -98,7 +97,6 @@ const allCommand = defineCommand({
               workspaceId, idOrName: name, force: args.force,
             });
             printLandResult(name, result);
-            landedAny = true;
           } catch (err) {
             process.stdout.write(`stopped at ${name}: ${(err as Error).message}\n`);
             process.exitCode = 1;
