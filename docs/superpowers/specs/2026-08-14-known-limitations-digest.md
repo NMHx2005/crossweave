@@ -52,6 +52,14 @@ that risk; it does not sandbox the process.
 - Budget/burn numbers are **not authoritative billing data** — they're a
   local estimate, useful for an at-a-glance sense of spend, not for
   invoicing. (M6a)
+- **`cw land` waits on the background scheduler.** Landability is decided from
+  recorded trial evidence, and evidence is only valid against the base commit it
+  was trialled against — so right after a land (or any commit on the base branch)
+  every remaining session sits at `unknown` until the convergence scheduler
+  re-trials it, up to `converge.trialDebounceMs` later. `cw converge status`
+  names that as the reason; `cw land all` stops with "nothing to land" rather
+  than landing on stale evidence. Re-run it once the scheduler has caught up, or
+  use `--force` to land on incomplete evidence deliberately.
 - A killed session's name can't be reclaimed immediately. (M0)
 - The live TUI has shipped, but there is no desktop client or multi-pane
   session terminal yet.

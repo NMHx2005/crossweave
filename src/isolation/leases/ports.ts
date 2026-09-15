@@ -26,12 +26,14 @@ function isPortFree(port: number): Promise<boolean> {
  * an EADDRINUSE the user cannot explain, even though the lease table says the block
  * is free.
  *
- * The leased set is snapshotted once and then RE-READ after every successful probe,
- * because `await isPortFree` is a yield point and the daemon dispatches RPCs
- * unserialized: two sessions starting at once can both reach the same candidate before
- * either one's lease row exists. Re-reading immediately before returning closes that —
- * the caller inserts the row with no `await` in between, so nothing can interleave
- * between this check and that write.
+ * The leased set is snapshotted once and then RE-READ once per candidate, after the
+ * whole block has probed free and immediately before returning it — not after each
+ * individual port probe. `await isPortFree` is a yield point and the daemon dispatches
+ * RPCs unserialized, so two sessions starting at once can both reach the same candidate
+ * before either one's lease row exists. The final re-read closes that: the caller
+ * inserts the row with no `await` in between, so nothing can interleave between this
+ * check and that write. An interleaving mid-block is harmless — it can only cost a
+ * wasted probe, and this re-read still catches it before the block is handed out.
  */
 export async function allocatePortBlock(
   leases: LeaseRepo,
