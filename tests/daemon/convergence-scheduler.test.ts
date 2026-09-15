@@ -124,6 +124,48 @@ describe('ConvergenceScheduler', () => {
     }
   });
 
+  // I2: trial evidence is only valid against the base it was merged onto, so a
+  // land (which moves the base without touching any session branch) invalidates
+  // every recorded trial. Keying due-ness and pair dedup on branch heads alone
+  // meant nothing was ever due again after a land: every pair stayed at its
+  // stale, now-unusable trial and every session sat at `unknown` forever until
+  // some session happened to commit again or the daemon restarted.
+  test('a base move re-trials every pair even when no session branch head changed', async () => {
+    const fixture = await makeGitFixture();
+    try {
+      await branchWithFile(fixture.root, 'cw/a', 'a.txt', 'a\n');
+      await branchWithFile(fixture.root, 'cw/b', 'b.txt', 'b\n');
+      const { db, sessions, scheduler } = await setup(fixture);
+      for (const name of ['a', 'b']) {
+        sessions.insert({
+          id: `s_${name}`, workspaceId: 'ws_1', name, agentKind: 'claude', adapter: 'claude',
+          status: 'running', worktreePath: fixture.root, branch: `cw/${name}`, createdAt: 'now',
+          lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+        });
+      }
+
+      await scheduler.tick();
+      const trials = new MergeTrialRepo(db);
+      const first = trials.listByWorkspace('ws_1').filter((t) => t.branches.length === 2);
+      expect(first).toHaveLength(1);
+      const baseBefore = first[0]?.baseHead;
+
+      // Exactly what a successful `cw land` leaves behind: a new commit on the
+      // base branch, with every session branch head untouched.
+      await commitFile(fixture.root, 'landed.txt', 'landed\n', 'land a session');
+      const baseAfter = (await $`git rev-parse HEAD`.cwd(fixture.root).quiet().text()).trim();
+      expect(baseAfter).not.toBe(baseBefore);
+
+      await scheduler.tick();
+
+      const after = trials.listByWorkspace('ws_1').filter((t) => t.branches.length === 2);
+      expect(after).toHaveLength(2); // not 1 — the moved base made the pair due again
+      expect(after[1]?.baseHead).toBe(baseAfter);
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
   test('the integration session never appears as a trial participant', async () => {
     const fixture = await makeGitFixture();
     try {

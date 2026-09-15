@@ -15,6 +15,7 @@ import { DEFAULT_CONFIG, type CrossweaveConfig } from '../../src/core/config.js'
 import { gitFailureText, landSession, type LandResult } from '../../src/convergence/land.js';
 import { hashTestCommand } from '../../src/convergence/trust.js';
 import { buildMethods } from '../../src/daemon/methods.js';
+import { ConvergenceScheduler } from '../../src/daemon/convergence-scheduler.js';
 import { ClaudePtyAdapter } from '../../src/adapters/claude-pty.js';
 import type { AgentAdapter } from '../../src/adapters/types.js';
 import { makeGitFixture, commitFile, type GitFixture } from '../helpers/git-fixture.js';
@@ -746,15 +747,15 @@ describe('cw land all (RPC-level, converge.status + land.session directly — no
       }).trim();
       new MergeTrialRepo(db).insert({
         id: 'mt_1', workspaceId: 'ws_1', ts: '2026-01-01T00:00:01.000Z', branches: ['cw/a', 'cw/b'],
-        result: 'conflict', detail: 'x.ts', baseHead,
+        result: 'conflict', detail: 'x.ts', baseHead, pairwise: true,
       });
       new MergeTrialRepo(db).insert({
         id: 'mt_2', workspaceId: 'ws_1', ts: '2026-01-01T00:00:02.000Z', branches: ['cw/a', 'cw/c'],
-        result: 'clean', detail: null, baseHead,
+        result: 'clean', detail: null, baseHead, pairwise: true,
       });
       new MergeTrialRepo(db).insert({
         id: 'mt_3', workspaceId: 'ws_1', ts: '2026-01-01T00:00:03.000Z', branches: ['cw/b', 'cw/c'],
-        result: 'clean', detail: null, baseHead,
+        result: 'clean', detail: null, baseHead, pairwise: true,
       });
 
       const status = (await methods['converge.status']!({ workspaceId: 'ws_1' }, ctx)) as { conflictFree: string[] };
@@ -815,12 +816,12 @@ describe('cw land all (RPC-level, converge.status + land.session directly — no
       ] as const) {
         trials.insert({
           id, workspaceId: 'ws_1', ts, branches: [...branches],
-          result: 'clean', detail: null, baseHead,
+          result: 'clean', detail: null, baseHead, pairwise: true,
         });
       }
       trials.insert({
         id: 'mt_full', workspaceId: 'ws_1', ts: '2026-01-01T00:00:04.000Z',
-        branches: ['cw/a', 'cw/b', 'cw/c'], result: 'clean', detail: null, baseHead,
+        branches: ['cw/a', 'cw/b', 'cw/c'], result: 'clean', detail: null, baseHead, pairwise: false,
       });
 
       const landed: string[] = [];
@@ -853,6 +854,57 @@ describe('cw land all (RPC-level, converge.status + land.session directly — no
       const mainFiles = execFileSync('git', ['ls-tree', '-r', '--name-only', 'main'], { cwd: fixture.root, encoding: 'utf8' });
       expect(mainFiles).not.toContain('c.txt');
       expect(mainFiles).not.toContain('FAIL_MARKER.txt');
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
+  // I2: the whole `cw land all` loop depends on convergence status recovering
+  // after each land. A land moves the base, which correctly invalidates every
+  // trial recorded against the old base — but nothing ever refreshed them,
+  // because the scheduler's due/dedup bookkeeping only watched session branch
+  // heads, which a land does not touch. The batch therefore landed exactly one
+  // session and then reported "nothing to land" indefinitely.
+  test('I2 regression: after one land the remaining sessions go unknown, and the next scheduler tick makes them ready again', async () => {
+    const fixture = await makeGitFixture();
+    try {
+      const db = openDatabase(':memory:');
+      new WorkspaceRepo(db).insert({
+        id: 'ws_1', name: 'w', rootPath: fixture.root, createdAt: 'now',
+        defaultIsolation: 'worktree', safeModeTier: 'T1',
+      });
+      const config = { ...DEFAULT_CONFIG, converge: { ...DEFAULT_CONFIG.converge, trialDebounceMs: 0 } };
+      const methods = buildMethods(db, fixture.root, undefined, config, { notifySend: () => {} });
+      const scheduler = new ConvergenceScheduler(
+        db, fixture.root, config, new LeaseManager(db, fixture.root, config), new ConfigTrustRepo(db),
+      );
+
+      for (const name of ['a', 'b', 'c']) {
+        const session = (await methods['session.new']!(
+          { workspaceId: 'ws_1', name, agent: 'claude', worktree: true }, ctx,
+        )) as { worktreePath: string };
+        await commitFile(session.worktreePath, `${name}.txt`, `${name}\n`, `add ${name}`);
+      }
+
+      type Status = { ready: string[]; unknown: { name: string; reason: string }[] };
+      await scheduler.tick();
+      const initial = (await methods['converge.status']!({ workspaceId: 'ws_1' }, ctx)) as Status;
+      expect(initial.ready).toEqual(['a', 'b', 'c']);
+
+      const result = (await methods['land.session']!(
+        { workspaceId: 'ws_1', idOrName: 'a', force: false }, ctx,
+      )) as LandResult;
+      expect(result.status).toBe('landed');
+
+      const stale = (await methods['converge.status']!({ workspaceId: 'ws_1' }, ctx)) as Status;
+      expect(stale.ready).toEqual([]);
+      expect(stale.unknown.map((u) => u.name).sort()).toEqual(['b', 'c']);
+
+      await scheduler.tick();
+
+      const refreshed = (await methods['converge.status']!({ workspaceId: 'ws_1' }, ctx)) as Status;
+      expect(refreshed.ready).toEqual(['b', 'c']);
+      expect(refreshed.unknown).toEqual([]);
     } finally {
       await fixture.cleanup();
     }

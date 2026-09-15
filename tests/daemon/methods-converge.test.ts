@@ -1,11 +1,19 @@
 import { describe, expect, test } from 'bun:test';
+import { $ } from 'bun';
 import { execFileSync } from 'node:child_process';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { openDatabase } from '../../src/db/open.js';
 import { buildMethods } from '../../src/daemon/methods.js';
 import { WorkspaceRepo } from '../../src/db/repositories/workspace.js';
 import { SessionRepo } from '../../src/db/repositories/session.js';
 import { MergeTrialRepo } from '../../src/db/repositories/merge-trial.js';
+import { ConfigTrustRepo } from '../../src/db/repositories/config-trust.js';
+import { LeaseManager } from '../../src/isolation/leases/manager.js';
+import { ConvergenceScheduler } from '../../src/daemon/convergence-scheduler.js';
+import { DEFAULT_CONFIG } from '../../src/core/config.js';
+import { makeGitFixture, commitFile } from '../helpers/git-fixture.js';
 
 describe('converge.status RPC', () => {
   test('classifies every active session as unknown when no convergence trials exist', async () => {
@@ -63,7 +71,7 @@ describe('converge.status RPC', () => {
     }
     new MergeTrialRepo(db).insert({
       id: 'mt_1', workspaceId: 'ws_1', ts: 'now', branches: ['cw/a', 'cw/b'],
-      result: 'clean', detail: null, baseHead,
+      result: 'clean', detail: null, baseHead, pairwise: true,
     });
 
     const methods = buildMethods(db, projectRoot);
@@ -105,7 +113,7 @@ describe('converge.status RPC', () => {
     });
     new MergeTrialRepo(db).insert({
       id: 'mt_1', workspaceId: 'ws_1', ts: 'now', branches: ['cw/a', 'cw/b'],
-      result: 'conflict', detail: 'x.ts', baseHead: '',
+      result: 'conflict', detail: 'x.ts', baseHead: '', pairwise: true,
     });
 
     const methods = buildMethods(db, process.cwd());
@@ -175,19 +183,19 @@ describe('converge.status RPC', () => {
     }
     new MergeTrialRepo(db).insert({
       id: 'mt_1', workspaceId: 'ws_1', ts: 'now', branches: ['cw/a', 'cw/b'],
-      result: 'conflict', detail: 'x.ts', baseHead,
+      result: 'conflict', detail: 'x.ts', baseHead, pairwise: true,
     });
     new MergeTrialRepo(db).insert({
       id: 'mt_2', workspaceId: 'ws_1', ts: 'now', branches: ['cw/a', 'cw/c'],
-      result: 'clean', detail: null, baseHead,
+      result: 'clean', detail: null, baseHead, pairwise: true,
     });
     new MergeTrialRepo(db).insert({
       id: 'mt_3', workspaceId: 'ws_1', ts: 'now', branches: ['cw/b', 'cw/c'],
-      result: 'clean', detail: null, baseHead,
+      result: 'clean', detail: null, baseHead, pairwise: true,
     });
     new MergeTrialRepo(db).insert({
       id: 'mt_4', workspaceId: 'ws_1', ts: 'now', branches: ['cw/a', 'cw/b', 'cw/c'],
-      result: 'clean', detail: null, baseHead,
+      result: 'clean', detail: null, baseHead, pairwise: false,
     });
 
     const methods = buildMethods(db, projectRoot);
@@ -207,5 +215,119 @@ describe('converge.status RPC', () => {
     expect(result.conflictFree).not.toContain('a');
     expect(result.conflictFree).not.toContain('b');
     expect(result.fullIntegration?.baseHead).toBe(baseHead);
+  });
+});
+
+async function branchWithFile(root: string, branch: string, file: string, content: string): Promise<void> {
+  await $`git checkout -q -b ${branch}`.cwd(root).quiet();
+  await commitFile(root, file, content, `add ${file}`);
+  await $`git checkout -q main`.cwd(root).quiet();
+}
+
+describe('converge.status: trial kind is read from the recorded kind, not the branch count', () => {
+  const ctx = { notify: () => undefined, onClose: () => undefined };
+
+  // C1: with exactly 2 active sessions a full-integration trial has
+  // branches.length === 2 — the same shape a genuine pairwise trial has. Reading
+  // "full integration" as `branches.length > 2` therefore found nothing at all,
+  // AND let the full-integration row win the latest-by-pair lookup that decides
+  // landability, so one `unverified` full-integration tick left both sessions
+  // permanently unknown with nothing landable. The rows here come from a real
+  // scheduler tick, which is the only thing that knows which kind it recorded.
+  test('a 2-branch full-integration trial neither hides itself nor poisons the pair\'s latest pairwise evidence', async () => {
+    const fixture = await makeGitFixture();
+    try {
+      await branchWithFile(fixture.root, 'cw/a', 'a.txt', 'a\n');
+      await branchWithFile(fixture.root, 'cw/b', 'b.txt', 'b\n');
+
+      const db = openDatabase(':memory:');
+      new WorkspaceRepo(db).insert({
+        id: 'ws_1', name: 'w', rootPath: fixture.root, createdAt: 'now',
+        defaultIsolation: 'worktree', safeModeTier: 'T1',
+      });
+      const sessions = new SessionRepo(db);
+      for (const [id, name] of [['s_a', 'a'], ['s_b', 'b']] as const) {
+        sessions.insert({
+          id, workspaceId: 'ws_1', name, agentKind: 'claude', adapter: 'claude',
+          status: 'running', worktreePath: fixture.root, branch: `cw/${name}`, createdAt: `now-${name}`,
+          lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+        });
+      }
+      // fullIntegrationIntervalMs: 0 makes the full-integration run happen on the
+      // same tick as the pairwise sweep; no testCommand makes it record
+      // 'unverified', genuinely differing from the pairwise 'clean' for the pair.
+      const config = {
+        ...DEFAULT_CONFIG,
+        converge: { ...DEFAULT_CONFIG.converge, trialDebounceMs: 0, fullIntegrationIntervalMs: 0 },
+      };
+      const scheduler = new ConvergenceScheduler(
+        db, fixture.root, config, new LeaseManager(db, fixture.root, config), new ConfigTrustRepo(db),
+      );
+      await scheduler.tick();
+
+      const trials = new MergeTrialRepo(db).listByWorkspace('ws_1');
+      expect(trials).toHaveLength(2); // both rows carry exactly 2 branches
+      expect(trials.every((t) => t.branches.length === 2)).toBe(true);
+
+      const methods = buildMethods(db, fixture.root, undefined, config, { notifySend: () => {} });
+      const result = (await methods['converge.status']!({ workspaceId: 'ws_1' }, ctx)) as {
+        pairwise: { a: string; b: string; result: string }[];
+        fullIntegration: { result: string } | null;
+        ready: string[];
+        unknown: { name: string; reason: string }[];
+      };
+
+      expect(result.pairwise).toEqual([{ a: 'cw/a', b: 'cw/b', result: 'clean' }]);
+      expect(result.fullIntegration?.result).toBe('unverified');
+      expect(result.unknown).toEqual([]);
+      expect(result.ready).toEqual(['a', 'b']);
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
+  // I3: reading the base HEAD is a read of the user's repository and can fail for
+  // ordinary reasons — an unborn branch here, a git binary problem elsewhere. It
+  // used to be an unguarded execFileSync, so a plain status query crashed the RPC
+  // with INTERNAL. Now every session reports `unknown`, and notably NOT `blocked`:
+  // without the base HEAD, no recorded conflict can be shown to still apply.
+  test('an unreadable base HEAD degrades every session to unknown instead of failing the query', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'cw-unborn-'));
+    try {
+      await $`git init -q -b main`.cwd(root).quiet(); // no commits at all: HEAD is unborn
+      const db = openDatabase(':memory:');
+      new WorkspaceRepo(db).insert({
+        id: 'ws_1', name: 'w', rootPath: root, createdAt: 'now',
+        defaultIsolation: 'worktree', safeModeTier: 'T1',
+      });
+      const sessions = new SessionRepo(db);
+      for (const [id, name] of [['s_a', 'a'], ['s_b', 'b']] as const) {
+        sessions.insert({
+          id, workspaceId: 'ws_1', name, agentKind: 'claude', adapter: 'claude',
+          status: 'running', worktreePath: root, branch: `cw/${name}`, createdAt: `now-${name}`,
+          lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+        });
+      }
+      new MergeTrialRepo(db).insert({
+        id: 'mt_1', workspaceId: 'ws_1', ts: 'now', branches: ['cw/a', 'cw/b'],
+        result: 'conflict', detail: 'x.ts', baseHead: 'base-abc', pairwise: true,
+      });
+
+      const methods = buildMethods(db, root, undefined, undefined, { notifySend: () => {} });
+      const result = (await methods['converge.status']!({ workspaceId: 'ws_1' }, ctx)) as {
+        ready: string[];
+        blocked: { name: string }[];
+        unknown: { name: string; reason: string }[];
+      };
+
+      expect(result.ready).toEqual([]);
+      expect(result.blocked).toEqual([]);
+      expect(result.unknown).toEqual([
+        { name: 'a', reason: 'the base branch HEAD could not be read' },
+        { name: 'b', reason: 'the base branch HEAD could not be read' },
+      ]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

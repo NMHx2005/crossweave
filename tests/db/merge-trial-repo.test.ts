@@ -1,12 +1,13 @@
 import { describe, expect, test } from 'bun:test';
 import { openDatabase } from '../../src/db/open.js';
-import { MergeTrialRepo, type MergeTrialRow } from '../../src/db/repositories/merge-trial.js';
+import { MergeTrialRepo, isPairwiseTrial, type MergeTrialRow } from '../../src/db/repositories/merge-trial.js';
 import { WorkspaceRepo } from '../../src/db/repositories/workspace.js';
 
 function row(overrides: Partial<MergeTrialRow> = {}): MergeTrialRow {
   return {
     id: 'mt_1', workspaceId: 'ws_1', ts: 'now',
     branches: ['cw/a', 'cw/b'], result: 'clean', detail: null, baseHead: 'base-abc',
+    pairwise: true,
     ...overrides,
   };
 }
@@ -51,5 +52,39 @@ describe('MergeTrialRepo', () => {
     repo.insert(row({ result: 'conflict', detail: 'src/x.ts\nsrc/y.ts' }));
 
     expect(repo.listByWorkspace('ws_1')[0]?.detail).toBe('src/x.ts\nsrc/y.ts');
+  });
+
+  // C1: the trial kind has to survive the round-trip, because a full-integration
+  // trial over exactly 2 active sessions is indistinguishable from a pairwise one
+  // by branch count alone — and after a daemon restart the recorded row is the
+  // only place that distinction can come from.
+  test('the recorded trial kind round-trips for both kinds, including a 2-branch full integration', () => {
+    const db = openDatabase(':memory:');
+    seed(db);
+    const repo = new MergeTrialRepo(db);
+    repo.insert(row({ id: 'mt_pair', ts: '1', pairwise: true }));
+    repo.insert(row({ id: 'mt_full', ts: '2', pairwise: false })); // same 2 branches
+
+    const [pair, full] = repo.listByWorkspace('ws_1');
+    expect(pair?.pairwise).toBe(true);
+    expect(full?.pairwise).toBe(false);
+    expect(isPairwiseTrial(pair as MergeTrialRow)).toBe(true);
+    expect(isPairwiseTrial(full as MergeTrialRow)).toBe(false);
+  });
+
+  test('a row written before the kind column reads back as null and falls back to the branch count', () => {
+    const db = openDatabase(':memory:');
+    seed(db);
+    const repo = new MergeTrialRepo(db);
+    // What the v10 -> v11 migration leaves behind: the column exists, nothing filled it.
+    db.run(
+      "INSERT INTO merge_trial (id, workspace_id, ts, branches, result, detail, base_head)"
+      + " VALUES ('mt_legacy','ws_1','1','[\"cw/a\",\"cw/b\"]','clean',NULL,'base-abc')",
+    );
+
+    const legacy = repo.listByWorkspace('ws_1')[0] as MergeTrialRow;
+    expect(legacy.pairwise).toBeNull();
+    expect(isPairwiseTrial(legacy)).toBe(true);
+    expect(isPairwiseTrial({ ...legacy, branches: ['cw/a', 'cw/b', 'cw/c'] })).toBe(false);
   });
 });

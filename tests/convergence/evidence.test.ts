@@ -16,6 +16,7 @@ function trial(overrides: Partial<MergeTrialRow> = {}): MergeTrialRow {
     result: 'clean',
     detail: null,
     baseHead: 'base-current',
+    pairwise: true,
     ...overrides,
   };
 }
@@ -92,6 +93,63 @@ describe('classifyLandability', () => {
 
     expect(result.ready).toEqual([]);
     expect(result.byName.get('a')?.landability).toBe('unknown');
+  });
+
+  // C1: a full-integration trial over exactly 2 active sessions has the same
+  // branch count as the pair's genuine pairwise trial, and being the later row it
+  // used to win the latest-by-pair lookup. One `unverified` full-integration tick
+  // then left both sessions unknown with nothing landable.
+  test('ignores a full-integration trial when picking a pair\'s latest pairwise evidence, even at 2 branches', () => {
+    const result = classify({
+      trials: [
+        trial({ id: 'pairwise', result: 'clean' }),
+        trial({
+          id: 'full',
+          ts: '2026-09-15T00:00:01.000Z',
+          result: 'unverified',
+          pairwise: false,
+        }),
+      ],
+    });
+
+    expect(result.ready).toEqual(['a', 'b']);
+  });
+
+  // I4: a conflict is evidence about the base it was trialled against. Once the
+  // base moves it says nothing about whether the branches still collide, so it
+  // must degrade to `unknown` — a state a refreshed trial clears — rather than
+  // staying `blocked`, which never clears itself.
+  test('does not keep a session blocked on a conflict recorded against an older base', () => {
+    const result = classify({ trials: [trial({ result: 'conflict', baseHead: 'base-old' })] });
+
+    expect(result.byName.get('a')?.landability).toBe('unknown');
+    expect(result.byName.get('a')?.reason).toContain('older base');
+    expect(result.byName.get('b')?.landability).toBe('unknown');
+    expect(result.ready).toEqual([]);
+  });
+
+  test('still blocks on a conflict recorded against the current base, degraded or not', () => {
+    const fresh = classify({ trials: [trial({ result: 'conflict' })] });
+    const degraded = classify({ trials: [trial({ result: 'test_fail' })], degraded: true });
+
+    expect(fresh.byName.get('a')?.landability).toBe('blocked');
+    expect(degraded.byName.get('a')?.landability).toBe('blocked');
+  });
+
+  // I3: `converge.status` cannot judge any trial's freshness without the base
+  // HEAD, so an unreadable HEAD degrades every session to unknown instead of
+  // failing the whole query.
+  test('classifies every session unknown when the base head could not be read', () => {
+    const result = classify({
+      currentBaseHead: null,
+      trials: [trial({ result: 'conflict' })],
+      hasTrustedTestCommand: true,
+    });
+
+    expect(result.ready).toEqual([]);
+    expect(result.byName.get('a')?.landability).toBe('unknown');
+    expect(result.byName.get('a')?.reason).toBe('the base branch HEAD could not be read');
+    expect(result.byName.get('b')?.landability).toBe('unknown');
   });
 
   test('uses the latest trial for a sorted pair regardless of branch order', () => {

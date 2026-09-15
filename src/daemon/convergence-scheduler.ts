@@ -5,7 +5,7 @@ import type { CrossweaveConfig } from '../core/config.js';
 import type { LeaseManager } from '../isolation/leases/manager.js';
 import { WorkspaceRepo } from '../db/repositories/workspace.js';
 import { SessionRepo, type SessionRow } from '../db/repositories/session.js';
-import { MergeTrialRepo } from '../db/repositories/merge-trial.js';
+import { MergeTrialRepo, isPairwiseTrial } from '../db/repositories/merge-trial.js';
 import type { ConfigTrustRepo } from '../db/repositories/config-trust.js';
 import { ensureIntegrationWorktree, withIntegrationLease, withIntegrationWorktreeLock } from '../convergence/integration-worktree.js';
 import { runMergeTrial, resetIntegration } from '../convergence/trial.js';
@@ -16,11 +16,31 @@ import { BroadcastRegistry } from './broadcast.js';
 import type { MergeTrialRow } from '../db/repositories/merge-trial.js';
 
 const TICK_MS = 5_000;
-// Sorted-pair dedup keys accumulate one entry per unique (branch@head, branch@head)
-// combination ever trialled and are never individually superseded (unlike
-// lastTrialHead/lastTrialAt, which overwrite per branch). Capped with simple FIFO
-// eviction so a long-running daemon's memory doesn't grow without bound.
+// Sorted-pair dedup keys accumulate one entry per unique (base, branch@head,
+// branch@head) combination ever trialled and are never individually superseded
+// (unlike lastTrialHead/lastTrialAt, which overwrite per branch). Capped with
+// simple FIFO eviction so a long-running daemon's memory doesn't grow without
+// bound. Including the base means a moved base adds a fresh generation of keys
+// rather than reusing the old ones, which is the whole point — see `trialIdentity`.
 const MAX_TRIED_PAIRS = 5_000;
+
+/**
+ * What makes a trial's result still applicable: the two branch heads it merged
+ * AND the base it merged them onto.
+ *
+ * The base belongs in here because a trial is only ever evidence about the base it
+ * ran against — `classifyLandability` discards any trial whose `baseHead` differs
+ * from the current one. Keying dedup on branch heads alone therefore deadlocked
+ * the whole convergence loop after a land: landing moves the base without touching
+ * any session branch, so every remaining pair's recorded trial became unusable
+ * while simultaneously still counting as "already tried", and no session could
+ * ever return to `ready` until one of them happened to commit again or the daemon
+ * restarted. It also removes the need to explicitly invalidate anything on a
+ * successful land — the base HEAD read at the top of each tick does it.
+ */
+function trialIdentity(base: string, a: string, b: string): string {
+  return `${base}:${[a, b].sort().join('|')}`;
+}
 
 function currentHead(projectRoot: string, branch: string): string | undefined {
   try {
@@ -60,9 +80,13 @@ export class ConvergenceScheduler {
   // same-named branch (branch names derive from session names), and a bare
   // branch key would let one workspace's trial silently mark the other
   // workspace's identically-named branch as already-trialled.
-  private readonly lastTrialHead = new Map<string, string>(); // workspaceId:branch -> head sha
+  // Value is `${base}@${head}`, not a bare head: a branch is due for a re-trial
+  // when EITHER its own head moved or the base underneath it did (see
+  // `trialIdentity`). A bare head left every branch permanently not-due after a
+  // land, which is what stranded every session at `unknown`.
+  private readonly lastTrialHead = new Map<string, string>(); // workspaceId:branch -> `${base}@${head}`
   private readonly lastTrialAt = new Map<string, number>(); // workspaceId:branch -> ts ms
-  private readonly triedPairs = new Set<string>(); // `${workspaceId}:${branchA}@${headA}|${branchB}@${headB}`, pair sorted
+  private readonly triedPairs = new Set<string>(); // `${workspaceId}:${base}:${branchA}@${headA}|${branchB}@${headB}`, pair sorted
   // Keyed by workspaceId — a single shared scalar let one workspace's full
   // integration reset the clock for every OTHER workspace too, so the
   // oldest workspace (by WorkspaceRepo.list()'s created_at ASC order)
@@ -78,13 +102,6 @@ export class ConvergenceScheduler {
   // every one after it — independently of every other workspace.
   private readonly lastFullIntegrationAt = new Map<string, number>(); // workspaceId -> ts ms
   private readonly constructedAt = Date.now();
-  // A full-integration trial can have branches.length === 2 whenever exactly 2
-  // sessions are active — the same shape a genuine pairwise trial has. Branch
-  // count alone can't tell them apart, so recordTrial's caller says explicitly
-  // which kind a trial is, and this set tracks full-integration trial ids so
-  // they're excluded from the pairwise prior-lookup in either direction.
-  // Process-lifetime only, same as triedPairs/lastTrialHead/lastFullIntegrationAt.
-  private readonly fullIntegrationTrialIds = new Set<string>();
 
   private readonly workspaces: WorkspaceRepo;
   private readonly sessions: SessionRepo;
@@ -175,11 +192,13 @@ export class ConvergenceScheduler {
    * pairwise trials only. Which kind a trial is comes from the explicit
    * `pairwise` flag, NOT `branches.length === 2` — a full-integration trial
    * can ALSO have exactly 2 branches whenever exactly 2 sessions happen to be
-   * active, so branch count alone can't distinguish them; full-integration
-   * trial ids are tracked in `fullIntegrationTrialIds` and excluded from the
-   * pairwise prior-lookup so one never poisons the other. The prior result is
-   * looked up BEFORE inserting the new row, since inserting first would make
-   * "most recent" trivially match the row just inserted.
+   * active, so branch count alone can't distinguish them. That flag is written
+   * to the row (schema v11) rather than remembered in process memory, so every
+   * OTHER reader of the trial history — `converge.status`, the conflict graph,
+   * the landability classifier — can tell the two kinds apart too, and can
+   * still do so after a daemon restart. The prior result is looked up BEFORE
+   * inserting the new row, since inserting first would make "most recent"
+   * trivially match the row just inserted.
    */
   private recordTrial(row: {
     id: string; workspaceId: string; ts: string; branches: string[];
@@ -191,15 +210,12 @@ export class ConvergenceScheduler {
       const key = [...row.branches].sort().join('|');
       const existing = this.mergeTrials
         .listByWorkspace(row.workspaceId)
-        .filter((t) => t.branches.length === 2 && !this.fullIntegrationTrialIds.has(t.id) && [...t.branches].sort().join('|') === key);
+        .filter((t) => isPairwiseTrial(t) && [...t.branches].sort().join('|') === key);
       prior = existing.length > 0 ? existing[existing.length - 1]!.result : undefined;
     }
 
     this.mergeTrials.insert(row);
-    if (!row.pairwise) {
-      this.fullIntegrationTrialIds.add(row.id);
-      return;
-    }
+    if (!row.pairwise) return;
 
     if (row.branches.length === 2 && prior !== undefined && prior !== row.result) {
       const [branchA, branchB] = row.branches as [string, string];
@@ -230,12 +246,18 @@ export class ConvergenceScheduler {
     const now = Date.now();
     let due: SessionRow[] = [];
     if (!degraded) {
+      // Read once here for the due decision. The sweep below re-reads it under the
+      // integration lock and uses THAT value for the trials it records, so a base
+      // that moves in between simply leaves this tick's work keyed to the newer
+      // base — one extra trial next tick at worst, never a skipped one.
+      const dueBase = baseHead(projectRoot);
+      if (dueBase === undefined) return;
       due = active.filter((s) => {
         const branch = s.branch as string;
         const head = currentHead(projectRoot, branch);
         if (head === undefined) return false;
         const key = `${workspaceId}:${branch}`;
-        const changed = this.lastTrialHead.get(key) !== head;
+        const changed = this.lastTrialHead.get(key) !== `${dueBase}@${head}`;
         const cooledDown = now - (this.lastTrialAt.get(key) ?? 0) >= this.config.converge.trialDebounceMs;
         return changed && cooledDown;
       });
@@ -265,7 +287,7 @@ export class ConvergenceScheduler {
             const headB = currentHead(projectRoot, branchB);
             if (headB === undefined) continue;
 
-            const pairKey = `${workspaceId}:${[`${branchA}@${headA}`, `${branchB}@${headB}`].sort().join('|')}`;
+            const pairKey = `${workspaceId}:${trialIdentity(base, `${branchA}@${headA}`, `${branchB}@${headB}`)}`;
             if (this.triedPairs.has(pairKey)) continue;
 
             const result = await runMergeTrial(integration.path, base, [branchA, branchB]);
@@ -279,7 +301,7 @@ export class ConvergenceScheduler {
             this.rememberPair(pairKey);
           }
 
-          this.lastTrialHead.set(`${workspaceId}:${branchA}`, headA);
+          this.lastTrialHead.set(`${workspaceId}:${branchA}`, `${base}@${headA}`);
           this.lastTrialAt.set(`${workspaceId}:${branchA}`, now);
         }
       });
@@ -305,7 +327,7 @@ export class ConvergenceScheduler {
     if (!degraded) {
       // "a conflicting merge never reaches the test phase" — only proceed if
       // the most recent pairwise trial for every active pair is clean.
-      const trials = this.mergeTrials.listByWorkspace(workspaceId).filter((t) => t.branches.length === 2);
+      const trials = this.mergeTrials.listByWorkspace(workspaceId).filter(isPairwiseTrial);
       const latestByPair = new Map<string, (typeof trials)[number]>();
       for (const t of trials) latestByPair.set([...t.branches].sort().join('|'), t);
       for (let i = 0; i < branches.length; i += 1) {

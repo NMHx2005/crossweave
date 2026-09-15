@@ -23,7 +23,7 @@ import { decideBlocked } from '../radar/decision.js';
 import { ContractService, parseFqn } from '../radar/contracts.js';
 import { assertContained } from '../core/paths.js';
 import { ConvergenceScheduler } from './convergence-scheduler.js';
-import { MergeTrialRepo } from '../db/repositories/merge-trial.js';
+import { MergeTrialRepo, isPairwiseTrial } from '../db/repositories/merge-trial.js';
 import { ConfigTrustRepo } from '../db/repositories/config-trust.js';
 import { NotifyConfigRepo, type NotifyEventKind } from '../db/repositories/notify-config.js';
 import { buildConflictGraph, recommendOrder } from '../convergence/graph.js';
@@ -84,6 +84,22 @@ function optionalEventKind(params: Record<string, unknown>, key: string): Notify
  * The client forwards its own `process.env` on every start/resume so the agent gets
  * the shell the user actually meant.
  */
+/**
+ * The base branch's HEAD, or `null` if it cannot be read — same tolerance as
+ * `ConvergenceScheduler`'s own `baseHead()`. Callers report a degraded state
+ * instead of failing: an unreadable HEAD is a legitimate repository condition
+ * (an unborn branch, for one), not an internal fault.
+ */
+function readBaseHead(projectRoot: string): string | null {
+  try {
+    return execFileSync('git', ['rev-parse', '--verify', 'HEAD'], {
+      cwd: projectRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    return null;
+  }
+}
+
 function clientEnv(p: Record<string, unknown>): Record<string, string> {
   const raw = p.env;
   if (typeof raw !== 'object' || raw === null) return {};
@@ -598,21 +614,29 @@ export function buildMethods(
 
       const graph = buildConflictGraph(trials);
       const order = recommendOrder(active, graph);
+      // Both the matrix and the full-integration lookup below key off the
+      // RECORDED trial kind, never the branch count: a full-integration trial
+      // over exactly 2 active sessions carries 2 branches, so `> 2` found no
+      // full-integration row at all in that case while `=== 2` let it stand in
+      // as the pair's latest pairwise result.
       const pairwise: { a: string; b: string; result: string }[] = [];
       const seen = new Set<string>();
       for (const trial of [...trials].reverse()) {
-        if (trial.branches.length !== 2) continue;
+        if (!isPairwiseTrial(trial) || trial.branches.length !== 2) continue;
         const key = [...trial.branches].sort().join('|');
         if (seen.has(key)) continue;
         seen.add(key);
         pairwise.push({ a: trial.branches[0] as string, b: trial.branches[1] as string, result: trial.result });
       }
-      const fullIntegration = [...trials].reverse().find((t) => t.branches.length > 2) ?? null;
+      const fullIntegration = [...trials].reverse().find((t) => !isPairwiseTrial(t)) ?? null;
       const degraded = active.length > config.converge.pairwiseSessionThreshold;
-      const currentBaseHead = execFileSync('git', ['rev-parse', '--verify', 'HEAD'], {
-        cwd: projectRoot,
-        encoding: 'utf8',
-      }).trim();
+      // Wrapped like the scheduler's own `baseHead()`: this is a read of the
+      // user's repository, which can fail for ordinary reasons (an unborn HEAD
+      // in a fresh repo, a git binary problem) that must not surface as an
+      // INTERNAL error out of a plain status query. Without the base HEAD no
+      // trial's freshness can be judged, so every session degrades to `unknown`
+      // — a reportable state — rather than the whole command failing.
+      const currentBaseHead = readBaseHead(projectRoot);
       const testCommand = config.converge.testCommand;
       const trust = configTrust.get(workspaceId);
       const hasTrustedTestCommand =

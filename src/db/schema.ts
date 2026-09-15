@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 10;
+export const SCHEMA_VERSION = 11;
 
 /**
  * Each migration is a list of single statements, never one multi-statement blob.
@@ -214,5 +214,21 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
   ],
   [
     `ALTER TABLE merge_trial ADD COLUMN base_head TEXT NOT NULL DEFAULT ''`,
+  ],
+  [
+    // Which KIND of trial a row is. A full-integration trial carries exactly 2
+    // branches whenever exactly 2 sessions are active — the same shape a genuine
+    // pairwise trial has — so the branch count can never tell the two apart, and
+    // every reader that tried to guess from it either lost the full-integration
+    // row entirely or let it win a pairwise latest-by-pair lookup. The scheduler
+    // always knew which kind it was recording; this is where that knowledge is
+    // finally persisted rather than re-derived.
+    //
+    // Nullable with no default, deliberately: rows written before this migration
+    // genuinely have no recorded kind, and defaulting them to either value would
+    // assert something about history that isn't known. Readers fall back to the
+    // old branch-count heuristic for those rows (see `isPairwiseTrial`), which is
+    // exactly how they were already being classified when they were written.
+    `ALTER TABLE merge_trial ADD COLUMN pairwise INTEGER`,
   ],
 ];

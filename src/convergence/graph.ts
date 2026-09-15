@@ -1,11 +1,13 @@
-import type { MergeTrialRow } from '../db/repositories/merge-trial.js';
+import { isPairwiseTrial, type MergeTrialRow } from '../db/repositories/merge-trial.js';
 import type { SessionRow } from '../db/repositories/session.js';
 
 /** branch -> set of branches its LATEST pairwise trial says it conflicts with. */
 export function buildConflictGraph(trials: MergeTrialRow[]): Map<string, Set<string>> {
   const latestByPair = new Map<string, MergeTrialRow>();
   for (const trial of trials) {
-    if (trial.branches.length !== 2) continue; // pairwise only — full-integration rows don't feed the graph
+    // Pairwise only — a full-integration row doesn't feed the graph, including
+    // when it happens to carry exactly 2 branches (2 active sessions).
+    if (!isPairwiseTrial(trial)) continue;
     const key = [...trial.branches].sort().join('|');
     const existing = latestByPair.get(key);
     if (existing === undefined || trial.ts > existing.ts) latestByPair.set(key, trial);

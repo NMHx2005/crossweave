@@ -6,7 +6,7 @@ import type { SessionRow } from '../../src/db/repositories/session.js';
 function trial(overrides: Partial<MergeTrialRow>): MergeTrialRow {
   return {
     id: 't', workspaceId: 'ws_1', ts: 'now', branches: [],
-    result: 'clean', detail: null, baseHead: 'base-current', ...overrides,
+    result: 'clean', detail: null, baseHead: 'base-current', pairwise: true, ...overrides,
   };
 }
 
@@ -38,9 +38,36 @@ describe('buildConflictGraph', () => {
     expect(graph.get('cw/a')?.has('cw/b')).toBeFalsy();
   });
 
-  test('full-integration trials (3+ branches) are ignored — the graph is pairwise only', () => {
-    const graph = buildConflictGraph([trial({ branches: ['cw/a', 'cw/b', 'cw/c'], result: 'conflict' })]);
+  test('full-integration trials are ignored — the graph is pairwise only', () => {
+    const graph = buildConflictGraph([
+      trial({ branches: ['cw/a', 'cw/b', 'cw/c'], result: 'conflict', pairwise: false }),
+    ]);
     expect(graph.size).toBe(0);
+  });
+
+  // C1: with exactly 2 active sessions a full-integration trial carries exactly 2
+  // branches, so the branch count alone cannot exclude it here — only the recorded
+  // kind can. A `test_fail` full integration over 2 branches used to be read as a
+  // pairwise conflict edge between them.
+  test('a full-integration trial over exactly 2 branches produces no edge either', () => {
+    const graph = buildConflictGraph([
+      trial({ branches: ['cw/a', 'cw/b'], result: 'conflict', pairwise: false }),
+    ]);
+    expect(graph.size).toBe(0);
+  });
+
+  // Rows written before schema v11 have no recorded kind; the branch count is all
+  // that's available for them, which is how they were already being classified.
+  test('a legacy row with no recorded kind falls back to the branch count', () => {
+    const pairwise = buildConflictGraph([
+      trial({ branches: ['cw/a', 'cw/b'], result: 'conflict', pairwise: null }),
+    ]);
+    expect(pairwise.get('cw/a')?.has('cw/b')).toBe(true);
+
+    const full = buildConflictGraph([
+      trial({ branches: ['cw/a', 'cw/b', 'cw/c'], result: 'conflict', pairwise: null }),
+    ]);
+    expect(full.size).toBe(0);
   });
 });
 
