@@ -1,8 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { existsSync } from 'node:fs';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Database } from 'bun:sqlite';
 import { openDatabase } from '../../src/db/open.js';
+import { newId } from '../../src/core/ids.js';
+import { LeaseRepo } from '../../src/db/repositories/lease.js';
 import { SessionRepo } from '../../src/db/repositories/session.js';
 import { WorkspaceManager } from '../../src/domain/workspace.js';
 import { SessionManager } from '../../src/domain/session.js';
@@ -239,6 +242,22 @@ describe('SessionManager.kill', () => {
     expect(sessions.list(workspaceId)).toHaveLength(0);
   });
 
+  it('removes leased cache paths when removing the worktree and row', async () => {
+    const s = await sessions.create({ workspaceId, name: 'leased', agent: 'claude', worktree: true });
+    const cache = join(fx.root, '.crossweave', 'cache', s.id);
+    await mkdir(cache, { recursive: true });
+    await writeFile(join(cache, 'blob'), 'cache data');
+    new LeaseRepo(db).insert({
+      id: newId('lease'), sessionId: s.id, kind: 'cache', value: cache,
+      acquiredAt: new Date().toISOString(), releasedAt: null,
+    });
+
+    await sessions.kill(workspaceId, 'leased', { removeWorktree: true });
+
+    expect(existsSync(cache)).toBe(false);
+    expect(sessions.list(workspaceId)).toHaveLength(0);
+  });
+
   it('never removes the project root for a shared session', async () => {
     await sessions.create({ workspaceId, name: 'shared', agent: 'claude', worktree: false });
     await sessions.kill(workspaceId, 'shared', { removeWorktree: true });
@@ -283,6 +302,23 @@ describe('SessionManager name reclamation', () => {
 
     const revived = await sessions.create({ workspaceId, name: 'auth', agent: 'claude', worktree: true });
     expect(revived.branch).toBe('cw/auth');
+  });
+
+  it('remove deletes leased cache paths before deleting the session row', async () => {
+    const s = await sessions.create({ workspaceId, name: 'leased', agent: 'claude', worktree: true });
+    const cache = join(fx.root, '.crossweave', 'cache', s.id);
+    await mkdir(cache, { recursive: true });
+    await writeFile(join(cache, 'blob'), 'cache data');
+    new LeaseRepo(db).insert({
+      id: newId('lease'), sessionId: s.id, kind: 'cache', value: cache,
+      acquiredAt: new Date().toISOString(), releasedAt: null,
+    });
+    await sessions.kill(workspaceId, 'leased', { removeWorktree: false });
+
+    await sessions.remove(workspaceId, 'leased');
+
+    expect(existsSync(cache)).toBe(false);
+    expect(sessions.list(workspaceId)).toHaveLength(0);
   });
 
   it('refuses to remove a session that is still live', async () => {

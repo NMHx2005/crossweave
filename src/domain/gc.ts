@@ -45,7 +45,11 @@ function requireWorkspace(db: Database, workspaceId: string): WorkspaceRow {
  * holds a Postgres schema name, not a path. `assertContained` is what decides a value
  * read back out of the database is safe to delete at all.
  */
-function disposeLeasedPaths(leases: LeaseRepo, workspace: WorkspaceRow, sessionId: string): void {
+export function disposeLeasedPaths(
+  leases: LeaseRepo,
+  workspace: WorkspaceRow,
+  sessionId: string,
+): void {
   for (const lease of leases.listBySession(sessionId)) {
     if (lease.kind !== 'cache' && lease.kind !== 'db') continue;
     if (!isAbsolute(lease.value)) continue;

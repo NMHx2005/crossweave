@@ -3,6 +3,7 @@ import { mkdir, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Database } from 'bun:sqlite';
 import { openDatabase } from '../../src/db/open.js';
+import { LeaseRepo } from '../../src/db/repositories/lease.js';
 import { WorkspaceRepo } from '../../src/db/repositories/workspace.js';
 import { SessionRepo } from '../../src/db/repositories/session.js';
 import {
@@ -60,6 +61,28 @@ describe('measureWorktrees', () => {
     const id = await addSessionWithBytes('c', 1024);
     await rm(join(fx.root, '.crossweave', 'worktrees', id), { recursive: true, force: true });
     expect(measureWorktrees(db, workspaceId).find((u) => u.name === 'c')?.bytes).toBe(0);
+  });
+
+  it('includes cache directories and database files leased under .crossweave', async () => {
+    const id = await addSessionWithBytes('leased', 0);
+    const cache = join(fx.root, '.crossweave', 'cache', id);
+    const copiedDb = join(fx.root, '.crossweave', 'db', `${id}.db`);
+    await mkdir(cache, { recursive: true });
+    await mkdir(join(fx.root, '.crossweave', 'db'), { recursive: true });
+    await writeFile(join(cache, 'blob'), Buffer.alloc(4096));
+    await writeFile(copiedDb, Buffer.alloc(2048));
+    const leases = new LeaseRepo(db);
+    const acquiredAt = '2026-08-10T00:00:00.000Z';
+    leases.insert({
+      id: newId('lease'), sessionId: id, kind: 'cache', value: cache,
+      acquiredAt, releasedAt: null,
+    });
+    leases.insert({
+      id: newId('lease'), sessionId: id, kind: 'db', value: copiedDb,
+      acquiredAt, releasedAt: null,
+    });
+
+    expect(measureWorktrees(db, workspaceId).find((u) => u.name === 'leased')?.bytes).toBe(6144);
   });
 });
 

@@ -1,9 +1,12 @@
 import { existsSync, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import type { Database } from 'bun:sqlite';
 import { CrossweaveError } from '../core/errors.js';
 import type { CrossweaveConfig } from '../core/config.js';
+import { assertContained, crossweaveDir } from '../core/paths.js';
+import { LeaseRepo } from '../db/repositories/lease.js';
 import { SessionRepo } from '../db/repositories/session.js';
+import { WorkspaceRepo } from '../db/repositories/workspace.js';
 
 export interface DiskUsage {
   sessionId: string;
@@ -51,14 +54,32 @@ export function directorySize(path: string): number {
 }
 
 export function measureWorktrees(db: Database, workspaceId: string): DiskUsage[] {
+  const workspace = new WorkspaceRepo(db).findById(workspaceId);
+  const leases = new LeaseRepo(db);
+  const leaseRoot = workspace ? crossweaveDir(workspace.rootPath) : undefined;
+
   return new SessionRepo(db)
     .listByWorkspace(workspaceId)
     .filter((s) => s.worktreePath !== null)
-    .map((s) => ({
-      sessionId: s.id,
-      name: s.name,
-      bytes: directorySize(s.worktreePath ?? ''),
-    }));
+    .map((s) => {
+      let bytes = directorySize(s.worktreePath ?? '');
+      const counted = new Set<string>();
+      if (leaseRoot !== undefined) {
+        for (const lease of leases.listBySession(s.id)) {
+          if ((lease.kind !== 'cache' && lease.kind !== 'db') || !isAbsolute(lease.value)) continue;
+          try {
+            const path = assertContained(leaseRoot, lease.value);
+            if (counted.has(path)) continue;
+            counted.add(path);
+            const stat = statSync(path);
+            bytes += stat.isDirectory() ? directorySize(path) : stat.isFile() ? stat.size : 0;
+          } catch {
+            // Missing, unreadable and escaped lease paths contribute no bytes.
+          }
+        }
+      }
+      return { sessionId: s.id, name: s.name, bytes };
+    });
 }
 
 /** Short human-readable size, for messages a person reads rather than parses. */

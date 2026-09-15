@@ -4,8 +4,10 @@ import { newId } from '../core/ids.js';
 import { WorkspaceRepo } from '../db/repositories/workspace.js';
 import { SessionRepo, type SessionRow } from '../db/repositories/session.js';
 import { EventRepo } from '../db/repositories/event.js';
+import { LeaseRepo } from '../db/repositories/lease.js';
 import { createWorktree, deleteBranch, removeWorktree } from '../isolation/worktree.js';
 import { assertDiskAvailable } from '../isolation/disk-guard.js';
+import { disposeLeasedPaths } from './gc.js';
 import { createAdapter as defaultCreateAdapter } from '../adapters/registry.js';
 import type { AgentAdapter } from '../adapters/types.js';
 import { DEFAULT_CONFIG, type CrossweaveConfig } from '../core/config.js';
@@ -57,6 +59,7 @@ export class SessionManager {
   private readonly sessions: SessionRepo;
   private readonly workspaces: WorkspaceRepo;
   private readonly events: EventRepo;
+  private readonly leases: LeaseRepo;
 
   /** Set by the daemon so kill() can stop a live pty it does not own. */
   onKill?: (sessionId: string) => Promise<void>;
@@ -69,6 +72,7 @@ export class SessionManager {
     this.sessions = new SessionRepo(db);
     this.workspaces = new WorkspaceRepo(db);
     this.events = new EventRepo(db);
+    this.leases = new LeaseRepo(db);
   }
 
   private projectRoot(workspaceId: string): string {
@@ -229,6 +233,8 @@ export class SessionManager {
       // Removing the worktree means the work is gone, so nothing is left for the row
       // to describe — and keeping it would hold the name hostage under
       // UNIQUE(workspace_id, name) with no way to reclaim it.
+      const workspace = this.workspaces.findById(workspaceId);
+      if (workspace) disposeLeasedPaths(this.leases, workspace, row.id);
       this.sessions.delete(row.id);
       return;
     }
@@ -258,6 +264,8 @@ export class SessionManager {
 
     if (ownWorktree !== null) await removeWorktree(root, ownWorktree).catch(() => undefined);
     if (row.branch !== null) await deleteBranch(root, row.branch).catch(() => undefined);
+    const workspace = this.workspaces.findById(workspaceId);
+    if (workspace) disposeLeasedPaths(this.leases, workspace, row.id);
     this.sessions.delete(row.id);
   }
 }
