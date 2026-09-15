@@ -22,9 +22,9 @@ function isPortFree(port: number): Promise<boolean> {
  * absent from the table is not necessarily free — some unrelated program may own it,
  * and handing it to an agent produces an EADDRINUSE the user has no way to explain.
  *
- * Only the block's first port is probed. Probing all ten would triple the cost of
- * starting a session for a case that does not occur in practice, since blocks are
- * handed out whole.
+ * Every port in the block is probed. A squatter on any offset would otherwise produce
+ * an EADDRINUSE the user cannot explain, even though the lease table says the block
+ * is free.
  *
  * The leased set is snapshotted once and then RE-READ after every successful probe,
  * because `await isPortFree` is a yield point and the daemon dispatches RPCs
@@ -42,11 +42,19 @@ export async function allocatePortBlock(
 
   for (let candidate = base; candidate + blockSize <= 65536; candidate += blockSize) {
     if (taken.has(candidate)) continue;
-    if (await isPortFree(candidate)) {
-      for (const lease of leases.listActive('port')) taken.add(Number(lease.value));
-      if (taken.has(candidate)) continue;
-      return candidate;
+
+    let blockFree = true;
+    for (let offset = 0; offset < blockSize; offset++) {
+      if (!(await isPortFree(candidate + offset))) {
+        blockFree = false;
+        break;
+      }
     }
+    if (!blockFree) continue;
+
+    for (const lease of leases.listActive('port')) taken.add(Number(lease.value));
+    if (taken.has(candidate)) continue;
+    return candidate;
   }
 
   throw new CrossweaveError(

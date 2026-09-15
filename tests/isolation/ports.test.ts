@@ -83,6 +83,22 @@ describe('allocatePortBlock', () => {
     }
   });
 
+  it('skips a block when a non-base port in the block is occupied', async () => {
+    const base = DEFAULT_CONFIG.ports.base;
+    const squatter = createServer();
+    await new Promise<void>((resolve, reject) => {
+      squatter.once('error', reject);
+      squatter.listen(base + 1, '127.0.0.1', () => resolve());
+    });
+    try {
+      expect(await allocatePortBlock(leases, DEFAULT_CONFIG)).toBe(
+        base + DEFAULT_CONFIG.ports.blockSize,
+      );
+    } finally {
+      await new Promise<void>((resolve) => squatter.close(() => resolve()));
+    }
+  });
+
   it('throws when the range is exhausted', async () => {
     const tiny = {
       ...DEFAULT_CONFIG,

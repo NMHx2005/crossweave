@@ -50,6 +50,7 @@ const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
  */
 const RESERVED_ENV_NAMES = new Set([
   'PATH',
+  'PORT',
   'HOME',
   'SHELL',
   'USER',

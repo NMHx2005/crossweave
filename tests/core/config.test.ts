@@ -99,6 +99,16 @@ describe('loadConfig', () => {
       }
     });
 
+    it('rejects a named entry that would override PORT', async () => {
+      await writeFile(
+        join(dir, 'crossweave.config.json'),
+        JSON.stringify({ ports: { named: { PORT: 0 } } }),
+      );
+      expect(() => loadConfig(dir)).toThrowError(
+        expect.objectContaining({ code: 'CONFIG_INVALID' }) as unknown as Error,
+      );
+    });
+
     it('rejects a non-integer offset', async () => {
       await write({ API_PORT: 1.5 });
       expectInvalid('API_PORT');
