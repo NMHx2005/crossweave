@@ -12,7 +12,7 @@ import { ConfigTrustRepo } from '../../src/db/repositories/config-trust.js';
 import { LeaseManager } from '../../src/isolation/leases/manager.js';
 import { EventLedger } from '../../src/domain/ledger.js';
 import { DEFAULT_CONFIG, type CrossweaveConfig } from '../../src/core/config.js';
-import { landSession, type LandResult } from '../../src/convergence/land.js';
+import { gitFailureText, landSession, type LandResult } from '../../src/convergence/land.js';
 import { hashTestCommand } from '../../src/convergence/trust.js';
 import { buildMethods } from '../../src/daemon/methods.js';
 import { ClaudePtyAdapter } from '../../src/adapters/claude-pty.js';
@@ -64,6 +64,16 @@ function withStrategy(strategy: CrossweaveConfig['converge']['mergeStrategy']): 
 function withTestCommand(cmd: string): CrossweaveConfig {
   return { ...DEFAULT_CONFIG, converge: { ...DEFAULT_CONFIG.converge, testCommand: cmd } };
 }
+
+test('gitFailureText concatenates stderr and stdout', () => {
+  const err = Object.assign(new Error('Command failed'), {
+    stderr: Buffer.from('CONFLICT (content): Merge conflict in a.ts\n'),
+    stdout: Buffer.from('Rebasing (1/1)\n'),
+  });
+  const text = gitFailureText(err);
+  expect(text).toContain('CONFLICT');
+  expect(text).toContain('Rebasing');
+});
 
 describe('landSession', () => {
   test('refuses a running session unless force', async () => {
@@ -128,6 +138,33 @@ describe('landSession', () => {
 
       const events = new EventRepo(db).listBySession('s_a');
       expect(events.some((e) => e.kind === 'session.landed')).toBe(true);
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
+  test('squash no-op when commits exist but net diff vs base is empty', async () => {
+    const fixture = await makeGitFixture();
+    try {
+      await commitFile(fixture.root, 'x.txt', 'same\n', 'base x');
+      await $`git checkout -q -b cw/a`.cwd(fixture.root).quiet();
+      await commitFile(fixture.root, 'x.txt', 'temp\n', 'temp change');
+      await commitFile(fixture.root, 'x.txt', 'same\n', 'revert to base content');
+      await $`git checkout -q main`.cwd(fixture.root).quiet();
+
+      const { db, sessions, leaseManager, ledger, config, configTrust } = await setup(
+        fixture,
+        withStrategy('squash'),
+      );
+      insertSession(sessions, {
+        id: 's_a', name: 'a', worktreePath: fixture.root, branch: 'cw/a', status: 'idle',
+      });
+
+      const result = await landSession(
+        { db, projectRoot: fixture.root, sessions, leaseManager, ledger, config, configTrust },
+        'ws_1', 's_a', { force: false },
+      );
+      expect(result.status).toBe('landed');
     } finally {
       await fixture.cleanup();
     }

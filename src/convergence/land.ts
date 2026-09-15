@@ -84,18 +84,18 @@ function bufferText(raw: Buffer | string | undefined): string {
  * child exits non-zero — pulling the real git message out of that is what turns a bare
  * "Command failed: git merge --squash cw/b" into something the user can act on.
  *
- * Both are checked, stderr first, because WHICH stream git writes its actual message
- * to differs by command: `git rebase`'s conflict output goes to stderr, but `git
- * merge` (both `--squash` and plain `--no-ff`) writes its "CONFLICT (content)..."
- * output to STDOUT, leaving stderr empty — verified directly, not assumed. Reading
- * stderr alone would silently drop the real message for the two most common
- * merge-failure causes and fall back to a bare "Command failed: ...".
+ * Both streams are joined when non-empty: `git rebase` conflict output goes to stderr,
+ * but `git merge` (both `--squash` and plain `--no-ff`) writes its "CONFLICT
+ * (content)..." output to stdout — reading stderr alone would silently drop the real
+ * message for merge failures; rebase failures often need both (e.g. "Rebasing" on
+ * stdout, "CONFLICT" on stderr).
  */
-function gitStderr(cause: unknown): string {
+export function gitFailureText(cause: unknown): string {
   const err = cause as { stdout?: Buffer | string; stderr?: Buffer | string; message?: string };
   const stderrText = bufferText(err.stderr);
   const stdoutText = bufferText(err.stdout);
-  const text = stderrText.length > 0 ? stderrText : stdoutText;
+  const parts = [stderrText, stdoutText].filter((p) => p.length > 0);
+  const text = parts.join('\n').trim();
   return text.length > 0 ? text : (err.message ?? String(cause));
 }
 
@@ -132,7 +132,7 @@ function recoverMainCheckoutAndFail(projectRoot: string, base: string, cause: un
     // Best effort: if even a hard reset fails, the checkout needs manual git
     // intervention — nothing else this function can safely attempt automatically.
   }
-  throw new CrossweaveError('LAND_MERGE_FAILED', gitStderr(cause));
+  throw new CrossweaveError('LAND_MERGE_FAILED', gitFailureText(cause));
 }
 
 /**
@@ -277,7 +277,17 @@ export async function landSession(
           if (strategy === 'squash') {
             try {
               runGit(['merge', '--squash', branch], deps.projectRoot);
-              runGit(['commit', '-m', `${row.name}: squashed from ${branch}`], deps.projectRoot);
+              let hasStaged = true;
+              try {
+                execFileSync('git', ['diff', '--cached', '--quiet'], { cwd: deps.projectRoot, stdio: 'ignore' });
+                hasStaged = false; // exit 0 ⇒ no staged diff
+              } catch {
+                hasStaged = true; // exit 1 ⇒ staged changes
+              }
+              if (hasStaged) {
+                runGit(['commit', '-m', `${row.name}: squashed from ${branch}`], deps.projectRoot);
+              }
+              // else: net-zero squash — treat as successful no-op land (continue cleanup / mark landed)
             } catch (cause) {
               recoverMainCheckoutAndFail(deps.projectRoot, base, cause);
             }
@@ -298,7 +308,7 @@ export async function landSession(
                 // Nothing to abort, or the abort itself failed — the `finally`
                 // below's `resetIntegration` makes a second, independent attempt.
               }
-              throw new CrossweaveError('LAND_REBASE_CONFLICT', gitStderr(cause));
+              throw new CrossweaveError('LAND_REBASE_CONFLICT', gitFailureText(cause));
             }
             // `git rebase <upstream> <branch>` checks `<branch>` out as a side effect,
             // which the integration worktree can absorb harmlessly but the main
