@@ -8,7 +8,24 @@ interface LandResult {
   baseBranch: string;
   warnings: string[];
 }
-interface ConvergeStatus { conflictFree: string[] }
+interface ConvergeStatus {
+  ready: string[];
+  unknown: { name: string; reason: string }[];
+  blocked: { name: string; reason: string }[];
+}
+
+export function chooseNextLand(
+  status: ConvergeStatus,
+  force: boolean,
+): { name: string; warning?: string } | undefined {
+  const ready = status.ready[0];
+  if (ready !== undefined) return { name: ready };
+  if (!force) return undefined;
+  const unknown = status.unknown[0];
+  return unknown === undefined
+    ? undefined
+    : { name: unknown.name, warning: unknown.reason };
+}
 
 export function assertLandConfirmed(yes: boolean): void {
   if (!yes) {
@@ -51,7 +68,7 @@ const singleCommand = defineCommand({
 });
 
 const allCommand = defineCommand({
-  meta: { name: 'all', description: 'Land every conflict-free session, in recommended order, stopping at the first failure' },
+  meta: { name: 'all', description: 'Land every evidence-ready session, stopping at the first failure' },
   args: {
     force: { type: 'boolean', default: false, description: 'Land even sessions still running' },
     yes: { type: 'boolean', default: false, description: 'Skip confirmation' },
@@ -61,20 +78,31 @@ const allCommand = defineCommand({
       assertLandConfirmed(args.yes);
       await withClient(async (client) => {
         const workspaceId = await currentWorkspaceId(client);
-        const status = await client.call<ConvergeStatus>('converge.status', { workspaceId });
-        if (status.conflictFree.length === 0) {
-          process.stdout.write('nothing to land\n');
-          return;
-        }
-        for (const name of status.conflictFree) {
+        let landedAny = false;
+        while (true) {
+          const status = await client.call<ConvergeStatus>('converge.status', { workspaceId });
+          const candidate = chooseNextLand(status, args.force);
+          if (candidate === undefined) {
+            if (!landedAny) process.stdout.write('nothing to land\n');
+            if (!args.force && status.unknown[0] !== undefined) {
+              process.stderr.write(`${status.unknown[0].reason}\n`);
+            }
+            return;
+          }
+          const { name, warning } = candidate;
+          if (warning !== undefined) {
+            process.stdout.write(`warning: landing ${name} with incomplete evidence: ${warning}\n`);
+          }
           try {
             const result = await client.call<LandResult>('land.session', {
               workspaceId, idOrName: name, force: args.force,
             });
             printLandResult(name, result);
+            landedAny = true;
           } catch (err) {
             process.stdout.write(`stopped at ${name}: ${(err as Error).message}\n`);
-            throw err;
+            process.exitCode = 1;
+            return;
           }
         }
       });

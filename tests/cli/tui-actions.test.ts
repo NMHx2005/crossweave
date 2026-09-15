@@ -4,23 +4,32 @@ import { confirmWithLayerPaused, landAllInOrder, resolveSelfInvocation } from '.
 describe('landAllInOrder', () => {
   test('lands each name in order, stopping at the first failure', async () => {
     const attempted: string[] = [];
+    const snapshots = [['alice', 'bob', 'carol'], ['bob', 'carol']];
+    const fetchReady = async () => snapshots.shift() ?? [];
     const land = async (name: string) => {
       attempted.push(name);
       if (name === 'bob') throw new Error('conflict');
     };
-    const results = await landAllInOrder(['alice', 'bob', 'carol'], land);
+    const results = await landAllInOrder(fetchReady, land);
     expect(attempted).toEqual(['alice', 'bob']); // carol never attempted
     expect(results.landed).toEqual(['alice']);
     expect(results.failedAt).toBe('bob');
   });
 
-  test('all succeed when nothing fails', async () => {
+  test('re-fetches ready sessions after every successful land', async () => {
     const attempted: string[] = [];
+    let fetchCalls = 0;
+    const snapshots = [['alice', 'bob'], ['bob'], []];
+    const fetchReady = async () => {
+      fetchCalls += 1;
+      return snapshots.shift() ?? [];
+    };
     const land = async (name: string) => { attempted.push(name); };
-    const results = await landAllInOrder(['alice', 'bob'], land);
+    const results = await landAllInOrder(fetchReady, land);
     expect(attempted).toEqual(['alice', 'bob']);
     expect(results.landed).toEqual(['alice', 'bob']);
     expect(results.failedAt).toBeUndefined();
+    expect(fetchCalls).toBeGreaterThanOrEqual(3);
   });
 });
 

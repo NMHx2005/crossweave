@@ -31,13 +31,12 @@ interface DiskInfo { usedBytes: number; limitBytes: number }
 interface WorkspaceInfo { workspace: Workspace; sessions: SessionRow[]; disk: DiskInfo }
 interface ConvergeStatus {
   pairwise: { a: string; b: string; result: string }[];
-  fullIntegration: { result: string; ts: string; detail: string | null } | null;
+  fullIntegration: { result: string; ts: string; detail: string | null; baseHead: string } | null;
   recommendedOrder: string[];
-  // The RPC handler (src/daemon/methods.ts 'converge.status') has always returned
-  // this — the degree-0 subset of `recommendedOrder`, i.e. sessions with no known
-  // conflict. Not declared here until now because nothing in this file read it;
-  // land-all (Task 7) is that first reader.
   conflictFree: string[];
+  ready: string[];
+  unknown: { name: string; reason: string }[];
+  blocked: { name: string; reason: string }[];
   degraded: boolean;
 }
 
@@ -132,18 +131,18 @@ export function formatFeedLine(event: NotifyEvent): string {
 }
 
 /**
- * Pure ordering loop for `L` (land all) — mirrors `cw land all`'s existing logic
- * (src/cli/commands/land.ts's `allCommand`) but takes an injected `land` function
- * instead of a `DaemonClient`, so it's testable without a real RPC call (see
- * tests/cli/tui-actions.test.ts). Stops at the first failure rather than
- * continuing past it, same as the CLI command.
+ * Re-fetching after every successful land prevents the loop from using evidence
+ * calculated against a base commit that the previous land just moved.
  */
 export async function landAllInOrder(
-  names: string[],
+  fetchReady: () => Promise<string[]>,
   land: (name: string) => Promise<void>,
 ): Promise<{ landed: string[]; failedAt: string | undefined }> {
   const landed: string[] = [];
-  for (const name of names) {
+  while (true) {
+    const names = await fetchReady();
+    if (names.length === 0) return { landed, failedAt: undefined };
+    const name = names[0]!;
     try {
       await land(name);
       landed.push(name);
@@ -151,7 +150,6 @@ export async function landAllInOrder(
       return { landed, failedAt: name };
     }
   }
-  return { landed, failedAt: undefined };
 }
 
 /**
@@ -761,14 +759,24 @@ export const tuiCommand = defineCommand({
         if (uiBusy) return;
         uiBusy = true;
         try {
-          const status = await conn.call<ConvergeStatus>('converge.status', { workspaceId: ws.id });
-          if (status.conflictFree.length === 0) {
-            setActionStatus('nothing to land');
+          const result = await landAllInOrder(
+            async () => {
+              const status = await conn.call<ConvergeStatus>('converge.status', { workspaceId: ws.id });
+              return status.ready;
+            },
+            async (name) => {
+              await conn.call('land.session', { workspaceId: ws.id, idOrName: name });
+            },
+          );
+          if (result.landed.length === 0 && result.failedAt === undefined) {
+            const status = await conn.call<ConvergeStatus>('converge.status', { workspaceId: ws.id });
+            setActionStatus(
+              status.unknown[0]
+                ? `nothing to land: ${status.unknown[0].reason}`
+                : 'nothing to land',
+            );
             return;
           }
-          const result = await landAllInOrder(status.conflictFree, async (name) => {
-            await conn.call('land.session', { workspaceId: ws.id, idOrName: name });
-          });
           setActionStatus(
             result.failedAt
               ? `landed ${result.landed.join(', ') || '(none)'}; stopped at ${result.failedAt}`

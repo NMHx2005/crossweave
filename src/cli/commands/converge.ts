@@ -3,8 +3,11 @@ import { withClient, fail, currentWorkspaceId } from '../context.js';
 
 interface ConvergeStatus {
   pairwise: { a: string; b: string; result: string }[];
-  fullIntegration: { result: string; ts: string; detail: string | null } | null;
+  fullIntegration: { result: string; ts: string; detail: string | null; baseHead: string } | null;
   recommendedOrder: string[];
+  ready: string[];
+  unknown: { name: string; reason: string }[];
+  blocked: { name: string; reason: string }[];
   degraded: boolean;
 }
 
@@ -35,6 +38,13 @@ const statusCommand = defineCommand({
             ? `recommended land order: ${status.recommendedOrder.join(' -> ')}\n`
             : 'recommended land order: (no active sessions)\n',
         );
+        process.stdout.write(`ready: ${status.ready.join(', ') || '(none)'}\n`);
+        for (const item of status.unknown) {
+          process.stdout.write(`unknown: ${item.name} (${item.reason})\n`);
+        }
+        for (const item of status.blocked) {
+          process.stdout.write(`blocked: ${item.name} (${item.reason})\n`);
+        }
       });
     } catch (err) { fail(err); }
   },

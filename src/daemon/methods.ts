@@ -1,4 +1,5 @@
 import type { Database } from 'bun:sqlite';
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { WorkspaceManager } from '../domain/workspace.js';
@@ -26,6 +27,7 @@ import { MergeTrialRepo } from '../db/repositories/merge-trial.js';
 import { ConfigTrustRepo } from '../db/repositories/config-trust.js';
 import { NotifyConfigRepo, type NotifyEventKind } from '../db/repositories/notify-config.js';
 import { buildConflictGraph, recommendOrder } from '../convergence/graph.js';
+import { classifyLandability } from '../convergence/evidence.js';
 import { landSession } from '../convergence/land.js';
 import { hashTestCommand, isTestCommandTrusted } from '../convergence/trust.js';
 import { createAdapter } from '../adapters/registry.js';
@@ -586,20 +588,46 @@ export function buildMethods(
       }
       const fullIntegration = [...trials].reverse().find((t) => t.branches.length > 2) ?? null;
       const degraded = active.length > config.converge.pairwiseSessionThreshold;
-      // `recommendedOrder` is an ordering of every active session, conflicts and
-      // all — it is not a filter. `cw land all` needs the actual conflict-free
-      // subset (degree 0 in the conflict graph) so it can land what it safely can
-      // instead of attempting a session that was never going to land cleanly and
-      // halting everyone after it in the order.
-      const conflictFree = order.filter((s) => (graph.get(s.branch ?? '')?.size ?? 0) === 0).map((s) => s.name);
+      const currentBaseHead = execFileSync('git', ['rev-parse', '--verify', 'HEAD'], {
+        cwd: projectRoot,
+        encoding: 'utf8',
+      }).trim();
+      const testCommand = config.converge.testCommand;
+      const trust = configTrust.get(workspaceId);
+      const hasTrustedTestCommand =
+        testCommand !== undefined
+        && trust?.testCommandHash === hashTestCommand(testCommand);
+      const landability = classifyLandability({
+        sessions: order.map((session) => ({ name: session.name, branch: session.branch as string })),
+        trials,
+        currentBaseHead,
+        degraded,
+        hasTrustedTestCommand,
+        latestFullIntegration: fullIntegration,
+      });
+      const unknown = [...landability.byName.values()]
+        .filter((result) => result.landability === 'unknown')
+        .map(({ name, reason }) => ({ name, reason }));
+      const blocked = [...landability.byName.values()]
+        .filter((result) => result.landability === 'blocked')
+        .map(({ name, reason }) => ({ name, reason }));
+      const ready = landability.ready;
 
       return {
         pairwise,
         fullIntegration: fullIntegration
-          ? { result: fullIntegration.result, ts: fullIntegration.ts, detail: fullIntegration.detail }
+          ? {
+              result: fullIntegration.result,
+              ts: fullIntegration.ts,
+              detail: fullIntegration.detail,
+              baseHead: fullIntegration.baseHead,
+            }
           : null,
         recommendedOrder: order.map((s) => s.name),
-        conflictFree,
+        conflictFree: ready,
+        ready,
+        unknown,
+        blocked,
         degraded,
       };
     },

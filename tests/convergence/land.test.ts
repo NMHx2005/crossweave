@@ -741,9 +741,20 @@ describe('cw land all (RPC-level, converge.status + land.session directly — no
       // check landSession itself does), but a pairwise trial between them
       // conflicts — seeded directly since the scheduler is not running in this
       // test, matching the same conflict-graph shape a real tick would produce.
+      const baseHead = execFileSync('git', ['rev-parse', '--verify', 'HEAD'], {
+        cwd: fixture.root, encoding: 'utf8',
+      }).trim();
       new MergeTrialRepo(db).insert({
-        id: 'mt_1', workspaceId: 'ws_1', ts: 'now', branches: ['cw/a', 'cw/b'],
-        result: 'conflict', detail: 'x.ts', baseHead: '',
+        id: 'mt_1', workspaceId: 'ws_1', ts: '2026-01-01T00:00:01.000Z', branches: ['cw/a', 'cw/b'],
+        result: 'conflict', detail: 'x.ts', baseHead,
+      });
+      new MergeTrialRepo(db).insert({
+        id: 'mt_2', workspaceId: 'ws_1', ts: '2026-01-01T00:00:02.000Z', branches: ['cw/a', 'cw/c'],
+        result: 'clean', detail: null, baseHead,
+      });
+      new MergeTrialRepo(db).insert({
+        id: 'mt_3', workspaceId: 'ws_1', ts: '2026-01-01T00:00:03.000Z', branches: ['cw/b', 'cw/c'],
+        result: 'clean', detail: null, baseHead,
       });
 
       const status = (await methods['converge.status']!({ workspaceId: 'ws_1' }, ctx)) as { conflictFree: string[] };
@@ -772,7 +783,7 @@ describe('cw land all (RPC-level, converge.status + land.session directly — no
     }
   });
 
-  test('Important 4: stops at the first REAL failure — sessions after it in order are never attempted', async () => {
+  test('Important 4: forced re-fetch loop stops at the first REAL failure — later sessions are never attempted', async () => {
     const fixture = await makeGitFixture();
     try {
       const db = openDatabase(':memory:');
@@ -793,16 +804,36 @@ describe('cw land all (RPC-level, converge.status + land.session directly — no
       const c = (await methods['session.new']!({ workspaceId: 'ws_1', name: 'c', agent: 'claude', worktree: true }, ctx)) as { id: string; worktreePath: string };
       await commitFile(c.worktreePath, 'c.txt', 'c\n', 'add c');
 
-      const status = (await methods['converge.status']!({ workspaceId: 'ws_1' }, ctx)) as { conflictFree: string[] };
-      // No conflicts seeded at all — all three are conflict-free, in creation order.
-      expect(status.conflictFree).toEqual(['a', 'b', 'c']);
+      const baseHead = execFileSync('git', ['rev-parse', '--verify', 'HEAD'], {
+        cwd: fixture.root, encoding: 'utf8',
+      }).trim();
+      const trials = new MergeTrialRepo(db);
+      for (const [id, branches, ts] of [
+        ['mt_ab', ['cw/a', 'cw/b'], '2026-01-01T00:00:01.000Z'],
+        ['mt_ac', ['cw/a', 'cw/c'], '2026-01-01T00:00:02.000Z'],
+        ['mt_bc', ['cw/b', 'cw/c'], '2026-01-01T00:00:03.000Z'],
+      ] as const) {
+        trials.insert({
+          id, workspaceId: 'ws_1', ts, branches: [...branches],
+          result: 'clean', detail: null, baseHead,
+        });
+      }
+      trials.insert({
+        id: 'mt_full', workspaceId: 'ws_1', ts: '2026-01-01T00:00:04.000Z',
+        branches: ['cw/a', 'cw/b', 'cw/c'], result: 'clean', detail: null, baseHead,
+      });
 
       const landed: string[] = [];
       let stoppedAt: string | undefined;
-      for (const name of status.conflictFree) {
+      while (true) {
+        const status = (await methods['converge.status']!(
+          { workspaceId: 'ws_1' }, ctx,
+        )) as { ready: string[]; unknown: { name: string }[] };
+        const name = status.ready[0] ?? status.unknown[0]?.name;
+        if (name === undefined) break;
         try {
           const result = (await methods['land.session']!(
-            { workspaceId: 'ws_1', idOrName: name, force: false }, ctx,
+            { workspaceId: 'ws_1', idOrName: name, force: true }, ctx,
           )) as LandResult;
           expect(result.status).toBe('landed');
           landed.push(name);

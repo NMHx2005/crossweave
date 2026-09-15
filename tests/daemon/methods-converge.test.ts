@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { openDatabase } from '../../src/db/open.js';
 import { buildMethods } from '../../src/daemon/methods.js';
@@ -7,6 +8,81 @@ import { SessionRepo } from '../../src/db/repositories/session.js';
 import { MergeTrialRepo } from '../../src/db/repositories/merge-trial.js';
 
 describe('converge.status RPC', () => {
+  test('classifies every active session as unknown when no convergence trials exist', async () => {
+    const db = openDatabase(':memory:');
+    new WorkspaceRepo(db).insert({
+      id: 'ws_1', name: 'w', rootPath: process.cwd(), createdAt: 'now',
+      defaultIsolation: 'worktree', safeModeTier: 'T1',
+    });
+    const sessions = new SessionRepo(db);
+    for (const [id, name] of [['s_a', 'a'], ['s_b', 'b']] as const) {
+      sessions.insert({
+        id, workspaceId: 'ws_1', name, agentKind: 'claude', adapter: 'claude',
+        status: 'running', worktreePath: tmpdir(), branch: `cw/${name}`, createdAt: 'now',
+        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+      });
+    }
+
+    const methods = buildMethods(db, process.cwd());
+    const result = (await methods['converge.status']!(
+      { workspaceId: 'ws_1' },
+      { notify: () => undefined, onClose: () => undefined },
+    )) as {
+      ready: string[];
+      conflictFree: string[];
+      unknown: { name: string; reason: string }[];
+      blocked: { name: string; reason: string }[];
+    };
+
+    expect(result.ready).toEqual([]);
+    expect(result.conflictFree).toEqual([]);
+    expect(result.unknown).toEqual([
+      { name: 'a', reason: 'no pairwise trial with b' },
+      { name: 'b', reason: 'no pairwise trial with a' },
+    ]);
+    expect(result.blocked).toEqual([]);
+  });
+
+  test('classifies sessions with fresh clean pairwise evidence as ready', async () => {
+    const db = openDatabase(':memory:');
+    const projectRoot = process.cwd();
+    const baseHead = execFileSync('git', ['rev-parse', '--verify', 'HEAD'], {
+      cwd: projectRoot, encoding: 'utf8',
+    }).trim();
+    new WorkspaceRepo(db).insert({
+      id: 'ws_1', name: 'w', rootPath: projectRoot, createdAt: 'now',
+      defaultIsolation: 'worktree', safeModeTier: 'T1',
+    });
+    const sessions = new SessionRepo(db);
+    for (const [id, name] of [['s_a', 'a'], ['s_b', 'b']] as const) {
+      sessions.insert({
+        id, workspaceId: 'ws_1', name, agentKind: 'claude', adapter: 'claude',
+        status: 'running', worktreePath: tmpdir(), branch: `cw/${name}`, createdAt: 'now',
+        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+      });
+    }
+    new MergeTrialRepo(db).insert({
+      id: 'mt_1', workspaceId: 'ws_1', ts: 'now', branches: ['cw/a', 'cw/b'],
+      result: 'clean', detail: null, baseHead,
+    });
+
+    const methods = buildMethods(db, projectRoot);
+    const result = (await methods['converge.status']!(
+      { workspaceId: 'ws_1' },
+      { notify: () => undefined, onClose: () => undefined },
+    )) as {
+      ready: string[];
+      conflictFree: string[];
+      unknown: { name: string; reason: string }[];
+      blocked: { name: string; reason: string }[];
+    };
+
+    expect(result.ready).toEqual(['a', 'b']);
+    expect(result.conflictFree).toEqual(result.ready);
+    expect(result.unknown).toEqual([]);
+    expect(result.blocked).toEqual([]);
+  });
+
   test('reports the pairwise matrix and recommended order from seeded trial data', async () => {
     const db = openDatabase(':memory:');
     new WorkspaceRepo(db).insert({
@@ -32,7 +108,7 @@ describe('converge.status RPC', () => {
       result: 'conflict', detail: 'x.ts', baseHead: '',
     });
 
-    const methods = buildMethods(db, '/tmp/w');
+    const methods = buildMethods(db, process.cwd());
     const result = (await methods['converge.status']!(
       { workspaceId: 'ws_1' },
       { notify: () => undefined, onClose: () => undefined },
@@ -59,7 +135,7 @@ describe('converge.status RPC', () => {
       });
     }
 
-    const methods = buildMethods(db, '/tmp/w');
+    const methods = buildMethods(db, process.cwd());
     const result = (await methods['converge.status']!(
       { workspaceId: 'ws_1' },
       { notify: () => undefined, onClose: () => undefined },
@@ -74,6 +150,10 @@ describe('converge.status RPC', () => {
   // whole batch on a session that was never going to land cleanly.
   test('conflictFree excludes every session with a known conflict, unlike recommendedOrder', async () => {
     const db = openDatabase(':memory:');
+    const projectRoot = process.cwd();
+    const baseHead = execFileSync('git', ['rev-parse', '--verify', 'HEAD'], {
+      cwd: projectRoot, encoding: 'utf8',
+    }).trim();
     new WorkspaceRepo(db).insert({
       id: 'ws_1', name: 'w', rootPath: '/tmp/w', createdAt: 'now',
       defaultIsolation: 'worktree', safeModeTier: 'T1',
@@ -95,14 +175,30 @@ describe('converge.status RPC', () => {
     }
     new MergeTrialRepo(db).insert({
       id: 'mt_1', workspaceId: 'ws_1', ts: 'now', branches: ['cw/a', 'cw/b'],
-      result: 'conflict', detail: 'x.ts', baseHead: '',
+      result: 'conflict', detail: 'x.ts', baseHead,
+    });
+    new MergeTrialRepo(db).insert({
+      id: 'mt_2', workspaceId: 'ws_1', ts: 'now', branches: ['cw/a', 'cw/c'],
+      result: 'clean', detail: null, baseHead,
+    });
+    new MergeTrialRepo(db).insert({
+      id: 'mt_3', workspaceId: 'ws_1', ts: 'now', branches: ['cw/b', 'cw/c'],
+      result: 'clean', detail: null, baseHead,
+    });
+    new MergeTrialRepo(db).insert({
+      id: 'mt_4', workspaceId: 'ws_1', ts: 'now', branches: ['cw/a', 'cw/b', 'cw/c'],
+      result: 'clean', detail: null, baseHead,
     });
 
-    const methods = buildMethods(db, '/tmp/w');
+    const methods = buildMethods(db, projectRoot);
     const result = (await methods['converge.status']!(
       { workspaceId: 'ws_1' },
       { notify: () => undefined, onClose: () => undefined },
-    )) as { recommendedOrder: string[]; conflictFree: string[] };
+    )) as {
+      recommendedOrder: string[];
+      conflictFree: string[];
+      fullIntegration: { baseHead: string } | null;
+    };
 
     expect(result.recommendedOrder).toContain('a');
     expect(result.recommendedOrder).toContain('b');
@@ -110,5 +206,6 @@ describe('converge.status RPC', () => {
     expect(result.conflictFree).toEqual(['c']);
     expect(result.conflictFree).not.toContain('a');
     expect(result.conflictFree).not.toContain('b');
+    expect(result.fullIntegration?.baseHead).toBe(baseHead);
   });
 });
