@@ -8,6 +8,15 @@ interface Session {
   enforcementTier: string; worktreePath: string | null; branch: string | null;
   tokenSpent: number; tokenBudget: number | null;
   costSpentUsd: number; costBudgetUsd: number | null;
+  leases?: LeaseSummary;
+}
+
+interface LeaseSummary {
+  portBase: number | null;
+  composeProject: string | null;
+  cachePath: string | null;
+  dbStrategy: 'none' | 'schema' | 'file-copy';
+  dbValue: string | null;
 }
 
 /** The subset of Session's fields formatSpend needs — kept separate so the CLI unit
@@ -42,6 +51,18 @@ export function formatSpend(s: SpendFields): string {
   const overTokens = s.tokenBudget !== null && s.tokenSpent > s.tokenBudget;
   const marker = overCost || overTokens ? ' OVER BUDGET' : '';
   return `${costPart}/${tokenPart}${marker}`;
+}
+
+export function formatLeaseSummary(leases: LeaseSummary | undefined): string {
+  if (leases === undefined) return '-';
+  const parts: string[] = [];
+  if (leases.portBase !== null) parts.push(`port=${leases.portBase}`);
+  if (leases.composeProject !== null) parts.push(`compose=${leases.composeProject}`);
+  if (leases.cachePath !== null) parts.push(`cache=${leases.cachePath}`);
+  if (leases.dbStrategy !== 'none' && leases.dbValue !== null) {
+    parts.push(`db=${leases.dbStrategy}:${leases.dbValue}`);
+  }
+  return parts.length === 0 ? '-' : parts.join(',');
 }
 
 export const sessionCommand = defineCommand({
@@ -85,17 +106,17 @@ export const sessionCommand = defineCommand({
     }),
 
     list: defineCommand({
-      meta: { name: 'list', description: 'List sessions' },
+      meta: { name: 'list', description: 'List sessions with spend and runtime leases' },
       async run() {
         try {
           await withClient(async (client) => {
             const workspaceId = await currentWorkspaceId(client);
             const rows = await client.call<Session[]>('session.list', { workspaceId });
             if (rows.length === 0) { process.stdout.write('no sessions\n'); return; }
-            process.stdout.write('NAME\tSTATUS\tAGENT\tTIER\tBRANCH\tSPEND\n');
+            process.stdout.write('NAME\tSTATUS\tAGENT\tTIER\tBRANCH\tSPEND\tLEASES\n');
             for (const s of rows) {
               process.stdout.write(
-                `${s.name}\t${s.status}\t${s.agentKind}\t${s.enforcementTier}\t${s.branch ?? '-'}\t${formatSpend(s)}\n`,
+                `${s.name}\t${s.status}\t${s.agentKind}\t${s.enforcementTier}\t${s.branch ?? '-'}\t${formatSpend(s)}\t${formatLeaseSummary(s.leases)}\n`,
               );
             }
           });

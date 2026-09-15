@@ -38,6 +38,7 @@ import { notify, type NotifyDispatcherDeps } from '../notify/dispatcher.js';
 import { platformSend } from '../notify/macos.js';
 import { BroadcastRegistry } from './broadcast.js';
 import { measureWorktrees } from '../isolation/disk-guard.js';
+import { LeaseRepo } from '../db/repositories/lease.js';
 
 function str(params: Record<string, unknown>, key: string): string {
   const v = params[key];
@@ -111,6 +112,7 @@ export function buildMethods(
   // both are cheap, stateless wrappers around `db`, so building them slightly earlier
   // than their other uses later in this function costs nothing.
   const sessionsRepo = new SessionRepo(db);
+  const leasesRepo = new LeaseRepo(db);
   const fileClaims = new FileClaimRepo(db);
   const cursorDeps: AcpAdapterDeps = {
     resolveWorkspaceId: (sessionId) => {
@@ -400,7 +402,26 @@ export function buildMethods(
       broadcastRegistry.broadcast('tui.invalidate', {});
       return row;
     },
-    'session.list': (p) => sessions.list(str(p, 'workspaceId')),
+    'session.list': (p) =>
+      sessions.list(str(p, 'workspaceId')).map((session) => {
+        const active = leasesRepo
+          .listBySession(session.id)
+          .filter((lease) => lease.releasedAt === null);
+        if (active.length === 0) return session;
+        const value = (kind: 'port' | 'docker' | 'cache' | 'db'): string | null =>
+          active.find((lease) => lease.kind === kind)?.value ?? null;
+        const port = value('port');
+        return {
+          ...session,
+          leases: {
+            portBase: port === null ? null : Number(port),
+            composeProject: value('docker'),
+            cachePath: value('cache'),
+            dbStrategy: config.db.strategy,
+            dbValue: value('db'),
+          },
+        };
+      }),
     'session.rename': (p) =>
       sessions.rename(str(p, 'workspaceId'), str(p, 'idOrName'), str(p, 'newName')),
     'session.kill': async (p) => {
