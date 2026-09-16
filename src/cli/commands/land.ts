@@ -2,6 +2,7 @@ import { defineCommand } from 'citty';
 import { CrossweaveError } from '../../core/errors.js';
 import {
   chooseNextLand,
+  landAllLoop,
   type ConvergeStatus,
   type LandResult,
 } from '../../convergence/land-order.js';
@@ -60,29 +61,33 @@ const allCommand = defineCommand({
       assertLandConfirmed(args.yes);
       await withClient(async (client) => {
         const workspaceId = await currentWorkspaceId(client);
-        while (true) {
-          const status = await client.call<ConvergeStatus>('converge.status', { workspaceId });
-          const candidate = chooseNextLand(status, args.force);
-          if (candidate === undefined) {
-            process.stdout.write('nothing to land\n');
-            if (!args.force && status.unknown[0] !== undefined) {
-              process.stderr.write(`${status.unknown[0].reason}\n`);
+        let lastStatus: ConvergeStatus = { ready: [], unknown: [], blocked: [] };
+        const result = await landAllLoop({
+          getStatus: async () => {
+            lastStatus = await client.call<ConvergeStatus>('converge.status', { workspaceId });
+            return lastStatus;
+          },
+          land: async (name) => {
+            const candidate = chooseNextLand(lastStatus, args.force);
+            if (candidate?.warning !== undefined) {
+              process.stdout.write(`warning: landing ${name} with incomplete evidence: ${candidate.warning}\n`);
             }
-            return;
-          }
-          const { name, warning } = candidate;
-          if (warning !== undefined) {
-            process.stdout.write(`warning: landing ${name} with incomplete evidence: ${warning}\n`);
-          }
-          try {
-            const result = await client.call<LandResult>('land.session', {
+            return client.call<LandResult>('land.session', {
               workspaceId, idOrName: name, force: args.force,
             });
-            printLandResult(name, result);
-          } catch (err) {
-            process.stdout.write(`stopped at ${name}: ${(err as Error).message}\n`);
-            process.exitCode = 1;
-            return;
+          },
+          force: args.force,
+          onProgress: (name, landResult) => printLandResult(name, landResult),
+        });
+        if (result.failedAt !== undefined) {
+          process.stdout.write(`stopped at ${result.failedAt}: ${result.error ?? 'failed'}\n`);
+          process.exitCode = 1;
+          return;
+        }
+        if (result.landed.length === 0) {
+          process.stdout.write('nothing to land\n');
+          if (!args.force && lastStatus.unknown[0] !== undefined) {
+            process.stderr.write(`${lastStatus.unknown[0].reason}\n`);
           }
         }
       });

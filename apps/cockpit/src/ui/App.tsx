@@ -131,8 +131,8 @@ export function App() {
   function landDeps() {
     return {
       getStatus: async () => parseConvergeStatus(await cockpitApi.convergeStatus()),
-      land: async (name: string, force?: boolean): Promise<LandResult> =>
-        (await cockpitApi.landSession(name, force)) as LandResult,
+      land: async (name: string): Promise<LandResult> =>
+        (await cockpitApi.landSession(name)) as LandResult,
     }
   }
 
@@ -142,7 +142,7 @@ export function App() {
     try {
       const deps = landDeps()
       let result = await landSelected({ ...deps, name: focused.name })
-      if (result === 'needs_confirm_unknown') {
+      if (result.status === 'needs_confirm_unknown') {
         const reason =
           converge.unknown.find((entry) => entry.name === focused.name)?.reason ??
           'incomplete evidence'
@@ -151,12 +151,12 @@ export function App() {
         }
         result = await landSelected({ ...deps, name: focused.name, forceUnknown: true })
       }
-      if (result === 'blocked') {
+      if (result.status === 'blocked') {
         setLandMessage(focusedBlockedReason ? `blocked: ${focusedBlockedReason}` : `blocked: ${focused.name}`)
         return
       }
-      if (result === 'failed') {
-        setLandMessage(`land failed: ${focused.name}`)
+      if (result.status === 'failed') {
+        setLandMessage(result.error)
         return
       }
       setLandMessage(`landed ${focused.name}`)

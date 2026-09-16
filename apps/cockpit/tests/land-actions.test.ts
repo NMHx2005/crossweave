@@ -24,18 +24,18 @@ function status(partial: Partial<ConvergeStatus> = {}): ConvergeStatus {
 }
 
 describe('landSelected', () => {
-  test('lands a ready session without force and returns landed', async () => {
-    const calls: Array<{ name: string; force?: boolean }> = []
+  test('lands a ready session without RPC force and returns landed', async () => {
+    const calls: Array<{ name: string; extra: unknown[] }> = []
     const result = await landSelected({
       getStatus: async () => status({ ready: ['alpha'] }),
-      land: async (name, force) => {
-        calls.push({ name, force })
+      land: async (name, ...extra) => {
+        calls.push({ name, extra })
         return landed
       },
       name: 'alpha',
     })
-    expect(result).toBe('landed')
-    expect(calls).toEqual([{ name: 'alpha', force: false }])
+    expect(result).toEqual({ status: 'landed' })
+    expect(calls).toEqual([{ name: 'alpha', extra: [] }])
   })
 
   test('does not land a blocked session', async () => {
@@ -49,7 +49,7 @@ describe('landSelected', () => {
       },
       name: 'alpha',
     })
-    expect(result).toBe('blocked')
+    expect(result).toEqual({ status: 'blocked' })
     expect(landedName).toBeUndefined()
   })
 
@@ -64,24 +64,24 @@ describe('landSelected', () => {
       },
       name: 'alpha',
     })
-    expect(result).toBe('needs_confirm_unknown')
+    expect(result).toEqual({ status: 'needs_confirm_unknown' })
     expect(landedName).toBeUndefined()
   })
 
-  test('lands unknown evidence with force only when forceUnknown is set', async () => {
-    const calls: Array<{ name: string; force?: boolean }> = []
+  test('lands unknown evidence without RPC force when forceUnknown is set', async () => {
+    const calls: Array<{ name: string; extra: unknown[] }> = []
     const result = await landSelected({
       getStatus: async () =>
         status({ unknown: [{ name: 'alpha', reason: 'no pairwise trial with peer' }] }),
-      land: async (name, force) => {
-        calls.push({ name, force })
+      land: async (name, ...extra) => {
+        calls.push({ name, extra })
         return landed
       },
       name: 'alpha',
       forceUnknown: true,
     })
-    expect(result).toBe('landed')
-    expect(calls).toEqual([{ name: 'alpha', force: true }])
+    expect(result).toEqual({ status: 'landed' })
+    expect(calls).toEqual([{ name: 'alpha', extra: [] }])
   })
 
   test('never lands blocked even when forceUnknown is set', async () => {
@@ -95,19 +95,22 @@ describe('landSelected', () => {
       name: 'alpha',
       forceUnknown: true,
     })
-    expect(result).toBe('blocked')
+    expect(result).toEqual({ status: 'blocked' })
     expect(landedName).toBeUndefined()
   })
 
-  test('returns failed when land throws', async () => {
+  test('returns the land() error message so the UI can show it', async () => {
     const result = await landSelected({
       getStatus: async () => status({ ready: ['alpha'] }),
       land: async () => {
-        throw new Error('merge failed')
+        throw new Error('Session alpha is running. Stop it first, or pass --force.')
       },
       name: 'alpha',
     })
-    expect(result).toBe('failed')
+    expect(result).toEqual({
+      status: 'failed',
+      error: 'Session alpha is running. Stop it first, or pass --force.',
+    })
   })
 
   test('returns failed when the session is not in converge status', async () => {
@@ -120,7 +123,7 @@ describe('landSelected', () => {
       },
       name: 'alpha',
     })
-    expect(result).toBe('failed')
+    expect(result).toEqual({ status: 'failed', error: 'session is not evidence-ready' })
     expect(landedName).toBeUndefined()
   })
 })
