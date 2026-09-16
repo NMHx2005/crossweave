@@ -8,6 +8,7 @@ export type StageProps = {
   focusedId: string | null
   status: StageStatus
   error: string | null
+  onFocus?: (sessionId: string) => void
 }
 
 const MAX_PANES = 4
@@ -24,9 +25,10 @@ export function pickPaneSessions(
   return rest.slice(0, max)
 }
 
-export function Stage({ sessions, focusedId, status, error }: StageProps) {
+export function Stage({ sessions, focusedId, status, error, onFocus }: StageProps) {
   const panes = pickPaneSessions(sessions, focusedId)
   const focused = sessions.find((session) => session.id === focusedId) ?? null
+  const showPanes = status === 'ready' || (status === 'error' && panes.length > 0)
 
   return (
     <main class="cockpit-stage" aria-label="Stage">
@@ -37,16 +39,23 @@ export function Stage({ sessions, focusedId, status, error }: StageProps) {
         ) : (
           <p class="cockpit-muted">Select a session in the rail.</p>
         )}
+        {error && showPanes ? (
+          <p class="cockpit-error" role="alert">
+            {error}
+          </p>
+        ) : null}
       </header>
       {status === 'loading' && <p class="cockpit-placeholder">Connecting to cwd…</p>}
-      {status === 'error' && <p class="cockpit-placeholder">Workspace error: {error}</p>}
+      {status === 'error' && !showPanes && (
+        <p class="cockpit-placeholder">Workspace error: {error}</p>
+      )}
       {status === 'empty' && (
         <p class="cockpit-placeholder">
           No sessions. Use <strong>New</strong> or <code>cw session new</code> /{' '}
           <code>cw session start</code>.
         </p>
       )}
-      {status === 'ready' && panes.length > 0 && (
+      {showPanes && panes.length > 0 && (
         <div class="cockpit-stage__grid" data-count={String(panes.length)}>
           {panes.map((session) => (
             <div
@@ -56,6 +65,7 @@ export function Stage({ sessions, focusedId, status, error }: StageProps) {
                   ? 'cockpit-stage__pane is-focused'
                   : 'cockpit-stage__pane'
               }
+              onClick={() => onFocus?.(session.id)}
             >
               <XtermPane sessionId={session.id} focused={session.id === focusedId} />
             </div>

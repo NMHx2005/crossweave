@@ -3,10 +3,18 @@ import { cockpitApi, type ListedSession } from '../host/cockpit-api'
 import {
   blockedSessionFromEvent,
   deriveAttention,
+  nextBlockedNames,
   parseLandabilityByName,
   type AttentionKind,
   type Landability,
 } from '../lib/attention'
+import {
+  createAndStartSession,
+  loadWorkspace,
+  stageStatusAfterFailure,
+  stageStatusAfterLoad,
+  subscribeCockpitHost,
+} from '../lib/cockpit-host'
 import {
   landAllReady,
   landSelected,
@@ -32,51 +40,48 @@ export function App() {
   const [landBusy, setLandBusy] = useState(false)
   const [landMessage, setLandMessage] = useState<string | null>(null)
   const cancelledRef = useRef(false)
+  const sessionsRef = useRef(sessions)
+  sessionsRef.current = sessions
 
-  const load = useCallback(async (): Promise<void> => {
+  const load = useCallback(async (opts?: { keepBlocked?: boolean }): Promise<void> => {
     try {
-      await cockpitApi.ensureWorkspace()
-      const listed = await cockpitApi.listSessions()
-      const converge = await cockpitApi.convergeStatus().catch(() => undefined)
+      const loaded = await loadWorkspace(cockpitApi)
       if (cancelledRef.current) return
-      setSessions(listed)
-      setConverge(parseConvergeStatus(converge))
-      setLandabilityByName(parseLandabilityByName(converge))
+      setSessions(loaded.sessions)
+      setConverge(loaded.converge)
+      setLandabilityByName(parseLandabilityByName(loaded.converge))
       setFocusedId((current) => {
-        if (current && listed.some((session) => session.id === current)) return current
-        return listed[0]?.id ?? null
+        if (current && loaded.sessions.some((session) => session.id === current)) return current
+        return loaded.sessions[0]?.id ?? null
       })
-      setStatus(listed.length === 0 ? 'empty' : 'ready')
+      setStatus(stageStatusAfterLoad(loaded.sessions.length))
       setError(null)
+      if (!opts?.keepBlocked) {
+        setBlockedNames((prev) => nextBlockedNames(prev, { type: 'clear' }))
+      }
     } catch (err) {
       if (cancelledRef.current) return
       setError(err instanceof Error ? err.message : String(err))
-      setStatus('error')
+      setStatus(stageStatusAfterFailure(sessionsRef.current.length))
     }
   }, [])
 
   useEffect(() => {
     cancelledRef.current = false
     void load()
-    const unsubInvalidate = cockpitApi.onTuiInvalidate(() => {
-      void load()
-    })
-    const unsubEvent = cockpitApi.onTuiEvent((payload) => {
-      const name = blockedSessionFromEvent(payload)
-      if (name) {
-        setBlockedNames((prev) => {
-          if (prev.has(name)) return prev
-          const next = new Set(prev)
-          next.add(name)
-          return next
-        })
-      }
-      void load()
+    const unsub = subscribeCockpitHost(cockpitApi, {
+      refresh: (source) => {
+        void load({ keepBlocked: source === 'event' })
+      },
+      onEvent: (payload) => {
+        const name = blockedSessionFromEvent(payload)
+        if (!name) return
+        setBlockedNames((prev) => nextBlockedNames(prev, { type: 'blocked', name }))
+      },
     })
     return () => {
       cancelledRef.current = true
-      unsubInvalidate()
-      unsubEvent()
+      unsub()
     }
   }, [load])
 
@@ -105,7 +110,7 @@ export function App() {
       await load()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
-      setStatus('error')
+      setStatus(stageStatusAfterFailure(sessionsRef.current.length))
     }
   }
 
@@ -114,7 +119,7 @@ export function App() {
     if (!name?.trim()) return
     const agent = window.prompt('Agent', 'claude')
     if (!agent?.trim()) return
-    await runAction(() => cockpitApi.newSession({ name: name.trim(), agent: agent.trim() }))
+    await runAction(() => createAndStartSession(cockpitApi, { name: name.trim(), agent: agent.trim() }))
   }
 
   async function handleStop(): Promise<void> {
@@ -217,7 +222,13 @@ export function App() {
           void handleKill()
         }}
       />
-      <Stage sessions={sessions} focusedId={focusedId} status={status} error={error} />
+      <Stage
+        sessions={sessions}
+        focusedId={focusedId}
+        status={status}
+        error={error}
+        onFocus={setFocusedId}
+      />
       <footer class="cockpit-footer">
         <div class="cockpit-footer__actions">
           <button
@@ -240,7 +251,13 @@ export function App() {
             Land all
           </button>
         </div>
-        {landMessage ? <p class="cockpit-muted">{landMessage}</p> : null}
+        {error ? (
+          <p class="cockpit-error" role="alert">
+            {error}
+          </p>
+        ) : landMessage ? (
+          <p class="cockpit-muted">{landMessage}</p>
+        ) : null}
       </footer>
     </div>
   )

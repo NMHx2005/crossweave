@@ -30,6 +30,20 @@ export function blockedSessionFromEvent(payload: unknown): string | null {
   return typeof record.session === 'string' && record.session.length > 0 ? record.session : null
 }
 
+export type BlockedNamesAction = { type: 'clear' } | { type: 'blocked'; name: string }
+
+/** Sticky radar blocked names. Clear on load/invalidate so they cannot permanently override landability. */
+export function nextBlockedNames(
+  current: ReadonlySet<string>,
+  action: BlockedNamesAction,
+): ReadonlySet<string> {
+  if (action.type === 'clear') return new Set()
+  if (current.has(action.name)) return current
+  const next = new Set(current)
+  next.add(action.name)
+  return next
+}
+
 export function parseLandabilityByName(value: unknown): Map<string, Landability> {
   const map = new Map<string, Landability>()
   const record = asRecord(value)

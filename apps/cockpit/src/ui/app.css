@@ -239,6 +239,12 @@ body,
   font-size: 0.875rem;
 }
 
+.cockpit-error {
+  margin: 0;
+  color: #ffb4b4;
+  font-size: 0.875rem;
+}
+
 .cockpit-placeholder {
   margin-top: 1.5rem;
   padding: 1rem;

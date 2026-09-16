@@ -53,6 +53,8 @@ export class DaemonBridge {
   private client: DaemonLike | undefined
   private workspace: WorkspaceSnapshot | undefined
   private projectRoot: string | undefined
+  /** Serializes ensure so main+renderer cannot race the folder picker / double-connect. */
+  private ensureTail: Promise<void> = Promise.resolve()
 
   constructor(private readonly deps: DaemonBridgeDeps) {}
 
@@ -61,7 +63,12 @@ export class DaemonBridge {
       throw new Error(`Disallowed invoke channel: ${channel}`)
     }
     if (channel === 'workspace.ensure') {
-      return this.ensure(payload)
+      const run = this.ensureTail.then(() => this.ensure(payload))
+      this.ensureTail = run.then(
+        () => undefined,
+        () => undefined,
+      )
+      return run
     }
     if (!this.client || !this.workspace) {
       throw new Error('Workspace is not attached; invoke workspace.ensure first')

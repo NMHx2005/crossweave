@@ -142,6 +142,16 @@ describe('DaemonBridge', () => {
       method: 'session.attach',
       params: { workspaceId: 'ws_1', idOrName: 'alpha' },
     })
+    await bridge.handle('session.resume', { idOrName: 'alpha' })
+    expect(fake.calls.at(-1)).toMatchObject({
+      method: 'session.resume',
+      params: { workspaceId: 'ws_1', idOrName: 'alpha' },
+    })
+    await bridge.handle('session.start', { idOrName: 'alpha' })
+    expect(fake.calls.at(-1)).toMatchObject({
+      method: 'session.start',
+      params: { workspaceId: 'ws_1', idOrName: 'alpha' },
+    })
   })
 
   test('session.detach does not call the daemon', async () => {
@@ -252,6 +262,41 @@ describe('DaemonBridge', () => {
     expect(events).toEqual([])
     second.drop()
     expect(events).toEqual([{ event: 'daemon.gone', payload: {} }])
+  })
+
+  test('concurrent workspace.ensure shares one picker and one connect', async () => {
+    let connects = 0
+    let picks = 0
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const fake = new FakeDaemon()
+    const { bridge } = makeBridge({
+      saved: undefined,
+      fake,
+      connect: async () => {
+        connects += 1
+        await gate
+        return fake
+      },
+      pickFolder: async () => {
+        picks += 1
+        return '/tmp/picked'
+      },
+    })
+
+    const first = bridge.handle('workspace.ensure')
+    const second = bridge.handle('workspace.ensure')
+    release()
+    const [a, b] = await Promise.all([first, second])
+    expect(connects).toBe(1)
+    expect(picks).toBe(1)
+    expect(a).toEqual(b)
+    expect(a).toEqual({
+      projectRoot: '/tmp/picked',
+      workspace: { id: 'ws_1', name: 'demo', rootPath: '/tmp/demo' },
+    })
   })
 
   test('failed daemon.subscribe does not stick a half-attached workspace', async () => {

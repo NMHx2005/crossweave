@@ -7,7 +7,7 @@ import type { SessionRow } from '../../../src/db/repositories/session.ts'
 import { SessionRuntime } from '../../../src/daemon/runtime.ts'
 import { encodeSessionData } from '../electron/daemon-bridge'
 import { decodeSessionData } from '../src/lib/session-data'
-import { parseSessionList } from '../src/lib/sessions'
+import { formatRailMeta, parseSessionList } from '../src/lib/sessions'
 
 /** Contrast helper only — XtermPane must never do this. */
 function stripCsi(input: string): string {
@@ -65,6 +65,39 @@ describe('parseSessionList', () => {
       { id: 's1', name: 'alpha', status: 'running' },
       { id: 's2', name: 's2' },
     ])
+  })
+
+  test('keeps enforcementTier and spend when session.list already has them', () => {
+    expect(
+      parseSessionList([
+        {
+          id: 's1',
+          name: 'alpha',
+          status: 'running',
+          agentKind: 'claude',
+          enforcementTier: 'T2',
+          costSpentUsd: 1.5,
+          tokenSpent: 2000,
+        },
+      ]),
+    ).toEqual([
+      {
+        id: 's1',
+        name: 'alpha',
+        status: 'running',
+        agentKind: 'claude',
+        enforcementTier: 'T2',
+        costSpentUsd: 1.5,
+        tokenSpent: 2000,
+      },
+    ])
+  })
+
+  test('formatRailMeta shows tier and spend when present', () => {
+    expect(formatRailMeta({ id: 's1', name: 'alpha' })).toBeUndefined()
+    expect(
+      formatRailMeta({ id: 's1', name: 'alpha', enforcementTier: 'T2', costSpentUsd: 1.5 }),
+    ).toBe('T2 · $1.50')
   })
 
   test('empty or non-array is empty', () => {

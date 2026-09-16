@@ -22,7 +22,7 @@ From DevTools:
 await window.cockpit.invoke('session.list')
 ```
 
-The stage mounts **one** xterm pane on the first listed session (picker in the header). Start the agent with `cw` first — `session.attach` requires a running PTY. Bytes go raw into xterm (no ANSI strip).
+The stage mounts xterm panes for listed sessions (up to four). **New** creates a session and `session.resume`s it (same as `cw attach --start`) so the pane can attach. Bytes go raw into xterm (no ANSI strip).
 
 ## Install (macOS arm64)
 

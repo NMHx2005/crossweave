@@ -1,4 +1,5 @@
 import type { ListedSession } from '../host/cockpit-api'
+import { formatRailMeta } from '../lib/sessions'
 import type { AttentionKind } from '../lib/attention'
 
 const BADGE_LABEL: Record<AttentionKind, string> = {
@@ -53,6 +54,7 @@ export function AgentRail({
           {sessions.map((session) => {
             const attention = attentionById[session.id] ?? 'working'
             const focused = session.id === focusedId
+            const meta = formatRailMeta(session)
             return (
               <li key={session.id}>
                 <button
@@ -66,6 +68,7 @@ export function AgentRail({
                     {session.agentKind ? (
                       <span class="cockpit-muted">{session.agentKind}</span>
                     ) : null}
+                    {meta ? <span class="cockpit-muted">{meta}</span> : null}
                   </span>
                   <span class={`cockpit-rail__badge cockpit-rail__badge--${attention}`}>
                     {BADGE_LABEL[attention]}

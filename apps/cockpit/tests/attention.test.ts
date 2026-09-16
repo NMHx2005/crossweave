@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   blockedSessionFromEvent,
   deriveAttention,
+  nextBlockedNames,
   parseLandabilityByName,
 } from '../src/lib/attention'
 
@@ -68,6 +69,31 @@ describe('blockedSessionFromEvent', () => {
     expect(blockedSessionFromEvent({ kind: 'blocked' })).toBeNull()
     expect(blockedSessionFromEvent(null)).toBeNull()
     expect(blockedSessionFromEvent('blocked')).toBeNull()
+  })
+})
+
+describe('nextBlockedNames', () => {
+  test('blocked event adds a name without dropping others', () => {
+    const first = nextBlockedNames(new Set(), { type: 'blocked', name: 'auth' })
+    const second = nextBlockedNames(first, { type: 'blocked', name: 'billing' })
+    expect([...second].sort()).toEqual(['auth', 'billing'])
+  })
+
+  test('clear on load/invalidate drops sticky names so landability is not permanently overridden', () => {
+    const sticky = nextBlockedNames(new Set(['auth']), { type: 'blocked', name: 'billing' })
+    expect(nextBlockedNames(sticky, { type: 'clear' }).size).toBe(0)
+    expect(
+      deriveAttention({
+        status: 'running',
+        landability: 'ready',
+        recentBlocked: nextBlockedNames(sticky, { type: 'clear' }).has('auth'),
+      }),
+    ).toBe('ready')
+  })
+
+  test('duplicate blocked name does not allocate a new set', () => {
+    const current = new Set(['auth'])
+    expect(nextBlockedNames(current, { type: 'blocked', name: 'auth' })).toBe(current)
   })
 })
 

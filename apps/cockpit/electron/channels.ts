@@ -3,6 +3,8 @@ export const COCKPIT_CHANNELS = [
   'workspace.ensure',
   'session.list',
   'session.new',
+  'session.start',
+  'session.resume',
   'session.attach',
   'session.detach',
   'session.input',

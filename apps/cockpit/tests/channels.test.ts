@@ -13,6 +13,8 @@ describe('cockpit IPC allowlist', () => {
       expect(isCockpitChannel(channel)).toBe(true)
     }
     expect(isCockpitChannel('evil.channel')).toBe(false)
+    expect(isCockpitChannel('session.resume')).toBe(true)
+    expect(isCockpitChannel('session.start')).toBe(true)
   })
 
   test('listen events are a closed set', () => {

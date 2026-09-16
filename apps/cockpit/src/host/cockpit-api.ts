@@ -33,6 +33,12 @@ export const cockpitApi = {
   newSession(payload: { name: string; agent: string; worktree?: boolean }): Promise<unknown> {
     return cockpitInvoke('session.new', payload)
   },
+  startSession(idOrName: string): Promise<unknown> {
+    return cockpitInvoke('session.start', { idOrName })
+  },
+  resumeSession(idOrName: string): Promise<unknown> {
+    return cockpitInvoke('session.resume', { idOrName })
+  },
   attachSession(idOrName: string): Promise<SessionAttachResult> {
     return cockpitInvoke('session.attach', { idOrName })
   },
