@@ -1,4 +1,4 @@
-/** Closed invoke channel allowlist — extend only with Task 3 bridge work. */
+/** Closed invoke channel allowlist — daemon RPC names, plus workspace.ensure / session.detach. */
 export const COCKPIT_CHANNELS = [
   'workspace.ensure',
   'session.list',

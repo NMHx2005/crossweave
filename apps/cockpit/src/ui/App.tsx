@@ -13,7 +13,7 @@ export function App() {
           <h2>Stage</h2>
           <p class="cockpit-muted">xterm panes will mount here.</p>
         </header>
-        <p class="cockpit-placeholder">No daemon bridge yet — Task 3.</p>
+        <p class="cockpit-placeholder">Daemon bridge is live. xterm panes land in Task 4.</p>
       </main>
     </div>
   )

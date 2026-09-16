@@ -8,11 +8,11 @@ contextBridge.exposeInMainWorld('cockpit', {
     }
     return ipcRenderer.invoke(channel, payload)
   },
-  listen(event: string, cb: (...args: unknown[]) => void) {
+  listen(event: string, cb: (payload: unknown) => void) {
     if (!isCockpitEvent(event)) {
       throw new Error(`Disallowed listen event: ${event}`)
     }
-    const listener = (_event: IpcRendererEvent, ...args: unknown[]) => cb(...args)
+    const listener = (_event: IpcRendererEvent, payload: unknown) => cb(payload)
     ipcRenderer.on(event, listener)
     return () => {
       ipcRenderer.off(event, listener)

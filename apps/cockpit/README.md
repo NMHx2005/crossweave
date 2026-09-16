@@ -14,7 +14,13 @@ bun install
 bun run dev
 ```
 
-Opens an empty Electron window (left rail + stage placeholders). Preload exposes only closed `window.cockpit.invoke` / `window.cockpit.listen` stubs until Task 3 wires the daemon bridge.
+Opens Electron, picks a project folder on first run (or uses `COCKPIT_PROJECT_ROOT`), and connects via `connectOrStart`. Skip the picker in later launches if the last folder still exists.
+
+From DevTools:
+
+```js
+await window.cockpit.invoke('session.list')
+```
 
 ## Scripts
 
@@ -22,4 +28,4 @@ Opens an empty Electron window (left rail + stage placeholders). Preload exposes
 |---|---|
 | `bun run dev` | Vite + Electron hot reload |
 | `bun run build` | Typecheck + production bundle |
-| `bun test` | Allowlist unit tests |
+| `bun test` | Allowlist + daemon-bridge unit tests |
