@@ -1,9 +1,10 @@
 # crossweave Cockpit — Electron Thin Client (Design)
 
 **Date:** 2026-09-16  
-**Status:** Draft for review  
+**Status:** Draft for review — **macOS-only v1** (Windows deferred; see transport spike)  
 **Approach:** Thin Electron over daemon (Approach 1)  
-**Depends on:** Land & Lease Reliability (shipped) — evidence-gated land, honest leases
+**Depends on:** Land & Lease Reliability (shipped) — evidence-gated land, honest leases  
+**Windows:** `macOS-only-v1` — spike `docs/superpowers/specs/2026-09-16-cockpit-windows-transport-spike.md`. Do not ship a Win installer until `cwd` itself runs on Windows.
 
 ---
 
@@ -28,7 +29,7 @@ Land/lease moat is on `main`, but daily use stalls when the surface feels like �
 | Decision | Choice |
 |---|---|
 | Shell | Electron + xterm.js |
-| Platforms v1 | macOS + Windows |
+| Platforms v1 | macOS only (Windows follows the daemon port; Task 1 spike = `macOS-only-v1`) |
 | Architecture | Thin client → daemon JSON-RPC; app does **not** spawn agents |
 | MVP cut | Panes + rail + land (not explorer/editor/browser) |
 | CLI | `cw` / `cwd` remain first-class; cockpit is another client |
@@ -39,7 +40,7 @@ Land/lease moat is on `main`, but daily use stalls when the surface feels like �
 - Rail reflects working / needs-you / blocked / ready|unknown|conflict from daemon signals
 - Land selected / land all use the same evidence gate and re-fetch semantics as CLI
 - New / stop / kill session from UI
-- macOS arm64 is the quality bar; Windows x64 has at least attach + land smoke (unsigned OK if disclosed)
+- macOS arm64 is the quality bar; Windows x64 attach + land is **out of v1** (`macOS-only-v1`)
 
 ### Non-goals (v1)
 
@@ -78,13 +79,13 @@ Land/lease moat is on `main`, but daily use stalls when the surface feels like �
 3. **One daemon connection, many attaches** — reuse the existing multi-subscriber runtime pattern.
 4. **Rail + land read the same SoT** as CLI: session list, `tui.event` / `tui.invalidate`, `converge.status` (`ready` / `unknown` / `blocked`).
 
-### Windows control plane (ship gate)
+### Windows control plane (ship gate) — closed: `macOS-only-v1`
 
-Today’s daemon socket story is POSIX-first. v1 Windows requires an explicit transport spike before claiming parity:
+Spike: `docs/superpowers/specs/2026-09-16-cockpit-windows-transport-spike.md`.
 
-- Prefer a localhost-only channel with auth (named pipe or loopback TCP + token), not an open remote port
-- macOS keeps unix domain sockets
-- UI design does not block on this; **shipping Windows installers does**
+Bun 1.3.x (this repo’s floor, local 1.3.14) has no Windows `Bun.spawn({ terminal })`. The daemon also assumes unix sockets (RPC + MCP), `chmod` 0700/0600, `SIGTERM`/`SIGKILL`, and `sh -c` for land/converge. Transport-only work would not yield attach + land.
+
+v1 ships macOS only. A later daemon port may use named pipes or loopback TCP + token; macOS stays on unix domain sockets. **Do not ship a Windows installer until `cwd` runs on Windows.**
 
 ### Repo layout (intent)
 
@@ -137,7 +138,7 @@ Today’s daemon socket story is POSIX-first. v1 Windows requires an explicit tr
 2. Electron shell + RPC: connectOrStart, session list, single xterm attach E2E
 3. Multi-pane + rail badges
 4. Land selected / land all + confirms
-5. Packaging: macOS arm64 + Windows x64 (disclose unsigned Win if needed)
+5. Packaging: macOS arm64 only (Windows x64 skipped — `macOS-only-v1`)
 
 ### Acceptance checklist
 
@@ -145,12 +146,12 @@ Today’s daemon socket story is POSIX-first. v1 Windows requires an explicit tr
 2. Rail blocked / ready-to-land matches daemon
 3. Land actions match CLI evidence semantics (no bypass)
 4. New / stop / kill from UI
-5. macOS arm64 solid; Win x64 smoke for attach + land
+5. macOS arm64 solid; **no Windows package in v1** (`macOS-only-v1`)
 
 ### Accepted risks
 
 - Electron is heavier than CLI — traded for fidelity
-- Windows transport may lag macOS quality initially
+- Windows cockpit deferred until the daemon port (`macOS-only-v1`); do not fake a Win installer
 - `needs you` quality depends on agent signals
 - No Deck feature parity
 
@@ -166,5 +167,5 @@ Today’s daemon socket story is POSIX-first. v1 Windows requires an explicit tr
 
 - Exact Electron/Preact (or React) stack versions and packaging toolchain
 - Whether `needs you` v1 is status-only or also parses ACP/hook events
-- Final path for Windows IPC
+- Windows IPC path locked later (named pipe vs loopback TCP + token) when `cwd` is ported; not a v1 cockpit item
 - Auto-update for the cockpit binary (may follow CLI `cw update` patterns later)

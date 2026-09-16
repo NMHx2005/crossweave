@@ -60,22 +60,22 @@ If Task 1 concludes Windows daemon is out of reach for this milestone, **stop Wi
   - `macOS-only-v1` (Windows deferred) with rationale
 - If implementing loopback TCP: `connectOrStart` must still default to unix socket on darwin/linux
 
-- [ ] **Step 1: Spike research (no product UI)**
+- [x] **Step 1: Spike research (no product UI)**
 
 Document in the spike file:
 1. Does Bun on Windows support the daemon’s PTY adapter path at all? (If no → `macOS-only-v1`.)
 2. Can `node:net` Server listen on `\\.\pipe\...` or `127.0.0.1:port` with a per-workspace token file under `.crossweave/`?
 3. Minimal change set to `DaemonClient.connect` + daemon `listen`.
 
-- [ ] **Step 2: Decision gate**
+- [x] **Step 2: Decision gate** — **`macOS-only-v1`** (no transport code)
 
 Write the verdict at the top of the spike doc. If `macOS-only-v1`, update cockpit design status note and skip Win packaging tasks later. If transport is chosen, implement **minimal** listen/connect + one round-trip test before any Electron UI.
 
-- [ ] **Step 3: If implementing transport — failing test then code**
+- [x] **Step 3: If implementing transport — failing test then code** — skipped (verdict = `macOS-only-v1`)
 
 Example test intent: client connects via the new transport, `workspace.info` (or ping method) returns. RED then GREEN.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git commit -m "$(cat <<'EOF'
@@ -298,7 +298,7 @@ EOF
 
 ---
 
-### Task 7: Packaging (macOS arm64 + Windows x64 if Task 1 allows)
+### Task 7: Packaging (macOS arm64 only — Task 1 = `macOS-only-v1`, skip Windows x64)
 
 **Files:**
 - Create: `apps/cockpit/electron-builder.yml` (or equivalent)
@@ -307,10 +307,10 @@ EOF
 
 **Interfaces:**
 - Produces: local package commands documented
-- macOS: arm64 dmg/zip; Windows: x64 nsis/portable if Task 1 ≠ macOS-only
+- macOS: arm64 dmg/zip; **no Windows target** (Task 1 = `macOS-only-v1`)
 
 - [ ] **Step 1: electron-builder config for mac arm64**
-- [ ] **Step 2: Win target only if transport+daemon exist on Win**
+- [x] **Step 2: Win target only if transport+daemon exist on Win** — skipped (`macOS-only-v1`)
 - [ ] **Step 3: Smoke packaged app opens and lists sessions**
 - [ ] **Step 4: Commit**
 
@@ -354,7 +354,7 @@ EOF
 | Panes full VT | 4 |
 | Rail attention + landability | 5 |
 | Land selected / all | 6 |
-| macOS + Windows claim | 1 gate + 7 |
+| macOS only (Windows deferred) | 1 gate (`macOS-only-v1`) + 7 (mac arm64) |
 | No explorer/browser | Global |
 | Reuse daemon land evidence | 6 |
 
