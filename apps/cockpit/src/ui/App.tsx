@@ -11,6 +11,8 @@ import {
 import {
   createAndStartSession,
   loadWorkspace,
+  runCockpitAction,
+  shouldBumpPaneAttach,
   stageStatusAfterFailure,
   stageStatusAfterLoad,
   subscribeCockpitHost,
@@ -39,11 +41,12 @@ export function App() {
   const [blockedNames, setBlockedNames] = useState<ReadonlySet<string>>(() => new Set())
   const [landBusy, setLandBusy] = useState(false)
   const [landMessage, setLandMessage] = useState<string | null>(null)
+  const [paneAttachKey, setPaneAttachKey] = useState(0)
   const cancelledRef = useRef(false)
   const sessionsRef = useRef(sessions)
   sessionsRef.current = sessions
 
-  const load = useCallback(async (opts?: { keepBlocked?: boolean }): Promise<void> => {
+  const load = useCallback(async (opts?: { keepBlocked?: boolean; bumpAttach?: boolean }): Promise<void> => {
     try {
       const loaded = await loadWorkspace(cockpitApi)
       if (cancelledRef.current) return
@@ -56,6 +59,9 @@ export function App() {
       })
       setStatus(stageStatusAfterLoad(loaded.sessions.length))
       setError(null)
+      if (opts?.bumpAttach) {
+        setPaneAttachKey((current) => current + 1)
+      }
       if (!opts?.keepBlocked) {
         setBlockedNames((prev) => nextBlockedNames(prev, { type: 'clear' }))
       }
@@ -71,7 +77,10 @@ export function App() {
     void load()
     const unsub = subscribeCockpitHost(cockpitApi, {
       refresh: (source) => {
-        void load({ keepBlocked: source === 'event' })
+        void load({
+          keepBlocked: source === 'event',
+          bumpAttach: shouldBumpPaneAttach(source),
+        })
       },
       onEvent: (payload) => {
         const name = blockedSessionFromEvent(payload)
@@ -105,11 +114,11 @@ export function App() {
   const canLandFocused = focusedLandability === 'ready' || focusedLandability === 'unknown'
 
   async function runAction(action: () => Promise<unknown>): Promise<void> {
-    try {
-      await action()
-      await load()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+    const actionError = await runCockpitAction(action, (partialFailure) =>
+      load({ keepBlocked: partialFailure }),
+    )
+    if (actionError) {
+      setError(actionError)
       setStatus(stageStatusAfterFailure(sessionsRef.current.length))
     }
   }
@@ -227,6 +236,7 @@ export function App() {
         focusedId={focusedId}
         status={status}
         error={error}
+        paneAttachKey={paneAttachKey}
         onFocus={setFocusedId}
       />
       <footer class="cockpit-footer">

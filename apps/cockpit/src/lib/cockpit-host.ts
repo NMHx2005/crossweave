@@ -32,6 +32,11 @@ export async function loadWorkspace(
 
 export type RefreshSource = 'invalidate' | 'event' | 'gone'
 
+/** After daemon.gone reconnect, session ids often stay the same — panes must remount to re-attach. */
+export function shouldBumpPaneAttach(source: RefreshSource): boolean {
+  return source === 'gone'
+}
+
 export function subscribeCockpitHost(
   api: Pick<CockpitHostApi, 'onTuiInvalidate' | 'onTuiEvent' | 'onDaemonGone'>,
   handlers: {
@@ -84,4 +89,23 @@ export function stageStatusAfterFailure(sessionCount: number): 'ready' | 'error'
 
 export function stageStatusAfterLoad(sessionCount: number): 'ready' | 'empty' {
   return sessionCount === 0 ? 'empty' : 'ready'
+}
+
+/**
+ * Run a cockpit action then refresh the session list. On partial failure (e.g.
+ * session.new ok but session.resume throws), refresh still runs so new rows appear.
+ */
+export async function runCockpitAction(
+  action: () => Promise<unknown>,
+  refresh: (partialFailure: boolean) => Promise<void>,
+): Promise<string | undefined> {
+  try {
+    await action()
+    await refresh(false)
+    return undefined
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    await refresh(true)
+    return message
+  }
 }

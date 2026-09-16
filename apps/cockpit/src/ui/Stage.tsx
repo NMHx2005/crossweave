@@ -8,6 +8,8 @@ export type StageProps = {
   focusedId: string | null
   status: StageStatus
   error: string | null
+  /** Bumped after daemon.gone reconnect so unchanged session ids still remount panes. */
+  paneAttachKey?: number
   onFocus?: (sessionId: string) => void
 }
 
@@ -25,7 +27,7 @@ export function pickPaneSessions(
   return rest.slice(0, max)
 }
 
-export function Stage({ sessions, focusedId, status, error, onFocus }: StageProps) {
+export function Stage({ sessions, focusedId, status, error, paneAttachKey = 0, onFocus }: StageProps) {
   const panes = pickPaneSessions(sessions, focusedId)
   const focused = sessions.find((session) => session.id === focusedId) ?? null
   const showPanes = status === 'ready' || (status === 'error' && panes.length > 0)
@@ -67,7 +69,11 @@ export function Stage({ sessions, focusedId, status, error, onFocus }: StageProp
               }
               onClick={() => onFocus?.(session.id)}
             >
-              <XtermPane sessionId={session.id} focused={session.id === focusedId} />
+              <XtermPane
+                key={`${session.id}:${paneAttachKey}`}
+                sessionId={session.id}
+                focused={session.id === focusedId}
+              />
             </div>
           ))}
         </div>

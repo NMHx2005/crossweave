@@ -3,6 +3,8 @@ import { blockedSessionFromEvent } from '../src/lib/attention'
 import {
   createAndStartSession,
   loadWorkspace,
+  runCockpitAction,
+  shouldBumpPaneAttach,
   stageStatusAfterFailure,
   subscribeCockpitHost,
 } from '../src/lib/cockpit-host'
@@ -61,6 +63,61 @@ function fakeApi(opts?: { resumeId?: string }) {
   }
   return { api, calls, listeners }
 }
+
+describe('shouldBumpPaneAttach', () => {
+  test('bumps only after daemon.gone reconnect refresh', () => {
+    expect(shouldBumpPaneAttach('gone')).toBe(true)
+    expect(shouldBumpPaneAttach('invalidate')).toBe(false)
+    expect(shouldBumpPaneAttach('event')).toBe(false)
+  })
+})
+
+describe('runCockpitAction', () => {
+  test('refreshes after a successful action', async () => {
+    const refreshModes: boolean[] = []
+    const error = await runCockpitAction(
+      async () => undefined,
+      async (partialFailure) => {
+        refreshModes.push(partialFailure)
+      },
+    )
+    expect(error).toBeUndefined()
+    expect(refreshModes).toEqual([false])
+  })
+
+  test('still refreshes when the action throws so partial failures show new rows', async () => {
+    const refreshModes: boolean[] = []
+    const error = await runCockpitAction(
+      async () => {
+        throw new Error('resume failed')
+      },
+      async (partialFailure) => {
+        refreshModes.push(partialFailure)
+      },
+    )
+    expect(error).toBe('resume failed')
+    expect(refreshModes).toEqual([true])
+  })
+
+  test('session.new then resume failure still leaves refresh as the recovery path', async () => {
+    const { api, calls } = fakeApi()
+    api.resumeSession = async (idOrName: string) => {
+      calls.push(`resume:${idOrName}`)
+      throw new Error('resume failed')
+    }
+    const refreshCalls: string[] = []
+    const error = await runCockpitAction(
+      () => createAndStartSession(api, { name: 'delta', agent: 'claude' }),
+      async (partialFailure) => {
+        refreshCalls.push(partialFailure ? 'partial' : 'full')
+        if (partialFailure) await loadWorkspace(api)
+      },
+    )
+    expect(error).toBe('resume failed')
+    expect(calls).toEqual(['new:delta:claude', 'resume:s9', 'ensure', 'list', 'converge'])
+    expect(refreshCalls).toEqual(['partial'])
+  })
+})
 
 describe('loadWorkspace + daemon.gone', () => {
   test('refresh after daemon.gone calls ensureWorkspace then list', async () => {
