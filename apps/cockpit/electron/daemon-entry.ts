@@ -1,6 +1,11 @@
 import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
+export type CockpitDaemonEntryOptions = {
+  isPackaged?: boolean
+  resourcesPath?: string
+}
+
 export function findCrossweaveRoot(startDir: string): string {
   let dir = startDir
   for (;;) {
@@ -21,7 +26,15 @@ export function findCrossweaveRoot(startDir: string): string {
 export function resolveCockpitDaemonEntry(
   repoRoot: string,
   bunCommand: string,
+  options: CockpitDaemonEntryOptions = {},
 ): { command: string; args: string[] } {
+  if (options.isPackaged) {
+    const base = options.resourcesPath ?? process.resourcesPath
+    return {
+      command: join(base, 'bin', 'cwd'),
+      args: [],
+    }
+  }
   return {
     command: bunCommand,
     args: [join(repoRoot, 'src', 'daemon', 'main.ts')],

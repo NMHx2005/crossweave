@@ -58,8 +58,9 @@ function resolveBunCommand(): string {
 }
 
 function createBridge(): DaemonBridge {
-  const repoRoot = findCrossweaveRoot(__dirname)
-  const entry = resolveCockpitDaemonEntry(repoRoot, resolveBunCommand())
+  const entry = app.isPackaged
+    ? resolveCockpitDaemonEntry('', '', { isPackaged: true })
+    : resolveCockpitDaemonEntry(findCrossweaveRoot(__dirname), resolveBunCommand())
   return new DaemonBridge({
     connect: (projectRoot) => connectOrStart(projectRoot, entry),
     pickFolder,

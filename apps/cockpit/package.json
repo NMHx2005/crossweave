@@ -13,6 +13,10 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "build:cwd": "cd ../.. && bun run build",
+    "package:mac": "electron-builder --mac --arm64 --config electron-builder.yml",
+    "dist:mac": "bun run build:cwd && bun run build && bun run package:mac",
+    "package:smoke": "bun scripts/package-smoke.ts",
     "preview": "vite preview",
     "test": "bun test",
     "smoke": "bun test"
@@ -26,6 +30,7 @@
     "@preact/preset-vite": "2.10.6",
     "@types/node": "22.15.3",
     "electron": "44.4.1",
+    "electron-builder": "26.0.12",
     "typescript": "7.0.2",
     "vite": "8.3.0",
     "vite-plugin-electron": "1.1.2"

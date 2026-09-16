@@ -1,0 +1,30 @@
+appId: com.crossweave.cockpit
+productName: crossweave Cockpit
+copyright: Copyright © crossweave contributors
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - dist/**/*
+  - dist-electron/**/*
+  - package.json
+
+asar: true
+
+extraResources:
+  - from: ../../dist/cwd
+    to: bin/cwd
+
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - dmg
+    - zip
+  artifactName: ${productName}-${version}-${arch}.${ext}
+  hardenedRuntime: false
+  gatekeeperAssess: false
+
+electronLanguages:
+  - en

@@ -2,7 +2,7 @@
 
 Electron thin client for `cwd` — real xterm panes, attention rail, land from UI.
 
-**v1:** macOS arm64 only (`macOS-only-v1`).
+**v1:** macOS arm64 only (`macOS-only-v1`). No Windows installer in this milestone — Windows cockpit waits on a portable `cwd` daemon (see `docs/superpowers/specs/2026-09-16-cockpit-windows-transport-spike.md`).
 
 ## Dev
 
@@ -24,6 +24,34 @@ await window.cockpit.invoke('session.list')
 
 The stage mounts **one** xterm pane on the first listed session (picker in the header). Start the agent with `cw` first — `session.attach` requires a running PTY. Bytes go raw into xterm (no ANSI strip).
 
+## Install (macOS arm64)
+
+Build a local `.dmg` / `.zip` from repo root:
+
+```bash
+cd apps/cockpit
+bun install
+bun run dist:mac
+```
+
+Artifacts land in `apps/cockpit/release/` (`crossweave Cockpit-<version>-arm64.dmg` and `.zip`). The app bundles a compiled `cwd` binary under `Contents/Resources/bin/cwd` — no separate Bun install required for the daemon.
+
+Open the app, choose your crossweave project folder (or set `COCKPIT_PROJECT_ROOT` before launch). Unsigned builds: first open may require **System Settings → Privacy & Security → Open Anyway** (or right-click → Open).
+
+## Run packaged build
+
+```bash
+open "release/mac-arm64/crossweave Cockpit.app"
+# or, with a fixed project:
+COCKPIT_PROJECT_ROOT=/path/to/repo open "release/mac-arm64/crossweave Cockpit.app"
+```
+
+Smoke after packaging:
+
+```bash
+bun run package:smoke
+```
+
 ## Fidelity gate (Task 4)
 
 M9 nested agents in OpenTUI and stripped CSI; Claude spinners/menus became spam-lines. Cockpit must write `session.data` unchanged (`convertEol: false`, `decodeSessionData` never strips).
@@ -42,4 +70,6 @@ Limits: no real Claude GUI this run. Re-check 2–3 visually after `cw session s
 |---|---|
 | `bun run dev` | Vite + Electron hot reload |
 | `bun run build` | Typecheck + production bundle |
+| `bun run dist:mac` | Build `cwd`, bundle app, emit dmg + zip (arm64) |
+| `bun run package:smoke` | Verify packaged app + `session.list` |
 | `bun test` | Allowlist, daemon-bridge, session-data / fidelity tests |

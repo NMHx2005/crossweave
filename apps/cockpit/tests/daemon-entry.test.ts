@@ -30,4 +30,15 @@ describe('resolveCockpitDaemonEntry', () => {
       args: ['/repo/src/daemon/main.ts'],
     })
   })
+
+  test('packaged mode uses bundled cwd in Resources', () => {
+    const entry = resolveCockpitDaemonEntry('', '', {
+      isPackaged: true,
+      resourcesPath: '/App.app/Contents/Resources',
+    })
+    expect(entry).toEqual({
+      command: '/App.app/Contents/Resources/bin/cwd',
+      args: [],
+    })
+  })
 })
