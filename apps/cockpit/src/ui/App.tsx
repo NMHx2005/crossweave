@@ -1,94 +1,133 @@
-import { useEffect, useState } from 'preact/hooks'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { cockpitApi, type ListedSession } from '../host/cockpit-api'
-import { XtermPane } from './XtermPane'
+import {
+  blockedSessionFromEvent,
+  deriveAttention,
+  parseLandabilityByName,
+  type AttentionKind,
+  type Landability,
+} from '../lib/attention'
+import { AgentRail } from './AgentRail'
+import { Stage, type StageStatus } from './Stage'
 
 export function App() {
   const [sessions, setSessions] = useState<ListedSession[]>([])
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [status, setStatus] = useState<'loading' | 'ready' | 'empty' | 'error'>('loading')
+  const [focusedId, setFocusedId] = useState<string | null>(null)
+  const [status, setStatus] = useState<StageStatus>('loading')
   const [error, setError] = useState<string | null>(null)
+  const [landabilityByName, setLandabilityByName] = useState<Map<string, Landability>>(
+    () => new Map(),
+  )
+  const [blockedNames, setBlockedNames] = useState<ReadonlySet<string>>(() => new Set())
+  const cancelledRef = useRef(false)
 
-  useEffect(() => {
-    let cancelled = false
-
-    async function load(): Promise<void> {
-      try {
-        await cockpitApi.ensureWorkspace()
-        const listed = await cockpitApi.listSessions()
-        if (cancelled) return
-        setSessions(listed)
-        setSelectedId((current) => {
-          if (current && listed.some((session) => session.id === current)) return current
-          return listed[0]?.id ?? null
-        })
-        setStatus(listed.length === 0 ? 'empty' : 'ready')
-        setError(null)
-      } catch (err) {
-        if (cancelled) return
-        setError(err instanceof Error ? err.message : String(err))
-        setStatus('error')
-      }
-    }
-
-    void load()
-    const unsub = cockpitApi.onTuiInvalidate(() => {
-      void load()
-    })
-    return () => {
-      cancelled = true
-      unsub()
+  const load = useCallback(async (): Promise<void> => {
+    try {
+      await cockpitApi.ensureWorkspace()
+      const listed = await cockpitApi.listSessions()
+      const converge = await cockpitApi.convergeStatus().catch(() => undefined)
+      if (cancelledRef.current) return
+      setSessions(listed)
+      setLandabilityByName(parseLandabilityByName(converge))
+      setFocusedId((current) => {
+        if (current && listed.some((session) => session.id === current)) return current
+        return listed[0]?.id ?? null
+      })
+      setStatus(listed.length === 0 ? 'empty' : 'ready')
+      setError(null)
+    } catch (err) {
+      if (cancelledRef.current) return
+      setError(err instanceof Error ? err.message : String(err))
+      setStatus('error')
     }
   }, [])
 
-  const selected = sessions.find((session) => session.id === selectedId) ?? null
+  useEffect(() => {
+    cancelledRef.current = false
+    void load()
+    const unsubInvalidate = cockpitApi.onTuiInvalidate(() => {
+      void load()
+    })
+    const unsubEvent = cockpitApi.onTuiEvent((payload) => {
+      const name = blockedSessionFromEvent(payload)
+      if (name) {
+        setBlockedNames((prev) => {
+          if (prev.has(name)) return prev
+          const next = new Set(prev)
+          next.add(name)
+          return next
+        })
+      }
+      void load()
+    })
+    return () => {
+      cancelledRef.current = true
+      unsubInvalidate()
+      unsubEvent()
+    }
+  }, [load])
+
+  const attentionById = useMemo(() => {
+    const out: Record<string, AttentionKind> = {}
+    for (const session of sessions) {
+      out[session.id] = deriveAttention({
+        status: session.status ?? '',
+        landability: landabilityByName.get(session.name),
+        recentBlocked: blockedNames.has(session.name),
+      })
+    }
+    return out
+  }, [sessions, landabilityByName, blockedNames])
+
+  const focused = sessions.find((session) => session.id === focusedId) ?? null
+
+  async function runAction(action: () => Promise<unknown>): Promise<void> {
+    try {
+      await action()
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+      setStatus('error')
+    }
+  }
+
+  async function handleNew(): Promise<void> {
+    const name = window.prompt('New session name')
+    if (!name?.trim()) return
+    const agent = window.prompt('Agent', 'claude')
+    if (!agent?.trim()) return
+    await runAction(() => cockpitApi.newSession({ name: name.trim(), agent: agent.trim() }))
+  }
+
+  async function handleStop(): Promise<void> {
+    if (!focused) return
+    await runAction(() => cockpitApi.stopSession(focused.id))
+  }
+
+  async function handleKill(): Promise<void> {
+    if (!focused) return
+    if (!window.confirm(`Kill session “${focused.name}”? This cannot be undone.`)) return
+    await runAction(() => cockpitApi.killSession(focused.id))
+  }
 
   return (
     <div class="cockpit-shell">
-      <aside class="cockpit-rail" aria-label="Agent rail">
-        <header class="cockpit-rail__header">
-          <h1>Cockpit</h1>
-          <p class="cockpit-muted">Agent rail</p>
-        </header>
-        <p class="cockpit-placeholder">Sessions will appear here.</p>
-      </aside>
-      <main class="cockpit-stage" aria-label="Stage">
-        <header class="cockpit-stage__header">
-          <h2>Stage</h2>
-          {selected ? (
-            <label class="cockpit-session-pick">
-              <span class="cockpit-muted">Session</span>
-              <select
-                value={selected.id}
-                onChange={(event) => {
-                  setSelectedId((event.currentTarget as HTMLSelectElement).value)
-                }}
-              >
-                {sessions.map((session) => (
-                  <option key={session.id} value={session.id}>
-                    {session.name}
-                    {session.status ? ` (${session.status})` : ''}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : (
-            <p class="cockpit-muted">Attach a running session to this pane.</p>
-          )}
-        </header>
-        {status === 'loading' && <p class="cockpit-placeholder">Connecting to cwd…</p>}
-        {status === 'error' && <p class="cockpit-placeholder">Workspace error: {error}</p>}
-        {status === 'empty' && (
-          <p class="cockpit-placeholder">
-            No sessions. Start one with <code>cw session new</code> / <code>cw session start</code>,
-            then reopen or wait for the list to refresh.
-          </p>
-        )}
-        {status === 'ready' && selected && (
-          <div class="cockpit-stage__pane">
-            <XtermPane key={selected.id} sessionId={selected.id} focused />
-          </div>
-        )}
-      </main>
+      <AgentRail
+        sessions={sessions}
+        focusedId={focusedId}
+        attentionById={attentionById}
+        onFocus={setFocusedId}
+        onNew={() => {
+          void handleNew()
+        }}
+        onStop={() => {
+          void handleStop()
+        }}
+        onKill={() => {
+          void handleKill()
+        }}
+      />
+      <Stage sessions={sessions} focusedId={focusedId} status={status} error={error} />
     </div>
   )
 }

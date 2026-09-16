@@ -2,6 +2,7 @@ export type ListedSession = {
   id: string
   name: string
   status?: string
+  agentKind?: string
 }
 
 export function parseSessionList(value: unknown): ListedSession[] {
@@ -13,7 +14,8 @@ export function parseSessionList(value: unknown): ListedSession[] {
     if (typeof record.id !== 'string' || record.id.length === 0) continue
     const name = typeof record.name === 'string' && record.name.length > 0 ? record.name : record.id
     const status = typeof record.status === 'string' ? record.status : undefined
-    out.push({ id: record.id, name, status })
+    const agentKind = typeof record.agentKind === 'string' ? record.agentKind : undefined
+    out.push(agentKind ? { id: record.id, name, status, agentKind } : { id: record.id, name, status })
   }
   return out
 }
