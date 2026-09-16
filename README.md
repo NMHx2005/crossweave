@@ -138,6 +138,8 @@ bun run typecheck  # tsc --noEmit
 bun run build      # dist/cw, dist/cwd
 ```
 
+**Cockpit (dev):** `cd apps/cockpit && bun install && bun run dev` — Electron shell (macOS v1).
+
 See `docs/superpowers/plans/` and `docs/superpowers/specs/` for how each
 milestone was designed and implemented.
 

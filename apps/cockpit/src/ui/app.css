@@ -1,0 +1,64 @@
+:root {
+  color-scheme: dark;
+  font-family:
+    'SF Pro Text',
+    system-ui,
+    -apple-system,
+    sans-serif;
+  background: #0f1115;
+  color: #e8eaed;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+#app,
+.cockpit-shell {
+  min-height: 100vh;
+}
+
+.cockpit-shell {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+}
+
+.cockpit-rail,
+.cockpit-stage {
+  padding: 1rem 1.25rem;
+}
+
+.cockpit-rail {
+  border-right: 1px solid #2a2f3a;
+  background: #141820;
+}
+
+.cockpit-stage {
+  background: #0f1115;
+}
+
+.cockpit-rail__header h1,
+.cockpit-stage__header h2 {
+  margin: 0 0 0.25rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.cockpit-muted {
+  margin: 0;
+  color: #9aa3b2;
+  font-size: 0.875rem;
+}
+
+.cockpit-placeholder {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  border: 1px dashed #3a4150;
+  border-radius: 8px;
+  color: #9aa3b2;
+  font-size: 0.875rem;
+}
