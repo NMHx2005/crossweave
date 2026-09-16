@@ -73,7 +73,13 @@ export class DaemonBridge {
   }
 
   close(): void {
-    this.client?.close()
+    const client = this.client
+    this.detach(client)
+    client?.close()
+  }
+
+  private detach(client: DaemonLike | undefined): void {
+    if (this.client !== client) return
     this.client = undefined
     this.workspace = undefined
     this.projectRoot = undefined
@@ -85,23 +91,35 @@ export class DaemonBridge {
       return { projectRoot, workspace: this.workspace }
     }
 
-    this.client?.close()
+    const previous = this.client
+    this.detach(previous)
+    previous?.close()
+
     const client = await this.deps.connect(projectRoot)
     this.client = client
     this.projectRoot = projectRoot
     this.deps.saveRoot(projectRoot)
 
     client.onNotification((method, params) => {
+      if (this.client !== client) return
       this.forward(method, params)
     })
     client.onClose(() => {
+      if (this.client !== client) return
+      this.detach(client)
       this.deps.send('daemon.gone', {})
     })
 
-    const workspace = await client.call<WorkspaceSnapshot>('workspace.init', {})
-    this.workspace = workspace
-    await client.call('daemon.subscribe', {})
-    return { projectRoot, workspace }
+    try {
+      const workspace = await client.call<WorkspaceSnapshot>('workspace.init', {})
+      await client.call('daemon.subscribe', {})
+      this.workspace = workspace
+      return { projectRoot, workspace }
+    } catch (err) {
+      this.detach(client)
+      client.close()
+      throw err
+    }
   }
 
   private async resolveProjectRoot(payload: unknown): Promise<string> {

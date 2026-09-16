@@ -7,6 +7,7 @@ class FakeDaemon {
   handlers: Array<(method: string, params: unknown) => void> = []
   closeHandlers: Array<() => void> = []
   closed = false
+  failMethod: string | undefined
   responses: Record<string, unknown> = {
     'workspace.init': { id: 'ws_1', name: 'demo', rootPath: '/tmp/demo' },
     'daemon.subscribe': { subscribed: true },
@@ -16,6 +17,7 @@ class FakeDaemon {
 
   async call<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
     this.calls.push({ method, params, notificationsAtCall: this.handlers.length })
+    if (this.failMethod === method) throw new Error(`${method} failed`)
     if (method in this.responses) return this.responses[method] as T
     return { ok: true } as T
   }
@@ -43,6 +45,7 @@ class FakeDaemon {
 
 function makeBridge(overrides?: {
   fake?: FakeDaemon
+  connect?: () => Promise<FakeDaemon>
   pickFolder?: () => Promise<string | undefined>
   saved?: string | undefined
   exists?: (path: string) => boolean
@@ -51,8 +54,9 @@ function makeBridge(overrides?: {
   const events: Array<{ event: CockpitEvent; payload: unknown }> = []
   let saved = overrides?.saved
   const picked: string[] = []
+  const connect = overrides?.connect ?? (async () => fake)
   const bridge = new DaemonBridge({
-    connect: async () => fake,
+    connect,
     pickFolder: overrides?.pickFolder ?? (async () => {
       picked.push('/tmp/picked')
       return '/tmp/picked'
@@ -194,5 +198,86 @@ describe('DaemonBridge', () => {
   test('rejects session.list before workspace.ensure', async () => {
     const { bridge } = makeBridge()
     await expect(bridge.handle('session.list')).rejects.toThrow(/workspace\.ensure/)
+  })
+
+  test('workspace.ensure reconnects after daemon.gone', async () => {
+    const first = new FakeDaemon()
+    const second = new FakeDaemon()
+    second.responses['workspace.init'] = { id: 'ws_2', name: 'demo', rootPath: '/tmp/demo' }
+    const fakes = [first, second]
+    let connects = 0
+    const { bridge, events } = makeBridge({
+      connect: async () => {
+        const next = fakes[connects]
+        if (!next) throw new Error('no more fakes')
+        connects += 1
+        return next
+      },
+    })
+
+    await bridge.handle('workspace.ensure', { projectRoot: '/tmp/given' })
+    first.drop()
+    expect(events).toEqual([{ event: 'daemon.gone', payload: {} }])
+    await expect(bridge.handle('session.list')).rejects.toThrow(/workspace\.ensure/)
+
+    const result = await bridge.handle('workspace.ensure', { projectRoot: '/tmp/given' })
+    expect(connects).toBe(2)
+    expect(result).toEqual({
+      projectRoot: '/tmp/given',
+      workspace: { id: 'ws_2', name: 'demo', rootPath: '/tmp/demo' },
+    })
+    await expect(bridge.handle('session.list')).resolves.toEqual([{ id: 's1', name: 'alpha' }])
+  })
+
+  test('stale client close after reconnect does not emit daemon.gone', async () => {
+    const first = new FakeDaemon()
+    const second = new FakeDaemon()
+    const fakes = [first, second]
+    let connects = 0
+    const { bridge, events } = makeBridge({
+      connect: async () => {
+        const next = fakes[connects]
+        if (!next) throw new Error('no more fakes')
+        connects += 1
+        return next
+      },
+    })
+
+    await bridge.handle('workspace.ensure', { projectRoot: '/tmp/given' })
+    first.drop()
+    await bridge.handle('workspace.ensure', { projectRoot: '/tmp/given' })
+    events.length = 0
+
+    first.drop()
+    expect(events).toEqual([])
+    second.drop()
+    expect(events).toEqual([{ event: 'daemon.gone', payload: {} }])
+  })
+
+  test('failed daemon.subscribe does not stick a half-attached workspace', async () => {
+    const first = new FakeDaemon()
+    first.failMethod = 'daemon.subscribe'
+    const second = new FakeDaemon()
+    const fakes = [first, second]
+    let connects = 0
+    const { bridge } = makeBridge({
+      connect: async () => {
+        const next = fakes[connects]
+        if (!next) throw new Error('no more fakes')
+        connects += 1
+        return next
+      },
+    })
+
+    await expect(bridge.handle('workspace.ensure', { projectRoot: '/tmp/given' })).rejects.toThrow(
+      /daemon\.subscribe failed/,
+    )
+    await expect(bridge.handle('session.list')).rejects.toThrow(/workspace\.ensure/)
+
+    const result = await bridge.handle('workspace.ensure', { projectRoot: '/tmp/given' })
+    expect(connects).toBe(2)
+    expect(result).toMatchObject({ workspace: { id: 'ws_1' } })
+    expect(second.calls.map((c) => c.method)).toEqual(['workspace.init', 'daemon.subscribe'])
+    await expect(bridge.handle('session.list')).resolves.toEqual([{ id: 's1', name: 'alpha' }])
   })
 })
