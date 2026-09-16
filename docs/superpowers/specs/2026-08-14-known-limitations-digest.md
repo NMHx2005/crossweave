@@ -61,8 +61,10 @@ that risk; it does not sandbox the process.
   than landing on stale evidence. Re-run it once the scheduler has caught up, or
   use `--force` to land on incomplete evidence deliberately.
 - A killed session's name can't be reclaimed immediately. (M0)
-- The live TUI has shipped, but there is no desktop client or multi-pane
-  session terminal yet.
+- **Cockpit** (`apps/cockpit/`) is the macOS arm64 desktop client — multi-pane
+  xterm, attention rail, evidence-gated land from UI. **Windows cockpit is
+  deferred** until `cwd` runs on Windows (`macOS-only-v1`); no Linux cockpit
+  package in v1. The CLI TUI (`cw tui`) remains the cross-platform dashboard.
 
 ## Gaps closed after the milestone reports
 

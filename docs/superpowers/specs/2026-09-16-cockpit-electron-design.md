@@ -1,7 +1,7 @@
 # crossweave Cockpit — Electron Thin Client (Design)
 
 **Date:** 2026-09-16  
-**Status:** Draft for review — **macOS-only v1** (Windows deferred; see transport spike)  
+**Status:** Approved — implemented (macOS arm64 v1; Windows deferred per `macOS-only-v1`)  
 **Approach:** Thin Electron over daemon (Approach 1)  
 **Depends on:** Land & Lease Reliability (shipped) — evidence-gated land, honest leases  
 **Windows:** `macOS-only-v1` — spike `docs/superpowers/specs/2026-09-16-cockpit-windows-transport-spike.md`. Do not ship a Win installer until `cwd` itself runs on Windows.

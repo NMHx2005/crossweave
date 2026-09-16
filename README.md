@@ -123,6 +123,21 @@ Other everyday commands:
 Full command tree: `cw --help`, and `cw <command> --help` for any
 subcommand.
 
+## Cockpit (desktop)
+
+For daily use, **crossweave Cockpit** is an Electron thin client over
+`cwd` — real xterm panes, an attention rail (working / needs-you /
+blocked / landability), and land selected / land all from the UI. Same
+daemon and evidence gate as the CLI; the app never spawns agents itself.
+
+| | |
+|---|---|
+| v1 platform | macOS arm64 only (`macOS-only-v1`) |
+| Windows / Linux cockpit | Deferred until `cwd` is portable on those OSes |
+| Dev | `cd apps/cockpit && bun install && bun run dev` |
+| Package | `cd apps/cockpit && bun run dist:mac` — see `apps/cockpit/README.md` |
+| Design | `docs/superpowers/specs/2026-09-16-cockpit-electron-design.md` |
+
 ## Configuration
 
 Per-repo settings live in `crossweave.config.json` at the repo root
@@ -137,8 +152,6 @@ bun test           # full suite
 bun run typecheck  # tsc --noEmit
 bun run build      # dist/cw, dist/cwd
 ```
-
-**Cockpit (dev):** `cd apps/cockpit && bun install && bun run dev` — Electron shell (macOS v1).
 
 See `docs/superpowers/plans/` and `docs/superpowers/specs/` for how each
 milestone was designed and implemented.
