@@ -1,6 +1,7 @@
 import type { CockpitChannel, CockpitEvent } from '../../electron/channels'
+import { parseSessionList, type ListedSession } from '../lib/sessions'
 
-export type { CockpitChannel, CockpitEvent }
+export type { CockpitChannel, CockpitEvent, ListedSession }
 
 export type WorkspaceEnsureResult = {
   projectRoot: string
@@ -26,8 +27,8 @@ export const cockpitApi = {
   ensureWorkspace(projectRoot?: string): Promise<WorkspaceEnsureResult> {
     return cockpitInvoke('workspace.ensure', projectRoot ? { projectRoot } : undefined)
   },
-  listSessions(): Promise<unknown> {
-    return cockpitInvoke('session.list')
+  listSessions(): Promise<ListedSession[]> {
+    return cockpitInvoke('session.list').then(parseSessionList)
   },
   newSession(payload: { name: string; agent: string; worktree?: boolean }): Promise<unknown> {
     return cockpitInvoke('session.new', payload)
