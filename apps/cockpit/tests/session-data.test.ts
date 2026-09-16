@@ -45,6 +45,11 @@ describe('decodeSessionData', () => {
     expect(decodeSessionData(null)).toBeNull()
     expect(decodeSessionData('s1')).toBeNull()
   })
+
+  test('bad base64 yields empty bytes instead of throwing', () => {
+    const decoded = decodeSessionData({ sessionId: 's1', chunk: '!!!not-base64!!!', encoding: 'base64' })
+    expect(decoded).toEqual({ sessionId: 's1', chunk: new Uint8Array(0) })
+  })
 })
 
 describe('parseSessionList', () => {

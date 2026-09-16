@@ -71,11 +71,19 @@ body,
   padding: 0.25rem 0.5rem;
 }
 
-.cockpit-stage__pane,
+.cockpit-stage__pane {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
 .xterm-pane {
   flex: 1;
   min-height: 0;
   width: 100%;
+  height: 100%;
 }
 
 .xterm-pane .xterm {
