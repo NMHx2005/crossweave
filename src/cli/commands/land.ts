@@ -1,31 +1,13 @@
 import { defineCommand } from 'citty';
 import { CrossweaveError } from '../../core/errors.js';
+import {
+  chooseNextLand,
+  type ConvergeStatus,
+  type LandResult,
+} from '../../convergence/land-order.js';
 import { withClient, fail, currentWorkspaceId } from '../context.js';
 
-interface LandResult {
-  status: 'landed';
-  tested: 'clean' | 'unverified';
-  baseBranch: string;
-  warnings: string[];
-}
-interface ConvergeStatus {
-  ready: string[];
-  unknown: { name: string; reason: string }[];
-  blocked: { name: string; reason: string }[];
-}
-
-export function chooseNextLand(
-  status: ConvergeStatus,
-  force: boolean,
-): { name: string; warning?: string } | undefined {
-  const ready = status.ready[0];
-  if (ready !== undefined) return { name: ready };
-  if (!force) return undefined;
-  const unknown = status.unknown[0];
-  return unknown === undefined
-    ? undefined
-    : { name: unknown.name, warning: unknown.reason };
-}
+export { chooseNextLand };
 
 export function assertLandConfirmed(yes: boolean): void {
   if (!yes) {
