@@ -53,8 +53,8 @@ export function Stage({ sessions, focusedId, status, error, paneAttachKey = 0, o
       )}
       {status === 'empty' && (
         <p class="cockpit-placeholder">
-          No sessions. Use <strong>New</strong> or <code>cw session new</code> /{' '}
-          <code>cw session start</code>.
+          No sessions. Use <strong>New</strong>, or <code>cw session new</code> (which starts the
+          agent).
         </p>
       )}
       {showPanes && panes.length > 0 && (

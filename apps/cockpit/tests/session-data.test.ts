@@ -7,7 +7,7 @@ import type { SessionRow } from '../../../src/db/repositories/session.ts'
 import { SessionRuntime } from '../../../src/daemon/runtime.ts'
 import { encodeSessionData } from '../electron/daemon-bridge'
 import { decodeSessionData } from '../src/lib/session-data'
-import { formatRailMeta, parseSessionList } from '../src/lib/sessions'
+import { formatRailMeta, isSessionRunning, parseSessionList } from '../src/lib/sessions'
 
 /** Contrast helper only — XtermPane must never do this. */
 function stripCsi(input: string): string {
@@ -162,4 +162,14 @@ describe('fidelity attach path', () => {
     expect(stripCsi(joined).includes('\x1b[')).toBe(false)
     await runtime.stop(row.id, 200)
   }, 15_000)
+
+  test('isSessionRunning counts only a real agent process', () => {
+    // Drives the rail's Start/Stop buttons, which is how a stopped session gets going
+    // again without the pane having to say "not running" first.
+    expect(isSessionRunning({ status: 'running' })).toBe(true)
+    expect(isSessionRunning({ status: 'waiting' })).toBe(false)
+    for (const status of ['idle', 'stopped', 'killed', '', undefined]) {
+      expect(isSessionRunning({ status })).toBe(false)
+    }
+  })
 })

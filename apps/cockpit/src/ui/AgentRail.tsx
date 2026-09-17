@@ -1,5 +1,5 @@
 import type { ListedSession } from '../host/cockpit-api'
-import { formatRailMeta } from '../lib/sessions'
+import { formatRailMeta, isSessionRunning } from '../lib/sessions'
 import type { AttentionKind } from '../lib/attention'
 
 const BADGE_LABEL: Record<AttentionKind, string> = {
@@ -17,6 +17,7 @@ export type AgentRailProps = {
   attentionById: Record<string, AttentionKind>
   onFocus: (sessionId: string) => void
   onNew: () => void
+  onStart: () => void
   onStop: () => void
   onKill: () => void
 }
@@ -27,9 +28,12 @@ export function AgentRail({
   attentionById,
   onFocus,
   onNew,
+  onStart,
   onStop,
   onKill,
 }: AgentRailProps) {
+  const focusedRunning =
+    focusedId !== null && isSessionRunning(sessions.find((session) => session.id === focusedId) ?? {})
   return (
     <aside class="cockpit-rail" aria-label="Agent rail">
       <header class="cockpit-rail__header">
@@ -40,7 +44,15 @@ export function AgentRail({
         <button type="button" onClick={onNew}>
           New
         </button>
-        <button type="button" onClick={onStop} disabled={!focusedId}>
+        <button
+          type="button"
+          onClick={onStart}
+          disabled={!focusedId || focusedRunning}
+          title={focusedId && !focusedRunning ? 'Start the agent for the focused session' : undefined}
+        >
+          Start
+        </button>
+        <button type="button" onClick={onStop} disabled={!focusedId || !focusedRunning}>
           Stop
         </button>
         <button type="button" onClick={onKill} disabled={!focusedId}>

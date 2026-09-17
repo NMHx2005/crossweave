@@ -39,3 +39,13 @@ export function formatRailMeta(session: ListedSession): string | undefined {
   if (typeof session.costSpentUsd === 'number') parts.push(`$${session.costSpentUsd.toFixed(2)}`)
   return parts.length > 0 ? parts.join(' · ') : undefined
 }
+
+/**
+ * Whether this session currently has an agent process. The rail needs it for two
+ * things the pane used to reveal the hard way: a Start button that makes sense only
+ * for a session that is not running, and a Stop button for the reverse. Only the
+ * daemon's own `running` counts — `waiting` is a running agent mid-turn.
+ */
+export function isSessionRunning(session: Pick<ListedSession, 'status'>): boolean {
+  return session.status === 'running'
+}

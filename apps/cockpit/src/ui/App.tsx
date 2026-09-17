@@ -131,6 +131,16 @@ export function App() {
     await runAction(() => createAndStartSession(cockpitApi, { name: name.trim(), agent: agent.trim() }))
   }
 
+  async function handleStart(): Promise<void> {
+    if (!focused) return
+    const target = focused.id
+    await runAction(() => cockpitApi.resumeSession(target))
+    // The pane attached to a session that had no agent, so it is showing the reason
+    // instead of a terminal. Re-key it, or Start leaves the user staring at "not
+    // running" on a session that is now running.
+    setPaneAttachKey((key) => key + 1)
+  }
+
   async function handleStop(): Promise<void> {
     if (!focused) return
     await runAction(() => cockpitApi.stopSession(focused.id))
@@ -223,6 +233,9 @@ export function App() {
         onFocus={setFocusedId}
         onNew={() => {
           void handleNew()
+        }}
+        onStart={() => {
+          void handleStart()
         }}
         onStop={() => {
           void handleStop()
