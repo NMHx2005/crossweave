@@ -93,11 +93,14 @@ describe('parseSessionList', () => {
     ])
   })
 
-  test('formatRailMeta shows tier and spend when present', () => {
+  test('formatRailMeta shows what the tier covers, not just the tier, plus spend', () => {
     expect(formatRailMeta({ id: 's1', name: 'alpha' })).toBeUndefined()
+    // A bare `T2` in the rail implies the session is contained, which is false for
+    // anything outside Edit|Write — see
+    // docs/superpowers/specs/2026-09-17-tier-coverage-honesty-design.md §3.5.
     expect(
       formatRailMeta({ id: 's1', name: 'alpha', enforcementTier: 'T2', costSpentUsd: 1.5 }),
-    ).toBe('T2 · $1.50')
+    ).toBe('T2 · Edit|Write · $1.50')
   })
 
   test('empty or non-array is empty', () => {

@@ -1,6 +1,7 @@
 import { defineCommand } from 'citty';
 import { CrossweaveError } from '../../core/errors.js';
 import { withClient, fail, currentWorkspaceId } from '../context.js';
+import { tierWithCoverage } from '../../adapters/coverage.js';
 import { attachCommand } from './attach.js';
 
 interface Session {
@@ -98,7 +99,7 @@ export const sessionCommand = defineCommand({
               workspaceId, name: args.name, agent: args.agent, worktree, budgetTokens, budgetUsd,
             });
             process.stdout.write(
-              `${s.name}\t${s.status}\t${s.enforcementTier}\t${s.worktreePath ?? '-'}\n`,
+              `${s.name}\t${s.status}\t${tierWithCoverage(s.enforcementTier)}\t${s.worktreePath ?? '-'}\n`,
             );
           });
         } catch (err) { fail(err); }
@@ -116,7 +117,7 @@ export const sessionCommand = defineCommand({
             process.stdout.write('NAME\tSTATUS\tAGENT\tTIER\tBRANCH\tSPEND\tLEASES\n');
             for (const s of rows) {
               process.stdout.write(
-                `${s.name}\t${s.status}\t${s.agentKind}\t${s.enforcementTier}\t${s.branch ?? '-'}\t${formatSpend(s)}\t${formatLeaseSummary(s.leases)}\n`,
+                `${s.name}\t${s.status}\t${s.agentKind}\t${tierWithCoverage(s.enforcementTier)}\t${s.branch ?? '-'}\t${formatSpend(s)}\t${formatLeaseSummary(s.leases)}\n`,
               );
             }
           });

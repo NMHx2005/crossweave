@@ -143,19 +143,22 @@ describe('cw CLI', () => {
 
   it('workspace safe-mode shows and sets the tier, including T1', async () => {
     await cw(['init']);
-    expect((await cw(['workspace', 'safe-mode'])).stdout.trim()).toBe('T2');
+    // The tier prints with what it covers, never bare — a lone `T2` reads as
+    // blanket protection, which no tier provides
+    // (docs/superpowers/specs/2026-09-17-tier-coverage-honesty-design.md §3.5).
+    expect((await cw(['workspace', 'safe-mode'])).stdout.trim()).toBe('T2 · Edit|Write');
 
     const setT3 = await cw(['workspace', 'safe-mode', 'T3']);
     expect(setT3.exitCode).toBe(0);
-    expect(setT3.stdout).toContain('safe mode: T3');
+    expect(setT3.stdout).toContain('T3 · nothing');
 
-    expect((await cw(['workspace', 'safe-mode'])).stdout.trim()).toBe('T3');
+    expect((await cw(['workspace', 'safe-mode'])).stdout.trim()).toBe('T3 · nothing');
 
     const setT1 = await cw(['workspace', 'safe-mode', 'T1']);
     expect(setT1.exitCode).toBe(0);
-    expect(setT1.stdout).toContain('safe mode: T1');
+    expect(setT1.stdout).toContain('T1 · named writes');
 
-    expect((await cw(['workspace', 'safe-mode'])).stdout.trim()).toBe('T1');
+    expect((await cw(['workspace', 'safe-mode'])).stdout.trim()).toBe('T1 · named writes');
   }, 30_000);
 
   it('exits non-zero with the error code on a bad session name', async () => {

@@ -1,4 +1,5 @@
 import { defineCommand } from 'citty';
+import { tierCoverageSentence, tierWithCoverage } from '../../adapters/coverage.js';
 import { withClient, fail } from '../context.js';
 import { humanBytes } from '../../isolation/disk-guard.js';
 
@@ -45,10 +46,10 @@ export const workspaceCommand = defineCommand({
               'workspace.info', { id: ws.id },
             );
             process.stdout.write(`${info.workspace.name}\t${info.workspace.rootPath}\n`);
-            process.stdout.write(`safe mode: ${info.workspace.safeModeTier}\n`);
+            process.stdout.write(`safe mode: ${tierCoverageSentence(info.workspace.safeModeTier) ?? info.workspace.safeModeTier}\n`);
             process.stdout.write(`sessions: ${info.sessions.length}\n`);
             for (const s of info.sessions) {
-              process.stdout.write(`  ${s.name}\t${s.status}\t${s.enforcementTier}\n`);
+              process.stdout.write(`  ${s.name}\t${s.status}\t${tierWithCoverage(s.enforcementTier)}\n`);
             }
           });
         } catch (err) { fail(err); }
@@ -58,7 +59,7 @@ export const workspaceCommand = defineCommand({
     'safe-mode': defineCommand({
       meta: {
         name: 'safe-mode',
-        description: "Show or set this workspace's Safe Mode floor (T1/T2 block write-write collisions — T1 via a native ACP adapter like Cursor, T2 via the Claude Code hook; T2 is the default for new workspaces; T3 is advisory-only)",
+        description: "Show or set this workspace's Safe Mode floor (T1/T2 block write-write collisions — T1 via a native ACP adapter like Cursor, T2 via the Claude Code hook, and only for the file writes each tier can actually see; T3 is advisory-only)",
       },
       args: {
         tier: { type: 'positional', description: 'T1, T2 or T3 — omit to show the current tier', required: false },
@@ -69,11 +70,11 @@ export const workspaceCommand = defineCommand({
             const ws = await client.call<Workspace>('workspace.init', {});
             if (args.tier === undefined) {
               const info = await client.call<{ workspace: Workspace }>('workspace.info', { id: ws.id });
-              process.stdout.write(`${info.workspace.safeModeTier}\n`);
+              process.stdout.write(`${tierWithCoverage(info.workspace.safeModeTier)}\n`);
               return;
             }
             const updated = await client.call<Workspace>('workspace.setSafeMode', { id: ws.id, tier: args.tier });
-            process.stdout.write(`safe mode: ${updated.safeModeTier}\n`);
+            process.stdout.write(`safe mode: ${tierWithCoverage(updated.safeModeTier)}\n`);
           });
         } catch (err) { fail(err); }
       },

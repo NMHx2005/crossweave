@@ -1,4 +1,5 @@
 import { defineCommand } from 'citty';
+import { tierWithCoverage } from '../../adapters/coverage.js';
 import {
   createCliRenderer,
   BoxRenderable,
@@ -68,7 +69,7 @@ export function formatSessionRow(row: SessionRow): { text: string; dot: '●' | 
   const dot: '●' | '○' | '✕' =
     row.status === 'running' || row.status === 'waiting' ? '●' :
     row.status === 'dead' || row.status === 'landed' ? '✕' : '○';
-  const text = `${row.name}  ${row.status}  ${row.enforcementTier}  $${row.costSpentUsd.toFixed(2)}`;
+  const text = `${row.name}  ${row.status}  ${tierWithCoverage(row.enforcementTier)}  $${row.costSpentUsd.toFixed(2)}`;
   return { text, dot };
 }
 

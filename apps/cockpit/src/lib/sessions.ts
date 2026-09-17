@@ -1,3 +1,4 @@
+import { tierWithCoverage } from '../../../../src/adapters/coverage.js'
 export type ListedSession = {
   id: string
   name: string
@@ -34,7 +35,7 @@ export function parseSessionList(value: unknown): ListedSession[] {
 
 export function formatRailMeta(session: ListedSession): string | undefined {
   const parts: string[] = []
-  if (session.enforcementTier) parts.push(session.enforcementTier)
+  if (session.enforcementTier) parts.push(tierWithCoverage(session.enforcementTier))
   if (typeof session.costSpentUsd === 'number') parts.push(`$${session.costSpentUsd.toFixed(2)}`)
   return parts.length > 0 ? parts.join(' · ') : undefined
 }
