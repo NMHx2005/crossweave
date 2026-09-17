@@ -63,6 +63,16 @@ describe('cockpit design tokens — drift', () => {
     expect(used.length).toBeGreaterThan(30)
   })
 
+  it('carries no dimensional literal except the three structural ones', () => {
+    // 100% and 100vh size the shell to the window; 0.01ms is what the reduced-motion
+    // override collapses every duration to. Everything else that has a unit is a
+    // design decision and belongs in tokens.ts — this is the check that would have
+    // caught the hand-written `border-radius: 5px` sitting next to --cw-radius.
+    const allowed = new Set(['100%', '100vh', '0.01ms'])
+    const literals = [...css.matchAll(/(?<![\w-])\d+(?:\.\d+)?(?:px|rem|em|ms|s|vh|vw)/g)].map((m) => m[0])
+    expect(literals.filter((value) => !allowed.has(value))).toEqual([])
+  })
+
   it('carries no literal colour or colour function of its own', () => {
     expect(css.match(/#[0-9a-fA-F]{3,8}\b/g) ?? []).toEqual([])
     expect(css.match(/\b(?:rgba?|hsla?)\(/g) ?? []).toEqual([])

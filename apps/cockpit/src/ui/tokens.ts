@@ -80,6 +80,14 @@ export const COCKPIT_TOKENS = {
   '--cw-fs-micro': '11px',
   '--cw-fs-sm': '12px',
   '--cw-fs': '13px',
+  // Structural dimension, one place: 1px borders, focus outline width, the row
+  // separators and the meta gap all read as the same hairline rhythm.
+  '--cw-hairline': '1px',
+  '--cw-bar-w': '2px', // the selection bar inside a focused rail row
+  '--cw-control-pad-y': '2px', // vertical padding shared by buttons and selects
+  '--cw-tracking-label': '0.08em', // the uppercase micro labels' letter-spacing
+  '--cw-scrollbar-w': '10px',
+  '--cw-scrollbar-inset': '2px', // transparent border that insets the thumb
   '--cw-radius-sm': '3px',
   '--cw-radius': '5px',
   '--cw-radius-lg': '7px',

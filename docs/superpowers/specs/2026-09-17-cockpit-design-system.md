@@ -51,6 +51,15 @@ and not a new visual concept:
 | `--cw-selection` | `#67769660` | `editor.selectionBackground` |
 | `--cw-scrollbar` / `-hover` | `#4e5666` / `#5a6375` | `scrollbarSlider.background` / `.hoverBackground` |
 
+Dimensions are tokens too, so a value can never be "almost the same" in two places:
+`--cw-hairline` (1px — borders, the focus outline's width and its negative offset, row
+separators and the meta gap all share it), `--cw-bar-w` (2px, the focused-row selection
+bar), `--cw-control-pad-y`, `--cw-tracking-label` (0.08em on the uppercase micro
+labels), `--cw-scrollbar-w` and `--cw-scrollbar-inset`. The only unit-bearing literals
+allowed to remain are the three that describe structure rather than design: `100%`,
+`100vh` (the shell fills the window) and `0.01ms` (what the reduced-motion override
+collapses durations to).
+
 Density (13px body, 24px rows, 3/5/7px radii, 4→14px spacing steps, 280px rail) and
 motion (90ms/140ms, `cubic-bezier(.2,0,.2,1)`) follow the same theme's own numbers
 where they exist and the editor convention where they do not.
@@ -108,7 +117,8 @@ switches every duration to ~0.
 3. the pre-paint value in `index.html` equals `--cw-surface`;
 4. the pane shares the chrome palette, and the terminal palette stays standard;
 5. the mix weights in CSS equal the constants the contrast test measures;
-6. all contrast assertions above.
+6. no dimensional literal beyond that three-item structural allowlist;
+7. all contrast assertions above.
 
 ## 7. Deliberately not done
 

@@ -29,8 +29,8 @@ body {
 
 /* Editors ship a thin translucent scrollbar rather than the platform's. */
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: var(--cw-scrollbar-w);
+  height: var(--cw-scrollbar-w);
 }
 
 ::-webkit-scrollbar-track {
@@ -39,7 +39,7 @@ body {
 
 ::-webkit-scrollbar-thumb {
   background: var(--cw-scrollbar);
-  border: 2px solid transparent;
+  border: var(--cw-scrollbar-inset) solid transparent;
   background-clip: content-box;
   border-radius: var(--cw-radius-lg);
 }
@@ -57,8 +57,8 @@ body {
    deliberately NOT used here, because it is close to invisible — see the spec's
    accessibility section. */
 :focus-visible {
-  outline: 1px solid var(--cw-accent);
-  outline-offset: -1px;
+  outline: var(--cw-hairline) solid var(--cw-accent);
+  outline-offset: calc(var(--cw-hairline) * -1);
 }
 
 html,
@@ -85,7 +85,7 @@ body,
 /* ---------- rail ---------- */
 
 .cockpit-rail {
-  border-right: 1px solid var(--cw-border);
+  border-right: var(--cw-hairline) solid var(--cw-border);
   background: var(--cw-surface);
   display: flex;
   flex-direction: column;
@@ -98,7 +98,7 @@ body,
   margin: 0;
   font-size: var(--cw-fs-micro);
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--cw-tracking-label);
   text-transform: uppercase;
   color: var(--cw-text-dim);
 }
@@ -114,9 +114,9 @@ body,
 .cockpit-footer__actions button {
   background: var(--cw-surface-control);
   color: var(--cw-text-bright);
-  border: 1px solid transparent;
+  border: var(--cw-hairline) solid transparent;
   border-radius: var(--cw-radius-sm);
-  padding: 2px var(--cw-space-3);
+  padding: var(--cw-control-pad-y) var(--cw-space-3);
   min-height: var(--cw-row-h);
   font-family: inherit;
   font-size: var(--cw-fs-sm);
@@ -157,7 +157,7 @@ body,
   justify-content: space-between;
   gap: var(--cw-space-2);
   width: 100%;
-  margin-bottom: 1px;
+  margin-bottom: var(--cw-hairline);
   padding: var(--cw-space-1) var(--cw-space-2);
   background: transparent;
   color: var(--cw-text);
@@ -176,7 +176,7 @@ body,
 .cockpit-rail__item.is-focused {
   background: var(--cw-surface-active);
   color: var(--cw-text-bright);
-  box-shadow: inset 2px 0 0 0 var(--cw-accent);
+  box-shadow: inset var(--cw-bar-w) 0 0 0 var(--cw-accent);
   transition:
     background-color var(--cw-dur) var(--cw-ease),
     box-shadow var(--cw-dur) var(--cw-ease);
@@ -185,7 +185,7 @@ body,
 .cockpit-rail__meta {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: var(--cw-hairline);
   min-width: 0;
 }
 
@@ -202,7 +202,7 @@ body,
   font-size: var(--cw-fs-micro);
   line-height: 1.5;
   text-transform: lowercase;
-  padding: 0 5px;
+  padding: 0 var(--cw-space-1);
   border-radius: var(--cw-radius-sm);
   background: var(--cw-surface-badge);
   color: var(--cw-text-dim);
@@ -274,9 +274,9 @@ body,
 .cockpit-session-pick select {
   background: var(--cw-surface-input);
   color: var(--cw-text);
-  border: 1px solid var(--cw-border);
+  border: var(--cw-hairline) solid var(--cw-border);
   border-radius: var(--cw-radius-sm);
-  padding: 2px var(--cw-space-2);
+  padding: var(--cw-control-pad-y) var(--cw-space-2);
   min-height: var(--cw-row-h);
   font-family: inherit;
   font-size: var(--cw-fs-sm);
@@ -317,7 +317,7 @@ body,
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid var(--cw-border);
+  border: var(--cw-hairline) solid var(--cw-border);
   border-radius: var(--cw-radius);
   background: var(--cw-surface);
   transition: border-color var(--cw-dur) var(--cw-ease);
@@ -349,7 +349,7 @@ body,
   justify-content: space-between;
   gap: var(--cw-space-3);
   padding: var(--cw-space-2) var(--cw-space-3);
-  border-top: 1px solid var(--cw-border);
+  border-top: var(--cw-hairline) solid var(--cw-border);
   background: var(--cw-surface);
 }
 
@@ -376,7 +376,7 @@ body,
 .cockpit-placeholder {
   margin-top: var(--cw-space-4);
   padding: var(--cw-space-4);
-  border: 1px dashed var(--cw-border-strong);
+  border: var(--cw-hairline) dashed var(--cw-border-strong);
   border-radius: var(--cw-radius);
   color: var(--cw-text-dim);
   font-size: var(--cw-fs-sm);
