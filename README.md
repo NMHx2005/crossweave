@@ -95,6 +95,17 @@ cw session attach alice     # Ctrl-] to detach, agent keeps running
 > list, convergence matrix, and a real-time collision/notification feed in
 > one dashboard.
 
+### Agents
+
+| `--agent` | Safe Mode tier | How it runs |
+|---|---|---|
+| `claude` (default) | **T2** — blocks before the write | Claude Code, through its `PreToolUse` hook |
+| `cursor` | **T1** — blocks before the write | ACP. Current `cursor-agent` builds (2026.08+) dropped ACP, so this kind fails fast with a clear error instead of hanging — it no longer runs at all |
+| `cursor-print` | **T3** — advisory only | `cursor-agent --print --output-format stream-json`; no permission interception |
+
+A session is always reported at its real tier — `cw session list`, the desktop
+rail, and the session banner never present an advisory session as enforced.
+
 While both sessions work, crossweave's daemon is already:
 
 - indexing every file+symbol each session touches (Collision Radar) and

@@ -26,6 +26,12 @@ through the `Bash` tool — `sed -i`, `> file`, `git checkout -- file`, or an
 agent-invoked script — is invisible to both Safe Mode and the Collision
 Radar. (M5a)
 
+**The Cursor path that works is advisory.** `cursor-agent` builds from
+2026.08 removed ACP, so `--agent cursor` (T1) can no longer run — it now fails
+fast with a clear message instead of hanging silently — and `--agent
+cursor-print` (T3) is what actually works: a real PTY-less print-mode run with
+**no permission interception**, so Safe Mode cannot block a write there. (M5b)
+
 **`converge.testCommand` is arbitrary shell, run automatically once
 trusted.** The `cw config trust` gate exists and must record the current
 command before crossweave will run it. Treat that gate as a real trust

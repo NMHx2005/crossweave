@@ -76,7 +76,7 @@ export const sessionCommand = defineCommand({
       // so declaring a literal `no-worktree` flag would collide with that negation.
       args: {
         name: { type: 'string', required: true, description: 'Session name' },
-        agent: { type: 'string', default: 'claude', description: 'Agent kind' },
+        agent: { type: 'string', default: 'claude', description: 'Agent kind: claude (T2), cursor (T1/ACP), cursor-print (T3)' },
         worktree: { type: 'boolean', default: true, description: 'Isolate in a git worktree' },
         'budget-tokens': { type: 'string', description: 'Warn once cumulative tokens spent exceeds this' },
         'budget-usd': { type: 'string', description: 'Warn once cumulative cost (USD) exceeds this' },
