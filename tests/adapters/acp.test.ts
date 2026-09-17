@@ -218,7 +218,44 @@ describe('AcpAdapter', () => {
     proc.kill();
   });
 
-  it('no locations on the tool call (e.g. an execute call the agent chose not to report): nothing to check, allowed', async () => {
+  it('a file-mutating call with NO locations DENIES — T1 must not allow a write it never looked at', async () => {
+    // Regression: this branch used to return allow_once for every empty-locations
+    // call, on the reading that "nothing to check against" meant "nothing to do".
+    // decideBlocked is never reachable here (no path to hand it), and T1 is the tier
+    // that fails closed — so the answer is a deny, not a silent allow.
+    const decideBlocked = (): DecideBlockedResult => {
+      throw new Error('must not be called: there is no target to evaluate');
+    };
+    const adapter = new AcpAdapter(
+      { resolveWorkspaceId: () => 'ws_1', recordUsage: () => {}, notify: () => {}, decideBlocked },
+      process.execPath, [FAKE_AGENT],
+    );
+    const proc = adapter.spawn({ cwd: process.cwd(), env: { CW_SESSION_ID: 's_1' }, cols: 80, rows: 24 });
+    const read = collect(proc);
+    proc.write(`__REQUEST_PERMISSION__:${JSON.stringify({ kind: 'edit' })}`);
+    await waitFor(() => read().includes('PERMISSION_RESULT:'));
+    expect(read()).toContain('PERMISSION_RESULT:reject');
+    proc.kill();
+  });
+
+  it('an UNSET kind with no locations denies too — "kind -> checked, not assumed safe" applies here as well', async () => {
+    const decideBlocked = (): DecideBlockedResult => {
+      throw new Error('must not be called: there is no target to evaluate');
+    };
+    const adapter = new AcpAdapter(
+      { resolveWorkspaceId: () => 'ws_1', recordUsage: () => {}, notify: () => {}, decideBlocked },
+      process.execPath, [FAKE_AGENT],
+    );
+    const proc = adapter.spawn({ cwd: process.cwd(), env: { CW_SESSION_ID: 's_1' }, cols: 80, rows: 24 });
+    const read = collect(proc);
+    // The fake agent defaults an unset kind to 'edit'; send one that is explicitly absent.
+    proc.write(`__REQUEST_PERMISSION__:${JSON.stringify({ kind: 'other' })}`);
+    await waitFor(() => read().includes('PERMISSION_RESULT:'));
+    expect(read()).toContain('PERMISSION_RESULT:reject');
+    proc.kill();
+  });
+
+  it('an EXECUTE call with no locations is the one deliberate allow — shell has no evaluable target in any tier', async () => {
     const decideBlocked = (): DecideBlockedResult => {
       throw new Error('must not be called when locations is empty');
     };

@@ -95,8 +95,10 @@ type PermissionDecision = 'allow_once' | 'reject_once';
  * subprocess with real daemon-unreachable/timeout failure modes it must degrade
  * through gracefully; this handler runs in-process, in the same daemon, so an error
  * here is a genuine internal bug, not legitimate unreachability — and T1 is supposed
- * to be the STRONG enforcement tier. A location outside the worktree root, or a
- * decideBlocked call that throws, denies rather than silently allowing.
+ * to be the STRONG enforcement tier. A location outside the worktree root, a mutating
+ * call that enumerates no target at all (see the empty-`locations` branch below, which
+ * used to allow), or a decideBlocked call that throws, denies rather than silently
+ * allowing.
  */
 // Kinds that never write — the underlying policy is specifically about write-write
 // collisions (the hook's own deny reason says so, and M5a only ever matched
@@ -104,6 +106,14 @@ type PermissionDecision = 'allow_once' | 'reject_once';
 // kind not in this set (including an unset `kind`) is treated conservatively — checked,
 // not assumed safe.
 const NON_MUTATING_KINDS = new Set<string>(['read', 'search', 'fetch', 'think', 'switch_mode']);
+
+// The one mutating kind with no evaluable target in ANY tier: a shell command's file
+// effects are not enumerable from the command string (the same reasoning M5a used to
+// leave the Claude hook's `Bash` gap open — docs/superpowers/specs/2026-08-12-m5a-safe
+// -mode-blocking-design.md §5). Denying here would not close that gap, it would only
+// stop a T1 session from running `git status`; the honest treatment is to allow and to
+// print the coverage (src/adapters/coverage.ts) rather than imply protection.
+const SHELL_KINDS = new Set<string>(['execute']);
 
 function decideRequestPermission(
   params: RequestPermissionRequest,
@@ -114,8 +124,18 @@ function decideRequestPermission(
   if (sessionId === undefined) return 'reject_once';
   if (params.toolCall.kind != null && NON_MUTATING_KINDS.has(params.toolCall.kind)) return 'allow_once';
 
+  const kind = params.toolCall.kind;
   const locations = params.toolCall.locations ?? [];
-  if (locations.length === 0) return 'allow_once'; // nothing to check against
+  if (locations.length === 0) {
+    // "Nothing to check against" is not "nothing to do". This used to be an
+    // unconditional allow, which made an evaluable-looking hole in the one tier that
+    // promises to fail closed: a file-mutating call that named no target was waved
+    // through without decideBlocked ever being consulted. Shell is the documented
+    // carve-out (SHELL_KINDS), anything else mutating — including an unset `kind`, which
+    // the comment above already calls out as "not assumed safe" — now denies.
+    if (kind != null && SHELL_KINDS.has(kind)) return 'allow_once';
+    return 'reject_once';
+  }
 
   try {
     const workspaceId = deps.resolveWorkspaceId(sessionId);
