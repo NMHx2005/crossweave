@@ -194,6 +194,19 @@ body,
   min-width: 0;
 }
 
+/* One line each, ellipsised, so every row is the same height no matter what anyone
+   named their session. Without this a long name WRAPS inside the flex column and the
+   rail goes ragged (measured: a 44-character name made one row 72px against its
+   neighbours' 56px) — list rows in the editor this material comes from never do
+   that, they clip. `min-width: 0` on the column above is what lets these shrink at
+   all; without it a flex item refuses to go below its content width. */
+.cockpit-rail__name,
+.cockpit-rail__meta > .cockpit-muted {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .cockpit-rail__name {
   font-size: var(--cw-fs);
   font-weight: 600;
