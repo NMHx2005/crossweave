@@ -58,7 +58,6 @@ export const COCKPIT_TOKENS = {
   '--cw-text': '#abb2bf',
   '--cw-text-bright': '#d7dae0',
   '--cw-text-dim': '#9da5b4',
-  '--cw-text-disabled': '#4f5666',
 
   '--cw-accent': '#61afef',
   '--cw-cursor': '#528bff',

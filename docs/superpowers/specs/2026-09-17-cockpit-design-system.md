@@ -45,7 +45,6 @@ and not a new visual concept:
 | `--cw-text` | `#abb2bf` | `foreground` |
 | `--cw-text-bright` | `#d7dae0` | `list.activeSelectionForeground` |
 | `--cw-text-dim` | `#9da5b4` | `descriptionForeground` / `statusBar.foreground` |
-| `--cw-text-disabled` | `#4f5666` | `terminal.ansiBrightBlack` |
 | `--cw-accent` | `#61afef` | `textLink.foreground` |
 | `--cw-cursor` | `#528bff` | `editorCursor.foreground` |
 | `--cw-selection` | `#67769660` | `editor.selectionBackground` |
@@ -102,7 +101,14 @@ switches every duration to ~0.
 - Every text/background pair the UI paints is asserted ≥ 4.5:1 in
   `tests/tokens.test.ts` — including the six badge treatments, computed with the same
   arithmetic `color-mix()` performs.
-- Keyboard focus uses a 1px `--cw-accent` outline, **deliberately overriding** the
+- Disabled controls are exempt from WCAG's contrast minimum, and the first version of
+this system leaned on that exemption: `#4f5666` under `opacity: 0.6` on the control
+surface measured **1.15:1**, which is not "quieter", it is unreadable — visible in the
+screenshot of the packaged app as three blank buttons. Disabled labels now use
+`--cw-text-dim` (3.77:1) with the muted background and a default cursor carrying the
+affordance, and `tests/tokens.test.ts` asserts it, so nobody has to notice it by eye.
+
+Keyboard focus uses a 1px `--cw-accent` outline, **deliberately overriding** the
   borrowed theme's own `focusBorder` (`#3e4452`), which is close to invisible. Mimicry
   does not get to win over focus visibility.
 - No colour is the only carrier of meaning: badges carry a word, panes carry a name.

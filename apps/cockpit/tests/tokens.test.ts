@@ -120,6 +120,14 @@ describe('cockpit design tokens — legibility (WCAG AA)', () => {
     expect(contrast(T['--cw-text-bright'], T['--cw-surface-control'])).toBeGreaterThanOrEqual(AA_NORMAL)
   })
 
+  it('disabled labels stay readable on the control surface', () => {
+    // WCAG exempts disabled controls, and this system used that exemption to go down
+    // to ~1.15:1 — which is not "quiet", it is invisible (see the design-system
+    // spec's accessibility section). A quieter-than-AA floor is deliberate here; an
+    // unreadable one is not.
+    expect(contrast(T['--cw-text-dim'], T['--cw-surface-control'])).toBeGreaterThanOrEqual(3)
+  })
+
   it('washed badges: hue text on a wash of itself', () => {
     for (const token of ['--cw-working', '--cw-ready', '--cw-needs-you'] as const) {
       const bg = mix(T[token], T['--cw-surface-badge'], BADGE_WASH)

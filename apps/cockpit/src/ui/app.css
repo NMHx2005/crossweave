@@ -131,10 +131,15 @@ body,
   background: color-mix(in srgb, var(--cw-surface-control) 82%, var(--cw-text-bright));
 }
 
+/* Disabled labels keep --cw-text-dim and nothing else. They used to stack
+   --cw-text-disabled (#4f5666) under opacity 0.6, which measured ~1.15:1 on the
+   control surface: WCAG exempts disabled controls, but a label nobody can read is a
+   worse answer than a label that is merely quiet. The muted colour plus the
+   non-pointer cursor is the whole affordance now — see tokens.test.ts, which pins
+   the contrast rather than trusting an eyeball. */
 .cockpit-rail__actions button:disabled,
 .cockpit-footer__actions button:disabled {
-  color: var(--cw-text-disabled);
-  opacity: 0.6;
+  color: var(--cw-text-dim);
   cursor: default;
 }
 
