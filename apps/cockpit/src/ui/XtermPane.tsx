@@ -4,6 +4,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { cockpitApi } from '../host/cockpit-api'
 import { decodeSessionData } from '../lib/session-data'
+import { XTERM_FONT_FAMILY, XTERM_FONT_SIZE, XTERM_THEME } from './tokens'
 
 export type XtermPaneProps = {
   sessionId: string
@@ -23,14 +24,12 @@ export function XtermPane({ sessionId, focused }: XtermPaneProps) {
     const term = new Terminal({
       cursorBlink: true,
       convertEol: false,
-      fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-      fontSize: 13,
+      // Named, not inlined: the pane's palette and the chrome's come from the
+      // same tokens object, so they cannot drift apart (they used to).
+      fontFamily: XTERM_FONT_FAMILY,
+      fontSize: XTERM_FONT_SIZE,
       scrollback: 5000,
-      theme: {
-        background: '#0f1115',
-        foreground: '#e8eaed',
-        cursor: '#e8eaed',
-      },
+      theme: XTERM_THEME,
     })
     const fit = new FitAddon()
     term.loadAddon(fit)

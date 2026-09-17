@@ -1,12 +1,20 @@
+/*
+ * Cockpit chrome.
+ *
+ * Every colour, radius, space and duration here is a var(--cw-*) published at boot
+ * from src/ui/tokens.ts — this file must not contain a single literal colour, and
+ * tests/tokens.test.ts fails if one appears (or if a var() has no token behind it).
+ * The material is borrowed, the anatomy is ours: see the provenance note in
+ * tokens.ts and docs/superpowers/specs/2026-09-17-cockpit-design-system.md.
+ */
+
 :root {
   color-scheme: dark;
-  font-family:
-    'SF Pro Text',
-    system-ui,
-    -apple-system,
-    sans-serif;
-  background: #0f1115;
-  color: #e8eaed;
+  font-family: var(--cw-font-ui);
+  font-size: var(--cw-fs);
+  background: var(--cw-surface);
+  color: var(--cw-text);
+  -webkit-font-smoothing: antialiased;
 }
 
 * {
@@ -15,6 +23,42 @@
 
 body {
   margin: 0;
+  background: var(--cw-surface);
+  color: var(--cw-text);
+}
+
+/* Editors ship a thin translucent scrollbar rather than the platform's. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--cw-scrollbar);
+  border: 2px solid transparent;
+  background-clip: content-box;
+  border-radius: var(--cw-radius-lg);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--cw-scrollbar-hover);
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Keyboard focus stays visible; the borrowed theme's own focusBorder (#3e4452) is
+   deliberately NOT used here, because it is close to invisible — see the spec's
+   accessibility section. */
+:focus-visible {
+  outline: 1px solid var(--cw-accent);
+  outline-offset: -1px;
 }
 
 html,
@@ -27,44 +71,70 @@ body,
 
 .cockpit-shell {
   display: grid;
-  grid-template-columns: 280px 1fr;
+  grid-template-columns: var(--cw-rail-w) 1fr;
   grid-template-rows: 1fr auto;
   min-height: 0;
+  background: var(--cw-surface);
 }
 
 .cockpit-rail,
 .cockpit-stage {
-  padding: 1rem 1.25rem;
   min-height: 0;
 }
 
+/* ---------- rail ---------- */
+
 .cockpit-rail {
-  border-right: 1px solid #2a2f3a;
-  background: #141820;
+  border-right: 1px solid var(--cw-border);
+  background: var(--cw-surface);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  padding: var(--cw-space-3) var(--cw-space-3) var(--cw-space-2);
+}
+
+.cockpit-rail__header h1,
+.cockpit-stage__header h2 {
+  margin: 0;
+  font-size: var(--cw-fs-micro);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--cw-text-dim);
 }
 
 .cockpit-rail__actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.4rem;
-  margin: 0.75rem 0;
+  gap: var(--cw-space-1);
+  margin: var(--cw-space-3) 0 var(--cw-space-2);
 }
 
-.cockpit-rail__actions button {
-  background: #1c2230;
-  color: #e8eaed;
-  border: 1px solid #3a4150;
-  border-radius: 4px;
-  padding: 0.3rem 0.6rem;
-  font-size: 0.8rem;
+.cockpit-rail__actions button,
+.cockpit-footer__actions button {
+  background: var(--cw-surface-control);
+  color: var(--cw-text-bright);
+  border: 1px solid transparent;
+  border-radius: var(--cw-radius-sm);
+  padding: 2px var(--cw-space-3);
+  min-height: var(--cw-row-h);
+  font-family: inherit;
+  font-size: var(--cw-fs-sm);
   cursor: pointer;
+  transition:
+    background-color var(--cw-dur-fast) var(--cw-ease),
+    color var(--cw-dur-fast) var(--cw-ease);
 }
 
-.cockpit-rail__actions button:disabled {
-  opacity: 0.45;
+.cockpit-rail__actions button:hover:not(:disabled),
+.cockpit-footer__actions button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--cw-surface-control) 82%, var(--cw-text-bright));
+}
+
+.cockpit-rail__actions button:disabled,
+.cockpit-footer__actions button:disabled {
+  color: var(--cw-text-disabled);
+  opacity: 0.6;
   cursor: default;
 }
 
@@ -74,114 +144,153 @@ body,
   padding: 0;
   overflow: auto;
   min-height: 0;
+  margin-right: calc(var(--cw-space-2) * -1);
+  padding-right: var(--cw-space-2);
 }
 
+/* Rows highlight INSTANTLY on hover — no fade — exactly like a list in the editor
+   this material is borrowed from; the transition lives on the focus/selection
+   change instead, where it reads as deliberate rather than laggy. */
 .cockpit-rail__item {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 0.5rem;
+  gap: var(--cw-space-2);
   width: 100%;
-  margin-bottom: 0.4rem;
-  padding: 0.45rem 0.55rem;
-  background: #1c2230;
-  color: inherit;
-  border: 1px solid #2a2f3a;
-  border-radius: 6px;
+  margin-bottom: 1px;
+  padding: var(--cw-space-1) var(--cw-space-2);
+  background: transparent;
+  color: var(--cw-text);
+  border: 0;
+  border-radius: var(--cw-radius-sm);
   text-align: left;
+  font-family: inherit;
+  font-size: var(--cw-fs);
   cursor: pointer;
 }
 
+.cockpit-rail__item:hover {
+  background: var(--cw-surface-hover);
+}
+
 .cockpit-rail__item.is-focused {
-  border-color: #6b8afd;
+  background: var(--cw-surface-active);
+  color: var(--cw-text-bright);
+  box-shadow: inset 2px 0 0 0 var(--cw-accent);
+  transition:
+    background-color var(--cw-dur) var(--cw-ease),
+    box-shadow var(--cw-dur) var(--cw-ease);
 }
 
 .cockpit-rail__meta {
   display: flex;
   flex-direction: column;
-  gap: 0.15rem;
+  gap: 1px;
   min-width: 0;
 }
 
 .cockpit-rail__name {
-  font-size: 0.875rem;
+  font-size: var(--cw-fs);
   font-weight: 600;
+  color: inherit;
 }
 
+/* Badges are small rounded rects, not pills: a tinted wash of the role's own hue
+   over the badge surface, so one hue per state stays one token. */
 .cockpit-rail__badge {
   flex-shrink: 0;
-  font-size: 0.7rem;
+  font-size: var(--cw-fs-micro);
+  line-height: 1.5;
   text-transform: lowercase;
-  padding: 0.15rem 0.4rem;
-  border-radius: 999px;
-  background: #2a2f3a;
-  color: #c5cad3;
+  padding: 0 5px;
+  border-radius: var(--cw-radius-sm);
+  background: var(--cw-surface-badge);
+  color: var(--cw-text-dim);
+  transition: background-color var(--cw-dur) var(--cw-ease);
 }
 
-.cockpit-rail__badge--blocked {
-  background: #5a1d24;
-  color: #ffb4b4;
-}
-
-.cockpit-rail__badge--needs_you {
-  background: #4a3a12;
-  color: #f5d67b;
-}
-
-.cockpit-rail__badge--conflict {
-  background: #4a2a12;
-  color: #f0b27a;
+/* Informational states: the hue as *text* over a wash of itself (16% — the same
+   BADGE_WASH the contrast test measures). */
+.cockpit-rail__badge--working {
+  background: color-mix(in srgb, var(--cw-working) 16%, var(--cw-surface-badge));
+  color: var(--cw-working);
 }
 
 .cockpit-rail__badge--ready {
-  background: #16351f;
-  color: #8ee0a8;
+  background: color-mix(in srgb, var(--cw-ready) 16%, var(--cw-surface-badge));
+  color: var(--cw-ready);
+}
+
+.cockpit-rail__badge--needs_you {
+  background: color-mix(in srgb, var(--cw-needs-you) 16%, var(--cw-surface-badge));
+  color: var(--cw-needs-you);
+}
+
+/* Hard stops: FILLED instead. They are the two states that need action now, so they
+   earn the weight — and a wash is exactly what they cannot use, because red text on
+   a 20% red wash measures 3.9:1. The dark text is the surface colour itself. */
+.cockpit-rail__badge--blocked {
+  background: color-mix(in srgb, var(--cw-blocked) 85%, var(--cw-surface));
+  color: var(--cw-surface);
+}
+
+.cockpit-rail__badge--conflict {
+  background: color-mix(in srgb, var(--cw-conflict) 85%, var(--cw-surface));
+  color: var(--cw-surface);
 }
 
 .cockpit-rail__badge--unknown {
-  background: #2a2f3a;
-  color: #9aa3b2;
+  color: var(--cw-text-dim);
 }
 
-.cockpit-rail__badge--working {
-  background: #1b2a44;
-  color: #9db4e0;
-}
+/* ---------- stage ---------- */
 
 .cockpit-stage {
-  background: #0f1115;
+  background: var(--cw-surface);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  gap: var(--cw-space-2);
+  padding: var(--cw-space-3);
 }
 
 .cockpit-stage__header {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
-  gap: 0.75rem;
+  gap: var(--cw-space-3);
+  min-height: var(--cw-row-h);
 }
 
 .cockpit-session-pick {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: var(--cw-space-2);
+  font-size: var(--cw-fs-sm);
+  color: var(--cw-text-dim);
 }
 
 .cockpit-session-pick select {
-  background: #141820;
-  color: #e8eaed;
-  border: 1px solid #3a4150;
-  border-radius: 4px;
-  padding: 0.25rem 0.5rem;
+  background: var(--cw-surface-input);
+  color: var(--cw-text);
+  border: 1px solid var(--cw-border);
+  border-radius: var(--cw-radius-sm);
+  padding: 2px var(--cw-space-2);
+  min-height: var(--cw-row-h);
+  font-family: inherit;
+  font-size: var(--cw-fs-sm);
+}
+
+.cockpit-session-pick select:hover {
+  border-color: var(--cw-border-strong);
 }
 
 .cockpit-stage__grid {
   flex: 1;
   min-height: 0;
   display: grid;
-  gap: 0.5rem;
+  gap: var(--cw-space-2);
 }
 
 .cockpit-stage__grid[data-count='1'] {
@@ -208,11 +317,14 @@ body,
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid #2a2f3a;
+  border: 1px solid var(--cw-border);
+  border-radius: var(--cw-radius);
+  background: var(--cw-surface);
+  transition: border-color var(--cw-dur) var(--cw-ease);
 }
 
 .cockpit-stage__pane.is-focused {
-  border-color: #6b8afd;
+  border-color: var(--cw-accent);
 }
 
 .xterm-pane {
@@ -220,39 +332,14 @@ body,
   min-height: 0;
   width: 100%;
   height: 100%;
+  padding: var(--cw-space-1) 0 0 var(--cw-space-2);
 }
 
 .xterm-pane .xterm {
   height: 100%;
 }
 
-.cockpit-rail__header h1,
-.cockpit-stage__header h2 {
-  margin: 0 0 0.25rem;
-  font-size: 1rem;
-  font-weight: 600;
-}
-
-.cockpit-muted {
-  margin: 0;
-  color: #9aa3b2;
-  font-size: 0.875rem;
-}
-
-.cockpit-error {
-  margin: 0;
-  color: #ffb4b4;
-  font-size: 0.875rem;
-}
-
-.cockpit-placeholder {
-  margin-top: 1.5rem;
-  padding: 1rem;
-  border: 1px dashed #3a4150;
-  border-radius: 8px;
-  color: #9aa3b2;
-  font-size: 0.875rem;
-}
+/* ---------- footer ---------- */
 
 .cockpit-footer {
   grid-column: 1 / -1;
@@ -260,29 +347,47 @@ body,
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.6rem 1.25rem;
-  border-top: 1px solid #2a2f3a;
-  background: #141820;
+  gap: var(--cw-space-3);
+  padding: var(--cw-space-2) var(--cw-space-3);
+  border-top: 1px solid var(--cw-border);
+  background: var(--cw-surface);
 }
 
 .cockpit-footer__actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.4rem;
+  gap: var(--cw-space-1);
 }
 
-.cockpit-footer__actions button {
-  background: #1c2230;
-  color: #e8eaed;
-  border: 1px solid #3a4150;
-  border-radius: 4px;
-  padding: 0.3rem 0.7rem;
-  font-size: 0.8rem;
-  cursor: pointer;
+/* ---------- text ---------- */
+
+.cockpit-muted {
+  margin: 0;
+  color: var(--cw-text-dim);
+  font-size: var(--cw-fs-sm);
 }
 
-.cockpit-footer__actions button:disabled {
-  opacity: 0.45;
-  cursor: default;
+.cockpit-error {
+  margin: 0;
+  color: var(--cw-blocked);
+  font-size: var(--cw-fs-sm);
+}
+
+.cockpit-placeholder {
+  margin-top: var(--cw-space-4);
+  padding: var(--cw-space-4);
+  border: 1px dashed var(--cw-border-strong);
+  border-radius: var(--cw-radius);
+  color: var(--cw-text-dim);
+  font-size: var(--cw-fs-sm);
+}
+
+/* Someone who asked the OS for less motion gets none of ours. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
 }

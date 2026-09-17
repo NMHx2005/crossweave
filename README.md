@@ -145,6 +145,7 @@ daemon and evidence gate as the CLI; the app never spawns agents itself.
 |---|---|
 | v1 platform | macOS arm64 only (`macOS-only-v1`) |
 | Windows / Linux cockpit | Deferred until `cwd` is portable on those OSes |
+| Design | `docs/superpowers/specs/2026-09-17-cockpit-design-system.md` — one token layer (`apps/cockpit/src/ui/tokens.ts`) shared by the chrome and the panes |
 | Dev | `cd apps/cockpit && bun install && bun run dev` |
 | Package | `cd apps/cockpit && bun run dist:mac` — see `apps/cockpit/README.md` |
 | Design | `docs/superpowers/specs/2026-09-16-cockpit-electron-design.md` |

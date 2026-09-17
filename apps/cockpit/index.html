@@ -4,6 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>crossweave Cockpit</title>
+    <!-- Pre-paint only: the window frame before applyTokens() runs. Must stay equal
+         to --cw-surface in src/ui/tokens.ts, and tests/tokens.test.ts fails if it
+         does not. A browser window that flashes white on open reads as a bug. -->
+    <style>
+      html {
+        background: #16191d;
+        color-scheme: dark;
+      }
+    </style>
   </head>
   <body>
     <div id="app"></div>

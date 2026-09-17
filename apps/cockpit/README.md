@@ -22,6 +22,22 @@ From DevTools:
 await window.cockpit.invoke('session.list')
 ```
 
+## Design system
+
+Chrome colours, density and motion come from one place — `src/ui/tokens.ts` — published
+as CSS custom properties at boot (`applyTokens()`) and read by the xterm pane too, so the
+pane can never drift from the frame around it. The material is borrowed from the editor
+this project is developed in (Cursor + *One Dark Pro Night Flat*: VS Code workbench role
+names, that theme's measured values); the anatomy — rail, stage, footer — is crossweave's
+own. Rationale, role table and accessibility rules:
+`docs/superpowers/specs/2026-09-17-cockpit-design-system.md`.
+
+`tests/tokens.test.ts` enforces it: no literal colours in `app.css`, every `var()` backed
+by a token, the pre-paint value in `index.html` matching `--cw-surface`, and every
+text/background pair the UI paints measuring ≥ 4.5:1.
+
+## Stage
+
 The stage mounts xterm panes for listed sessions (up to four). **New** creates a session and `session.resume`s it (same as `cw attach --start`) so the pane can attach. Bytes go raw into xterm (no ANSI strip).
 
 ## Install (macOS arm64)
