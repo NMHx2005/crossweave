@@ -87,6 +87,24 @@ Both halves are scripted:
   back from the daemon (that is `session.resize` reaching the PTY), or if `Tab` lands on
   something without a focus ring.
 
+## Checking the UI by hand (what the 2026-09-18 audit covered)
+
+The audit ran against the packaged app with five real Claude sessions, over CDP, and
+found four things that unit tests could not see (all fixed in `fix/cockpit-flow-polish`):
+
+| State | How to reach it | What must be true |
+|---|---|---|
+| Empty | no sessions | `New`/`Stop`/`Kill`/`Start` states are obvious, the stage offers a way forward |
+| One live session | `cw session new --name a` | pane attaches, agent TUI renders in full colour |
+| Hover / focus a row | mouse over a row, then click it | hover is instant (no fade), the focused row gets the accent bar, its pane border turns accent |
+| Many rows, long name | `cw session rename a <44 chars>` | every row is the same height; a long name ellipsises instead of wrapping |
+| 3–4 panes | start more sessions | 2×2 grid, panes re-fit, no clipped terminal rows |
+| Stopped session | `cw session stop a` | pane says "`a` is not running — start it…", `Start` is enabled and `Stop` disabled; clicking `Start` brings the pane back to life |
+| Keyboard | click a pane, then press Tab | focus ring is a 1px accent outline everywhere; Tab stays inside a pane once focus is there (a terminal captures Tab — that is deliberate) |
+| Reduced motion | OS setting, or `Emulation.setEmulatedMedia` | every transition collapses to ~0 |
+
+The resize/focus half of the gate stays automated: `bun run fidelity:resize`.
+
 ## Scripts
 
 | Command | Purpose |
