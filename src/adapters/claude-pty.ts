@@ -46,10 +46,22 @@ function cwInvocation(subcommand: string): string {
 function radarHookSettings(): string {
   return JSON.stringify({
     hooks: {
+      // Bash is watched too, but ADVISORY ONLY — its file effects are guessed from the
+      // command string, and a guess must never deny. See
+      // docs/superpowers/specs/2026-09-17-tier-coverage-honesty-design.md §3.1, and
+      // src/adapters/coverage.ts for what the tier advertises.
       PreToolUse: [
         {
-          matcher: '^(Edit|Write)$',
+          matcher: '^(Edit|Write|Bash)$',
           hooks: [{ type: 'command', command: cwInvocation('radar-hook'), timeout: 5 }],
+        },
+      ],
+      // PostToolUse closes the debounce window: the claim exists before the next tool
+      // call can ask about it, with this call's own attribution attached (spec §3.4).
+      PostToolUse: [
+        {
+          matcher: '^(Edit|Write|Bash)$',
+          hooks: [{ type: 'command', command: `${cwInvocation('radar-hook')} post`, timeout: 5 }],
         },
       ],
     },

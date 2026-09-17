@@ -195,3 +195,28 @@ describe('radar.check RPC', () => {
     expect((tuiEvents[0]![1] as { kind: string }).kind).toBe('collision');
   });
 });
+
+describe('radar.reindex RPC', () => {
+  test('a session with no watcher reports reindexed: false rather than pretending', async () => {
+    // `--no-worktree` sessions have no fork point, so nothing was ever watched for
+    // them and there is nothing to re-derive. The PostToolUse hook must be able to
+    // tell that apart from "reindexed fine" — hence the boolean, not a bare ok.
+    const db = openDatabase(':memory:');
+    const methods = buildMethods(db, '/tmp/w', undefined, undefined, { notifySend: () => {} });
+    const result = (await methods['radar.reindex']!(
+      { sessionId: 's_missing', paths: ['src/x.ts'] },
+      { notify: () => undefined, onClose: () => undefined },
+    )) as { ok: boolean; reindexed: boolean };
+    expect(result).toEqual({ ok: true, reindexed: false });
+  });
+
+  test('a malformed paths param is ignored, not fatal — this hook runs inside the tool loop', async () => {
+    const db = openDatabase(':memory:');
+    const methods = buildMethods(db, '/tmp/w', undefined, undefined, { notifySend: () => {} });
+    const result = (await methods['radar.reindex']!(
+      { sessionId: 's_missing', paths: [1, null, 'src/x.ts'] },
+      { notify: () => undefined, onClose: () => undefined },
+    )) as { ok: boolean; reindexed: boolean };
+    expect(result).toEqual({ ok: true, reindexed: false });
+  });
+});

@@ -4,7 +4,7 @@ import { realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { $ } from 'bun';
-import { resolveMainProjectRoot, runRadarHook, type RadarCheckFn } from '../../src/cli/commands/radar-hook.js';
+import { resolveMainProjectRoot, runRadarHook, runRadarReindexHook, type RadarCheckFn } from '../../src/cli/commands/radar-hook.js';
 import { makeGitFixture, type GitFixture } from '../helpers/git-fixture.js';
 
 const NO_COLLISION: RadarCheckFn = async () => ({ collisions: [], blocked: false });
@@ -110,6 +110,132 @@ describe('runRadarHook', () => {
     const out = await runRadarHook(stdinFor('Edit', '/etc/passwd'), spy);
     expect(called).toBe(false);
     expect(JSON.parse(out).hookSpecificOutput.permissionDecision).toBe('allow');
+  });
+});
+
+describe('runRadarHook: the Bash path is advisory only', () => {
+  // Each test needs its OWN collision path and symbol: the hook's notification gate
+  // is module-scoped and coalesces per (cwd, path, symbol) for 10 minutes, so two
+  // tests sharing a key would make the second silently advisory-free — which is
+  // itself the behaviour the coalescing test below pins on purpose.
+  const collisionOn = (path: string): RadarCheckFn => async () => ({
+    collisions: [{ sessionId: 's_2', sessionName: 'other', path, symbol: 'bar', kind: 'function' }],
+    blocked: false,
+  });
+
+  function bashStdin(command: string): string {
+    return JSON.stringify({
+      session_id: 'claude-session-1', cwd, hook_event_name: 'PreToolUse',
+      tool_name: 'Bash', tool_input: { command },
+    });
+  }
+
+  test('a redirect into a file another session also changed advises, and says out loud that it cannot block', async () => {
+    const seen: string[] = [];
+    const spy: RadarCheckFn = async (_cwd, path) => {
+      seen.push(path);
+      return { collisions: [{ sessionId: 's_2', sessionName: 'other', path, symbol: 'bar', kind: 'function' }], blocked: false };
+    };
+    const out = await runRadarHook(bashStdin('sed -i s/a/b/ src/x.ts'), spy);
+    const parsed = JSON.parse(out);
+    expect(parsed.hookSpecificOutput.permissionDecision).toBe('allow');
+    expect(parsed.hookSpecificOutput.additionalContext).toContain('other');
+    expect(parsed.hookSpecificOutput.additionalContext).toContain('src/x.ts');
+    expect(parsed.hookSpecificOutput.additionalContext).toContain('cannot block a write made through Bash');
+    expect(seen).toEqual([join('src', 'x.ts')]);
+  });
+
+  test('a `blocked` verdict is IGNORED here — a deny built on a parsed guess is not a policy anyone agreed to', async () => {
+    const out = await runRadarHook(bashStdin('echo hi > src/x.ts'), BLOCKED_COLLISION);
+    const parsed = JSON.parse(out);
+    expect(parsed.hookSpecificOutput.permissionDecision).toBe('allow');
+    expect(parsed.hookSpecificOutput.permissionDecisionReason).toBeUndefined();
+  });
+
+  test('a command with nothing path-like makes no RPC call at all', async () => {
+    let called = false;
+    const spy: RadarCheckFn = async () => {
+      called = true;
+      return { collisions: [{ sessionId: 's_2', sessionName: 'other', path: 'src/unreached.ts', symbol: 'bar', kind: 'function' }], blocked: false };
+    };
+    const out = await runRadarHook(bashStdin('bun test && git status'), spy);
+    expect(called).toBe(false);
+    expect(JSON.parse(out).hookSpecificOutput.permissionDecision).toBe('allow');
+  });
+
+  test('a target outside the worktree is dropped rather than checked', async () => {
+    const seen: string[] = [];
+    const spy: RadarCheckFn = async (_cwd, path) => {
+      seen.push(path);
+      return { collisions: [{ sessionId: 's_2', sessionName: 'other', path, symbol: 'bar', kind: 'function' }], blocked: false };
+    };
+    const out = await runRadarHook(bashStdin('tee /etc/hosts'), spy);
+    expect(seen).toEqual([]);
+    expect(JSON.parse(out).hookSpecificOutput.permissionDecision).toBe('allow');
+  });
+
+  test('the advisory spends the noise budget a block never touches: a repeat of the same write coalesces', async () => {
+    const spy = collisionOn('src/coalesce-me.ts');
+    const first = JSON.parse(await runRadarHook(bashStdin('echo hi > src/coalesce-me.ts'), spy));
+    const second = JSON.parse(await runRadarHook(bashStdin('echo hi > src/coalesce-me.ts'), spy));
+    expect(first.hookSpecificOutput.additionalContext).toBeDefined();
+    expect(second.hookSpecificOutput.additionalContext).toBeUndefined();
+  });
+
+  test('malformed tool_input on the Bash path allows rather than throwing', async () => {
+    const stdin = JSON.stringify({ cwd, tool_name: 'Bash', tool_input: {} });
+    expect(JSON.parse(await runRadarHook(stdin, NO_COLLISION)).hookSpecificOutput.permissionDecision).toBe('allow');
+  });
+});
+
+describe('runRadarReindexHook (PostToolUse)', () => {
+  function postStdin(toolName: string, toolInput: Record<string, unknown>): string {
+    return JSON.stringify({ session_id: 'claude-session-1', cwd, tool_name: toolName, tool_input: toolInput });
+  }
+
+  test('an Edit reindexes its own file, repo-relative', async () => {
+    const calls: Array<[string, string[]]> = [];
+    await runRadarReindexHook(postStdin('Edit', { file_path: join(cwd, 'src', 'x.ts') }), async (c, p) => {
+      calls.push([c, p]);
+    });
+    expect(calls).toEqual([[cwd, [join('src', 'x.ts')]]]);
+  });
+
+  test('a Bash write reindexes the paths its command named', async () => {
+    const calls: Array<[string, string[]]> = [];
+    await runRadarReindexHook(postStdin('Bash', { command: 'sed -i s/a/b/ src/x.ts && echo done > out.txt' }), async (c, p) => {
+      calls.push([c, p]);
+    });
+    expect(calls[0]?.[1]).toEqual([join('src', 'x.ts'), 'out.txt']);
+  });
+
+  test('a Bash command with no parseable write reindexes nothing — the fs.watch debounce is the fallback, not this', async () => {
+    let called = false;
+    await runRadarReindexHook(postStdin('Bash', { command: 'bun test' }), async () => {
+      called = true;
+    });
+    expect(called).toBe(false);
+  });
+
+  test('a tool this hook does not watch is ignored', async () => {
+    let called = false;
+    await runRadarReindexHook(postStdin('Read', { file_path: join(cwd, 'src', 'x.ts') }), async () => {
+      called = true;
+    });
+    expect(called).toBe(false);
+  });
+
+  test('a failing reindex is swallowed — a PostToolUse hook must never surface to the agent', async () => {
+    await expect(
+      runRadarReindexHook(postStdin('Write', { file_path: join(cwd, 'src', 'x.ts') }), async () => {
+        throw new Error('daemon unreachable');
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  test('malformed stdin returns quietly rather than throwing', async () => {
+    await expect(runRadarReindexHook('not json', async () => {})).resolves.toBeUndefined();
+    await expect(runRadarReindexHook('null', async () => {})).resolves.toBeUndefined();
   });
 });
 

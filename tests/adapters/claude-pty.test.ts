@@ -12,7 +12,10 @@ function collect(proc: { onData(cb: (c: string) => void): void }): () => string 
 }
 
 interface RadarHookSettings {
-  hooks: { PreToolUse: [{ matcher: string; hooks: [{ type: string; command: string; timeout: number }] }] };
+  hooks: {
+    PreToolUse: [{ matcher: string; hooks: [{ type: string; command: string; timeout: number }] }];
+    PostToolUse: [{ matcher: string; hooks: [{ type: string; command: string; timeout: number }] }];
+  };
   statusLine: { type: string; command: string };
 }
 
@@ -25,7 +28,16 @@ interface RadarHookSettings {
  * every other assertion in this file gets for free from `toContain` on the
  * whole buffer.
  */
+let cachedSettings: RadarHookSettings | undefined;
+
+/**
+ * Spawns the argv-echoing `sh` child ONCE per file and caches the parsed settings.
+ * The three tests that read them differ only in which field they assert, so a pty per
+ * test would buy nothing and cost a real allocation under a full-suite run (which is
+ * where the third one first came back with an empty buffer).
+ */
 async function spawnAndReadRadarHookSettings(): Promise<RadarHookSettings> {
+  if (cachedSettings !== undefined) return cachedSettings;
   const adapter = new ClaudePtyAdapter('sh', ['-c', 'for a in "$@"; do echo "ARG:$a"; done', '_']);
   const proc = adapter.spawn({ cwd: tmpdir(), env: {}, cols: 80, rows: 24 });
   const read = collect(proc);
@@ -35,7 +47,8 @@ async function spawnAndReadRadarHookSettings(): Promise<RadarHookSettings> {
   expect(lines).toContain('ARG:--settings');
   const settingsLine = lines.find((l) => l.startsWith('ARG:') && l.includes('"hooks"'));
   expect(settingsLine).toBeDefined();
-  return JSON.parse(settingsLine!.slice('ARG:'.length)) as RadarHookSettings;
+  cachedSettings = JSON.parse(settingsLine!.slice('ARG:'.length)) as RadarHookSettings;
+  return cachedSettings;
 }
 
 describe('ClaudePtyAdapter', () => {
@@ -141,9 +154,18 @@ describe('ClaudePtyAdapter', () => {
 
   it('spawn injects a scoped PreToolUse hook via --settings, calling cw radar-hook', async () => {
     const settings = await spawnAndReadRadarHookSettings();
-    expect(settings.hooks.PreToolUse[0].matcher).toBe('^(Edit|Write)$');
+    // Bash is in the matcher, but the hook's Bash branch can never deny — the
+    // coverage that tier advertises lives in src/adapters/coverage.ts.
+    expect(settings.hooks.PreToolUse[0].matcher).toBe('^(Edit|Write|Bash)$');
     expect(settings.hooks.PreToolUse[0].hooks[0].command).toContain('radar-hook');
     expect(settings.hooks.PreToolUse[0].hooks[0].timeout).toBe(5);
+  });
+
+  it('spawn injects a PostToolUse hook calling `radar-hook post`, so a write is indexed before the next tool call', async () => {
+    const settings = await spawnAndReadRadarHookSettings();
+    expect(settings.hooks.PostToolUse[0].matcher).toBe('^(Edit|Write|Bash)$');
+    expect(settings.hooks.PostToolUse[0].hooks[0].command).toContain('radar-hook post');
+    expect(settings.hooks.PostToolUse[0].hooks[0].timeout).toBe(5);
   });
 
   it('spawn also injects a statusLine command, calling cw session-usage-hook', async () => {

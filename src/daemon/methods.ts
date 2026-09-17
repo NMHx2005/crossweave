@@ -567,6 +567,25 @@ export function buildMethods(
       return { blocked, collisions: collisionsWithNames };
     },
 
+    'radar.reindex': async (p) => {
+      // The PostToolUse hook's entry point (spec §3.4): a tool call just finished, so
+      // re-derive this session's claims NOW instead of leaving a sibling session to
+      // discover the change on the next 500ms debounce tick. `paths` is the tool call's
+      // own attribution, best-effort on the Bash side — it narrows which of this
+      // session's claims produce retroactive notices, not which claims exist.
+      //
+      // Deliberately takes only a session id: the watchers are keyed by it, and a
+      // workspaceId here would be a second, redundant identity for the same thing —
+      // `radar.check` needs one because it resolves names and policy, this does not.
+      const sessionId = str(p, 'sessionId');
+      const rawPaths = p['paths'];
+      const paths = Array.isArray(rawPaths)
+        ? rawPaths.filter((v): v is string => typeof v === 'string')
+        : undefined;
+      const reindexed = await radarWatchers.reindexNow(sessionId, paths);
+      return { ok: true, reindexed };
+    },
+
     'contract.declare': (p) => {
       const workspaceId = str(p, 'workspaceId');
       const owner = sessions.resolve(workspaceId, str(p, 'sessionId'));

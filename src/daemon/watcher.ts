@@ -28,6 +28,9 @@ export class RadarWatcherRegistry {
   private readonly indexer: RadarIndexer;
   private readonly claims: FileClaimRepo;
   private readonly watchers = new Map<string, { fsWatcher: FSWatcher; debouncer: ReturnType<typeof createDebouncer> }>();
+  /** The session each watcher belongs to — `reindexNow` needs to re-derive one from an
+   * id alone, and the debounce closure is not addressable from outside. */
+  private readonly sessions = new Map<string, IndexableSession>();
 
   constructor(
     db: Database,
@@ -64,6 +67,7 @@ export class RadarWatcherRegistry {
       return;
     }
     this.watchers.set(session.id, { fsWatcher, debouncer });
+    this.sessions.set(session.id, session);
 
     // `watch()`'s synchronous throw above only covers failures at open time.
     // Late failures (inotify limits, the watched root being removed, EPERM
@@ -86,11 +90,11 @@ export class RadarWatcherRegistry {
    * independently unit-tested (Tasks 4, 7, 8) rather than needing a fourth,
    * `fs.watch`-entangled test for the combination.
    */
-  private async reindexAndNotify(session: IndexableSession): Promise<void> {
+  private async reindexAndNotify(session: IndexableSession, paths?: readonly string[]): Promise<void> {
     await this.indexer.reindexSession(session);
     notifyCollisions(
       this.claims, this.bus, this.gate,
-      { workspaceId: session.workspaceId, sessionId: session.id },
+      { workspaceId: session.workspaceId, sessionId: session.id, ...(paths !== undefined ? { paths } : {}) },
       this.notifyDeps, this.broadcastRegistry,
     );
 
@@ -98,8 +102,8 @@ export class RadarWatcherRegistry {
     // sweep entirely rather than opening every changed file for nothing.
     if (!this.contracts.hasContracts(session.workspaceId)) return;
 
-    const paths = new Set(this.claims.listBySession(session.id).map((c) => c.path));
-    for (const path of paths) {
+    const claimPaths = new Set(this.claims.listBySession(session.id).map((c) => c.path));
+    for (const path of claimPaths) {
       let source: string;
       try {
         source = readFileSync(join(session.worktreePath, path), 'utf8');
@@ -117,12 +121,29 @@ export class RadarWatcherRegistry {
     }
   }
 
+  /**
+   * Reindex a session's worktree NOW rather than waiting out the debounce: the
+   * PostToolUse hook's entry point (spec §3.4). The pending tick is cancelled because
+   * this call supersedes it — same work, earlier, and with the tool call's own
+   * attribution attached. Returns false when this session has no watcher, which is the
+   * honest answer for a `--no-worktree` session: there is no fork point to diff against.
+   */
+  async reindexNow(sessionId: string, paths?: readonly string[]): Promise<boolean> {
+    const session = this.sessions.get(sessionId);
+    const entry = this.watchers.get(sessionId);
+    if (session === undefined || entry === undefined) return false;
+    entry.debouncer.stop();
+    await this.reindexAndNotify(session, paths);
+    return true;
+  }
+
   stop(sessionId: string): void {
     const entry = this.watchers.get(sessionId);
     if (!entry) return;
     entry.debouncer.stop();
     entry.fsWatcher.close();
     this.watchers.delete(sessionId);
+    this.sessions.delete(sessionId);
   }
 
   stopAll(): void {

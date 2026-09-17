@@ -8,6 +8,13 @@ import type { BroadcastRegistry } from '../daemon/broadcast.js';
 export interface RetroNotifyOpts {
   workspaceId: string;
   sessionId: string;
+  /**
+   * Per-call attribution: when the PostToolUse hook just watched a specific tool call
+   * write specific files, only those become notices — "this just happened to X" is
+   * actionable, "something in your diff overlaps" is ambient. Omitted by the
+   * `fs.watch` fallback, which genuinely cannot attribute a change to a call.
+   */
+  paths?: readonly string[];
 }
 
 /**
@@ -33,6 +40,7 @@ export function notifyCollisions(
   broadcastRegistry: BroadcastRegistry,
 ): void {
   for (const claim of claims.listBySession(opts.sessionId)) {
+    if (opts.paths !== undefined && !opts.paths.includes(claim.path)) continue;
     const collisions = checkCollisions(claims, {
       workspaceId: opts.workspaceId,
       sessionId: opts.sessionId,

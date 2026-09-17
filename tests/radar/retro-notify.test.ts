@@ -49,6 +49,35 @@ describe('notifyCollisions', () => {
     expect(inbox[0]?.body).toContain('src/x.ts');
   });
 
+  test('a path filter narrows the noticing to the tool call that just happened', () => {
+    const db = openDatabase(':memory:');
+    seed(db);
+    const claims = new FileClaimRepo(db);
+    for (const path of ['src/x.ts', 'src/y.ts']) {
+      claims.upsert({
+        id: `fc_1_${path}`, sessionId: 's_1', workspaceId: 'ws_1', path, symbol: 'foo',
+        kind: 'function', headSha: 'sha', bodyHash: 'h1', firstSeen: 'now', lastSeen: 'now',
+      });
+      claims.upsert({
+        id: `fc_2_${path}`, sessionId: 's_2', workspaceId: 'ws_1', path, symbol: 'foo',
+        kind: 'function', headSha: 'sha', bodyHash: 'h2', firstSeen: 'now', lastSeen: 'now',
+      });
+    }
+    const bus = new MessageBus(db, new SessionManager(db));
+    const notifyDeps: NotifyDispatcherDeps = { gate: new NotificationGate(), isEnabled: () => true, send: () => {} };
+
+    notifyCollisions(
+      claims, bus, new NotificationGate(),
+      { workspaceId: 'ws_1', sessionId: 's_1', paths: ['src/y.ts'] },
+      notifyDeps, new BroadcastRegistry(),
+    );
+
+    const inbox = bus.inbox('ws_1', 's_2');
+    expect(inbox).toHaveLength(1);
+    expect(inbox[0]?.body).toContain('src/y.ts');
+    expect(inbox[0]?.body).not.toContain('src/x.ts');
+  });
+
   test('the rate-limit gate suppresses a repeat call for the same collision', () => {
     const db = openDatabase(':memory:');
     seed(db);
