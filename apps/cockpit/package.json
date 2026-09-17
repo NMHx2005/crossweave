@@ -17,6 +17,7 @@
     "package:mac": "electron-builder --mac --arm64 --config electron-builder.yml",
     "dist:mac": "bun run build:cwd && bun run build && bun run package:mac",
     "package:smoke": "bun scripts/package-smoke.ts",
+    "fidelity:resize": "bun scripts/fidelity-resize.ts",
     "preview": "vite preview",
     "test": "bun test",
     "smoke": "bun test"

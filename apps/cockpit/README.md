@@ -78,7 +78,14 @@ M9 nested agents in OpenTUI and stripped CSI; Claude spinners/menus became spam-
 | 2. Spinner / redraw without spam-lines | **Pass.** The menu's box-drawing and wrapping survived intact, and a ↓ keypress came back as a 43-byte in-place redraw (`ESC[1C ESC[1B ❯`) rather than a re-print — the exact M9 failure this gate exists for. |
 | 3. Input reaches agent; resize does not corrupt layout | **Pass, measured 2026-09-17 over CDP on the packaged app.** Input: ↓ moved the menu selection through the same `session.input` RPC the app calls, and an Enter delivered to the app's window exited the agent. Resize: viewport 1200×768 → 1000×700 → 1400×900 moved the pane 900 → 700 → 1100px, the xterm re-fitted 877 → 681 → 1080px, and the daemon saw 1242 / 1410 bytes of redraw come back — i.e. the PTY was resized and the agent repainted. `Tab` moves focus into a pane (1px `--cw-accent` outline on xterm's textarea); a further `Tab` stays inside the pane, which is what a terminal does — click to leave it. |
 
-Probe for the attach/encoding half without a GUI: `COCKPIT_PROJECT_ROOT=<repo> bun apps/cockpit/scripts/fidelity-probe.ts`.
+Both halves are scripted:
+
+- attach/encoding, no GUI needed: `COCKPIT_PROJECT_ROOT=<repo> bun apps/cockpit/scripts/fidelity-probe.ts`
+- resize/focus, against a running app: launch it with `--remote-debugging-port=9222`, then
+  `COCKPIT_PROJECT_ROOT=<repo> bun apps/cockpit/scripts/fidelity-resize.ts` — it changes the
+  viewport, and fails loudly if the xterm stops tracking its pane, if no agent redraw comes
+  back from the daemon (that is `session.resize` reaching the PTY), or if `Tab` lands on
+  something without a focus ring.
 
 ## Scripts
 
@@ -88,4 +95,5 @@ Probe for the attach/encoding half without a GUI: `COCKPIT_PROJECT_ROOT=<repo> b
 | `bun run build` | Typecheck + production bundle |
 | `bun run dist:mac` | Build `cwd`, bundle app, emit dmg + zip (arm64) |
 | `bun run package:smoke` | Verify packaged app + `session.list` |
-| `bun test` | Allowlist, daemon-bridge, session-data / fidelity tests |
+| `bun run fidelity:resize` | Viewport→pane→fit→PTY resize plus the keyboard focus ring, against a running app (see the gate above) |
+| `bun test` | Allowlist, daemon-bridge, session-data / fidelity tests, token guards |
