@@ -76,7 +76,7 @@ M9 nested agents in OpenTUI and stripped CSI; Claude spinners/menus became spam-
 |---|---|
 | 1. Start `claude` via `cw` or UI new-session | **Pass.** A real `claude` 2.1.273 session in a scratch repo rendered in the packaged app's pane — workspace banner, wrapped prose, and the folder-trust menu, all in the pane's own geometry. |
 | 2. Spinner / redraw without spam-lines | **Pass.** The menu's box-drawing and wrapping survived intact, and a ↓ keypress came back as a 43-byte in-place redraw (`ESC[1C ESC[1B ❯`) rather than a re-print — the exact M9 failure this gate exists for. |
-| 3. Input reaches agent; resize does not corrupt layout | **Input: pass.** ↓ moved the menu selection through the same `session.input` RPC the app calls, and an Enter delivered to the app's own window exited the agent. **Resize: wired, unit-tested, not GUI-exercised** — fit addon + `ResizeObserver` call `session.resize` only when cols/rows change. |
+| 3. Input reaches agent; resize does not corrupt layout | **Pass, measured 2026-09-17 over CDP on the packaged app.** Input: ↓ moved the menu selection through the same `session.input` RPC the app calls, and an Enter delivered to the app's window exited the agent. Resize: viewport 1200×768 → 1000×700 → 1400×900 moved the pane 900 → 700 → 1100px, the xterm re-fitted 877 → 681 → 1080px, and the daemon saw 1242 / 1410 bytes of redraw come back — i.e. the PTY was resized and the agent repainted. `Tab` moves focus into a pane (1px `--cw-accent` outline on xterm's textarea); a further `Tab` stays inside the pane, which is what a terminal does — click to leave it. |
 
 Probe for the attach/encoding half without a GUI: `COCKPIT_PROJECT_ROOT=<repo> bun apps/cockpit/scripts/fidelity-probe.ts`.
 

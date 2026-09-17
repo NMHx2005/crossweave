@@ -8,10 +8,10 @@
 > `apps/cockpit/README.md`'s gate table.
 > Still open, deliberately left unticked below:
 > - Task 3 Step 3 (DevTools `session.list`) — superseded by Task 7 Step 3's packaged smoke, which exercises the same bridge.
-> - Task 4 Step 3 — passed except its **resize** half: wired and unit-tested, not GUI-exercised.
+> - Task 4 Step 3 — re-verified 2026-09-17 over CDP on the packaged build: viewport changes moved the pane (900→700→1100px), the xterm re-fitted (877→681→1080px) and the daemon saw 1242/1410 bytes of agent redraw, so `session.resize` really reaches the PTY. `Tab` lands focus in the pane with a 1px accent outline, then stays there, as a terminal should.
 > - Task 6 Step 3 (land-all matches CLI) — not exercised; the UI reuses the CLI's own land loop instead.
 > - Task 8 Step 2 (repo-root `bun test`) — CI runs it on push to `main`; not reproducible in the sandbox used for this review.
-> Also known: the app still packages as version `0.0.0` (`apps/cockpit/package.json`).
+> Fixed the same day: the app packaged as version `0.0.0` until 2026-09-17, so its artifacts were named `…-0.0.0-arm64.dmg`; it now tracks the core version, guarded by `apps/cockpit/tests/version.test.ts`.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
