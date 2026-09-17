@@ -21,10 +21,17 @@ doesn't hang the agent — but that means a dead daemon silently downgrades
 every T2 block to an allow. If you're depending on Safe Mode to actually
 stop a write, check which tier you're on. (M5a, M5b)
 
-**Only `Edit`/`Write` tool calls are intercepted.** Anything a session does
-through the `Bash` tool — `sed -i`, `> file`, `git checkout -- file`, or an
-agent-invoked script — is invisible to both Safe Mode and the Collision
-Radar. (M5a)
+**Only `Edit`/`Write` tool calls are blocked.** A write made through the `Bash`
+tool — `sed -i`, `> file`, `git checkout -- file`, or a script the agent
+wrote and then ran — is not blocked by any tier. The Collision Radar *does* see
+it, but after the fact: `fs.watch` indexes the write (immediately when the
+agent's own PostToolUse hook fires, otherwise on a 500ms debounce), so a
+collision arrives as a retroactive notice, never as a stop. The PreToolUse hook
+reads `Bash` commands too now, but that reading is a guess from the command
+string and it only ever advises — a block stays reserved for a write the daemon
+actually evaluated. Every tier is printed with what it really covers
+(`T2 · Edit|Write`) rather than a bare tier that reads as protection.
+(2026-09-17-tier-coverage-honesty-design.md)
 
 **The Cursor path that works is advisory.** `cursor-agent` builds from
 2026.08 removed ACP, so `--agent cursor` (T1) can no longer run — it now fails

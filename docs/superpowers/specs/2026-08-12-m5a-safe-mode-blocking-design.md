@@ -118,13 +118,20 @@ When `radar.check` returns `blocked: true`:
 
 ### 3.5 Known limitation, stated honestly (not fixed in M5a)
 
-The hook's `matcher` is `Edit|Write` only. An agent that writes a file through the
-`Bash` tool (shell redirection, `sed -i`, etc.) is not intercepted — this is inherent
-to hook-based enforcement, not a bug to patch here. It is exactly the gap ACP's
-permission boundary (T1) closes, which is the whole reason T1 outranks T2 in the tier
-model. Widening the matcher to include `Bash` would not close this honestly (a hook
-cannot reliably parse arbitrary shell for file-write intent), so it is left as an
-accepted, documented gap rather than a false fix.
+The hook's `matcher` was `Edit|Write` only. An agent that writes a file through the
+`Bash` tool (shell redirection, `sed -i`, etc.) was not intercepted — inherent to
+hook-based enforcement, not a bug to patch here, and the reason ACP's permission
+boundary (T1) outranks T2 in the tier model. Widening the matcher to include `Bash`
+would not close this honestly (a hook cannot reliably parse arbitrary shell for
+file-write intent), so M5a left it as an accepted, documented gap rather than a false
+fix.
+
+**Superseded in part, 2026-09-17.** `Bash` IS in the matcher now — but nothing about
+that gap changed: the Bash branch is advisory-only and can never deny, its "targets" are
+guesses, and the post-write reindex is what makes a shell write visible to the Radar at
+all. What changed is the honesty of the claim, not the coverage: see
+`2026-09-17-tier-coverage-honesty-design.md`. A real fix is an OS-level sandbox around
+the session (§5 of that document), not a cleverer hook.
 
 ## 4. Data flow
 
