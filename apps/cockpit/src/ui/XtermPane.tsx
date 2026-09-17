@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'preact/hooks'
 import { Terminal } from '@xterm/xterm'
+import { describeAttachFailure } from '../lib/attach-message'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { cockpitApi } from '../host/cockpit-api'
@@ -75,7 +76,10 @@ export function XtermPane({ sessionId, focused }: XtermPaneProps) {
       .catch((err: unknown) => {
         if (cancelled) return
         const message = err instanceof Error ? err.message : String(err)
-        term.write(`\r\n[attach failed: ${message}]\r\n`)
+        // Never the raw IPC message: it names the transport channel and the error
+        // class, and the one failure a user can act on deserves the sentence that
+        // tells them how (src/lib/attach-message.ts).
+        term.write(`\r\n[${describeAttachFailure(message)}]\r\n`)
       })
 
     const observer = new ResizeObserver(() => applyFit())
