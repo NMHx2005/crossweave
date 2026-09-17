@@ -95,11 +95,29 @@ export const sessionCommand = defineCommand({
                   'Sessions can overwrite each other\'s files.\n',
               );
             }
-            const s = await client.call<Session>('session.new', {
+            const created = await client.call<Session>('session.new', {
               workspaceId, name: args.name, agent: args.agent, worktree, budgetTokens, budgetUsd,
             });
+            // Started here rather than left idle: a session with no agent has no PTY,
+            // cannot be attached to, and used to be a dead end — `cw session new`
+            // created one while the README's quickstart went straight on to
+            // `cw session attach alice`, and the Cockpit was the only surface that
+            // started what it created.
+            let started: Session;
+            try {
+              started = await client.call<Session>('session.resume', {
+                workspaceId, idOrName: created.id, env: { ...process.env },
+              });
+            } catch (err) {
+              // The row exists even though starting it failed. Say so before the
+              // error, or the user cannot tell whether anything was created.
+              process.stderr.write(
+                `created ${created.name}, but its agent did not start — retry with \`cw session start ${created.name}\`\n`,
+              );
+              throw err;
+            }
             process.stdout.write(
-              `${s.name}\t${s.status}\t${tierWithCoverage(s.enforcementTier)}\t${s.worktreePath ?? '-'}\n`,
+              `${started.name}\t${started.status}\t${tierWithCoverage(started.enforcementTier)}\t${started.worktreePath ?? '-'}\n`,
             );
           });
         } catch (err) { fail(err); }
@@ -147,6 +165,30 @@ export const sessionCommand = defineCommand({
     // Without this the stop/kill distinction exists only over RPC, and the decision
     // that `kill` is terminal has no escape hatch a user can reach — SESSION_ENDED
     // would be advising a command that does not exist.
+    start: defineCommand({
+      meta: { name: 'start', description: 'Start the agent for a session that is not running (idle or stopped)' },
+      // Optional + validated by hand for the same reason `stop` does it: citty's own
+      // missing-positional error has no `CODE:` prefix, which would break the contract
+      // that every CLI failure emits exactly one `CODE: message` line.
+      args: { target: { type: 'positional', description: 'Session name or id', required: false } },
+      async run({ args }) {
+        try {
+          if (args.target === undefined) {
+            throw new CrossweaveError('INVALID_ARGUMENTS', 'Missing required argument: TARGET');
+          }
+          await withClient(async (client) => {
+            const workspaceId = await currentWorkspaceId(client);
+            const row = await client.call<Session>('session.resume', {
+              workspaceId, idOrName: args.target, env: { ...process.env },
+            });
+            process.stdout.write(
+              `${row.name}\t${row.status}\t${tierWithCoverage(row.enforcementTier)}\t${row.worktreePath ?? '-'}\n`,
+            );
+          });
+        } catch (err) { fail(err); }
+      },
+    }),
+
     stop: defineCommand({
       meta: { name: 'stop', description: 'Stop the agent but keep the session resumable' },
       // Declared optional, not required: citty's own missing-positional error has no

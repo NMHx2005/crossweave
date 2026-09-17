@@ -58,7 +58,10 @@ describe('cw CLI', () => {
 
     const listed = await cw(['session', 'list']);
     expect(listed.stdout).toContain('auth');
-    expect(listed.stdout).toContain('idle');
+    // `session new` starts the agent now, not just the row: a created-but-idle session
+    // has no PTY to attach to, and the quickstart in the README goes straight on to
+    // `cw session attach`.
+    expect(listed.stdout).toContain('running');
     expect(listed.stdout).toContain('T2');
 
     const renamed = await cw(['session', 'rename', 'auth', 'auth2']);
@@ -341,6 +344,13 @@ describe('cw CLI', () => {
     expect(stopped.exitCode).toBe(0);
     expect((await cw(['session', 'list'])).stdout).toContain('idle');
 
+    // ...and `session start` is the way back, which is also what the Cockpit's own
+    // empty state has been telling users to run since before this command existed.
+    const restarted = await cw(['session', 'start', 'pausable']);
+    expect(restarted.exitCode).toBe(0);
+    expect(restarted.stdout).toContain('running');
+    expect((await cw(['session', 'list'])).stdout).toContain('running');
+
     // And it is a real command, not a stub: an unknown target fails in the standard shape.
     const missing = await cw(['session', 'stop', 'ghost']);
     expect(missing.exitCode).toBe(1);
@@ -414,6 +424,11 @@ describe('cw CLI', () => {
       );
       await cw(['init']);
       await cw(['session', 'new', '--name', 'portless', '--agent', 'claude']);
+      // `session new` starts the agent now, and a running session holds this range's
+      // only block. Stop it so the block is free for the squatter to take; `attach`
+      // starts it again (its `start` option defaults true), which is where the lease
+      // failure has to surface.
+      await cw(['session', 'stop', 'portless']);
 
       const squatter = createServer();
       await new Promise<void>((resolve, reject) => {
