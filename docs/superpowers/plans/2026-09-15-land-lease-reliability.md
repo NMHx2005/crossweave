@@ -1,5 +1,14 @@
 # Land & Lease Reliability Implementation Plan
 
+> **Status after review (2026-09-17): shipped.** Every task is on `main`; the
+> steps below are left unticked on purpose, because they are the TDD sequence as
+> written, not a tracker (the repo's older plans follow the same convention —
+> see `2026-09-16-cockpit-electron.md` for the one plan whose steps are ticked).
+> Task → commit: 1 `01c1362`, 2 `0f2bad4`, 3 `bf94590` + `7b6bc12`, 4 `f99f678`,
+> 5 `5d8e7b5`; the follow-ups this work needed are `92e7441` (lease summary in
+> `session list`), `37ef613` (persisted trial kind, re-trial after the base moves)
+> and `48b20b2` (the post-land unknown window, documented).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make `cw land` / `cw land all` evidence-gated and non-spurious, and make port/cache/db leases honest, non-leaking, and visible — so a solo daily driver can trust fan-in and runtime isolation without a Deck-like UI.

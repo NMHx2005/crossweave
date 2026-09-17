@@ -1,5 +1,18 @@
 # crossweave Cockpit Implementation Plan
 
+> **Status after review (2026-09-17).** Tasks 2–7 are implemented on `main`
+> (commits `9ca3cb4` … `a5e8d6b`, plus the fix round `6fcd61c`…`b932d4f`), and the
+> fidelity gate was re-run against a **packaged** build: a real `claude` 2.1.273
+> session rendered in the pane, the folder-trust menu drew cleanly, and a ↓
+> keypress produced a 43-byte in-place redraw instead of a re-print. Evidence:
+> `apps/cockpit/README.md`'s gate table.
+> Still open, deliberately left unticked below:
+> - Task 3 Step 3 (DevTools `session.list`) — superseded by Task 7 Step 3's packaged smoke, which exercises the same bridge.
+> - Task 4 Step 3 — passed except its **resize** half: wired and unit-tested, not GUI-exercised.
+> - Task 6 Step 3 (land-all matches CLI) — not exercised; the UI reuses the CLI's own land loop instead.
+> - Task 8 Step 2 (repo-root `bun test`) — CI runs it on push to `main`; not reproducible in the sandbox used for this review.
+> Also known: the app still packages as version `0.0.0` (`apps/cockpit/package.json`).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship an Electron thin-client cockpit (real xterm panes + attention rail + land from UI) that talks only to `cwd`, so daily use feels Deck-class without forking agent ownership.
@@ -102,19 +115,19 @@ EOF
 - Produces: `npm run dev` / `bun run` / documented command that opens an empty Electron window
 - Preload exposes **only** `window.cockpit.invoke(channel, payload)` and `window.cockpit.listen(event, cb)` — closed channel allowlist (mirror Deck’s discipline)
 
-- [ ] **Step 1: Scaffold packages**
+- [x] **Step 1: Scaffold packages**
 
 Use Electron + Vite electron plugin pattern (or `electron-vite`). Pin versions in `apps/cockpit/package.json`. Add `@xterm/xterm`, `@xterm/addon-fit`, `preact`.
 
-- [ ] **Step 2: Empty App layout**
+- [x] **Step 2: Empty App layout**
 
 `App.tsx` renders two regions: left rail placeholder, right stage placeholder. No daemon yet.
 
-- [ ] **Step 3: Verify window opens**
+- [x] **Step 3: Verify window opens**
 
 Run the documented dev command; manual check OK for this task (automated Electron E2E optional).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git commit -m "$(cat <<'EOF'
@@ -164,10 +177,10 @@ Main process:
 2. `connectOrStart(projectRoot)`.
 3. Forward notifications filtered to the renderer.
 
-- [ ] **Step 1: Write allowlist + bridge tests** (pure)
-- [ ] **Step 2: Implement bridge**
+- [x] **Step 1: Write allowlist + bridge tests** (pure)
+- [x] **Step 2: Implement bridge**
 - [ ] **Step 3: Manual: session.list from DevTools invoke**
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git commit -m "$(cat <<'EOF'
@@ -192,16 +205,16 @@ EOF
 - On mount: `invoke('session.attach', { idOrName })` then listen `session.data` for that id
 - On keystroke: `session.input`; on container resize: `session.resize` with cols/rows from fit addon
 
-- [ ] **Step 1: Implement XtermPane with fit addon**
-- [ ] **Step 2: Wire one hard-coded / selected session**
-- [ ] **Step 3: Manual fidelity gate (must pass before Task 5)**
+- [x] **Step 1: Implement XtermPane with fit addon**
+- [x] **Step 2: Wire one hard-coded / selected session**
+- [x] **Step 3: Manual fidelity gate (must pass before Task 5)**
 
 Checklist (record in PR/commit message or `apps/cockpit/README.md`):
 1. Start `claude` session via existing `cw` or UI new-session if already wired
 2. Pane shows spinner / redraw without spam-lines (contrast M9 failure)
 3. Type input reaches agent; resize does not corrupt layout badly
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git commit -m "$(cat <<'EOF'
@@ -239,10 +252,10 @@ Priority (document in code): `blocked` > `needs_you` > landability `conflict`/`r
 Rail: click → set focused sessionId; Stage: map open sessions to panes (simple 1–4 grid).  
 Actions: New session (prompt name + agent), Stop, Kill (confirm).
 
-- [ ] **Step 1: Failing tests for `deriveAttention`**
-- [ ] **Step 2: Implement rail + multi-pane**
-- [ ] **Step 3: Subscribe `tui.event` / `tui.invalidate` to refresh list/status**
-- [ ] **Step 4: Commit**
+- [x] **Step 1: Failing tests for `deriveAttention`**
+- [x] **Step 2: Implement rail + multi-pane**
+- [x] **Step 3: Subscribe `tui.event` / `tui.invalidate` to refresh list/status**
+- [x] **Step 4: Commit**
 
 ```bash
 git commit -m "$(cat <<'EOF'
@@ -283,10 +296,10 @@ export async function landAllReady(opts: {
 UI:
 - Disable Land when `blocked`; confirm dialog for `unknown`; Land all only walks `ready` (force-unknown behind explicit checkbox later — v1: no force in UI unless easy)
 
-- [ ] **Step 1: Failing tests for land helpers**
-- [ ] **Step 2: Implement + wire buttons**
+- [x] **Step 1: Failing tests for land helpers**
+- [x] **Step 2: Implement + wire buttons**
 - [ ] **Step 3: Manual: land all matches `cw land all` on same workspace**
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git commit -m "$(cat <<'EOF'
@@ -309,10 +322,10 @@ EOF
 - Produces: local package commands documented
 - macOS: arm64 dmg/zip; **no Windows target** (Task 1 = `macOS-only-v1`)
 
-- [ ] **Step 1: electron-builder config for mac arm64**
+- [x] **Step 1: electron-builder config for mac arm64**
 - [x] **Step 2: Win target only if transport+daemon exist on Win** — skipped (`macOS-only-v1`)
-- [ ] **Step 3: Smoke packaged app opens and lists sessions**
-- [ ] **Step 4: Commit**
+- [x] **Step 3: Smoke packaged app opens and lists sessions**
+- [x] **Step 4: Commit**
 
 ```bash
 git commit -m "$(cat <<'EOF'
@@ -331,9 +344,9 @@ EOF
 - Modify: `docs/superpowers/specs/2026-09-16-cockpit-electron-design.md` — Status: Approved / Implemented-in-progress
 - Modify: known-limitations digest — cockpit exists; note Win if deferred
 
-- [ ] **Step 1: Edit docs**
+- [x] **Step 1: Edit docs**
 - [ ] **Step 2: `bun test` at repo root still green (daemon/CLI unchanged paths)**
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git commit -m "$(cat <<'EOF'

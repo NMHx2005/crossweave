@@ -56,13 +56,13 @@ bun run package:smoke
 
 M9 nested agents in OpenTUI and stripped CSI; Claude spinners/menus became spam-lines. Cockpit must write `session.data` unchanged (`convertEol: false`, `decodeSessionData` never strips).
 
-| Check | Result |
+| Check | Result (re-run 2026-09-17 against `dist:mac`) |
 |---|---|
-| 1. Start `claude` via `cw` or UI new-session | **Partial.** Live `cwd` on the main repo had `daemon.sock` but `cw session list` was empty. Did not spawn `claude`. Pane attaches list-first once a running session exists. |
-| 2. Spinner / redraw without spam-lines | **Pass (probe).** PTY `printf` of `ESC[2K ESC[1G⠋ Thinking…` survives `encodeSessionData` → `decodeSessionData`; CSI still present. A strip-ANSI path would drop the overwrite sequences (M9). GUI eyeball of a real Claude spinner was not available. |
-| 3. Input reaches agent; resize does not corrupt layout | **Wired, not GUI-exercised.** Keystrokes → `session.input`. Fit addon + `ResizeObserver` → `session.resize` only when cols/rows change. |
+| 1. Start `claude` via `cw` or UI new-session | **Pass.** A real `claude` 2.1.273 session in a scratch repo rendered in the packaged app's pane — workspace banner, wrapped prose, and the folder-trust menu, all in the pane's own geometry. |
+| 2. Spinner / redraw without spam-lines | **Pass.** The menu's box-drawing and wrapping survived intact, and a ↓ keypress came back as a 43-byte in-place redraw (`ESC[1C ESC[1B ❯`) rather than a re-print — the exact M9 failure this gate exists for. |
+| 3. Input reaches agent; resize does not corrupt layout | **Input: pass.** ↓ moved the menu selection through the same `session.input` RPC the app calls, and an Enter delivered to the app's own window exited the agent. **Resize: wired, unit-tested, not GUI-exercised** — fit addon + `ResizeObserver` call `session.resize` only when cols/rows change. |
 
-Limits: no real Claude GUI this run. Re-check 2–3 visually after `cw session start` + `COCKPIT_PROJECT_ROOT=<repo> bun run dev`. Probe: `COCKPIT_PROJECT_ROOT=<repo> bun apps/cockpit/scripts/fidelity-probe.ts`.
+Probe for the attach/encoding half without a GUI: `COCKPIT_PROJECT_ROOT=<repo> bun apps/cockpit/scripts/fidelity-probe.ts`.
 
 ## Scripts
 
