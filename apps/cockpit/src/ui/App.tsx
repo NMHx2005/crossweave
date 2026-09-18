@@ -41,7 +41,8 @@ export function App() {
   const [blockedNames, setBlockedNames] = useState<ReadonlySet<string>>(() => new Set())
   const [landBusy, setLandBusy] = useState(false)
   const [landMessage, setLandMessage] = useState<string | null>(null)
-  const [paneAttachKey, setPaneAttachKey] = useState(0)
+  const [paneAttachEpoch, setPaneAttachEpoch] = useState(0)
+  const [paneAttachBumps, setPaneAttachBumps] = useState<Record<string, number>>({})
   const cancelledRef = useRef(false)
   const sessionsRef = useRef(sessions)
   sessionsRef.current = sessions
@@ -60,7 +61,8 @@ export function App() {
       setStatus(stageStatusAfterLoad(loaded.sessions.length))
       setError(null)
       if (opts?.bumpAttach) {
-        setPaneAttachKey((current) => current + 1)
+        // daemon.gone: every pane's socket is dead, so every pane re-attaches.
+        setPaneAttachEpoch((current) => current + 1)
       }
       if (!opts?.keepBlocked) {
         setBlockedNames((prev) => nextBlockedNames(prev, { type: 'clear' }))
@@ -136,9 +138,10 @@ export function App() {
     const target = focused.id
     await runAction(() => cockpitApi.resumeSession(target))
     // The pane attached to a session that had no agent, so it is showing the reason
-    // instead of a terminal. Re-key it, or Start leaves the user staring at "not
-    // running" on a session that is now running.
-    setPaneAttachKey((key) => key + 1)
+    // instead of a terminal. Re-key THAT pane only: a global bump remounted every
+    // other pane too, which flickered four live agent terminals to fix one (measured:
+    // a MutationObserver on the grid saw 4 panes removed by a single Start click).
+    setPaneAttachBumps((bumps) => ({ ...bumps, [target]: (bumps[target] ?? 0) + 1 }))
   }
 
   async function handleStop(): Promise<void> {
@@ -249,7 +252,8 @@ export function App() {
         focusedId={focusedId}
         status={status}
         error={error}
-        paneAttachKey={paneAttachKey}
+        paneAttachEpoch={paneAttachEpoch}
+        paneAttachBumps={paneAttachBumps}
         onFocus={setFocusedId}
       />
       <footer class="cockpit-footer">

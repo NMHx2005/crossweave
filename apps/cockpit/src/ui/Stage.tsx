@@ -9,7 +9,10 @@ export type StageProps = {
   status: StageStatus
   error: string | null
   /** Bumped after daemon.gone reconnect so unchanged session ids still remount panes. */
-  paneAttachKey?: number
+  /** Global re-attach epoch — daemon.gone replaces every pane's connection. */
+  paneAttachEpoch?: number
+  /** Per-session re-attach counters, so a Start re-keys only the pane that asked. */
+  paneAttachBumps?: Record<string, number>
   onFocus?: (sessionId: string) => void
 }
 
@@ -27,7 +30,15 @@ export function pickPaneSessions(
   return rest.slice(0, max)
 }
 
-export function Stage({ sessions, focusedId, status, error, paneAttachKey = 0, onFocus }: StageProps) {
+export function Stage({
+  sessions,
+  focusedId,
+  status,
+  error,
+  paneAttachEpoch = 0,
+  paneAttachBumps = {},
+  onFocus,
+}: StageProps) {
   const panes = pickPaneSessions(sessions, focusedId)
   const focused = sessions.find((session) => session.id === focusedId) ?? null
   const showPanes = status === 'ready' || (status === 'error' && panes.length > 0)
@@ -70,7 +81,7 @@ export function Stage({ sessions, focusedId, status, error, paneAttachKey = 0, o
               onClick={() => onFocus?.(session.id)}
             >
               <XtermPane
-                key={`${session.id}:${paneAttachKey}`}
+                key={`${session.id}:${paneAttachEpoch}:${paneAttachBumps[session.id] ?? 0}`}
                 sessionId={session.id}
                 focused={session.id === focusedId}
               />
