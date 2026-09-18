@@ -1,10 +1,10 @@
-import { connect, type Socket } from 'node:net';
 import { spawn } from 'node:child_process';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CrossweaveError } from '../core/errors.js';
 import { crossweaveDir } from '../core/paths.js';
 import { createFrameDecoder, encodeFrame } from '../daemon/rpc.js';
+import { unixSocketTransport, type ClientTransport } from './transport.js';
 
 interface Pending {
   resolve: (value: unknown) => void;
@@ -30,55 +30,65 @@ export class DaemonClient {
     this.closeHandlers.push(cb);
   }
 
-  private constructor(private readonly socket: Socket) {
-    socket.on(
-      'data',
+  /**
+   * Private, and takes a TRANSPORT rather than a socket: the protocol above this line
+   * is transport-agnostic (see `src/client/transport.ts`), so a gateway or a browser
+   * client builds the same `DaemonClient` over whatever byte path it has. Callers
+   * should go through `connect` (unix socket, the only transport shipped today) or
+   * `attach` (anything else).
+   */
+  private constructor(private readonly transport: ClientTransport) {
+    transport.onData(
       createFrameDecoder((msg) => {
-        const r = msg as {
-          id?: number;
-          method?: string;
-          params?: unknown;
-          result?: unknown;
-          error?: { message: string; data?: { code?: string } };
-        };
-        if (typeof r.id !== 'number') {
-          if (typeof r.method === 'string') {
-            for (const h of this.notificationHandlers) h(r.method, r.params);
-          }
-          return;
-        }
-        const p = this.pending.get(r.id);
-        if (!p) return;
-        this.pending.delete(r.id);
-        if (r.error) {
-          p.reject(new CrossweaveError(r.error.data?.code ?? 'RPC_ERROR', r.error.message));
-        } else {
-          p.resolve(r.result);
-        }
+        this.handleMessage(msg);
       }),
     );
-    // Node THROWS an 'error' event that has no listener, so without this the CLI
-    // dies with an uncaught exception when the daemon goes away mid-call instead of
-    // the caller getting a clean rejection. `connect` strips its own temporary error
-    // listener once connected, which is exactly why one has to be re-registered here.
-    socket.on('error', (err: Error) => {
+    // A transport-level failure must become a clean rejection for every in-flight
+    // call, never an uncaught exception: without this the CLI dies when the daemon
+    // goes away mid-call, and every registered `onClose` handler never runs.
+    transport.onError((err: Error) => {
       this.failAll(`Daemon connection failed: ${err.message}`);
     });
-    socket.on('close', () => {
+    transport.onClose(() => {
       this.failAll('Daemon connection closed');
     });
     // 'end' is the one that actually matters. When the daemon half-closes, no
-    // response can ever arrive — but if a write is already stalled in the socket,
-    // 'close' never fires and neither does 'error', so without this a pending call
-    // hangs forever rather than failing. A hung CLI is worse than a failed one.
-    socket.on('end', () => {
+    // response can ever arrive — but if a write is already stalled, neither 'close'
+    // nor 'error' fires, so without this a pending call hangs forever rather than
+    // failing. A hung CLI is worse than a failed one.
+    transport.onEnd(() => {
       this.failAll('Daemon closed the connection');
     });
   }
 
+  /** One decoded frame: a response to a pending call, or a notification. */
+  private handleMessage(msg: unknown): void {
+    const r = msg as {
+      id?: number;
+      method?: string;
+      params?: unknown;
+      result?: unknown;
+      error?: { message: string; data?: { code?: string } };
+    };
+    if (typeof r.id !== 'number') {
+      if (typeof r.method === 'string') {
+        for (const h of this.notificationHandlers) h(r.method, r.params);
+      }
+      return;
+    }
+    const p = this.pending.get(r.id);
+    if (!p) return;
+    this.pending.delete(r.id);
+    if (r.error) {
+      p.reject(new CrossweaveError(r.error.data?.code ?? 'RPC_ERROR', r.error.message));
+    } else {
+      p.resolve(r.result);
+    }
+  }
+
   /** True until the connection is known to be gone. */
   get isConnected(): boolean {
-    return !this.gone && !this.socket.destroyed && this.socket.writable;
+    return !this.gone && this.transport.isWritable();
   }
 
   /**
@@ -105,15 +115,19 @@ export class DaemonClient {
     }
   }
 
-  static connect(socketPath: string): Promise<DaemonClient> {
-    return new Promise((resolve, reject) => {
-      const sock = connect(socketPath);
-      sock.once('connect', () => {
-        sock.removeAllListeners('error');
-        resolve(new DaemonClient(sock));
-      });
-      sock.once('error', reject);
-    });
+  /** Connect over the local unix socket — the only transport shipped today. */
+  static async connect(socketPath: string): Promise<DaemonClient> {
+    return new DaemonClient(await unixSocketTransport(socketPath));
+  }
+
+  /**
+   * Build a client over any other byte stream (a gateway's WebSocket, a test's
+   * in-memory pair). Exported because "the client is transport-agnostic" is only
+   * true if there is a supported way to hand it a different transport — the remote
+   * work is otherwise forced to fork `connect`.
+   */
+  static attach(transport: ClientTransport): DaemonClient {
+    return new DaemonClient(transport);
   }
 
   call<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
@@ -130,12 +144,12 @@ export class DaemonClient {
     this.nextId += 1;
     return new Promise<T>((resolve, reject) => {
       this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject });
-      this.socket.write(encodeFrame({ jsonrpc: '2.0', id, method, params }));
+      this.transport.write(encodeFrame({ jsonrpc: '2.0', id, method, params }));
     });
   }
 
   close(): void {
-    this.socket.end();
+    this.transport.close();
   }
 }
 

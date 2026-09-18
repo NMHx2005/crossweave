@@ -5,6 +5,7 @@ import { openDatabase } from '../../src/db/open.js';
 import { createDaemon, type Daemon } from '../../src/daemon/server.js';
 import { buildMethods } from '../../src/daemon/methods.js';
 import { DaemonClient, connectOrStart } from '../../src/client/rpc-client.js';
+import type { ClientTransport } from '../../src/client/transport.js';
 import { makeGitFixture, type GitFixture } from '../helpers/git-fixture.js';
 
 let fx: GitFixture;
@@ -93,15 +94,15 @@ describe('DaemonClient', () => {
     const onUncaught = (err: unknown): void => { uncaught = err; };
     process.once('uncaughtException', onUncaught);
     try {
-      // Reach the socket directly. Going through call() cannot raise a socket
-      // 'error' — its isConnected pre-check refuses to write first — which is
-      // exactly why the previous version of this test passed with the listener
-      // deleted.
-      const socket = (client as unknown as { socket: import('node:net').Socket }).socket;
+      // Reach the TRANSPORT directly (the client's only byte path since the seam
+      // landed). Going through call() cannot raise a transport 'error' — its
+      // isConnected pre-check refuses to write first — which is exactly why the
+      // previous version of this test passed with the listener deleted.
+      const transport = (client as unknown as { transport: ClientTransport }).transport;
       await daemon.close();
       daemon = undefined;
-      socket.write('x'.repeat(1024 * 1024));
-      socket.write('y\n');
+      transport.write('x'.repeat(1024 * 1024));
+      transport.write('y\n');
       await new Promise((r) => setTimeout(r, 200));
     } finally {
       process.removeListener('uncaughtException', onUncaught);
