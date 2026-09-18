@@ -20,3 +20,22 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
       - run: bun test
+
+  cockpit:
+    # The app is macOS-only ("os": ["darwin"] in its package.json), so it is built
+    # where it can actually run. Root `bun test` already executes apps/cockpit's
+    # tests, but root `tsc --noEmit` does NOT cover the app (tsconfig includes
+    # src/ and tests/ only) — before this job, a cockpit type or bundle break was
+    # invisible until someone ran `dist:mac` by hand.
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - name: install cockpit dependencies
+        run: bun install --frozen-lockfile
+        working-directory: apps/cockpit
+      - name: typecheck and bundle
+        run: bun run build
+        working-directory: apps/cockpit
