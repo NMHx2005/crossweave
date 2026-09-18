@@ -190,7 +190,14 @@ describe('planSandbox', () => {
     expect(planSandbox({ ...spec, platform: 'linux' }, 'claude', [])).toBeUndefined();
   });
 
-  it('wraps the agent argv in sandbox-exec with a written profile', () => {
+  // Gated on the binary, not on `process.platform`: these two exercise "a provider
+  // IS present, here is the argv it builds", which cannot be asserted on a host that
+  // has no `sandbox-exec` (Linux CI). Passing `platform: 'darwin'` while running on
+  // Linux describes the spec, not the machine, so `planSandbox` correctly returns
+  // undefined there — and that path is already covered by the test above.
+  const hasProvider = existsSync(SANDBOX_EXEC);
+
+  it.skipIf(!hasProvider)('wraps the agent argv in sandbox-exec with a written profile', () => {
     const plan = planSandbox(spec, 'claude', ['--settings', '{}']);
     expect(plan).toBeDefined();
     expect(plan!.argv[0]).toBe(SANDBOX_EXEC);
@@ -203,7 +210,7 @@ describe('planSandbox', () => {
     expect(existsSync(plan!.argv[2]!)).toBe(false);
   });
 
-  it('lists the writable roots, and cleanup is idempotent', () => {
+  it.skipIf(!hasProvider)('lists the writable roots, and cleanup is idempotent', () => {
     const plan = planSandbox(spec, 'claude', [])!;
     expect(plan.writable).toContain(spec.worktreePath);
     expect(plan.writable).toContain(sandboxTmpDir(fx.root, 's_one'));
