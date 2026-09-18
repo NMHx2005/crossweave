@@ -66,6 +66,9 @@ export const cockpitApi = {
   onSessionData(cb: (payload: unknown) => void): () => void {
     return cockpitListen('session.data', cb)
   },
+  onSessionExit(cb: (payload: unknown) => void): () => void {
+    return cockpitListen('session.exit', cb)
+  },
   onTuiEvent(cb: (payload: unknown) => void): () => void {
     return cockpitListen('tui.event', cb)
   },

@@ -5,6 +5,7 @@ import {
   isCockpitChannel,
   isCockpitEvent,
 } from '../electron/channels'
+import { isForwardedNotification } from '../electron/daemon-bridge'
 
 describe('cockpit IPC allowlist', () => {
   test('invoke channels are a closed set', () => {
@@ -23,5 +24,20 @@ describe('cockpit IPC allowlist', () => {
       expect(isCockpitEvent(event)).toBe(true)
     }
     expect(isCockpitEvent('evil.event')).toBe(false)
+  })
+})
+
+describe('the session.exit event', () => {
+  test('is in the closed event allowlist, because a pane needs it to explain a blank screen', () => {
+    // Without it the renderer never hears that the agent ended: the alt-screen restore
+    // leaves an empty pane and no message (measured: 305 chars of agent TUI → 0 after a
+    // stop, with the pane element unchanged).
+    expect(COCKPIT_EVENTS).toContain('session.exit')
+    expect(isCockpitEvent('session.exit')).toBe(true)
+  })
+
+  test('is forwarded by the bridge, unlike an unknown event', () => {
+    expect(isForwardedNotification('session.exit')).toBe(true)
+    expect(isForwardedNotification('session.something-else')).toBe(false)
   })
 })

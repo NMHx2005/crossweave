@@ -281,29 +281,6 @@ body,
   min-height: var(--cw-row-h);
 }
 
-.cockpit-session-pick {
-  display: flex;
-  align-items: center;
-  gap: var(--cw-space-2);
-  font-size: var(--cw-fs-sm);
-  color: var(--cw-text-dim);
-}
-
-.cockpit-session-pick select {
-  background: var(--cw-surface-input);
-  color: var(--cw-text);
-  border: var(--cw-hairline) solid var(--cw-border);
-  border-radius: var(--cw-radius-sm);
-  padding: var(--cw-control-pad-y) var(--cw-space-2);
-  min-height: var(--cw-row-h);
-  font-family: inherit;
-  font-size: var(--cw-fs-sm);
-}
-
-.cockpit-session-pick select:hover {
-  border-color: var(--cw-border-strong);
-}
-
 .cockpit-stage__grid {
   flex: 1;
   min-height: 0;

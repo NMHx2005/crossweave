@@ -58,6 +58,19 @@ export function XtermPane({ sessionId, focused }: XtermPaneProps) {
       void cockpitApi.resizeSession(sessionId, term.cols, term.rows).catch(() => undefined)
     }
 
+    // The agent TUI runs on the terminal's ALTERNATE screen. When the process exits,
+    // the terminal correctly restores the primary buffer — which is empty, because this
+    // pane was created for an agent that only ever used the alt screen. So the pane goes
+    // blank, with no hint that the agent is gone rather than the app broken. The CLI has
+    // said "[session exited]" in this situation since M0 (src/cli/commands/attach.ts);
+    // this is the same sentence, in the same place.
+    const exitUnlisten = cockpitApi.onSessionExit((payload) => {
+      const record = payload as { sessionId?: unknown; code?: unknown }
+      if (record.sessionId !== sessionId) return
+      const code = typeof record.code === 'number' ? record.code : undefined
+      term.write(`\r\n\r\n[session exited${code === undefined ? '' : ` (code ${code})`} — press Start to bring it back]\r\n`)
+    })
+
     const dataSub = term.onData((data) => {
       if (cancelled) return
       void cockpitApi.sendInput(sessionId, data).catch(() => undefined)
@@ -89,6 +102,7 @@ export function XtermPane({ sessionId, focused }: XtermPaneProps) {
     return () => {
       cancelled = true
       unlisten()
+      exitUnlisten()
       dataSub.dispose()
       observer.disconnect()
       void cockpitApi.detachSession(sessionId)

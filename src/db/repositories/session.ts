@@ -1,5 +1,15 @@
 import type { Database } from 'bun:sqlite';
 
+/**
+ * `waiting` is schema-compatible but UNREACHABLE: nothing in this codebase ever writes
+ * it. It is kept in the union and the CHECK constraint because removing a value from a
+ * shipped constraint means a migration, and because the grouping helpers below already
+ * treat it as live — the day a signal for "the agent is alive but wants input" exists
+ * (Claude Code's own statusLine is the obvious source), the plumbing is already there.
+ * Until then `deriveAttention`'s `needs_you` badge cannot fire from it, which is why it
+ * keys off `recentBlocked` and landability instead. Verified 2026-09-18: the only
+ * `updateStatus` call sites write 'running', 'idle' and 'dead'.
+ */
 export type SessionStatus = 'idle' | 'running' | 'waiting' | 'dead' | 'landed';
 export type EnforcementTier = 'T1' | 'T2' | 'T3';
 

@@ -74,11 +74,11 @@ function makeBridge(overrides?: {
 }
 
 describe('notification filter', () => {
-  test('forwards session.data, tui.event, tui.invalidate only', () => {
+  test('forwards session.data, session.exit, tui.event, tui.invalidate only', () => {
     expect(isForwardedNotification('session.data')).toBe(true)
+    expect(isForwardedNotification('session.exit')).toBe(true)
     expect(isForwardedNotification('tui.event')).toBe(true)
     expect(isForwardedNotification('tui.invalidate')).toBe(true)
-    expect(isForwardedNotification('session.exit')).toBe(false)
     expect(isForwardedNotification('daemon.gone')).toBe(false)
     expect(isForwardedNotification('evil')).toBe(false)
   })
@@ -174,6 +174,9 @@ describe('DaemonBridge', () => {
       { event: 'session.data', payload: { sessionId: 's1', chunk: 'hi' } },
       { event: 'tui.event', payload: { kind: 'blocked' } },
       { event: 'tui.invalidate', payload: {} },
+      // Forwarded, so a pane can say the agent ended rather than going silently blank
+      // when the terminal restores its (empty) primary buffer.
+      { event: 'session.exit', payload: { sessionId: 's1', code: 0 } },
     ])
   })
 

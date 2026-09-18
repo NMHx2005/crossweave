@@ -20,6 +20,11 @@ export type CockpitChannel = (typeof COCKPIT_CHANNELS)[number]
 /** Closed push-event allowlist for renderer subscriptions. */
 export const COCKPIT_EVENTS = [
   'session.data',
+  // The agent process ended. Not a data chunk, so it needs its own event: an agent
+  // TUI runs on the terminal's alternate screen, and when the process exits the
+  // terminal correctly restores the (empty) primary buffer — leaving the user staring
+  // at a blank pane with no explanation, which is exactly what "stop" used to do.
+  'session.exit',
   'tui.event',
   'tui.invalidate',
   'daemon.gone',

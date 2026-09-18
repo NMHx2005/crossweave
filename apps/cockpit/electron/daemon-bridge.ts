@@ -23,7 +23,7 @@ export type DaemonBridgeDeps = {
   exists?: (path: string) => boolean
 }
 
-const FORWARDED = new Set<string>(['session.data', 'tui.event', 'tui.invalidate'])
+const FORWARDED = new Set<string>(['session.data', 'session.exit', 'tui.event', 'tui.invalidate'])
 
 export function isForwardedNotification(method: string): method is Exclude<CockpitEvent, 'daemon.gone'> {
   return FORWARDED.has(method)
