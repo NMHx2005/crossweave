@@ -34,6 +34,26 @@ function cw(args: string[], env?: Record<string, string>): Promise<CwResult> {
   return run(fx.root, args, env);
 }
 
+// Bare `cw` opens the interactive dashboard (src/cli/entry-mode.ts) — but only on a
+// TTY. Everything in this suite spawns with piped stdio, which is exactly the
+// situation the guard exists for, so this asserts the pipe-safety end to end rather
+// than through the pure predicate alone.
+describe('bare invocation without a terminal', () => {
+  it('prints the command list instead of starting a full-screen app', async () => {
+    const r = await cw([]);
+    expect(r.stdout).toContain('USAGE cw');
+    expect(r.stdout).toContain('tui');
+    // The app is identified by its escape sequence, not by "no output": the TUI
+    // switches to the alternate screen, and asserting that it did NOT is what proves
+    // the guard actually fired rather than the command merely being quiet.
+    expect(r.stdout).not.toContain('\u001b[?1049h');
+    // citty's own exit code for a bare invocation with no command — unchanged by this
+    // routing, and asserted so a future refactor cannot silently turn a usage error
+    // into a success.
+    expect(r.exitCode).toBe(1);
+  });
+});
+
 /**
  * A fake `claude` on PATH, for the tests that genuinely start an agent process.
  * CI (ubuntu-latest) has no Claude Code installed, and a test that needs it fails

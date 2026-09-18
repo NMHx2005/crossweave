@@ -18,6 +18,7 @@ import { configCommand } from './commands/config.js';
 import { updateCommand } from './commands/update.js';
 import { tuiCommand } from './commands/tui.js';
 import { fail } from './context.js';
+import { shouldOpenApp } from './entry-mode.js';
 
 const daemonCommand = defineCommand({
   meta: { name: 'daemon', description: 'Manage the crossweave daemon' },
@@ -101,8 +102,12 @@ const INTERNAL_COMMANDS = new Set(['radar-hook', 'session-usage-hook', 'update']
 // notice appended after the version line.
 const isBareVersionFlag = process.argv.length === 3 && ['--version', '-v'].includes(process.argv[2] ?? '');
 
-await runMain(main);
-if (!isBareVersionFlag && !INTERNAL_COMMANDS.has(process.argv[2] ?? '')) {
+// Bare `cw` opens the app the way `claude` and `codex` do — but only on a terminal;
+// see src/cli/entry-mode.ts for why the TTY is the branch condition.
+const opensApp = shouldOpenApp(process.argv, process.stdout.isTTY === true);
+
+await runMain(opensApp ? tuiCommand : main);
+if (!isBareVersionFlag && !opensApp && !INTERNAL_COMMANDS.has(process.argv[2] ?? '')) {
   try {
     const notice = await checkForUpdate(VERSION);
     if (notice !== undefined) process.stdout.write(notice + '\n');

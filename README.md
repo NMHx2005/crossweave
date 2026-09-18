@@ -83,6 +83,7 @@ bun run scripts/build.ts   # produces dist/cw and dist/cwd
 ```bash
 cd your-project        # any git repo
 cw init                # create/attach this repo's crossweave workspace
+cw                     # opens the live dashboard (like `claude`, `codex`)
 
 cw session new --name alice --agent claude   # creates the session (its worktree and branch)
 cw session new --name bob   --agent claude
@@ -93,9 +94,9 @@ cw session stop alice       # stop the agent, keep the session resumable
 ```
 
 > [!TIP]
-> Run `cw tui` in a separate terminal to watch both sessions live — session
-> list, convergence matrix, and a real-time collision/notification feed in
-> one dashboard.
+> Bare `cw` opens that dashboard directly — session list, convergence matrix and a
+> real-time collision/notification feed. Piped or non-interactive, it prints the
+> command list instead, so scripts and CI are unaffected.
 
 ### Agents
 
