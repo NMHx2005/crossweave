@@ -71,8 +71,25 @@ jobs:
       - name: checksums
         run: |
           sha256sum cw-* cwd-* install.sh > checksums.txt
+      # Curated notes live in docs/releases/<tag>.md. Every release before this one
+      # shipped with an EMPTY body (v0.1.0-v0.2.1: 1 char each), because the action
+      # only generates notes when asked to — so an absent file falls back to GitHub's
+      # generated notes rather than to nothing.
+      - name: resolve release notes
+        id: notes
+        run: |
+          path="docs/releases/${GITHUB_REF_NAME}.md"
+          if [ -f "$path" ]; then
+            echo "path=$path" >> "$GITHUB_OUTPUT"
+            echo "Using curated notes: $path"
+          else
+            echo "path=" >> "$GITHUB_OUTPUT"
+            echo "No $path — falling back to generated notes"
+          fi
       - uses: softprops/action-gh-release@v3
         with:
+          body_path: ${{ steps.notes.outputs.path }}
+          generate_release_notes: ${{ steps.notes.outputs.path == '' }}
           files: |
             cw-*
             cwd-*
