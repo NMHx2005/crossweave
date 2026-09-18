@@ -95,29 +95,17 @@ export const sessionCommand = defineCommand({
                   'Sessions can overwrite each other\'s files.\n',
               );
             }
+            // Creates, and stops there. The standard verb split: `new` makes the
+            // thing, `start` runs it, and `attach` starts it for you when you are about
+            // to look at it. An earlier version also spawned the agent here, which
+            // meant `new` allocated ~400MB of agent per call and failed outright
+            // wherever that binary is absent (CI) — for a convenience the other two
+            // verbs already provide.
             const created = await client.call<Session>('session.new', {
               workspaceId, name: args.name, agent: args.agent, worktree, budgetTokens, budgetUsd,
             });
-            // Started here rather than left idle: a session with no agent has no PTY,
-            // cannot be attached to, and used to be a dead end — `cw session new`
-            // created one while the README's quickstart went straight on to
-            // `cw session attach alice`, and the Cockpit was the only surface that
-            // started what it created.
-            let started: Session;
-            try {
-              started = await client.call<Session>('session.resume', {
-                workspaceId, idOrName: created.id, env: { ...process.env },
-              });
-            } catch (err) {
-              // The row exists even though starting it failed. Say so before the
-              // error, or the user cannot tell whether anything was created.
-              process.stderr.write(
-                `created ${created.name}, but its agent did not start — retry with \`cw session start ${created.name}\`\n`,
-              );
-              throw err;
-            }
             process.stdout.write(
-              `${started.name}\t${started.status}\t${tierWithCoverage(started.enforcementTier)}\t${started.worktreePath ?? '-'}\n`,
+              `${created.name}\t${created.status}\t${tierWithCoverage(created.enforcementTier)}\t${created.worktreePath ?? '-'}\n`,
             );
           });
         } catch (err) { fail(err); }

@@ -84,12 +84,12 @@ bun run scripts/build.ts   # produces dist/cw and dist/cwd
 cd your-project        # any git repo
 cw init                # create/attach this repo's crossweave workspace
 
-cw session new --name alice --agent claude   # creates the session AND starts its agent
+cw session new --name alice --agent claude   # creates the session (its worktree and branch)
 cw session new --name bob   --agent claude
 
-cw session attach alice     # Ctrl-] to detach, agent keeps running
-cw session stop alice       # stop the agent, keep the session
-cw session start alice      # start it again
+cw session attach alice     # starts the agent if needed; Ctrl-] to detach, agent keeps running
+cw session start alice      # start the agent without attaching
+cw session stop alice       # stop the agent, keep the session resumable
 ```
 
 > [!TIP]

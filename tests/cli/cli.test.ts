@@ -34,6 +34,25 @@ function cw(args: string[], env?: Record<string, string>): Promise<CwResult> {
   return run(fx.root, args, env);
 }
 
+/**
+ * A fake `claude` on PATH, for the tests that genuinely start an agent process.
+ * CI (ubuntu-latest) has no Claude Code installed, and a test that needs it fails
+ * there for a reason that has nothing to do with this repo's code — the same trap
+ * `session new` itself fell into while it spawned the agent.
+ */
+async function withFakeClaude(): Promise<{ env: Record<string, string>; cleanup: () => Promise<void> }> {
+  const { mkdtemp, rm, writeFile, chmod } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const binDir = await mkdtemp(join(tmpdir(), 'cw-fakeclaude-'));
+  const fake = join(binDir, 'claude');
+  await writeFile(fake, '#!/bin/sh\nwhile IFS= read -r l; do :; done\n');
+  await chmod(fake, 0o755);
+  return {
+    env: { ...process.env, PATH: `${binDir}:${process.env.PATH ?? ''}` },
+    cleanup: () => rm(binDir, { recursive: true, force: true }),
+  };
+}
+
 beforeEach(async () => { fx = await makeGitFixture(); });
 afterEach(async () => {
   await cw(['daemon', 'stop']);
@@ -58,10 +77,7 @@ describe('cw CLI', () => {
 
     const listed = await cw(['session', 'list']);
     expect(listed.stdout).toContain('auth');
-    // `session new` starts the agent now, not just the row: a created-but-idle session
-    // has no PTY to attach to, and the quickstart in the README goes straight on to
-    // `cw session attach`.
-    expect(listed.stdout).toContain('running');
+    expect(listed.stdout).toContain('idle');
     expect(listed.stdout).toContain('T2');
 
     const renamed = await cw(['session', 'rename', 'auth', 'auth2']);
@@ -346,16 +362,36 @@ describe('cw CLI', () => {
 
     // ...and `session start` is the way back, which is also what the Cockpit's own
     // empty state has been telling users to run since before this command existed.
-    const restarted = await cw(['session', 'start', 'pausable']);
-    expect(restarted.exitCode).toBe(0);
-    expect(restarted.stdout).toContain('running');
-    expect((await cw(['session', 'list'])).stdout).toContain('running');
+    // A fake agent, because this is the one assertion here that spawns a real process
+    // and CI has no Claude Code to spawn (see withFakeClaude).
+    const fake = await withFakeClaude();
+    try {
+      const restarted = await cw(['session', 'start', 'pausable'], fake.env);
+      expect(restarted.exitCode).toBe(0);
+      expect(restarted.stdout).toContain('running');
+      expect((await cw(['session', 'list'], fake.env)).stdout).toContain('running');
+    } finally {
+      await fake.cleanup();
+    }
 
     // And it is a real command, not a stub: an unknown target fails in the standard shape.
     const missing = await cw(['session', 'stop', 'ghost']);
     expect(missing.exitCode).toBe(1);
     expect(missing.stderr).toContain('SESSION_NOT_FOUND:');
   }, 60_000);
+
+  it('session new needs no agent binary on PATH — the create verb must not depend on one', async () => {
+    // This is the CI regression, as a test: `new` used to spawn the agent, so every
+    // create failed on a machine without Claude Code installed (ubuntu-latest) with
+    // `RPC_ERROR: Executable not found in $PATH: "claude"`. The PATH here would not
+    // find an agent even if one were installed.
+    const bare = { ...process.env, PATH: '/usr/bin:/bin' };
+    expect((await cw(['init'], bare)).exitCode).toBe(0);
+    const created = await cw(['session', 'new', '--name', 'noagent'], bare);
+    expect(created.exitCode).toBe(0);
+    expect(created.stdout).toContain('idle');
+    expect((await cw(['session', 'list'], bare)).stdout).toContain('noagent');
+  }, 30_000);
 
   it('a missing required argument reports in the standard shape', async () => {
     await cw(['init']);

@@ -303,7 +303,19 @@ export function buildMethods(
       // A lease must win over the client's shell, or a session's port would depend
       // on what the user happened to export.
       const env = { ...clientEnv(p), ...(await leaseManager.acquire(row.id)) };
-      const pid = runtime.start(row, sessions.adapterFor(row.agentKind), env);
+      let pid: number;
+      try {
+        pid = runtime.start(row, sessions.adapterFor(row.agentKind), env);
+      } catch (err) {
+        // A spawn can fail synchronously — Bun.spawn throws `Executable not found in
+        // $PATH` before any process exists — and the lease block was already acquired
+        // above. Releasing it here is the difference between "this session could not
+        // start" and a port block held for the daemon's lifetime by a session that
+        // never ran (measured: `session new` with no agent binary left port=43000
+        // held with the row sitting idle).
+        leaseManager.release(row.id);
+        throw err;
+      }
       sessions.markStatus(row.id, 'running', pid);
       ledger.append({ sessionId: row.id, workspaceId: row.workspaceId, kind: 'session.started', payload: '{}' });
 
