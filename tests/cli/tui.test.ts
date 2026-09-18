@@ -68,19 +68,21 @@ describe('buildActionLayerBindings — q (quit)', () => {
     const calls: string[] = [];
     const bindings = buildActionLayerBindings({
       newSession: () => calls.push('newSession'),
+      startSession: () => calls.push('startSession'),
       land: () => calls.push('land'),
       landAll: () => calls.push('landAll'),
       kill: () => calls.push('kill'),
       gc: () => calls.push('gc'),
       quit: () => calls.push('quit'),
     });
-    expect(bindings.map((b) => b.key)).toEqual(['n', 'l', 'shift+l', 'x', 'g', 'q']);
+    expect(bindings.map((b) => b['key'])).toEqual(['n', 's', 'l', 'shift+l', 'x', 'g', 'q']);
   });
 
   it("q's cmd calls the injected quit action (renderer.destroy in real use), with no other side effect", () => {
     let destroyed = false;
     const bindings = buildActionLayerBindings({
       newSession: () => {},
+      startSession: () => {},
       land: () => {},
       landAll: () => {},
       kill: () => {},
@@ -143,4 +145,35 @@ describe('destroyRendererBeforeReporting', () => {
     expect(() => destroyRendererBeforeReporting(renderer, new Error('x'), report)).toThrow('destroy exploded');
     expect(calls).toEqual([]);
   });
-});
+})
+
+describe('buildActionLayerBindings — s (start)', () => {
+  function bindingsWith(calls: string[]) {
+    return buildActionLayerBindings({
+      newSession: () => calls.push('newSession'),
+      startSession: () => calls.push('startSession'),
+      land: () => calls.push('land'),
+      landAll: () => calls.push('landAll'),
+      kill: () => calls.push('kill'),
+      gc: () => calls.push('gc'),
+      quit: () => calls.push('quit'),
+    })
+  }
+
+  it('uses s, not a key the SelectRenderable already owns', () => {
+    // j and k are the list's own move bindings — the collision that pushed the kill
+    // action to 'x'. Asserted by name so a future edit cannot quietly reintroduce one.
+    const keys = bindingsWith([]).map((b) => b['key'])
+    expect(keys).toContain('s')
+    for (const taken of ['j', 'k']) expect(keys).not.toContain(taken)
+  })
+
+  it('defers through queueMicrotask, so it cannot re-enter the keymap dispatch', async () => {
+    const calls: string[] = []
+    const binding = bindingsWith(calls).find((b) => b['key'] === 's')!
+    ;(binding.cmd as () => void)()
+    expect(calls).toEqual([]) // deferred, not synchronous
+    await new Promise((r) => queueMicrotask(r as () => void))
+    expect(calls).toEqual(['startSession'])
+  })
+})

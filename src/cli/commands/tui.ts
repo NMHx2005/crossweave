@@ -184,6 +184,7 @@ export async function confirmWithLayerPaused(
 /** Injected actions behind {@link buildActionLayerBindings} — one per key binding. */
 export interface ActionLayerActions {
   newSession: () => void;
+  startSession: () => void;
   land: () => void;
   landAll: () => void;
   kill: () => void;
@@ -220,6 +221,10 @@ export interface ActionLayerActions {
 export function buildActionLayerBindings(actions: ActionLayerActions): Binding<Renderable, KeyEvent>[] {
   return [
     { key: 'n', cmd: actions.newSession },
+    // 's' (start), not 'k': the SelectRenderable's own default keybindings already
+    // claim 'k' (move-up) and 'j' (move-down) — the same collision that made the kill
+    // action move to 'x'. 's' is unused by @opentui/core's defaults.
+    { key: 's', cmd: () => { queueMicrotask(actions.startSession); } },
     { key: 'l', cmd: actions.land },
     // Not 'L': this library's own key names are lowercase with a separate
     // `shift` flag (confirmed against @opentui/core's own default Textarea
@@ -813,6 +818,37 @@ export const tuiCommand = defineCommand({
         }
       }
 
+      /**
+       * Start the selected session's agent. Same dead end the Cockpit's rail had:
+       * `n` only ever called `session.new`, so a session stopped with `x`→stop or a
+       * never-started one could not be brought back from the dashboard at all, and
+       * the only way forward was to quit and type `cw session attach`.
+       *
+       * `session.resume` rather than `session.start`: resume accepts an
+       * already-running session (it returns the row untouched), so pressing `s` twice
+       * is harmless instead of an SESSION_ALREADY_RUNNING error — the right contract
+       * for a key someone will hit again because the TUI's panes refresh on a timer
+       * and the change is not instant.
+       */
+      async function startSelected(): Promise<void> {
+        if (uiBusy) return;
+        const session = getSelectedSession();
+        if (!session) {
+          setActionStatus('no session selected');
+          return;
+        }
+        uiBusy = true;
+        setActionStatus(`starting ${session.name}…`);
+        try {
+          await conn.call('session.resume', { workspaceId: ws.id, idOrName: session.name });
+          setActionStatus(`started ${session.name}`);
+        } catch (err) {
+          setActionStatus(`start failed: ${(err as Error).message}`);
+        } finally {
+          uiBusy = false;
+        }
+      }
+
       async function runGc(): Promise<void> {
         if (uiBusy) return;
         uiBusy = true;
@@ -894,6 +930,7 @@ export const tuiCommand = defineCommand({
           targetMode: 'focus',
           bindings: buildActionLayerBindings({
             newSession: () => void openNewSessionForm(),
+            startSession: () => void startSelected(),
             land: () => void landSelected(),
             landAll: () => void landAll(),
             kill: () => void killSelected(),
