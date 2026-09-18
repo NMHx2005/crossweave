@@ -10,7 +10,7 @@ import { SessionManager } from '../../src/domain/session.js';
 import { DaemonClient } from '../../src/client/rpc-client.js';
 import { ClaudePtyAdapter } from '../../src/adapters/claude-pty.js';
 import { CrossweaveError } from '../../src/core/errors.js';
-import type { AgentAdapter } from '../../src/adapters/types.js';
+import type { AgentAdapter, AgentProcess } from '../../src/adapters/types.js';
 import { makeGitFixture, type GitFixture } from '../helpers/git-fixture.js';
 import { LeaseRepo } from '../../src/db/repositories/lease.js';
 import { DEFAULT_CONFIG } from '../../src/core/config.js';
@@ -79,6 +79,41 @@ describe('attach detach key', () => {
     expect(DETACH_KEY).toBe('\x1d');
     expect(DETACH_KEY).toHaveLength(1);
     expect(DETACH_KEY).not.toBe('');
+  });
+});
+
+describe('SessionRuntime sandbox plumbing', () => {
+  /** Captures the SpawnOptions it was handed, then exits immediately. */
+  class CapturingAdapter implements AgentAdapter {
+    readonly kind = 'claude';
+    readonly enforcementTier = 'T2' as const;
+    opts: import('../../src/adapters/types.js').SpawnOptions | undefined;
+    spawn(opts: import('../../src/adapters/types.js').SpawnOptions): AgentProcess {
+      this.opts = opts;
+      return { pid: 1, onData: () => undefined, onExit: (cb) => cb(0), write: () => undefined, resize: () => undefined, kill: () => undefined };
+    }
+  }
+
+  it('redirects TMPDIR into the session temp dir when a spec is passed', async () => {
+    const runtime = new SessionRuntime(() => undefined);
+    const row = await sessions.create({ workspaceId, name: 'sbx', agent: 'claude', worktree: true });
+    const adapter = new CapturingAdapter();
+    runtime.start(row, adapter, {}, {
+      worktreePath: row.worktreePath!, projectRoot: fx.root,
+      network: false, sessionId: row.id,
+    });
+    expect(adapter.opts?.sandbox?.sessionId).toBe(row.id);
+    // The session's own temp root, not the host's shared `/var/folders/...`.
+    expect(adapter.opts?.env['TMPDIR']).toBe(join(fx.root, '.crossweave', 'sandbox-tmp', row.id));
+  });
+
+  it('leaves TMPDIR alone when there is no spec', async () => {
+    const runtime = new SessionRuntime(() => undefined);
+    const row = await sessions.create({ workspaceId, name: 'nosbx', agent: 'claude', worktree: true });
+    const adapter = new CapturingAdapter();
+    runtime.start(row, adapter, { TMPDIR: '/kept' });
+    expect(adapter.opts?.sandbox).toBeUndefined();
+    expect(adapter.opts?.env['TMPDIR']).toBe('/kept');
   });
 });
 

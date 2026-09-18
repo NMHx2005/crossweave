@@ -129,4 +129,41 @@ describe('loadConfig', () => {
       expectInvalid('ports.named must be an object');
     });
   });
+
+  // The one setting whose misreading changes whether an OS boundary exists around a
+  // session process — so a non-boolean is refused rather than coerced to truthy.
+  describe('sandbox', () => {
+    it('defaults to enabled, network off', () => {
+      expect(DEFAULT_CONFIG.sandbox).toEqual({ enabled: true, network: false });
+      expect(loadConfig(dir).sandbox).toEqual({ enabled: true, network: false });
+    });
+
+    it('merges a partial sandbox section over the defaults', async () => {
+      await writeFile(
+        join(dir, 'crossweave.config.json'),
+        JSON.stringify({ sandbox: { network: true } }),
+      );
+      expect(loadConfig(dir).sandbox).toEqual({ enabled: true, network: true });
+    });
+
+    it('rejects a non-boolean enabled', async () => {
+      await writeFile(
+        join(dir, 'crossweave.config.json'),
+        JSON.stringify({ sandbox: { enabled: 'yes' } }),
+      );
+      expect(() => loadConfig(dir)).toThrowError(
+        expect.objectContaining({ code: 'CONFIG_INVALID' }) as unknown as Error,
+      );
+    });
+
+    it('rejects a non-boolean network', async () => {
+      await writeFile(
+        join(dir, 'crossweave.config.json'),
+        JSON.stringify({ sandbox: { network: 1 } }),
+      );
+      expect(() => loadConfig(dir)).toThrowError(
+        expect.objectContaining({ code: 'CONFIG_INVALID' }) as unknown as Error,
+      );
+    });
+  });
 });

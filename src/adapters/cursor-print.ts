@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import type { AgentAdapter, AgentProcess, SpawnOptions } from './types.js';
+import { planSandbox } from '../isolation/sandbox.js';
 import type { EnforcementTier } from '../db/repositories/session.js';
 import { CrossweaveError } from '../core/errors.js';
 
@@ -130,8 +131,18 @@ class PrintProcess implements AgentProcess {
   private buffer = '';
 
   constructor(command: string, args: string[], opts: SpawnOptions) {
-    this.child = spawn(command, args, { cwd: opts.cwd, env: { ...process.env, ...opts.env } });
+    // Assembled here, like AcpProcess's: `command`/`args` are this adapter's argv
+    // (see SpawnOptions.sandbox).
+    const plan = opts.sandbox === undefined ? undefined : planSandbox(opts.sandbox, command, args);
+    this.child = spawn(plan?.argv[0] ?? command, plan?.argv.slice(1) ?? args, { cwd: opts.cwd, env: { ...process.env, ...opts.env } });
     this.pid = this.child.pid ?? -1;
+    // Drop the session-specific profile once the child is definitively gone — see
+    // AcpProcess's identical registration for why it is bound to the child.
+    if (plan !== undefined) {
+      const cleanup = (): void => plan.cleanup();
+      this.child.once('exit', cleanup);
+      this.child.once('error', cleanup);
+    }
 
     this.child.on('exit', (code) => {
       if (this.exitCode !== null) return;

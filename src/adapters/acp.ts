@@ -8,6 +8,7 @@ import {
   type SessionNotification, type SessionUpdate,
 } from '@agentclientprotocol/sdk';
 import type { EnforcementTier } from '../db/repositories/session.js';
+import { planSandbox } from '../isolation/sandbox.js';
 import type { AgentAdapter, AgentProcess, SpawnOptions } from './types.js';
 import { assertContained } from '../core/paths.js';
 import type { DecideBlockedParams, DecideBlockedResult } from '../radar/decision.js';
@@ -184,8 +185,19 @@ class AcpProcess implements AgentProcess {
   private readonly handshakeTimeout: NodeJS.Timeout;
 
   constructor(command: string, args: string[], opts: SpawnOptions, deps: AcpAdapterDeps, handshakeTimeoutMs: number) {
-    this.child = spawn(command, args, { cwd: opts.cwd, env: { ...process.env, ...opts.env } });
+    // The sandbox line is assembled HERE, not in the daemon: `command`/`args` are
+    // this adapter's own argv (see SpawnOptions.sandbox).
+    const plan = opts.sandbox === undefined ? undefined : planSandbox(opts.sandbox, command, args);
+    this.child = spawn(plan?.argv[0] ?? command, plan?.argv.slice(1) ?? args, { cwd: opts.cwd, env: { ...process.env, ...opts.env } });
     this.pid = this.child.pid ?? -1;
+    // Drop the session-specific profile once the child is definitively gone. Bound
+    // to the child's own 'exit'/'error' rather than this object's onExit fan-out,
+    // so a throwing subscriber cannot strand the file.
+    if (plan !== undefined) {
+      const cleanup = (): void => plan.cleanup();
+      this.child.once('exit', cleanup);
+      this.child.once('error', cleanup);
+    }
 
     // Guarded by `this.exitCode !== null`: the handshake-timeout handler below can
     // already have declared the session dead (SIGKILL + exitCode 1) before this

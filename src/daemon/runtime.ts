@@ -1,6 +1,7 @@
 import { CrossweaveError } from '../core/errors.js';
 import type { AgentAdapter, AgentProcess } from '../adapters/types.js';
 import type { SessionRow } from '../db/repositories/session.js';
+import { sandboxTmpDir, type SandboxSpec } from '../isolation/sandbox.js';
 import type { MethodContext } from './server.js';
 
 const SCROLLBACK_LIMIT = 64 * 1024;
@@ -37,7 +38,12 @@ export class SessionRuntime {
 
   constructor(private readonly onExit: (sessionId: string, code: number) => void) {}
 
-  start(session: SessionRow, adapter: AgentAdapter, env: Record<string, string> = {}): number {
+  start(
+    session: SessionRow,
+    adapter: AgentAdapter,
+    env: Record<string, string> = {},
+    sandbox?: SandboxSpec,
+  ): number {
     if (this.running.has(session.id)) {
       throw new CrossweaveError('SESSION_ALREADY_RUNNING', `Session already running: ${session.name}`);
     }
@@ -45,13 +51,23 @@ export class SessionRuntime {
       throw new CrossweaveError('SESSION_NO_WORKDIR', `Session has no working directory: ${session.name}`);
     }
 
+    // A sandboxed session's `TMPDIR` points at its private temp dir, which the profile
+    // grants write access to. Leaving it at the host's `/var/folders/...` would let a
+    // session's temp files land in a location shared with every other process — the
+    // one hole the per-session temp root exists to close. Set AFTER the caller's env
+    // so a forwarded `TMPDIR` cannot widen it back out.
+    const sandboxedEnv = sandbox === undefined
+      ? env
+      : { ...env, TMPDIR: sandboxTmpDir(sandbox.projectRoot, session.id) };
+
     const proc = adapter.spawn({
       cwd: session.worktreePath,
       // CW_SESSION_ID/CW_SESSION_NAME are set last deliberately: a lease must never
       // be able to overwrite the session's own identity.
-      env: { ...env, CW_SESSION_ID: session.id, CW_SESSION_NAME: session.name },
+      env: { ...sandboxedEnv, CW_SESSION_ID: session.id, CW_SESSION_NAME: session.name },
       cols: 80,
       rows: 24,
+      sandbox,
     });
 
     const entry: RunningSession = { proc, scrollback: '', subscribers: new Set() };

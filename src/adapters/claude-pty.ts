@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { EnforcementTier } from '../db/repositories/session.js';
+import { planSandbox } from '../isolation/sandbox.js';
 import type { AgentAdapter, AgentProcess, SpawnOptions } from './types.js';
 
 /**
@@ -166,18 +167,38 @@ export class ClaudePtyAdapter implements AgentAdapter {
   spawn(opts: SpawnOptions): AgentProcess {
     let wrapper: PtyProcess | undefined;
 
-    const proc = Bun.spawn([this.command, ...this.args, '--settings', radarHookSettings()], {
-      cwd: opts.cwd,
-      env: { ...process.env, ...opts.env, TERM: 'xterm-256color' },
-      terminal: {
-        cols: opts.cols,
-        rows: opts.rows,
-        data(_terminal: unknown, chunk: string | Uint8Array) {
-          const text = typeof chunk === 'string' ? chunk : new TextDecoder().decode(chunk);
-          wrapper?.emit(text);
+    // The settings JSON is part of THIS adapter's argv, so the sandbox line is
+    // assembled here rather than in the daemon (see SpawnOptions.sandbox).
+    const agentArgs = [...this.args, '--settings', radarHookSettings()];
+    const plan = opts.sandbox === undefined ? undefined : planSandbox(opts.sandbox, this.command, agentArgs);
+
+    let proc: BunPtyProcess;
+    try {
+      proc = Bun.spawn(plan?.argv ?? [this.command, ...agentArgs], {
+        cwd: opts.cwd,
+        env: { ...process.env, ...opts.env, TERM: 'xterm-256color' },
+        terminal: {
+          cols: opts.cols,
+          rows: opts.rows,
+          data(_terminal: unknown, chunk: string | Uint8Array) {
+            const text = typeof chunk === 'string' ? chunk : new TextDecoder().decode(chunk);
+            wrapper?.emit(text);
+          },
         },
-      },
-    }) as unknown as BunPtyProcess;
+      }) as unknown as BunPtyProcess;
+    } catch (err) {
+      // `Bun.spawn` throws synchronously (e.g. ENOENT) BEFORE any process exists, so
+      // the `exited` registration below would never run and the profile — written by
+      // planSandbox above — would be left behind. The caller rethrows; this only
+      // ensures the file does not outlive the attempt.
+      plan?.cleanup();
+      throw err;
+    }
+
+    // The generated profile is session-specific scratch; drop it once the process is
+    // gone. Registered on the raw exited promise (not PtyProcess's listener fan-out,
+    // where a throwing subscriber could starve this) so teardown cannot be skipped.
+    if (plan !== undefined) void proc.exited.then(() => plan.cleanup());
 
     wrapper = new PtyProcess(proc);
     return wrapper;

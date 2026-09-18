@@ -39,6 +39,7 @@ import { platformSend } from '../notify/macos.js';
 import { BroadcastRegistry } from './broadcast.js';
 import { measureWorktrees } from '../isolation/disk-guard.js';
 import { LeaseRepo } from '../db/repositories/lease.js';
+import { decideSandbox } from '../isolation/sandbox.js';
 
 function str(params: Record<string, unknown>, key: string): string {
   const v = params[key];
@@ -303,9 +304,26 @@ export function buildMethods(
       // A lease must win over the client's shell, or a session's port would depend
       // on what the user happened to export.
       const env = { ...clientEnv(p), ...(await leaseManager.acquire(row.id)) };
+      const sandbox = decideSandbox({
+        enabled: config.sandbox.enabled,
+        network: config.sandbox.network,
+        projectRoot,
+        worktreePath: row.worktreePath,
+        branch: row.branch,
+        sessionId: row.id,
+      });
+      // Silence here would be a lie of omission: a workspace that asked for a boundary
+      // and got none (no provider on this platform, a shared-checkout session) must be
+      // able to see that in the daemon log, not only infer it from coverage labels.
+      if (sandbox.spec === undefined && sandbox.skip !== 'disabled') {
+        process.stderr.write(
+          `crossweave: session ${row.name} runs WITHOUT an OS sandbox (${sandbox.skip}); ` +
+          'writes outside its worktree are not confined on this platform/session shape.\n',
+        );
+      }
       let pid: number;
       try {
-        pid = runtime.start(row, sessions.adapterFor(row.agentKind), env);
+        pid = runtime.start(row, sessions.adapterFor(row.agentKind), env, sandbox.spec);
       } catch (err) {
         // A spawn can fail synchronously — Bun.spawn throws `Executable not found in
         // $PATH` before any process exists — and the lease block was already acquired

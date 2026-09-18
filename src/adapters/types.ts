@@ -1,10 +1,21 @@
 import type { EnforcementTier } from '../db/repositories/session.js';
+import type { SandboxSpec } from '../isolation/sandbox.js';
 
 export interface SpawnOptions {
   cwd: string;
   env: Record<string, string>;
   cols: number;
   rows: number;
+  /**
+   * The OS boundary to wrap this session in, or `undefined` to spawn as before.
+   *
+   * A SPEC, not a built plan: each adapter knows its own argv (`--settings`, `--trust
+   * agent acp`, …), so the final `sandbox-exec -f … <command> <args>` line can only be
+   * assembled at the spawn site. The daemon decides WHETHER to sandbox (config +
+   * platform); the adapter decides HOW its own command is wrapped. Absent means no
+   * boundary — the daemon says so out loud and the session runs as it always did.
+   */
+  sandbox?: SandboxSpec;
 }
 
 export interface AgentProcess {
