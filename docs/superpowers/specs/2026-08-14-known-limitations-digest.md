@@ -23,7 +23,7 @@ stop a write, check which tier you're on. (M5a, M5b)
 
 **Only `Edit`/`Write` tool calls are blocked.** A write made through the `Bash`
 tool — `sed -i`, `> file`, `git checkout -- file`, or a script the agent
-wrote and then ran — is not blocked by any tier. The Collision Radar *does* see
+wrote and then ran — is not blocked by any *tier*. The Collision Radar *does* see
 it, but after the fact: `fs.watch` indexes the write (immediately when the
 agent's own PostToolUse hook fires, otherwise on a 500ms debounce), so a
 collision arrives as a retroactive notice, never as a stop. The PreToolUse hook
@@ -32,6 +32,16 @@ string and it only ever advises — a block stays reserved for a write the daemo
 actually evaluated. Every tier is printed with what it really covers
 (`T2 · Edit|Write`) rather than a bare tier that reads as protection.
 (2026-09-17-tier-coverage-honesty-design.md)
+
+**The gap is closed at a different layer, not by the tiers.** Since
+2026-09-18 a session process runs inside an **OS sandbox** (macOS seatbelt):
+the write through `Bash` is still not *intercepted*, but it is *impossible*
+outside the session's own worktree — the boundary is on the process, so a
+shell, a script, or a subprocess cannot escape it. Network is denied unless the
+workspace opts in. This is **macOS-only for now**: with no provider (Linux,
+Windows, or a `--no-worktree` session sharing the main checkout) the session
+runs unconfined and the daemon logs that fact. See
+`2026-09-18-os-sandbox-design.md`.
 
 **The Cursor path that works is advisory.** `cursor-agent` builds from
 2026.08 removed ACP, so `--agent cursor` (T1) can no longer run — it now fails
@@ -53,7 +63,8 @@ collisions rely on the live hook/watcher path, not `blame`. (M2)
 injects per-session port, Docker, cache, and database environment values,
 but an agent or subprocess that ignores those values can still use shared
 resources and collide with another session. Lease visibility helps diagnose
-that risk; it does not sandbox the process.
+that risk; the OS sandbox (above) confines *writes*, not ports — it does not
+stop a session from ignoring its leased port and squatting on another's.
 
 ## Everyday gaps worth knowing, not blocking
 

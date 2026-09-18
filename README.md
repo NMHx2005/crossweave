@@ -159,6 +159,34 @@ Per-repo settings live in `crossweave.config.json` at the repo root
 preferences, and `converge.testCommand` (must be explicitly trusted via
 `cw config trust` before crossweave will run it — it's arbitrary shell).
 
+### OS-level session sandbox
+
+Safe Mode intercepts what an agent *reports* about its tool calls, so a write
+made through a shell or a subprocess slips past every tier. The sandbox closes
+that by confining the session **process** itself:
+
+```jsonc
+{
+  "sandbox": {
+    "enabled": true,   // default; runs each session under an OS boundary
+    "network": false   // default; opt in when the session needs the network
+  }
+}
+```
+
+On macOS each session spawns under `sandbox-exec` with a generated seatbelt
+profile: it may write inside its own worktree and its private temp dir, and
+nowhere else — not the main checkout, not another session's worktree, not
+`$HOME`, not `.git/config` or hooks. Commits still work, because the profile
+grants exactly the object/ref/log shapes `git commit` writes in the *shared*
+`.git` a linked worktree commits through. Network is denied unless
+`sandbox.network` is true.
+
+Where no provider exists the session runs unconfined **and says so**: the
+daemon logs `runs WITHOUT an OS sandbox (<reason>)` and the CLI keeps printing
+the tier with its real coverage. Linux (`bubblewrap`) is specified but not yet
+built — see `docs/superpowers/specs/2026-09-18-os-sandbox-design.md`.
+
 ## Contributing / development
 
 ```bash

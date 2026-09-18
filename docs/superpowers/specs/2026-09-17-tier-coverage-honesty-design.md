@@ -95,12 +95,21 @@ write *impossible*. Closing it for real means an OS boundary around the session 
 which is a different kind of change (new runtime surface, per-platform code, interaction
 with leases and worktrees) and is scoped as its own milestone — see §5.
 
-## 5. Deferred: OS-level session sandbox (proposal)
+## 5. Built: OS-level session sandbox
+
+> **Update, 2026-09-18.** This section was a proposal; it is now implemented for
+> macOS. The design that shipped — the shared-`.git` solution, the measured profile,
+> and what it still does not stop — is `2026-09-18-os-sandbox-design.md`. The
+> bullet list below is kept as the record of what was open *before* the work, and
+> every open question in it is now answered in that document. Linux (`bubblewrap`)
+> remains unbuilt.
+
+### Original proposal (kept for the record)
 
 **Goal.** A session's agent process runs inside an OS boundary such that it can write
 only inside its own worktree and the paths its leases own, with network access opt-in.
 
-- **macOS:** `sandbox-exec` with a generated seatbelt profile (`allow file-write*` scoped
+- **macOS (BUILT):** `sandbox-exec` with a generated seatbelt profile (`allow file-write*` scoped
   to `subpath` of the worktree + leased caches/tmp, `allow network*` only when the
   workspace config opts in). Deprecated API, but present and adequate.
 - **Linux:** `bubblewrap` (`--ro-bind /`, `--bind worktree`, `--unshare-net` unless opted
