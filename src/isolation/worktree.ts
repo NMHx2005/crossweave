@@ -22,6 +22,30 @@ function worktreeRoot(projectRoot: string): string {
   return join(crossweaveDir(projectRoot), 'worktrees');
 }
 
+/**
+ * True when `worktreePath` is one crossweave created.
+ *
+ * crossweave creates worktrees in exactly two places, both under `.crossweave/`: a
+ * session's at `.crossweave/worktrees/<sessionId>` and the integration scratch at
+ * `.crossweave/integration`. So `.crossweave/` is the whole of what crossweave owns
+ * on disk, and any other worktree `git worktree list` reports — `.worktrees/feat-x`,
+ * a second checkout for a long-running branch — is the user's own, uncommitted work
+ * included. No session row claims those either, which is why "unclaimed" alone is not
+ * enough to make one ours to delete.
+ *
+ * Fails closed: an unresolvable `.crossweave` (it does not exist yet) reports "not
+ * ours", so the caller skips it rather than reclaiming something it cannot prove it
+ * created.
+ */
+export function isCrossweaveWorktree(projectRoot: string, worktreePath: string): boolean {
+  try {
+    assertContained(crossweaveDir(projectRoot), worktreePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function createWorktree(
   projectRoot: string,
   sessionId: string,

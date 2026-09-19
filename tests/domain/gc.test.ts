@@ -174,6 +174,30 @@ describe('collectOrphans', () => {
     expect(result.removed).toHaveLength(1);
     expect(existsSync(row.worktreePath ?? '')).toBe(false);
   }, 30_000);
+
+  // crossweave creates worktrees in exactly two places, both under `.crossweave/`
+  // (a session's at `.crossweave/worktrees/<id>`, the integration scratch at
+  // `.crossweave/integration`). A worktree anywhere else — `.worktrees/`, a second
+  // checkout for a long-running branch — is the user's, and no session row claims
+  // it either way, so "unclaimed" alone cannot make it ours. Before this guard the
+  // sweep reclaimed every unclaimed worktree `git worktree list` reported, which
+  // meant the boot sweep destroyed the developer's own in-progress worktrees,
+  // uncommitted work included, on the first `cw` command run from the repo root.
+  it('never reclaims a worktree crossweave did not create', async () => {
+    const { simpleGit } = await import('simple-git');
+    const devPath = join(fx.root, '.worktrees', 'mine');
+    await simpleGit(fx.root).raw(['worktree', 'add', '-b', 'feat/mine', devPath]);
+    await writeFile(join(devPath, 'work.txt'), 'uncommitted work\n');
+
+    // Aged past the grace window so nothing but the ownership check can save it.
+    const old = new Date(Date.now() - 10_000);
+    utimesSync(devPath, old, old);
+
+    const result = await collectOrphans(db, workspaceId);
+
+    expect(result.removed).toEqual([]);
+    expect(existsSync(join(devPath, 'work.txt'))).toBe(true);
+  }, 30_000);
 });
 
 describe('boot-time gc', () => {
@@ -207,5 +231,19 @@ describe('boot-time gc', () => {
     await new Promise((r) => setTimeout(r, 1000));
 
     expect(existsSync(row.worktreePath ?? '')).toBe(false);
+  }, 30_000);
+
+  it('does not destroy the developer\'s own worktree on daemon restart', async () => {
+    const { simpleGit } = await import('simple-git');
+    const devPath = join(fx.root, '.worktrees', 'mine');
+    await simpleGit(fx.root).raw(['worktree', 'add', '-b', 'feat/mine', devPath]);
+    await writeFile(join(devPath, 'work.txt'), 'uncommitted work\n');
+    const old = new Date(Date.now() - 10_000);
+    utimesSync(devPath, old, old);
+
+    buildMethods(db, fx.root);
+    await new Promise((r) => setTimeout(r, 1000));
+
+    expect(existsSync(join(devPath, 'work.txt'))).toBe(true);
   }, 30_000);
 });

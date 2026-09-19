@@ -15,11 +15,20 @@ import { ConvergenceScheduler } from '../../src/daemon/convergence-scheduler.js'
 import { DEFAULT_CONFIG } from '../../src/core/config.js';
 import { makeGitFixture, commitFile } from '../helpers/git-fixture.js';
 
+/**
+ * `buildMethods` runs the boot-time orphan sweep, and `converge.status` reads the base
+ * HEAD — so these tests need a real git repo. They must not use `process.cwd()` for it:
+ * that is the developer's own checkout, and the sweep used to reclaim every unclaimed
+ * worktree `git worktree list` reported, so running this suite from a repo root
+ * destroyed that repo's worktrees (uncommitted work included). A throwaway fixture is
+ * the same real repo, with none of that blast radius.
+ */
 describe('converge.status RPC', () => {
   test('classifies every active session as unknown when no convergence trials exist', async () => {
+    const fixture = await makeGitFixture();
     const db = openDatabase(':memory:');
     new WorkspaceRepo(db).insert({
-      id: 'ws_1', name: 'w', rootPath: process.cwd(), createdAt: 'now',
+      id: 'ws_1', name: 'w', rootPath: fixture.root, createdAt: 'now',
       defaultIsolation: 'worktree', safeModeTier: 'T1',
     });
     const sessions = new SessionRepo(db);
@@ -31,29 +40,34 @@ describe('converge.status RPC', () => {
       });
     }
 
-    const methods = buildMethods(db, process.cwd());
-    const result = (await methods['converge.status']!(
-      { workspaceId: 'ws_1' },
-      { notify: () => undefined, onClose: () => undefined },
-    )) as {
-      ready: string[];
-      conflictFree: string[];
-      unknown: { name: string; reason: string }[];
-      blocked: { name: string; reason: string }[];
-    };
+    try {
+      const methods = buildMethods(db, fixture.root);
+      const result = (await methods['converge.status']!(
+        { workspaceId: 'ws_1' },
+        { notify: () => undefined, onClose: () => undefined },
+      )) as {
+        ready: string[];
+        conflictFree: string[];
+        unknown: { name: string; reason: string }[];
+        blocked: { name: string; reason: string }[];
+      };
 
-    expect(result.ready).toEqual([]);
-    expect(result.conflictFree).toEqual([]);
-    expect(result.unknown).toEqual([
-      { name: 'a', reason: 'no pairwise trial with b' },
-      { name: 'b', reason: 'no pairwise trial with a' },
-    ]);
-    expect(result.blocked).toEqual([]);
+      expect(result.ready).toEqual([]);
+      expect(result.conflictFree).toEqual([]);
+      expect(result.unknown).toEqual([
+        { name: 'a', reason: 'no pairwise trial with b' },
+        { name: 'b', reason: 'no pairwise trial with a' },
+      ]);
+      expect(result.blocked).toEqual([]);
+    } finally {
+      await fixture.cleanup();
+    }
   });
 
   test('classifies sessions with fresh clean pairwise evidence as ready', async () => {
+    const fixture = await makeGitFixture();
     const db = openDatabase(':memory:');
-    const projectRoot = process.cwd();
+    const projectRoot = fixture.root;
     const baseHead = execFileSync('git', ['rev-parse', '--verify', 'HEAD'], {
       cwd: projectRoot, encoding: 'utf8',
     }).trim();
@@ -89,12 +103,14 @@ describe('converge.status RPC', () => {
     expect(result.conflictFree).toEqual(result.ready);
     expect(result.unknown).toEqual([]);
     expect(result.blocked).toEqual([]);
+    await fixture.cleanup();
   });
 
   test('reports the pairwise matrix and recommended order from seeded trial data', async () => {
+    const fixture = await makeGitFixture();
     const db = openDatabase(':memory:');
     new WorkspaceRepo(db).insert({
-      id: 'ws_1', name: 'w', rootPath: '/tmp/w', createdAt: 'now',
+      id: 'ws_1', name: 'w', rootPath: fixture.root, createdAt: 'now',
       defaultIsolation: 'worktree', safeModeTier: 'T1',
     });
     const sessions = new SessionRepo(db);
@@ -116,7 +132,7 @@ describe('converge.status RPC', () => {
       result: 'conflict', detail: 'x.ts', baseHead: '', pairwise: true,
     });
 
-    const methods = buildMethods(db, process.cwd());
+    const methods = buildMethods(db, fixture.root);
     const result = (await methods['converge.status']!(
       { workspaceId: 'ws_1' },
       { notify: () => undefined, onClose: () => undefined },
@@ -125,12 +141,14 @@ describe('converge.status RPC', () => {
     expect(result.pairwise).toHaveLength(1);
     expect(result.recommendedOrder).toEqual(['a', 'b']);
     expect(result.degraded).toBe(false);
+    await fixture.cleanup();
   });
 
   test('reports degraded once active sessions exceed converge.pairwiseSessionThreshold', async () => {
+    const fixture = await makeGitFixture();
     const db = openDatabase(':memory:');
     new WorkspaceRepo(db).insert({
-      id: 'ws_1', name: 'w', rootPath: '/tmp/w', createdAt: 'now',
+      id: 'ws_1', name: 'w', rootPath: fixture.root, createdAt: 'now',
       defaultIsolation: 'worktree', safeModeTier: 'T1',
     });
     const sessions = new SessionRepo(db);
@@ -143,13 +161,14 @@ describe('converge.status RPC', () => {
       });
     }
 
-    const methods = buildMethods(db, process.cwd());
+    const methods = buildMethods(db, fixture.root);
     const result = (await methods['converge.status']!(
       { workspaceId: 'ws_1' },
       { notify: () => undefined, onClose: () => undefined },
     )) as { degraded: boolean };
 
     expect(result.degraded).toBe(true);
+    await fixture.cleanup();
   });
 
   // Important 1: `recommendedOrder` is an ordering of every ACTIVE session,
@@ -157,13 +176,14 @@ describe('converge.status RPC', () => {
   // conflict-free subset so it lands what it safely can instead of halting the
   // whole batch on a session that was never going to land cleanly.
   test('conflictFree excludes every session with a known conflict, unlike recommendedOrder', async () => {
+    const fixture = await makeGitFixture();
     const db = openDatabase(':memory:');
-    const projectRoot = process.cwd();
+    const projectRoot = fixture.root;
     const baseHead = execFileSync('git', ['rev-parse', '--verify', 'HEAD'], {
       cwd: projectRoot, encoding: 'utf8',
     }).trim();
     new WorkspaceRepo(db).insert({
-      id: 'ws_1', name: 'w', rootPath: '/tmp/w', createdAt: 'now',
+      id: 'ws_1', name: 'w', rootPath: projectRoot, createdAt: 'now',
       defaultIsolation: 'worktree', safeModeTier: 'T1',
     });
     const sessions = new SessionRepo(db);
@@ -215,6 +235,7 @@ describe('converge.status RPC', () => {
     expect(result.conflictFree).not.toContain('a');
     expect(result.conflictFree).not.toContain('b');
     expect(result.fullIntegration?.baseHead).toBe(baseHead);
+    await fixture.cleanup();
   });
 });
 

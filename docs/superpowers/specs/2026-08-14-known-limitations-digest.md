@@ -102,6 +102,12 @@ work closed these previously recorded gaps:
   not a false `LAND_MERGE_FAILED`.
 - `cw land all` re-fetches convergence status after each successful land
   instead of acting on one stale initial snapshot.
+- The boot-time orphan sweep reclaims only worktrees under `.crossweave/`. It used
+  to reclaim every unclaimed worktree `git worktree list` reported, which included
+  worktrees the user made by hand — so the first `cw` command run from a repo root
+  destroyed the developer's own in-progress worktrees, uncommitted work included.
+  A worktree outside `.crossweave/` is now never crossweave's to delete.
+  (`2026-09-19-orphan-sweep-scope.md`)
 
 ## Full list, per milestone
 

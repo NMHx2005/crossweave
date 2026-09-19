@@ -6,7 +6,7 @@ import { WorkspaceRepo, type WorkspaceRow } from '../db/repositories/workspace.j
 import { LeaseRepo } from '../db/repositories/lease.js';
 import { CrossweaveError } from '../core/errors.js';
 import { assertContained, crossweaveDir } from '../core/paths.js';
-import { removeWorktree, deleteBranch, listWorktreePaths } from '../isolation/worktree.js';
+import { removeWorktree, deleteBranch, listWorktreePaths, isCrossweaveWorktree } from '../isolation/worktree.js';
 import { measureWorktrees, directorySize } from '../isolation/disk-guard.js';
 
 export interface GcResult {
@@ -123,6 +123,13 @@ async function reclaimEnded(
  * worktree it leaves behind is invisible to a walk over sessions — those no longer
  * exist. Found by end-to-end testing of M0: two orphans and three branches survived a
  * `workspace delete --force`.
+ *
+ * Scoped to crossweave's own worktrees on purpose. "No session row claims it" is not
+ * the same as "we may delete it": `git worktree list` also reports worktrees the user
+ * made by hand, and those have no session row either. An unscoped sweep reclaimed them
+ * too — destroying a developer's in-progress worktree, uncommitted work and all, the
+ * first time any `cw` command ran from the repo root. `isCrossweaveWorktree` is what
+ * separates the two.
  */
 async function sweepOrphans(
   db: Database,
@@ -134,6 +141,7 @@ async function sweepOrphans(
   let reclaimedBytes = 0;
 
   for (const path of await listWorktreePaths(workspace.rootPath)) {
+    if (!isCrossweaveWorktree(workspace.rootPath, path)) continue;
     if (repo.findByWorktreePath(path) !== undefined) continue;
     if (disposedPaths.has(path)) continue;
 
