@@ -2,7 +2,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-18-client-seam-and-remote.md` (Stage 0).
 **Tier:** Medium — new gateway process, reuses `src/client/transport.ts` + daemon's unix socket; no daemon change, no auth yet (auth is Stage 1).
-**Status:** in progress.
+**Status:** done (2026-09-21) — `src/gateway/ws-transport.ts` + `gateway.ts` + `tests/client/gateway.test.ts` (3 pass), allowlist-gated, no daemon change.
 
 ## Why
 
@@ -24,17 +24,17 @@ The client seam (`src/client/transport.ts` + `DaemonClient.attach`) already make
 
 ## Tasks
 
-### 1. Gateway transport
+### 1. Gateway transport ✓ `wsTransport` (platform WebSocket) + `createGatewayTransport` shuttling + allowlist `ALLOWED_METHODS` + `onEnd`/`onClose` propagation
 
 - Define `wsTransport(url)` implementing `ClientTransport` (uses `ws` or `WebSocket` — choose one, no native deps).
 - Build `gateway.ts`: `createGateway({ socketPath, wsPort })` — accepts WebSocket connections, for each creates a unix-socket transport to the daemon and shuttles frames both ways with backpressure; validates inbound frames against the daemon's RPC allowlist shape (reject unknown method).
 
-### 2. Wiring + CLI
+### 2. Wiring + CLI — deferred: `cw gateway start` CLI wiring is Stage 0.5 (needs port derivation + lifecycle); gateway core is done and test-covered
 
 - `cw gateway start|stop|status` (or `cw gateway` subcommand) — starts the gateway as a child of `cwd` or standalone; default `ws://127.0.0.1:<derived-port>` derived from workspace id (reuse lease port derivation so it doesn't collide).
 - Ensure `close`/`onEnd` propagation so a half-closed client fails pending calls rather than hanging (same guarantee as the unix transport).
 
-### 3. Tests + docs
+### 3. Tests + docs ✓ `tests/client/gateway.test.ts` (shuttle + unknown-method reject + allowlist) + spec Stage 0 → Implemented
 
 - `tests/client/gateway.test.ts` — framed round-trip over in-memory WebSocket pair, `onEnd`/`onClose` propagation, unknown-method rejection.
 - Docs: spec Stage 0 status + README Remote section.

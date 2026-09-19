@@ -1,7 +1,7 @@
 # The client seam, and what remote would take
 
 **Date:** 2026-09-18
-**Status:** seam built (`src/client/transport.ts`); remote is designed, not built.
+**Status:** seam built (`src/client/transport.ts`); gateway Stage 0 built (`src/gateway/` — local WS shuttling, allowlist-gated, in-memory tests). Remote auth (Stage 1+) is designed, not built.
 **Scope:** how a client reaches the daemon, and the honest cost of reaching it from
 somewhere other than this machine.
 
@@ -62,7 +62,7 @@ change that turns a design decision into a vulnerability.
 
 | Stage | What | Why this order |
 |---|---|---|
-| 0 | **Gateway**: a process that speaks JSON-RPC to the unix socket on one side and WebSocket on the other, reusing the Cockpit's closed channel allowlist as the shape | Proves the whole flow with no change to the daemon, and the daemon stays local |
+| 0 | **Gateway** ✓: `src/gateway/gateway.ts` + `ws-transport.ts` shuttling `ClientTransport` ↔ WebSocket over loopback, allowlist-gated, in-memory `gateway.test.ts` | Proves the whole flow with no change to the daemon, and the daemon stays local |
 | 1 | **Auth**: token per workspace, TLS, read-vs-control split, revocation | The gate on everything after it |
 | 2 | **Clients**: web pane (xterm.js — the Cockpit already proves the rendering half), notifications through the existing `notify` seam | Reuses the seam and the shared token layer |
 | 3 | **Multi-machine / hosted relay** | Agents and code on someone else's infrastructure — a different trust question, deliberately deferred |
