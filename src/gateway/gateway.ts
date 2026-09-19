@@ -1,5 +1,6 @@
 import type { ClientTransport } from '../client/transport.js';
 import { unixSocketTransport } from '../client/transport.js';
+import { READ_METHODS, appendAudit } from './auth.js';
 
 /**
  * Stage 0 gateway: one WebSocket connection ↔ one unix-socket connection.
@@ -32,6 +33,9 @@ export async function createGatewayTransport(
 ): Promise<{ close: () => void }> {
   const daemon = await (opts.connectDaemon ?? unixSocketTransport)(opts.socketPath);
   let authed = opts.requireToken === undefined;
+  // When requireToken was set, the presented token's kind decides what may be forwarded
+  // For file-backed verify, we also support opts.projectRoot + verifyToken()
+  let authedKind: 'read' | 'control' | undefined = authed ? 'control' : undefined;
 
   const onClientData = (chunk: Buffer | string) => {
     const text = chunk.toString();
@@ -48,6 +52,7 @@ export async function createGatewayTransport(
             ?? (msg.params as Record<string, unknown> | undefined)?._token;
           if (tok === opts.requireToken) {
             authed = true;
+            authedKind = 'control';
             // Strip token before forwarding so the daemon never sees it
             if (msg.params) { delete (msg.params as Record<string, unknown>).token; delete (msg.params as Record<string, unknown>)._token; }
             // Rewrite line without token
@@ -59,6 +64,11 @@ export async function createGatewayTransport(
             clientTransport.write(JSON.stringify({ jsonrpc: '2.0', id: msg.id, error: { code: -32000, message: 'Unauthorized: gateway token required' } }) + '\n');
           }
           blocked = true;
+        } else if (msg.method && authedKind === 'read' && !READ_METHODS.has(msg.method)) {
+          if (typeof msg.id === 'number') {
+            clientTransport.write(JSON.stringify({ jsonrpc: '2.0', id: msg.id, error: { code: -32000, message: `Forbidden: ${msg.method} requires a control token` } }) + '\n');
+          }
+          blocked = true;
         } else if (msg.method && !ALLOWED_METHODS.has(msg.method)) {
           if (typeof msg.id === 'number') {
             clientTransport.write(JSON.stringify({ jsonrpc: '2.0', id: msg.id, error: { code: -32601, message: `Method not found: ${msg.method}` } }) + '\n');
@@ -68,7 +78,17 @@ export async function createGatewayTransport(
       } catch {}
       if (!blocked) forwarded += line + '\n';
     }
-    if (forwarded.trim()) daemon.write(forwarded);
+    if (forwarded.trim()) {
+      // Audit every forwarded method
+      try {
+        for (const line of forwarded.split('\n')) {
+          if (!line.trim()) continue;
+          const m = JSON.parse(line) as { method?: string };
+          if (m.method && opts.projectRoot) appendAudit(opts.projectRoot, { method: m.method, kind: authedKind });
+        }
+      } catch {}
+      daemon.write(forwarded);
+    }
   };
   const onDaemonData = (chunk: Buffer | string) => clientTransport.write(chunk.toString());
 

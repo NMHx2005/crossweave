@@ -31,11 +31,11 @@ describe('gateway auth token', () => {
     const tok = issueGatewayToken(dir);
     expect(tok.length).toBe(64);
     expect(readGatewayToken(dir)).toBe(tok);
-    expect(verifyToken(dir, tok)).toBe(true);
-    expect(verifyToken(dir, 'bad')).toBe(false);
+    expect(verifyToken(dir, tok)).toBe('control');
+    expect(verifyToken(dir, 'bad')).toBeUndefined();
     expect(revokeGatewayToken(dir)).toBe(true);
     expect(readGatewayToken(dir)).toBeUndefined();
-    expect(verifyToken(dir, tok)).toBe(false);
+    expect(verifyToken(dir, tok)).toBeUndefined();
     rmSync(dir, { recursive: true, force: true });
   });
 });
@@ -65,5 +65,12 @@ describe('gateway auth gate', () => {
     // Token was stripped before reaching daemon — daemon saw no `token` in params
     const forwarded = JSON.parse(gwDaemon.sent[0]!);
     expect(forwarded.params?.token).toBeUndefined();
+  });
+
+  it('READ_METHODS only allows read methods', async () => {
+    const { READ_METHODS } = await import('../../src/gateway/auth.js');
+    expect(READ_METHODS.has('session.list')).toBe(true);
+    expect(READ_METHODS.has('land.session')).toBe(false);
+    expect(READ_METHODS.has('session.input')).toBe(false);
   });
 });
