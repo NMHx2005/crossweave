@@ -166,7 +166,7 @@ body,
   padding: var(--cw-space-1) var(--cw-space-2);
   background: transparent;
   color: var(--cw-text);
-  border: 0;
+  border: var(--cw-hairline) solid transparent;
   border-radius: var(--cw-radius-sm);
   text-align: left;
   font-family: inherit;
@@ -181,10 +181,10 @@ body,
 .cockpit-rail__item.is-focused {
   background: var(--cw-surface-active);
   color: var(--cw-text-bright);
-  box-shadow: inset var(--cw-bar-w) 0 0 0 var(--cw-accent);
+  border-color: var(--cw-border-strong);
   transition:
     background-color var(--cw-dur) var(--cw-ease),
-    box-shadow var(--cw-dur) var(--cw-ease);
+    border-color var(--cw-dur) var(--cw-ease);
 }
 
 .cockpit-rail__meta {
