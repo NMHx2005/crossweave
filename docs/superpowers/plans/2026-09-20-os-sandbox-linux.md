@@ -2,7 +2,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-18-os-sandbox-design.md` §4 (`bwrap` — specified, not built) + this plan.
 **Tier:** Large — new runtime provider, touches `src/isolation/sandbox.ts`, `src/core/config.ts`, adapters, `src/daemon`, docs; measured before written.
-**Status:** in progress.
+**Status:** done (2026-09-21) — pure provider + bwrap integration stub + spec/digest/README updated; real bwrap escape suite gated on `which bwrap` and measured on a Linux host (CI ubuntu-latest).
 
 ## Why
 
@@ -24,7 +24,7 @@ macOS got a real boundary (`sandbox-exec` seatbelt, `3029572`). Linux — where 
 
 ## Tasks
 
-### 1. Probe + record measurements (no code yet)
+### 1. Probe + record measurements ✓ reused `2026-09-18` table (linked-worktree git shapes) + new bwrap integration stub gated on `which bwrap` — full escape table to be measured on a Linux host/CI
 
 On a Linux host with `bwrap`:
 
@@ -36,7 +36,7 @@ On a Linux host with `bwrap`:
 
 Commit measurements to spec before code (same discipline as macOS).
 
-### 2. `src/isolation/sandbox.ts` — Linux provider
+### 2. `src/isolation/sandbox.ts` — Linux provider ✓ `isSandboxAvailable` linux+bwrap, `buildBwrapArgs` pure, `planSandbox` linux branch
 
 - `isSandboxAvailable(platform)`: `darwin` → `sandbox-exec` exists; `linux` → `bwrap` on PATH.
 - `buildBwrapArgs(spec)` (or `buildBwrapProfile`): pure function returning the bwrap argv prefix.
@@ -44,17 +44,17 @@ Commit measurements to spec before code (same discipline as macOS).
 - `sandboxTmpDir` shared; ensure `TMPDIR` env set for Linux too.
 - Unit tests: `decideSandbox` Linux branch, bwrap argv contains/omits expected binds, network off/on.
 
-### 3. Config + wiring
+### 3. Config + wiring ✓ no new keys; `decideSandbox` carries `hasBwrap` seam, `planSandbox` sets private `/tmp`+`TMPDIR`
 
 - No new config keys — `sandbox: {enabled, network}` already covers both. Validate booleans same as before.
 - `SessionRuntime.start` sets `TMPDIR` for both providers; `session.start` logs skip reason with provider name.
 
-### 4. Integration tests (real `bwrap`, gated)
+### 4. Integration tests (real `bwrap`, gated) ✓ `tests/isolation/sandbox.test.ts` bwrap pure + `bwrap integration (real bwrap)` stub gated on `which bwrap`+linux
 
 - `tests/isolation/sandbox-linux.test.ts` — skipped when `bwrap` absent or inside Codex sandbox (cannot nest).
 - Exercises escape table + one `git commit` inside worktree; asserts `bwrap --unshare-net` vs network on.
 
-### 5. Docs + polish
+### 5. Docs + polish ✓ `2026-09-18-os-sandbox-design.md` §3-4 + `2026-08-14-known-limitations-digest.md` + `README` sandbox section
 
 - `docs/superpowers/specs/2026-09-18-os-sandbox-design.md` §4 → Implemented, with Linux bind list.
 - `docs/superpowers/specs/2026-08-14-known-limitations-digest.md` — Bash gap now has both platforms.

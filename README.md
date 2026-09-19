@@ -181,18 +181,20 @@ that by confining the session **process** itself:
 }
 ```
 
-On macOS each session spawns under `sandbox-exec` with a generated seatbelt
+On **macOS** each session spawns under `sandbox-exec` with a generated seatbelt
 profile: it may write inside its own worktree and its private temp dir, and
 nowhere else — not the main checkout, not another session's worktree, not
 `$HOME`, not `.git/config` or hooks. Commits still work, because the profile
 grants exactly the object/ref/log shapes `git commit` writes in the *shared*
-`.git` a linked worktree commits through. Network is denied unless
-`sandbox.network` is true.
+`.git` a linked worktree commits through. On **Linux** the same promise is
+implemented with `bwrap` (bubblewrap) when it is on `PATH` — private `/tmp`,
+worktree-only writes, narrow git binds, `--unshare-net` when `network` is off.
+Network is denied unless `sandbox.network` is true.
 
-Where no provider exists the session runs unconfined **and says so**: the
-daemon logs `runs WITHOUT an OS sandbox (<reason>)` and the CLI keeps printing
-the tier with its real coverage. Linux (`bubblewrap`) is specified but not yet
-built — see `docs/superpowers/specs/2026-09-18-os-sandbox-design.md`.
+Where no provider exists (Linux without `bwrap`, Windows, or a `--no-worktree`
+session) the session runs unconfined **and says so**: the daemon logs
+`runs WITHOUT an OS sandbox (<reason>)` and the CLI keeps printing the tier
+with its real coverage. See `docs/superpowers/specs/2026-09-18-os-sandbox-design.md`.
 
 ## Contributing / development
 

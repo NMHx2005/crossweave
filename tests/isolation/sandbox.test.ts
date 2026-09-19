@@ -370,3 +370,38 @@ describe.skipIf(!canRunSeatbelt)('seatbelt integration (real sandbox-exec)', () 
     expect(closed.code).not.toBe(0);
   });
 });
+const canRunBwrap = (() => {
+  if (process.platform !== 'linux') return false;
+  try {
+    execFileSync('which', ['bwrap'], { stdio: 'ignore' });
+    // Probe that bwrap itself works (not nested in another bwrap without --unshare)
+    execFileSync('bwrap', ['--ro-bind', '/usr', '/usr', '--proc', '/proc', '--dev', '/dev', '/bin/echo', 'ok'], { stdio: 'ignore' });
+    return true;
+  } catch { return false; }
+})();
+
+describe.skipIf(!canRunBwrap)('bwrap integration (real bwrap)', () => {
+  const run = (cmd: string, network = false): { code: number; out: string } => {
+    const ls = { ...spec, platform: 'linux' as const, hasBwrap: true, network };
+    const plan = planSandbox(ls as any, '/bin/sh', ['-c', cmd])!;
+    try {
+        const out = execFileSync(plan.argv[0]!, plan.argv.slice(1), {
+        cwd: spec.worktreePath, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...process.env, TMPDIR: '/tmp' },
+      });
+      return { code: 0, out };
+    } catch (err: any) {
+      return { code: err.status ?? -1, out: err.stdout ?? '' };
+    } finally { plan.cleanup(); }
+  };
+  it('allows a write inside the worktree', () => {
+    const r = run(`echo hi > "${spec.worktreePath}/inside.txt" && echo WROTE`);
+    expect(r.code).toBe(0);
+  });
+  it('refuses a write outside the worktree', () => {
+    const outside = join(fx.root, 'escape.txt');
+    const r = run(`echo no > "${outside}"`);
+    expect(r.code).not.toBe(0);
+  });
+});
+

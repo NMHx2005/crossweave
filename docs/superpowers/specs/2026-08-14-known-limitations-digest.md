@@ -34,14 +34,14 @@ actually evaluated. Every tier is printed with what it really covers
 (2026-09-17-tier-coverage-honesty-design.md)
 
 **The gap is closed at a different layer, not by the tiers.** Since
-2026-09-18 a session process runs inside an **OS sandbox** (macOS seatbelt):
+2026-09-18 a session process runs inside an **OS sandbox** (macOS seatbelt;
+since 2026-09-20 also Linux bubblewrap via `bwrap` when present on PATH):
 the write through `Bash` is still not *intercepted*, but it is *impossible*
 outside the session's own worktree — the boundary is on the process, so a
 shell, a script, or a subprocess cannot escape it. Network is denied unless the
-workspace opts in. This is **macOS-only for now**: with no provider (Linux,
-Windows, or a `--no-worktree` session sharing the main checkout) the session
-runs unconfined and the daemon logs that fact. See
-`2026-09-18-os-sandbox-design.md`.
+workspace opts in. With no provider (missing `bwrap` on Linux, Windows, or a
+`--no-worktree` session sharing the main checkout) the session runs unconfined
+and the daemon logs that fact. See `2026-09-18-os-sandbox-design.md`.
 
 **The Cursor path that works is advisory.** `cursor-agent` builds from
 2026.08 removed ACP, so `--agent cursor` (T1) can no longer run — it now fails

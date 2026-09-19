@@ -1,7 +1,7 @@
 # OS-level session sandbox
 
 **Date:** 2026-09-18
-**Status:** Implemented (macOS seatbelt). Linux bubblewrap is specified but NOT built.
+**Status:** Implemented (macOS seatbelt + Linux bubblewrap — bwrap provider on `linux` when `bwrap` is on PATH).
 **Scope:** the session process boundary. `src/isolation/sandbox.ts`, `SpawnOptions`,
 the three adapters, daemon wiring (`SessionRuntime.start` + `session.start`), and the
 `sandbox` config block.
@@ -59,6 +59,13 @@ path in it is session-specific:
 The profile is written to `<tmp>/cw-sandbox-<sessionId>.sb` and passed as
 `sandbox-exec -f <file> <agent argv...>`.
 
+On Linux the provider is `bwrap` (bubblewrap). `buildBwrapArgs()` builds the
+prefix (`--die-with-parent`, `--unshare-pid/uts/ipc`, ro-binds for
+`/usr`/`/lib`/`/etc`/`/bin`, private `/tmp`, `--bind` worktree + narrow git
+subpaths + agent state + daemon/MCP sockets, `--unshare-net` when
+`sandbox.network` is false) and `planSandbox` appends `-- <agent ...>` — the
+same promise as seatbelt, expressed as mounts rather than a profile.
+
 ## 4. What this stops, and what it does not
 
 **Stops:** a write outside the worktree from any process in the session's tree — the
@@ -66,12 +73,15 @@ agent, a script it wrote, a subprocess it spawned. That is the property no hook 
 
 **Does not stop:** reads (`file-read*` is allowed; hiding the filesystem was tried and
 breaks every runtime), writes inside the worktree (that is the agent's job), and
-anything on a platform with no provider — `null` is returned there and the session runs
+anything on a platform with no provider — `undefined` is returned there and the session runs
 exactly as before. The absence is NOT silent: the daemon logs `session <name> runs
 WITHOUT an OS sandbox (<reason>)` at start. It is not yet surfaced per-session in
 `cw session list` or the cockpit rail — the tier labels there describe what the *tiers*
-do, not the sandbox, and adding a sandbox column is a separate change. **Linux is unimplemented**: `bwrap` exists on most distros and the shape is the
-same, but it is a separate runtime path with its own tests.
+do, not the sandbox, and adding a sandbox column is a separate change. On Linux
+`bwrap` (bubblewrap) is the provider; when absent the session runs unconfined
+with `no-provider` (same reason code as darwin without a provider) and the
+pure `buildBwrapArgs`/`planSandbox` linux branch plus a real-`bwrap` integration
+suite cover the same escape table as seatbelt.
 
 ## 5. Relationship to the tiers
 
