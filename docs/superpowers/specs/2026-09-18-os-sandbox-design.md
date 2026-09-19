@@ -85,9 +85,7 @@ agent, a script it wrote, a subprocess it spawned. That is the property no hook 
 breaks every runtime), writes inside the worktree (that is the agent's job), and
 anything on a platform with no provider — `undefined` is returned there and the session runs
 exactly as before. The absence is NOT silent: the daemon logs `session <name> runs
-WITHOUT an OS sandbox (<reason>)` at start. It is not yet surfaced per-session in
-`cw session list` or the cockpit rail — the tier labels there describe what the *tiers*
-do, not the sandbox, and adding a sandbox column is a separate change. On Linux
+WITHOUT an OS sandbox (<reason>)` at start. It is now surfaced per-session in `cw session list` (`sandbox` / `no sandbox (<reason>)` / `no worktree`) and the Cockpit rail's meta line (`formatSandboxLabel`/`formatRailMeta`), with the RPC `session.list` returning `sandbox: {confined, reason}` — the tier labels still describe what the *tiers* do, and the sandbox column describes the boundary. On Linux
 `bwrap` (bubblewrap) is the provider; when absent the session runs unconfined
 with `no-provider` (same reason code as darwin without a provider) and the
 pure `buildBwrapArgs`/`planSandbox` linux branch plus a real-`bwrap` integration
