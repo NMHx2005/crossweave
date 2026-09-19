@@ -2,7 +2,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-18-client-seam-and-remote.md` Stage 1.
 **Tier:** Medium — auth in gateway, no daemon change yet; token per workspace, read-vs-control split, revocation.
-**Status:** in progress.
+**Status:** done (2026-09-21) — `auth.ts` + `gateway.ts` requireToken gate + `gateway` CLI + `gateway-auth.test.ts` (3 pass). TLS (1b) and read/control split are next.
 
 ## Why
 
