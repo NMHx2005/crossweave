@@ -19,6 +19,9 @@ export const ALLOWED_METHODS = new Set([
 
 export interface GatewayOptions {
   socketPath: string;
+  projectRoot?: string;
+  /** When set, the first RPC must present this token (as param `token` or `_token`). */
+  requireToken?: string;
   /** Factory for tests — defaults to unixSocketTransport */
   connectDaemon?: (path: string) => Promise<ClientTransport>;
 }
@@ -28,6 +31,7 @@ export async function createGatewayTransport(
   opts: GatewayOptions,
 ): Promise<{ close: () => void }> {
   const daemon = await (opts.connectDaemon ?? unixSocketTransport)(opts.socketPath);
+  let authed = opts.requireToken === undefined;
 
   const onClientData = (chunk: Buffer | string) => {
     const text = chunk.toString();
@@ -37,8 +41,25 @@ export async function createGatewayTransport(
       if (!line.trim()) { forwarded += '\n'; continue; }
       let blocked = false;
       try {
-        const msg = JSON.parse(line) as { method?: string; id?: number };
-        if (msg.method && !ALLOWED_METHODS.has(msg.method)) {
+        const msg = JSON.parse(line) as { method?: string; id?: number; params?: Record<string, unknown> };
+        // Auth gate: first RPC must present the token when requireToken is set
+        if (!authed) {
+          const tok = (msg.params as Record<string, unknown> | undefined)?.token
+            ?? (msg.params as Record<string, unknown> | undefined)?._token;
+          if (tok === opts.requireToken) {
+            authed = true;
+            // Strip token before forwarding so the daemon never sees it
+            if (msg.params) { delete (msg.params as Record<string, unknown>).token; delete (msg.params as Record<string, unknown>)._token; }
+            // Rewrite line without token
+            const cleaned = JSON.stringify(msg);
+            forwarded += cleaned + '\n';
+            continue;
+          }
+          if (typeof msg.id === 'number') {
+            clientTransport.write(JSON.stringify({ jsonrpc: '2.0', id: msg.id, error: { code: -32000, message: 'Unauthorized: gateway token required' } }) + '\n');
+          }
+          blocked = true;
+        } else if (msg.method && !ALLOWED_METHODS.has(msg.method)) {
           if (typeof msg.id === 'number') {
             clientTransport.write(JSON.stringify({ jsonrpc: '2.0', id: msg.id, error: { code: -32601, message: `Method not found: ${msg.method}` } }) + '\n');
           }
