@@ -34,7 +34,7 @@ design and the milestone-by-milestone rollout.
 Core loop (workspace/session management, worktree isolation, Collision
 Radar, Convergence Engine, Safe Mode enforcement, budget tracking, push
 notifications, distribution/self-update, live TUI dashboard) is built,
-tested, and released — [`v0.1.0`](https://github.com/NMHx2005/crossweave/releases)
+tested, and released — [`v0.3.0`](https://github.com/NMHx2005/crossweave/releases)
 is the current published version.
 
 > [!NOTE]
@@ -61,8 +61,10 @@ curl -fsSL https://raw.githubusercontent.com/NMHx2005/crossweave/main/install.sh
 ```
 
 Installs `cw`/`cwd` to `~/.local/bin` for macOS (arm64/x64) and Linux
-(x64) — see `install.sh` at the repo root for exactly what it does
-(checksum-verified download, no `sudo`, no shell rc file edits).
+(x64). On macOS arm64, releases that carry the Cockpit asset also install it to
+`~/Applications/crossweave Cockpit.app` (the installer remains compatible with
+older releases that do not carry the app). Every downloaded artifact is
+checksum-verified; the installer uses no `sudo` and never edits shell rc files.
 
 `cw` checks for a newer version in the background (cached, at most once a
 day) and tells you to run `cw update` when one exists — never installs
@@ -143,6 +145,10 @@ For daily use, **crossweave Cockpit** is an Electron thin client over
 `cwd` — real xterm panes, an attention rail (working / needs-you /
 blocked / landability), and land selected / land all from the UI. Same
 daemon and evidence gate as the CLI; the app never spawns agents itself.
+On macOS arm64 the standard installer includes it when the selected release
+carries the app asset, and bare `cw` opens it
+for the current repository. If the app is absent or cannot launch, `cw`
+falls back to the TUI; `cw tui` always selects the terminal dashboard.
 
 | | |
 |---|---|

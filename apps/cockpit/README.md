@@ -42,6 +42,19 @@ The stage mounts xterm panes for listed sessions (up to four). **New** creates a
 
 ## Install (macOS arm64)
 
+For releases that include the Cockpit asset, the standard crossweave installer
+puts the app at `~/Applications/crossweave Cockpit.app` and installs `cw`/`cwd`
+alongside it. Older releases without that asset still install the CLI normally:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/NMHx2005/crossweave/main/install.sh | sh
+```
+
+Release pages also carry `cockpit-darwin-arm64.dmg` for manual installation.
+The app is not yet notarized, so macOS may require **System Settings → Privacy &
+Security → Open Anyway** on first launch. Release checksums protect the downloaded
+asset's integrity but do not replace Apple signing/notarization.
+
 Build a local `.dmg` / `.zip` from repo root:
 
 ```bash

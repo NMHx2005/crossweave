@@ -88,7 +88,10 @@ stop a session from ignoring its leased port and squatting on another's.
 - **Cockpit** (`apps/cockpit/`) is the macOS arm64 desktop client — multi-pane
   xterm, attention rail, evidence-gated land from UI. **Windows cockpit is
   deferred** until `cwd` runs on Windows (`macOS-only-v1`); no Linux cockpit
-  package in v1. The CLI TUI (`cw tui`) remains the cross-platform dashboard.
+  package in v1. The CLI TUI (`cw tui`) remains the cross-platform dashboard. Cockpit is not yet Apple-notarized; checksum verification
+  protects the downloaded release asset, while `cw tui` remains the recovery path
+  if LaunchServices accepts an app that later crashes. See
+  `2026-09-18-cockpit-daily-driver-known-limitations.md`.
 
 ## Gaps closed after the milestone reports
 
