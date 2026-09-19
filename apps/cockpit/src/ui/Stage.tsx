@@ -64,8 +64,8 @@ export function Stage({
       )}
       {status === 'empty' && (
         <p class="cockpit-placeholder">
-          No sessions. Use <strong>New</strong>, or <code>cw session new</code> (which starts the
-          agent).
+          No sessions. Use <strong>New</strong>, or <code>cw session new</code> then
+          <code>cw session start &lt;name&gt;</code> or <code>cw session attach &lt;name&gt;</code> to start it.
         </p>
       )}
       {showPanes && panes.length > 0 && (

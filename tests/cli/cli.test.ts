@@ -480,10 +480,9 @@ describe('cw CLI', () => {
       );
       await cw(['init']);
       await cw(['session', 'new', '--name', 'portless', '--agent', 'claude']);
-      // `session new` starts the agent now, and a running session holds this range's
-      // only block. Stop it so the block is free for the squatter to take; `attach`
-      // starts it again (its `start` option defaults true), which is where the lease
-      // failure has to surface.
+      // `session new` is create-only; `attach` starts the agent (its `start` option
+      // defaults true). Stop the running session so its single block is free for the
+      // squatter to take; the next `attach` is where the lease failure has to surface.
       await cw(['session', 'stop', 'portless']);
 
       const squatter = createServer();
