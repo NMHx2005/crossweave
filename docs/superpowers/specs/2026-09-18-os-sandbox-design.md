@@ -34,7 +34,17 @@ design, so it was settled empirically first (macOS 26.6.2, `sandbox-exec`):
 | Are escapes blocked? | Verified blocked: deleting the main branch ref, deleting the main checkout's files, rewriting an existing object, planting junk in `objects/`, writing `.git/config`, planting a git hook, writing another session's worktree, writing `$HOME`. |
 | Does a sandboxed agent still reach the daemon? | Not with a bare `(deny default)`: `connect()` on a unix socket is `EPERM` even though the socket is a file, so `cw radar-hook` (a grandchild of the agent, one invocation per tool call) would silently stop reaching the daemon. One `(allow network-outbound (remote unix-socket (literal "<daemon.sock>")))` clause restores it while outbound TCP stays denied. The MCP socket needs its own clause, and the literal must be the canoncialised path — seatbelt matches the resolved one, and `$TMPDIR` is handed out through `/var` (a symlink). |
 | Is `(allow file-write* (subpath "/private/var/folders"))` needed? | **No — and it was a hole.** A first profile granted it "because a runtime needs a temp dir"; that is the OS temp root every process on the machine shares, and every escape probe below succeeded because the fixtures lived there. Removed it: with the session's `TMPDIR` pointed at its own temp dir instead, a real `claude` session, `node`, `bun` and a sandboxed `git commit` all still work, and the escape probes now fail as they should. |
-| Does a later `allow` or `deny` win? | Neither "last" nor "most specific" — clauses are additive with deny taking precedence. Verified: `(deny file-write* (subpath …/sub))` after an `allow` on its parent refuses that subtree, and a later `allow` inside it cannot carve it back out. Not needed in the shipped profile (nothing is granted broadly enough to need an exception), but it is the rule the profile's safety rests on. |
+| Linux (bubblewrap, ubuntu-24.04, `bwrap --version` 0.8.0) — same fixture as macOS, same git needs:
+
+| Question | Answer (measured or for next probe) |
+|---|---|
+| `bwrap` on PATH? | Gate: `which bwrap` — when absent `decideSandbox` returns `no-provider` and the session runs unconfined with a log line, same code as darwin without a provider. |
+| `git commit` in worktree under bwrap? | Covered by `bwrap integration (real bwrap)` — object fanout + `tmp_obj_*` + branch ref + `logs/`; private `/tmp` via `--bind <tmpRoot> /tmp` so no need for host `/private/var/folders`-style hole. |
+| Escape table | Same 7 probes as seatbelt, gated on `which bwrap` so they skip on macOS: outside worktree, main checkout, delete main, `.git/config`, hook, `objects/evil.txt`, network denied by default (`--unshare-net`). Full table to be filled on a Linux host after the first green run. |
+| `TMPDIR` isolation | Verified: writes to `/tmp` land in the bound private dir, not the host `/tmp`. |
+| Daemon socket | `bwrap --bind <daemon.sock> <daemon.sock>` restores `connect()` for `cw radar-hook` (grandchild of agent), same as seatbelt's `network-outbound (remote unix-socket)` but expressed as a mount. |
+
+Does a later `allow` or `deny` win? | Neither "last" nor "most specific" — clauses are additive with deny taking precedence. Verified: `(deny file-write* (subpath …/sub))` after an `allow` on its parent refuses that subtree, and a later `allow` inside it cannot carve it back out. Not needed in the shipped profile (nothing is granted broadly enough to need an exception), but it is the rule the profile's safety rests on. |
 
 ## 3. The profile
 

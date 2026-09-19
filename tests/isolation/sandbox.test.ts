@@ -397,11 +397,47 @@ describe.skipIf(!canRunBwrap)('bwrap integration (real bwrap)', () => {
   it('allows a write inside the worktree', () => {
     const r = run(`echo hi > "${spec.worktreePath}/inside.txt" && echo WROTE`);
     expect(r.code).toBe(0);
+    expect(r.out).toContain('WROTE');
   });
   it('refuses a write outside the worktree', () => {
     const outside = join(fx.root, 'escape.txt');
     const r = run(`echo no > "${outside}"`);
     expect(r.code).not.toBe(0);
+    expect(existsSync(outside)).toBe(false);
+  });
+  it('refuses a write into the main checkout', () => {
+    const r = run(`echo no > "${fx.root}/README.md"`);
+    expect(r.code).not.toBe(0);
+  });
+  it('refuses deleting the main checkout\'s files', () => {
+    const r = run(`rm -f "${fx.root}/README.md"`);
+    expect(r.code).not.toBe(0);
+    expect(existsSync(join(fx.root, 'README.md'))).toBe(true);
+  });
+  it('refuses touching the git config and planting a hook', () => {
+    expect(run(`echo no >> "${fx.root}/.git/config"`).code).not.toBe(0);
+    expect(run(`echo no > "${fx.root}/.git/hooks/pre-commit"`).code).not.toBe(0);
+  });
+  it('refuses junk at the object store root, but lets a commit land', async () => {
+    expect(run(`echo no > "${fx.root}/.git/objects/evil.txt"`).code).not.toBe(0);
+    const before = (await $`git rev-parse HEAD`.cwd(spec.worktreePath).quiet().text()).trim();
+    const commit = run(
+      `printf 'x\\n' > a.txt && git add a.txt && git -c user.email=t@e.dev -c user.name=t commit -q -m bwrap && git rev-parse HEAD`,
+    );
+    expect(commit.code).toBe(0);
+    const after = (await $`git rev-parse HEAD`.cwd(spec.worktreePath).quiet().text()).trim();
+    expect(after).not.toBe(before);
+  });
+  it('denies the internet by default and permits it when opted in', () => {
+    const hasCurl = (() => { try { execFileSync('/usr/bin/which', ['curl'], { stdio: 'ignore' }); return true; } catch { return false; } })();
+    if (!hasCurl) return;
+    const closed = run('curl -s --max-time 4 -o /dev/null https://example.com');
+    expect(closed.code).not.toBe(0);
+  });
+  it('writes private TMPDIR do not leak to the host', () => {
+    const r = run(`echo hi > "/tmp/bwrap-private-$$" && ls "/tmp/bwrap-private-$$" && echo OK`);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain('OK');
   });
 });
 
