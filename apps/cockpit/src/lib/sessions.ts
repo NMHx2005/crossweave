@@ -7,6 +7,8 @@ export type ListedSession = {
   enforcementTier?: string
   costSpentUsd?: number
   tokenSpent?: number
+  sandbox?: { confined: boolean; reason?: string }
+  worktreePath?: string | null
 }
 
 export function parseSessionList(value: unknown): ListedSession[] {
@@ -23,20 +25,35 @@ export function parseSessionList(value: unknown): ListedSession[] {
       typeof record.enforcementTier === 'string' ? record.enforcementTier : undefined
     const costSpentUsd = typeof record.costSpentUsd === 'number' ? record.costSpentUsd : undefined
     const tokenSpent = typeof record.tokenSpent === 'number' ? record.tokenSpent : undefined
-    const row: ListedSession = { id: record.id, name, status }
+    const worktreePath = typeof record.worktreePath === 'string' ? record.worktreePath : null
+    const sandboxRaw = record.sandbox as Record<string, unknown> | undefined
+    const sandbox = sandboxRaw && typeof sandboxRaw.confined === 'boolean'
+      ? { confined: sandboxRaw.confined, reason: typeof sandboxRaw.reason === 'string' ? sandboxRaw.reason : undefined }
+      : undefined
+    const row: ListedSession = { id: record.id, name, status, worktreePath }
     if (agentKind) row.agentKind = agentKind
     if (enforcementTier) row.enforcementTier = enforcementTier
     if (costSpentUsd !== undefined) row.costSpentUsd = costSpentUsd
     if (tokenSpent !== undefined) row.tokenSpent = tokenSpent
+    if (sandbox !== undefined) row.sandbox = sandbox
     out.push(row)
   }
   return out
+}
+
+export function formatSandboxLabel(session: ListedSession): string | undefined {
+  if (!session.worktreePath) return 'no worktree'
+  if (session.sandbox === undefined) return undefined
+  if (session.sandbox.confined) return 'sandbox'
+  return `no sandbox (${session.sandbox.reason ?? 'no-provider'})`
 }
 
 export function formatRailMeta(session: ListedSession): string | undefined {
   const parts: string[] = []
   if (session.enforcementTier) parts.push(tierWithCoverage(session.enforcementTier))
   if (typeof session.costSpentUsd === 'number') parts.push(`$${session.costSpentUsd.toFixed(2)}`)
+  const sbox = formatSandboxLabel(session)
+  if (sbox) parts.push(sbox)
   return parts.length > 0 ? parts.join(' · ') : undefined
 }
 

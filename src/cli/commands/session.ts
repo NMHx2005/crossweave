@@ -10,6 +10,7 @@ interface Session {
   tokenSpent: number; tokenBudget: number | null;
   costSpentUsd: number; costBudgetUsd: number | null;
   leases?: LeaseSummary;
+  sandbox?: { confined: boolean; reason?: string };
 }
 
 interface LeaseSummary {
@@ -25,6 +26,13 @@ interface LeaseSummary {
 interface SpendFields {
   tokenSpent: number; tokenBudget: number | null;
   costSpentUsd: number; costBudgetUsd: number | null;
+}
+
+export function formatSandbox(s: { sandbox?: { confined: boolean; reason?: string }; worktreePath?: string | null }): string {
+  if (!s.worktreePath) return 'no-worktree';
+  if (s.sandbox === undefined) return 'unknown';
+  if (s.sandbox.confined) return 'sandbox';
+  return `no-sandbox:${s.sandbox.reason ?? 'no-provider'}`;
 }
 
 /** Exported for direct testing. citty has no numeric arg type (only string, boolean,
@@ -123,7 +131,7 @@ export const sessionCommand = defineCommand({
             process.stdout.write('NAME\tSTATUS\tAGENT\tTIER\tBRANCH\tSPEND\tLEASES\n');
             for (const s of rows) {
               process.stdout.write(
-                `${s.name}\t${s.status}\t${s.agentKind}\t${tierWithCoverage(s.enforcementTier)}\t${s.branch ?? '-'}\t${formatSpend(s)}\t${formatLeaseSummary(s.leases)}\n`,
+                `${s.name}\t${s.status}\t${s.agentKind}\t${tierWithCoverage(s.enforcementTier)}\t${s.branch ?? '-'}\t${formatSpend(s)}\t${formatSandbox(s)}\t${formatLeaseSummary(s.leases)}\n`,
               );
             }
           });

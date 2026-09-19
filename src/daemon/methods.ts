@@ -450,15 +450,33 @@ export function buildMethods(
     },
     'session.list': (p) =>
       sessions.list(str(p, 'workspaceId')).map((session) => {
+        // Sandbox is a runtime decision (enabled/worktree/provider), not stored in the row.
+        // Surface it here so `cw session list` and the Cockpit rail can show it without
+        // a separate RPC — the log line alone is not enough (spec §4 "not yet surfaced").
+        const sbox = (() => {
+          const d = decideSandbox({
+            enabled: config.sandbox.enabled,
+            network: config.sandbox.network,
+            projectRoot,
+            worktreePath: session.worktreePath,
+            branch: session.branch,
+            sessionId: session.id,
+          });
+          if (d.spec !== undefined) return { confined: true };
+          if (d.skip === 'disabled') return { confined: false, reason: 'disabled' };
+          if (d.skip === 'no-worktree') return { confined: false, reason: 'no-worktree' };
+          return { confined: false, reason: d.skip ?? 'no-provider' };
+        })();
         const active = leasesRepo
           .listBySession(session.id)
           .filter((lease) => lease.releasedAt === null);
-        if (active.length === 0) return session;
+        if (active.length === 0) return { ...session, sandbox: sbox };
         const value = (kind: 'port' | 'docker' | 'cache' | 'db'): string | null =>
           active.find((lease) => lease.kind === kind)?.value ?? null;
         const port = value('port');
         return {
           ...session,
+          sandbox: sbox,
           leases: {
             portBase: port === null ? null : Number(port),
             composeProject: value('docker'),
