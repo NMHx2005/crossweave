@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { shouldOpenApp } from '../../src/cli/entry-mode.js';
+import { openDefaultApp, shouldOpenApp } from '../../src/cli/entry-mode.js';
 
 // Matches the real shape: `process.argv` is [runtime, entry, ...args], so a bare
 // invocation is length 2 — not length 1, which is why the predicate tests length.
@@ -24,5 +24,25 @@ describe('shouldOpenApp', () => {
 
   it('is not fooled by a flag that happens to be the only argument', () => {
     expect(shouldOpenApp(argv('-h'), true)).toBe(false);
+  });
+});
+
+describe('openDefaultApp', () => {
+  it('skips the TUI after Cockpit opens', async () => {
+    let tuiRuns = 0;
+    await openDefaultApp({
+      tryOpenCockpit: async () => true,
+      runTui: async () => { tuiRuns += 1; },
+    });
+    expect(tuiRuns).toBe(0);
+  });
+
+  it('runs the TUI when Cockpit cannot open', async () => {
+    let tuiRuns = 0;
+    await openDefaultApp({
+      tryOpenCockpit: async () => false,
+      runTui: async () => { tuiRuns += 1; },
+    });
+    expect(tuiRuns).toBe(1);
   });
 });

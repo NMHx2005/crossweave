@@ -16,3 +16,13 @@
 export function shouldOpenApp(argv: readonly string[], isTty: boolean): boolean {
   return argv.length === 2 && isTty;
 }
+
+
+export interface DefaultAppDeps {
+  tryOpenCockpit: () => Promise<boolean>;
+  runTui: () => Promise<void>;
+}
+
+export async function openDefaultApp(deps: DefaultAppDeps): Promise<void> {
+  if (!(await deps.tryOpenCockpit())) await deps.runTui();
+}
