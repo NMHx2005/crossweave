@@ -99,13 +99,7 @@ export class DaemonBridge {
     }
 
     const previous = this.client
-    this.detach(previous)
-    previous?.close()
-
     const client = await this.deps.connect(projectRoot)
-    this.client = client
-    this.projectRoot = projectRoot
-    this.deps.saveRoot(projectRoot)
 
     client.onNotification((method, params) => {
       if (this.client !== client) return
@@ -120,10 +114,13 @@ export class DaemonBridge {
     try {
       const workspace = await client.call<WorkspaceSnapshot>('workspace.init', {})
       await client.call('daemon.subscribe', {})
+      this.client = client
+      this.projectRoot = projectRoot
       this.workspace = workspace
+      this.deps.saveRoot(projectRoot)
+      previous?.close()
       return { projectRoot, workspace }
     } catch (err) {
-      this.detach(client)
       client.close()
       throw err
     }

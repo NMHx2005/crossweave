@@ -302,6 +302,30 @@ describe('DaemonBridge', () => {
     })
   })
 
+  test('failed workspace switch keeps the existing workspace operational', async () => {
+    const first = new FakeDaemon()
+    const second = new FakeDaemon()
+    second.failMethod = 'daemon.subscribe'
+    const fakes = [first, second]
+    let connects = 0
+    const { bridge } = makeBridge({
+      connect: async () => {
+        const next = fakes[connects]
+        if (!next) throw new Error('no more fakes')
+        connects += 1
+        return next
+      },
+    })
+
+    await bridge.handle('workspace.ensure', { projectRoot: '/tmp/first' })
+    await expect(bridge.handle('workspace.ensure', { projectRoot: '/tmp/second' })).rejects.toThrow(
+      /daemon\.subscribe failed/,
+    )
+
+    expect(first.closed).toBe(false)
+    await expect(bridge.handle('session.list')).resolves.toEqual([{ id: 's1', name: 'alpha' }])
+  })
+
   test('failed daemon.subscribe does not stick a half-attached workspace', async () => {
     const first = new FakeDaemon()
     first.failMethod = 'daemon.subscribe'

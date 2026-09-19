@@ -7,6 +7,8 @@ import { connectOrStart } from '../../../src/client/rpc-client.js'
 import { COCKPIT_CHANNELS, isCockpitChannel, type CockpitEvent } from './channels'
 import { DaemonBridge } from './daemon-bridge'
 import { findCrossweaveRoot, resolveCockpitDaemonEntry } from './daemon-entry'
+import { projectRootFromAdditionalData, projectRootFromArgv, resolveLaunchProjectRoot } from './project-root'
+import { switchCockpitWorkspace } from './workspace-switch'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -82,7 +84,7 @@ function registerHandlers(bridge: DaemonBridge): void {
   }
 }
 
-function createWindow(): void {
+function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -102,28 +104,65 @@ function createWindow(): void {
   } else {
     void win.loadFile(join(__dirname, '../dist/index.html'))
   }
+  return win
 }
 
 let bridge: DaemonBridge | undefined
+let pendingProjectRoot: string | undefined
 
-app.whenReady().then(async () => {
-  bridge = createBridge()
-  registerHandlers(bridge)
-  createWindow()
-
-  const envRoot = process.env.COCKPIT_PROJECT_ROOT
-  try {
-    await bridge.handle('workspace.ensure', envRoot ? { projectRoot: envRoot } : undefined)
-  } catch (err) {
-    console.error('workspace.ensure failed:', err)
+async function switchWorkspace(projectRoot: string): Promise<void> {
+  if (!bridge) {
+    pendingProjectRoot = projectRoot
+    return
   }
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow()
-    }
+  try {
+    await switchCockpitWorkspace(projectRoot, {
+      ensure: async (root) => {
+        await bridge?.handle('workspace.ensure', { projectRoot: root })
+      },
+      recreateWindow: () => {
+        for (const win of BrowserWindow.getAllWindows()) win.destroy()
+        return createWindow()
+      },
+    })
+  } catch (err) {
+    console.error('workspace switch failed:', err)
+  }
+}
+
+const initialProjectRoot = resolveLaunchProjectRoot(process.argv, process.env.COCKPIT_PROJECT_ROOT)
+const hasSingleInstanceLock = app.requestSingleInstanceLock(
+  initialProjectRoot ? { projectRoot: initialProjectRoot } : {},
+)
+if (!hasSingleInstanceLock) {
+  app.quit()
+} else {
+  app.on('second-instance', (_event, argv, _workingDirectory, additionalData) => {
+    const projectRoot = projectRootFromAdditionalData(additionalData) ?? projectRootFromArgv(argv)
+    if (projectRoot !== undefined) void switchWorkspace(projectRoot)
   })
-})
+
+  app.whenReady().then(async () => {
+    bridge = createBridge()
+    registerHandlers(bridge)
+    createWindow()
+
+    const launchRoot = pendingProjectRoot ?? initialProjectRoot
+    pendingProjectRoot = undefined
+    try {
+      await bridge.handle('workspace.ensure', launchRoot ? { projectRoot: launchRoot } : undefined)
+    } catch (err) {
+      console.error('workspace.ensure failed:', err)
+    }
+
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow()
+      }
+    })
+  })
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
