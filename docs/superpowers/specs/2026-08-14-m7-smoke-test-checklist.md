@@ -1,9 +1,10 @@
 # M7 install.sh — manual smoke-test checklist
 
 Run once against a real release before announcing it, and again any time
-`install.sh` itself changes. Not automated (spec §8) — bash driving real
-network downloads and a real filesystem install isn't something `bun test`
-covers.
+`install.sh` itself changes. The deterministic local-fixture path is automated in
+`tests/packaging/install-cockpit.test.ts`; this checklist still covers the real
+GitHub release, network, LaunchServices and filesystem install that unit tests do
+not exercise.
 
 ## Cutting a real tag — read this first
 
@@ -31,6 +32,16 @@ fix) hard-fails the whole pipeline otherwise, by design.
       printed `0.0.1-rc1` with no extraneous output, `config.json`
       written with the correct shape. Run in an isolated `$HOME`/
       `$CW_INSTALL_DIR`, cleaned up after.
+
+- [ ] Fresh macOS (arm64), on a release carrying `cockpit-darwin-arm64.zip`:
+      installer verifies and installs `~/Applications/crossweave Cockpit.app`;
+      bare `cw` opens that app for the current repository.
+- [ ] Re-run the same release install over an existing Cockpit: the managed app is
+      replaced, while unrelated apps in `~/Applications` are untouched.
+- [ ] Pin a pre-Cockpit release (currently `v0.3.0`): macOS arm64 still installs
+      `cw`/`cwd` successfully and skips the absent app asset.
+- [ ] Corrupt `cockpit-darwin-arm64.zip` or its checksum entry: installer fails
+      before changing the existing CLI, daemon or app.
 - [ ] Fresh macOS (x64, e.g. Rosetta or an Intel machine): same.
 - [ ] Fresh Linux (x64): same.
 - [ ] Unsupported arch (e.g. Linux arm64): script exits non-zero with a
