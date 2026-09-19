@@ -2,7 +2,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-18-client-seam-and-remote.md` Stage 1b.
 **Tier:** Small — gateway-only, no daemon change.
-**Status:** in progress.
+**Status:** done (2026-09-21) — per-kind tokens (`gateway.token`/`gateway.read.token`), `READ_METHODS` split + `Forbidden` on read→control, `gateway.audit.log`, CLI `cw gateway token|revoke [--read|--control]`, `gateway-auth.test.ts` 4 pass.
 
 ## Why
 

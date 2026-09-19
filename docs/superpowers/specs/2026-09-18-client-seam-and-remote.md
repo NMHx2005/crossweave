@@ -63,7 +63,7 @@ change that turns a design decision into a vulnerability.
 | Stage | What | Why this order |
 |---|---|---|
 | 0 | **Gateway** ✓: `src/gateway/gateway.ts` + `ws-transport.ts` shuttling `ClientTransport` ↔ WebSocket over loopback, allowlist-gated, in-memory `gateway.test.ts` | Proves the whole flow with no change to the daemon, and the daemon stays local |
-| 1 | **Auth** ✓: per-workspace token (`gateway.token` 0600, `cw gateway token|revoke`), gateway `requireToken` gate (constant-time verify, strip before forward), in-memory auth tests | The gate on everything after it |
+| 1 | **Auth** ✓: per-workspace token (`gateway.token`/`gateway.read.token` 0600, `cw gateway token [--read|--control]`, `revoke`), gateway `requireToken` gate + read/control split (`READ_METHODS` vs control, `Forbidden` on mismatch), `gateway.audit.log` append per forwarded call | The gate on everything after it |
 | 2 | **Clients**: web pane (xterm.js — the Cockpit already proves the rendering half), notifications through the existing `notify` seam | Reuses the seam and the shared token layer |
 | 3 | **Multi-machine / hosted relay** | Agents and code on someone else's infrastructure — a different trust question, deliberately deferred |
 
