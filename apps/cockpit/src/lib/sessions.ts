@@ -25,12 +25,13 @@ export function parseSessionList(value: unknown): ListedSession[] {
       typeof record.enforcementTier === 'string' ? record.enforcementTier : undefined
     const costSpentUsd = typeof record.costSpentUsd === 'number' ? record.costSpentUsd : undefined
     const tokenSpent = typeof record.tokenSpent === 'number' ? record.tokenSpent : undefined
-    const worktreePath = typeof record.worktreePath === 'string' ? record.worktreePath : null
+    const hasWorktreePath = 'worktreePath' in record
+    const worktreePath = typeof record.worktreePath === 'string' ? record.worktreePath : hasWorktreePath ? null : undefined
     const sandboxRaw = record.sandbox as Record<string, unknown> | undefined
     const sandbox = sandboxRaw && typeof sandboxRaw.confined === 'boolean'
       ? { confined: sandboxRaw.confined, reason: typeof sandboxRaw.reason === 'string' ? sandboxRaw.reason : undefined }
       : undefined
-    const row: ListedSession = { id: record.id, name, status, worktreePath }
+    const row: ListedSession = { id: record.id, name, status, ...(worktreePath !== undefined ? { worktreePath } : {}) }
     if (agentKind) row.agentKind = agentKind
     if (enforcementTier) row.enforcementTier = enforcementTier
     if (costSpentUsd !== undefined) row.costSpentUsd = costSpentUsd
@@ -42,7 +43,8 @@ export function parseSessionList(value: unknown): ListedSession[] {
 }
 
 export function formatSandboxLabel(session: ListedSession): string | undefined {
-  if (!session.worktreePath) return 'no worktree'
+  if (session.worktreePath === null) return 'no worktree'
+  if (session.worktreePath === undefined) return undefined
   if (session.sandbox === undefined) return undefined
   if (session.sandbox.confined) return 'sandbox'
   return `no sandbox (${session.sandbox.reason ?? 'no-provider'})`
