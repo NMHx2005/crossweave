@@ -35,9 +35,10 @@ afterEach(async () => {
 });
 
 describe('isSandboxAvailable', () => {
-  it('is macOS-only, and says so for every other platform', () => {
+  it('is available on darwin, and gated on bwrap for linux', () => {
     expect(isSandboxAvailable('darwin')).toBe(true);
-    expect(isSandboxAvailable('linux')).toBe(false);
+    expect(isSandboxAvailable('linux', { hasBwrap: true })).toBe(true);
+    expect(isSandboxAvailable('linux', { hasBwrap: false })).toBe(false);
     expect(isSandboxAvailable('win32')).toBe(false);
   });
 });
@@ -61,8 +62,17 @@ describe('decideSandbox', () => {
     expect(decideSandbox({ ...base, enabled: false, worktreePath: '/tmp/wt' }).skip).toBe('disabled');
     expect(decideSandbox({ ...base, enabled: true, worktreePath: null }).skip).toBe('no-worktree');
     expect(decideSandbox({
-      ...base, enabled: true, worktreePath: '/tmp/wt', platform: 'linux',
+      ...base, enabled: true, worktreePath: '/tmp/wt', platform: 'linux', hasBwrap: false,
     }).skip).toBe('no-provider');
+  });
+
+  it('is available on linux when bwrap is present', () => {
+    const d = decideSandbox({
+      enabled: true, network: false, projectRoot: fx.root,
+      worktreePath: '/tmp/wt', branch: 'cw/one', sessionId: 's_one', platform: 'linux', hasBwrap: true,
+    });
+    expect(d.skip).toBeUndefined();
+    expect(d.spec?.worktreePath).toBe('/tmp/wt');
   });
 
   it('has no skip reason when disabled — the user asked for it, so it is not a gap', () => {
@@ -186,8 +196,9 @@ describe('buildSeatbeltProfile', () => {
 });
 
 describe('planSandbox', () => {
-  it('returns undefined off macOS, so the caller runs the agent unchanged', () => {
-    expect(planSandbox({ ...spec, platform: 'linux' }, 'claude', [])).toBeUndefined();
+  it('returns undefined off a provider platform without a provider', () => {
+    expect(planSandbox({ ...spec, platform: 'linux' } as unknown as typeof spec & { hasBwrap: boolean }, 'claude', [])).toBeUndefined();
+    expect(planSandbox({ ...spec, platform: 'win32' }, 'claude', [])).toBeUndefined();
   });
 
   // Gated on the binary, not on `process.platform`: these two exercise "a provider
@@ -232,6 +243,41 @@ describe('planSandbox', () => {
  * runs under one in some environments), so when the probe itself is refused the block
  * skips rather than reporting a red that means "the harness, not the profile".
  */
+
+describe('bwrap (pure, no binary needed)', () => {
+  it('builds a bwrap argv on linux when bwrap is present, with network gated', async () => {
+    const { buildBwrapArgs } = await import('../../src/isolation/sandbox.js');
+    const argsOffline = buildBwrapArgs({ ...spec, platform: 'linux', network: false } as any, home, '/tmp/cw-tmp-one');
+    const flat = argsOffline.join(' ');
+    expect(argsOffline[0]).toBe('bwrap');
+    expect(flat).toContain('--die-with-parent');
+    expect(flat).toContain('--unshare-net');
+    expect(flat).toContain('--chdir');
+    expect(flat).toMatch(/--bind .*\/worktrees|worktree/);
+    // sockets (daemon + MCP) are bound so hooks can dial
+    expect(flat).toContain('daemon.sock');
+    // private tmp
+    expect(flat).toContain('--bind');
+    expect(flat).toContain('/tmp');
+
+    const argsOnline = buildBwrapArgs({ ...spec, platform: 'linux', network: true } as any, home, '/tmp/cw-tmp-one');
+    expect(argsOnline.join(' ')).not.toContain('--unshare-net');
+  });
+
+  it('planSandbox on linux produces a bwrap argv and is gated on hasBwrap', () => {
+    const linuxSpec = { ...spec, platform: 'linux' as const, hasBwrap: true };
+    const plan = planSandbox(linuxSpec as any, 'claude', ['--help']);
+    expect(plan).toBeDefined();
+    expect(plan!.argv[0]).toBe('bwrap');
+    expect(plan!.argv).toContain('--');
+    expect(plan!.argv.slice(plan!.argv.indexOf('--') + 1)).toEqual(['claude', '--help']);
+    expect(plan!.writable).toContain(spec.worktreePath);
+
+    const noBwrap = planSandbox({ ...spec, platform: 'linux', hasBwrap: false } as any, 'claude', []);
+    expect(noBwrap).toBeUndefined();
+  });
+});
+
 const canRunSeatbelt = (() => {
   if (process.platform !== 'darwin' || !existsSync(SANDBOX_EXEC)) return false;
   const dir = mkdtempSync(join(tmpdir(), 'cw-probe-'));

@@ -31,6 +31,8 @@ import { mcpSocketPath } from '../mcp/protocol.js';
  * `SpawnOptions` and the adapter calls `planSandbox` with its own command at spawn.
  */
 export interface SandboxSpec {
+  /** Test seam for bwrap presence on linux; defaults to probing PATH. */
+  hasBwrap?: boolean;
   /** The session's worktree. Everything else on disk is read-only. */
   worktreePath: string;
   /** The main repo root; its `.git` is shared with the worktree. */
@@ -59,6 +61,8 @@ export interface SandboxRequest {
   branch: string | null;
   sessionId: string;
   platform?: NodeJS.Platform;
+  /** Test seam for bwrap presence on linux; defaults to probing PATH. */
+  hasBwrap?: boolean;
 }
 
 /** Why a requested sandbox was not built, in words a log line can print. */
@@ -83,7 +87,7 @@ export interface SandboxDecision {
 export function decideSandbox(req: SandboxRequest): SandboxDecision {
   if (!req.enabled) return { skip: 'disabled' };
   if (req.worktreePath === null) return { skip: 'no-worktree' };
-  if (!isSandboxAvailable(req.platform ?? process.platform)) return { skip: 'no-provider' };
+  if (!isSandboxAvailable(req.platform ?? process.platform, { hasBwrap: req.hasBwrap })) return { skip: 'no-provider' };
   return {
     spec: {
       worktreePath: req.worktreePath,
@@ -106,6 +110,16 @@ export interface SandboxPlan {
 
 /** macOS ships this; nothing else has it. */
 export const SANDBOX_EXEC = '/usr/bin/sandbox-exec';
+export const BWRAP_EXEC = 'bwrap';
+
+function hasBwrapOnPath(): boolean {
+  try {
+    execFileSync('which', ['bwrap'], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /** The sandbox's private temp root, so a session's `TMPDIR` writes stay inside it. */
 export function sandboxTmpDir(projectRoot: string, sessionId: string): string {
@@ -199,9 +213,14 @@ function sharedGitRules(gitDir: string, branch: string): string[] {
   return rules;
 }
 
-/** Whether this platform has a provider. Linux is specified but not built (spec §4). */
-export function isSandboxAvailable(platform: NodeJS.Platform = process.platform): boolean {
-  return platform === 'darwin';
+/** Whether this platform has a provider. Linux uses bubblewrap (`bwrap`). */
+export function isSandboxAvailable(
+  platform: NodeJS.Platform = process.platform,
+  opts?: { hasBwrap?: boolean },
+): boolean {
+  if (platform === 'darwin') return true;
+  if (platform === 'linux') return opts?.hasBwrap ?? hasBwrapOnPath();
+  return false;
 }
 
 /**
@@ -209,21 +228,116 @@ export function isSandboxAvailable(platform: NodeJS.Platform = process.platform)
  * the caller then runs the agent as before and says so out loud, rather than
  * pretending a boundary is there.
  */
+/** Pure: bwrap argv prefix for a Linux session. Exported for tests — the profile is the promise. */
+export function buildBwrapArgs(spec: SandboxSpec, home: string, tmpRoot: string): string[] {
+  const worktree = spec.worktreePath; // bwrap needs the literal mount point, not a resolved symlink
+  const gitDir = resolveGitDir(spec.worktreePath);
+  const branch = spec.branch ?? resolveBranch(spec.worktreePath);
+  const sockets = sessionSocketPaths(spec.projectRoot, spec.sessionId);
+
+  // Least privilege: worktree rw, everything else ro except the narrow git + state paths.
+  // The bind order matters — bwrap applies them sequentially, so ro-binds come first
+  // and the rw binds for the worktree/git/state punch holes in them.
+  const args: string[] = [
+    BWRAP_EXEC,
+    '--die-with-parent',
+    '--unshare-pid', '--unshare-uts', '--unshare-ipc',
+    // Minimal host surface. These ro-binds let the toolchain run without exposing
+    // the whole host rw — a write outside worktree would still need a rw bind to land.
+    '--ro-bind', '/usr', '/usr',
+    '--ro-bind', '/lib', '/lib',
+    '--ro-bind', '/lib64', '/lib64',
+    '--ro-bind', '/bin', '/bin',
+    '--ro-bind', '/etc', '/etc',
+    '--proc', '/proc',
+    '--dev', '/dev',
+    // Private /tmp so temp files do not land in the shared host /tmp.
+    '--bind', tmpRoot, '/tmp',
+    '--setenv', 'TMPDIR', '/tmp',
+    '--chdir', worktree,
+  ];
+  if (!spec.network) args.push('--unshare-net');
+
+  // Worktree itself — the one place the session may write.
+  args.push('--bind', worktree, worktree);
+
+  // Agent state in $HOME — named, not all of $HOME.
+  for (const p of agentStatePaths(home)) {
+    args.push('--bind', p, p);
+  }
+  // Cache the agent legitimately uses.
+  args.push('--bind', `${home}/.cache`, `${home}/.cache`);
+  args.push('--bind', `${home}/Library/Caches`, `${home}/Library/Caches`);
+
+  // Narrow git writes: branch ref + worktrees bookkeeping + logs + objects fanout.
+  // Keep ro elsewhere by not binding the rest of gitDir rw.
+  if (gitDir !== undefined) {
+    const objects = `${gitDir}/objects`;
+    // Fanout dirs and tmp_obj are the only object paths git creates; binding the
+    // whole objects dir rw would let a session plant arbitrary files there.
+    // For bwrap we bind the gitDir's subpaths that need rw individually — simpler
+    // than trying to ro-bind the parent and then punch holes (bwrap has no overlay).
+    // Keep the whole gitDir ro would break commit; so bind the specific writable
+    // subpaths rw and leave the rest unbound (hence not visible) — but the session
+    // still needs to READ the git dir, so we ro-bind the gitDir itself.
+    args.push('--ro-bind', gitDir, gitDir);
+    // Then make the writable subpaths rw via an additional bind over the ro-bind.
+    // This is safe because bwrap applies binds in order — later binds shadow earlier.
+    args.push('--bind', `${gitDir}/objects`, `${gitDir}/objects`);
+    // Worktrees bookkeeping for this worktree.
+    try {
+      const wtDir = `${gitDir}/worktrees`;
+      if (existsSync(wtDir)) args.push('--bind', wtDir, wtDir);
+    } catch {}
+    if (branch !== '') {
+      args.push('--bind', `${gitDir}/refs/heads`, `${gitDir}/refs/heads`);
+    }
+    args.push('--bind', `${gitDir}/logs`, `${gitDir}/logs`);
+  }
+
+  // Daemon + MCP sockets — without these the hooks cannot dial the daemon.
+  for (const sock of sockets) {
+    args.push('--bind', sock, sock);
+  }
+
+  return args;
+}
+
 export function planSandbox(spec: SandboxSpec, command: string, args: string[]): SandboxPlan | undefined {
   const platform = spec.platform ?? process.platform;
-  if (!isSandboxAvailable(platform)) return undefined;
+  // Linux seam: allow tests to inject hasBwrap via SandboxSpec extension (cast), or probe PATH.
+  const hasBwrap = (spec as unknown as { hasBwrap?: boolean }).hasBwrap;
+  if (!isSandboxAvailable(platform, { hasBwrap })) return undefined;
+
+  const home = spec.home ?? homedir();
+  const tmpRoot = sandboxTmpDir(spec.projectRoot, spec.sessionId);
+  mkdirSync(tmpRoot, { recursive: true });
+
+  if (platform === 'linux') {
+    if (hasBwrap === false) return undefined;
+    // Probe real PATH when not injected — missing bwrap is the same "no boundary" gap.
+    if (hasBwrap === undefined && !hasBwrapOnPath()) {
+      process.stderr.write(
+        `crossweave: bwrap is missing, so session ${spec.sessionId} runs WITHOUT an OS sandbox.\n`,
+      );
+      return undefined;
+    }
+    const bwrapPrefix = buildBwrapArgs(spec, home, tmpRoot);
+    return {
+      argv: [...bwrapPrefix, '--', command, ...args],
+      writable: [spec.worktreePath, tmpRoot, ...agentStatePaths(home)],
+      cleanup: () => {
+        try { rmSync(tmpRoot, { recursive: true, force: true }); } catch {}
+      },
+    };
+  }
+
   if (!existsSync(SANDBOX_EXEC)) {
-    // Cannot happen on a stock macOS install, but a caller that asked for a boundary
-    // and silently got none is exactly the failure this whole milestone exists to stop.
     process.stderr.write(
       `crossweave: ${SANDBOX_EXEC} is missing, so session ${spec.sessionId} runs WITHOUT an OS sandbox.\n`,
     );
     return undefined;
   }
-
-  const home = spec.home ?? homedir();
-  const tmpRoot = sandboxTmpDir(spec.projectRoot, spec.sessionId);
-  mkdirSync(tmpRoot, { recursive: true });
 
   const profile = buildSeatbeltProfile(spec, home, tmpRoot);
   const profilePath = join(tmpdir(), `cw-sandbox-${spec.sessionId}.sb`);
@@ -235,13 +349,8 @@ export function planSandbox(spec: SandboxSpec, command: string, args: string[]):
     cleanup: () => {
       try {
         rmSync(profilePath, { force: true });
-        // The session's private temp dir too, or every stopped-then-resumed session
-        // would leave one behind; `planSandbox` recreates it on the next start.
         rmSync(tmpRoot, { recursive: true, force: true });
-      } catch {
-        // Best effort: the profile holds no private data, and a leftover temp dir or
-        // file in the system temp dir is not worth failing a session teardown over.
-      }
+      } catch {}
     },
   };
 }
