@@ -2,7 +2,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-18-client-seam-and-remote.md` Stage 2.
 **Tier:** Medium — web client over `wsTransport` + existing notify seam, no daemon change.
-**Status:** in progress.
+**Status:** done (2026-09-21) — `src/gateway/web/client.ts` + `index.html` + `gateway-web.test.ts` 1 pass, `DaemonClient.attach(wsTransport)` + `tui.event`nt`.
 
 ## Why
 

@@ -65,7 +65,7 @@ change that turns a design decision into a vulnerability.
 | 0 | **Gateway** ✓: `src/gateway/gateway.ts` + `ws-transport.ts` shuttling `ClientTransport` ↔ WebSocket over loopback, allowlist-gated, in-memory `gateway.test.ts` | Proves the whole flow with no change to the daemon, and the daemon stays local |
 | 1c | **TLS** ✓: `src/gateway/server.ts` — loopback without TLS allowed, non-loopback requires cert+key or `--allow-insecure` (loud log), `cw gateway serve --port/--host/--cert/--key`, `wss://` via platform WebSocket | Makes non-loopback safe |
 | 1 | **Auth** ✓: per-workspace token + read/control split + `gateway.audit.log` | The gate on everything after it |
-| 2 | **Clients**: web pane (xterm.js — the Cockpit already proves the rendering half), notifications through the existing `notify` seam | Reuses the seam and the shared token layer |
+| 2 | **Clients** ✓: web pane (`src/gateway/web/` — xterm.js via `DaemonClient.attach(wsTransport)`, `session.list`/`attach`/`input`, `tui.event` notifications), `gateway-web.test.ts` | Reuses the seam and the shared token layer |
 | 3 | **Multi-machine / hosted relay** | Agents and code on someone else's infrastructure — a different trust question, deliberately deferred |
 
 `cwd` is POSIX-only (unix sockets, `chmod`, signals, `sh -c`) and Bun's pty is
