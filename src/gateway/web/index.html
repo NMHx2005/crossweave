@@ -13,7 +13,8 @@ import { Terminal } from 'https://cdn.jsdelivr.net/npm/@xterm/xterm@5/+esm';
 import { wsTransport } from './ws-transport.js';
 import { createWebClient } from './client.js';
 const token = new URLSearchParams(location.search).get('token') || '';
-const wsUrl = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?token=${encodeURIComponent(token)}`;
+// Token via query is visible in logs — prefer header when the gateway supports it; query kept for compat
+const wsUrl = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws${token ? `?token=${encodeURIComponent(token)}` : ''}`;
 const transport = await wsTransport(wsUrl);
 const term = new Terminal({ cursorBlink: true });
 term.open(document.getElementById('term'));

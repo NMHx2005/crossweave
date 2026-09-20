@@ -23,17 +23,37 @@ export function validateGatewayServerOptions(opts: GatewayServerOptions): void {
   }
 }
 
-export function createGatewayHttpServer(opts: GatewayServerOptions) {
+export function createGatewayHttpServer(opts: GatewayServerOptions & { webRoot?: string }) {
   validateGatewayServerOptions(opts);
+  let server;
   if (opts.cert && opts.key) {
     const cert = readFileSync(opts.cert, 'utf8');
     const key = readFileSync(opts.key, 'utf8');
-    return createHttpsServer({ cert, key });
+    server = createHttpsServer({ cert, key });
+  } else {
+    const host = opts.host ?? '127.0.0.1';
+    const loopback = host === '127.0.0.1' || host === '::1' || host === 'localhost';
+    if (!loopback && opts.allowInsecure) {
+      process.stderr.write(`crossweave: gateway on ${host} without TLS (--allow-insecure) — tokens travel cleartext!\n`);
+    }
+    server = createHttpServer();
   }
-  const host = opts.host ?? '127.0.0.1';
-  const loopback = host === '127.0.0.1' || host === '::1' || host === 'localhost';
-  if (!loopback && opts.allowInsecure) {
-    process.stderr.write(`crossweave: gateway on ${host} without TLS (--allow-insecure) — tokens travel cleartext!\n`);
+  if (opts.webRoot) {
+    const { existsSync, readFileSync: rf, statSync } = require('node:fs');
+    const { join } = require('node:path');
+    server.on('request', (req, res) => {
+      if (!req.url || req.url.startsWith('/ws')) return;
+      const urlPath = req.url.split('?')[0] ?? '/';
+      const filePath = join(opts.webRoot!, urlPath === '/' ? 'index.html' : urlPath.replace(/^\//, ''));
+      if (!existsSync(filePath) || statSync(filePath).isDirectory()) {
+        res.writeHead(404).end('not found');
+        return;
+      }
+      const body = rf(filePath);
+      const ext = filePath.split('.').pop();
+      const ct = ext === 'html' ? 'text/html' : ext === 'js' ? 'application/javascript' : ext === 'css' ? 'text/css' : 'text/plain';
+      res.writeHead(200, { 'Content-Type': ct }).end(body);
+    });
   }
-  return createHttpServer();
+  return server;
 }
