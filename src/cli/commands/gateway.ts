@@ -25,7 +25,8 @@ export const gatewayCommand = defineCommand({
           const { readFileSync } = await import('node:fs');
           const port = Number(args.port);
           const server = createGatewayHttpServer({ socketPath: join(crossweaveDir(root), 'daemon.sock'), port, host: args.host, cert: args.cert, key: args.key, allowInsecure: args['allow-insecure'] });
-          // WS upgrade handled here in a real serve — for Stage 1c we validate and start listening
+          const { attachGatewayWs } = await import('../../gateway/server.js');
+          await attachGatewayWs(server as unknown as ReturnType<typeof import('node:http').createServer>, { socketPath: join(crossweaveDir(root), 'daemon.sock'), port, host: args.host });
           server.listen(port, args.host, () => process.stdout.write(`gateway listening on ${args.host}:${port}\n`));
         } catch (err) { fail(err); }
       },

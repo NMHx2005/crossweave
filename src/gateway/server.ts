@@ -23,6 +23,30 @@ export function validateGatewayServerOptions(opts: GatewayServerOptions): void {
   }
 }
 
+export async function attachGatewayWs(server: ReturnType<typeof createHttpServer>, opts: GatewayServerOptions) {
+  // Lazy import ws to avoid hard dep when not serving
+  let WebSocketServer: unknown;
+  try { WebSocketServer = (await import('ws' as unknown as string)).WebSocketServer; } catch { return; }
+  const wss = new (WebSocketServer as unknown as { new(opts: { server: unknown; path: string }): { on: (ev: string, cb: (ws: unknown) => void) => void } })({ server, path: '/ws' });
+  const { createGatewayTransport } = await import('./gateway.js');
+  const { readGatewayToken } = await import('./auth.js');
+  wss.on('connection', async (ws: unknown) => {
+    const sock = ws as { on: (ev: string, cb: (data: unknown) => void) => void; send: (d: string) => void; close: () => void; readyState: number };
+    // Build a ClientTransport over this WS
+    const dataSubs: Array<(c: Buffer | string) => void> = [];
+    const transport = {
+      write(f: string) { try { sock.send(f); } catch {} },
+      onData(cb: (c: Buffer | string) => void) { dataSubs.push(cb); },
+      onEnd(cb: () => void) {}, onError(cb: (e: Error) => void) {}, onClose(cb: () => void) { sock.on('close', () => cb()); },
+      isWritable() { return true; }, close() { try { sock.close(); } catch {} },
+    };
+    sock.on('message', (data: unknown) => { const text = String(data); for (const cb of dataSubs) cb(text); });
+    const base = opts.socketPath.replace('/.crossweave/daemon.sock','');
+  const token = readGatewayToken(base, 'control') ?? readGatewayToken(base);
+    await createGatewayTransport(transport as unknown as import('../client/transport.js').ClientTransport, { socketPath: opts.socketPath, requireToken: token ?? undefined, projectRoot: base });
+  });
+}
+
 export function createGatewayHttpServer(opts: GatewayServerOptions & { webRoot?: string }) {
   validateGatewayServerOptions(opts);
   let server;
