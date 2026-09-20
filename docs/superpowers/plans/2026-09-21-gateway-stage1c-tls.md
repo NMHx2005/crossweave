@@ -2,7 +2,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-18-client-seam-and-remote.md` Stage 1c.
 **Tier:** Small — gateway server option, no daemon change.
-**Status:** in progress.
+**Status:** done (2026-09-21) — `server.ts` validate + `createGatewayHttpServer` (http/https), CLI `cw gateway serve`, `gateway-tls.test.ts` 3 pass.
 
 ## Why
 
