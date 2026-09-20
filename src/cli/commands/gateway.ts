@@ -6,6 +6,30 @@ import { fail } from '../context.js';
 export const gatewayCommand = defineCommand({
   meta: { name: 'gateway', description: 'Manage the remote gateway token' },
   subCommands: {
+    serve: defineCommand({
+      meta: { name: 'serve', description: 'Start the gateway WebSocket server' },
+      args: {
+        port: { type: 'string', default: '8787', description: 'Port to listen on' },
+        host: { type: 'string', default: '127.0.0.1', description: 'Host to bind' },
+        cert: { type: 'string', description: 'TLS cert file' },
+        key: { type: 'string', description: 'TLS key file' },
+        'allow-insecure': { type: 'boolean', default: false, description: 'Allow non-loopback without TLS (logs loudly)' },
+      },
+      async run({ args }) {
+        try {
+          const { findProjectRoot } = await import('../../core/paths.js');
+          const { join } = await import('node:path');
+          const { crossweaveDir } = await import('../../core/paths.js');
+          const root = findProjectRoot(process.cwd());
+          const { createGatewayHttpServer } = await import('../../gateway/server.js');
+          const { readFileSync } = await import('node:fs');
+          const port = Number(args.port);
+          const server = createGatewayHttpServer({ socketPath: join(crossweaveDir(root), 'daemon.sock'), port, host: args.host, cert: args.cert, key: args.key, allowInsecure: args['allow-insecure'] });
+          // WS upgrade handled here in a real serve — for Stage 1c we validate and start listening
+          server.listen(port, args.host, () => process.stdout.write(`gateway listening on ${args.host}:${port}\n`));
+        } catch (err) { fail(err); }
+      },
+    }),
     token: defineCommand({
       meta: { name: 'token', description: 'Create or show the gateway token for this workspace' },
       args: {
