@@ -2,7 +2,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-18-client-seam-and-remote.md` Stage 3.
 **Tier:** Large — relay that forwards without reading session content (E2E), multi-machine coordination, deliberate trust boundary.
-**Status:** in progress (plan only — implementation deferred until Stage 2 is stable via tunnel).
+**Status:** in progress — dumb forwarder (`src/gateway/relay.ts` + `gateway-relay.test.ts`) built; E2E + infra remain deferred.
 
 ## Why
 

@@ -1,7 +1,7 @@
 # The client seam, and what remote would take
 
 **Date:** 2026-09-18
-**Status:** seam built (`src/client/transport.ts`); gateway Stage 0 built; Stage 1 token auth built (`src/gateway/auth.ts` + `cw gateway token|revoke`, gateway `requireToken` gate, `gateway-auth.test.ts`). TLS/read-control split are Stage 1b, not yet built.
+**Status:** seam built; gateway Stage 0 + 1/1b/1c + 2 built; Stage 3 relay skeleton (`src/gateway/relay.ts`) built — E2E + infra remain deferred.
 **Scope:** how a client reaches the daemon, and the honest cost of reaching it from
 somewhere other than this machine.
 
@@ -66,7 +66,7 @@ change that turns a design decision into a vulnerability.
 | 1c | **TLS** ✓: `src/gateway/server.ts` — loopback without TLS allowed, non-loopback requires cert+key or `--allow-insecure` (loud log), `cw gateway serve --port/--host/--cert/--key`, `wss://` via platform WebSocket | Makes non-loopback safe |
 | 1 | **Auth** ✓: per-workspace token + read/control split + `gateway.audit.log` | The gate on everything after it |
 | 2 | **Clients** ✓: web pane (`src/gateway/web/` — xterm.js via `DaemonClient.attach(wsTransport)`, `session.list`/`attach`/`input`, `tui.event` notifications), `gateway-web.test.ts` | Reuses the seam and the shared token layer |
-| 3 | **Multi-machine / hosted relay** | Agents and code on someone else's infrastructure — a different trust question, deliberately deferred |
+| 3 | **Multi-machine / hosted relay** (skeleton): `src/gateway/relay.ts` dumb forwarder (`createRelay` — forwards frames both ways, no inspection, E2E stays at ends), `gateway-relay.test.ts`; E2E + workspace routing remain deferred | Agents and code on someone else's infrastructure — a different trust question, deliberately deferred |
 
 `cwd` is POSIX-only (unix sockets, `chmod`, signals, `sh -c`) and Bun's pty is
 POSIX-only, so whatever the client is, the daemon stays on macOS or Linux.
