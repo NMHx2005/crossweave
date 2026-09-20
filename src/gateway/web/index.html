@@ -1,0 +1,27 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>crossweave — remote</title>
+<style>body{font-family:monospace;background:#16191d;color:#abb2bf;margin:0;padding:12px} #term{border:1px solid #37393d;height:70vh}</style>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5/css/xterm.css" />
+</head>
+<body>
+<h1>crossweave remote</h1>
+<div id="sessions">Loading sessions…</div>
+<div id="term"></div>
+<script type="module">
+import { Terminal } from 'https://cdn.jsdelivr.net/npm/@xterm/xterm@5/+esm';
+import { wsTransport } from './ws-transport.js';
+import { createWebClient } from './client.js';
+const token = new URLSearchParams(location.search).get('token') || '';
+const wsUrl = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?token=${encodeURIComponent(token)}`;
+const transport = await wsTransport(wsUrl);
+const term = new Terminal({ cursorBlink: true });
+term.open(document.getElementById('term'));
+const wc = await createWebClient({ transport, onData: (c) => term.write(c), onNotification: (m,p) => { if(m==='tui.event') console.log('notify',p); }});
+const sessions = await wc.client.call('session.list', token ? { token } : {});
+document.getElementById('sessions').textContent = JSON.stringify(sessions, null, 2);
+if (sessions[0]?.id) await wc.attach(sessions[0].id);
+term.onData((d) => { const sid = sessions[0]?.id; if(sid) wc.sendInput(d, sid); });
+</script>
+</body>
+</html>
