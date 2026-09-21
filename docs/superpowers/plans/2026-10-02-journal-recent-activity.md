@@ -2,7 +2,7 @@
 
 **Spec:** Long Roadmap Horizon B + `2026-10-01-deck-crossweave-bridge-design.md` §journal.
 **Tier:** Medium — daemon journal (openTabs/fileSurfaces/sessionIds) + guard + unread activity feed, no new RPC.
-**Status:** in progress.
+**Status:** done (2026-09-21) — `src/domain/journal.ts` + `activity.ts` + `journal-activity.test.ts` 2 pass, guard no double-assign, unread 5 + ack.
 
 ## Tasks
 
