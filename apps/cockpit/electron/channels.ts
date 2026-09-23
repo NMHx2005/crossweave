@@ -15,6 +15,7 @@ export const COCKPIT_CHANNELS = [
   'land.session',
   'journal.get',
   'journal.set',
+  'usage.summary',
 ] as const
 
 export type CockpitChannel = (typeof COCKPIT_CHANNELS)[number]

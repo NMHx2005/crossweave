@@ -43,6 +43,7 @@ export function App() {
   const [blockedNames, setBlockedNames] = useState<ReadonlySet<string>>(() => new Set())
   const [landBusy, setLandBusy] = useState(false)
   const [landMessage, setLandMessage] = useState<string | null>(null)
+  const [usageRows, setUsageRows] = useState<{ date: string; agentKind: string; sessions: number; tokens: number; costUsd: number }[] | null>(null)
   const [paneAttachEpoch, setPaneAttachEpoch] = useState(0)
   const [paneAttachBumps, setPaneAttachBumps] = useState<Record<string, number>>({})
   /** What the last window had open, most recently focused first (Horizon B journal). */
@@ -80,6 +81,11 @@ export function App() {
       })
       setStatus(stageStatusAfterLoad(loaded.sessions.length))
       setError(null)
+      try {
+        const u = (await cockpitApi.usageSummary({ groupBy: 'day+agent' })) as { summaries: { date: string; agentKind: string; sessions: number; tokens: number; costUsd: number }[] } | null
+        if (u && Array.isArray((u as { summaries: unknown[] }).summaries)) setUsageRows((u as { summaries: { date: string; agentKind: string; sessions: number; tokens: number; costUsd: number }[] }).summaries)
+        else setUsageRows([])
+      } catch { setUsageRows([]) }
       if (opts?.bumpAttach) {
         // daemon.gone: every pane's socket is dead, so every pane re-attaches.
         setPaneAttachEpoch((current) => current + 1)
@@ -327,6 +333,23 @@ export function App() {
         paneAttachBumps={paneAttachBumps}
         onFocus={focusSession}
       />
+      {usageRows !== null && usageRows.length > 0 ? (
+        <section class="cockpit-usage" aria-label="Usage summary">
+          <h3 class="cockpit-usage__title">Usage — estimate, not billing</h3>
+          <table class="cockpit-usage__table">
+            <thead>
+              <tr><th>date</th><th>agent</th><th>sessions</th><th>tokens</th><th>cost</th></tr>
+            </thead>
+            <tbody>
+              {usageRows.map((r) => (
+                <tr key={`${r.date}-${r.agentKind}`}>
+                  <td>{r.date}</td><td>{r.agentKind}</td><td>{r.sessions}</td><td>{r.tokens}</td><td>${r.costUsd.toFixed(4)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      ) : null}
       <footer class="cockpit-footer">
         <div class="cockpit-footer__actions">
           <button

@@ -70,6 +70,9 @@ export const cockpitApi = {
   journalSet(openTabs: string[]): Promise<unknown> {
     return cockpitInvoke('journal.set', { openTabs })
   },
+  usageSummary(payload?: { groupBy?: string }): Promise<unknown> {
+    return cockpitInvoke('usage.summary', payload)
+  },
   onSessionData(cb: (payload: unknown) => void): () => void {
     return cockpitListen('session.data', cb)
   },

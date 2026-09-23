@@ -462,6 +462,36 @@ body,
   font-size: var(--cw-fs-sm);
 }
 
+/* ---------- usage ---------- */
+.cockpit-usage {
+  grid-column: 1 / -1;
+  padding: var(--cw-space-2) var(--cw-space-3);
+  border-top: var(--cw-hairline) solid var(--cw-border);
+  background: var(--cw-surface);
+}
+.cockpit-usage__title {
+  margin: 0 0 var(--cw-space-1);
+  color: var(--cw-text-dim);
+  font-size: var(--cw-fs-sm);
+  font-weight: 600;
+}
+.cockpit-usage__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--cw-fs-sm);
+}
+.cockpit-usage__table th,
+.cockpit-usage__table td {
+  padding: var(--cw-space-1) var(--cw-space-2);
+  border-bottom: var(--cw-hairline) solid var(--cw-border);
+  text-align: left;
+  color: var(--cw-text);
+}
+.cockpit-usage__table th {
+  color: var(--cw-text-dim);
+  font-weight: 600;
+}
+
 /* Someone who asked the OS for less motion gets none of ours. */
 @media (prefers-reduced-motion: reduce) {
   *,
