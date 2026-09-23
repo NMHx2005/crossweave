@@ -95,6 +95,8 @@ stop a session from ignoring its leased port and squatting on another's.
 
 ## Where the roadmap horizons stand (2026-09-21)
 
+**Horizon D is hardening** (ab8ed61→accafc2): CI `sandbox-linux` job (ubuntu-latest + bubblewrap) proves `buildBwrapArgs` escape table; `session.data` E2E helpers `src/gateway/e2e.ts` (HKDF + aes-256-gcm via node:crypto, no native) — relay `src/gateway/relay.ts` stays dumb forwarder, ends enforce allowlists. Relay deploy + workspace routing remain deferred.
+
 **Horizon C is wired (engine + cockpit):** `usage.summary` READ RPC aggregates `SessionRow` by `day`/`agent`/`day+agent`; cockpit shows table with "estimate, not billing". Telemetry is spec-only (opt-in per-day file + POST `api.deck.spacevibe.dev/v1/ping`) — not yet implemented, default OFF. Token semantics still M6a: ACP `tokenSpent` is context occupancy, may decrease after compaction. (`2026-09-24-horizon-c-usage-design.md`)
 
 **Horizon B is wired**: the daemon owns `journal.get`/`journal.set`, the Cockpit

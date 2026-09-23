@@ -1,6 +1,6 @@
 # Progress — crossweave × SpaceVibe Deck Long Roadmap
 
-**Last updated:** 2026-09-24 (main = 0d8759c)
+**Last updated:** 2026-09-24 (main = accafc2)
 **Roadmap:** `docs/superpowers/plans/2026-09-21-long-roadmap-spacevibe-crossweave.md`
 
 ## Done
@@ -25,6 +25,9 @@
 | 2026-09-24 | Horizon C — Usage spec | `87ae992` | design `2026-09-24-horizon-c-usage-design.md` |
 | 2026-09-24 | Horizon C — Usage aggregate + RPC | `bea4bc6` | usage-aggregate.test + methods-usage.test + typecheck + build |
 | 2026-09-24 | Horizon C — Cockpit usage pane | `0d8759c` | cockpit channels/api/App + app.css tokens + cockpit build |
+| 2026-09-24 | Horizon D — Design + plan | `ab8ed61` | spec + plan `2026-09-24-horizon-d-*` |
+| 2026-09-24 | Horizon D — Relay + sandbox parity | `5322f7c` | relay docs + sandbox.ts parity note + CI sandbox-linux job (pending sudo) |
+| 2026-09-24 | Horizon D — E2E helpers | `accafc2` | e2e.ts + e2e.test 4 pass + typecheck + build |
 
 ## Nợ kỹ thuật
 
@@ -41,7 +44,8 @@ Ghi chú cấu trúc: `deriveAttention` đã lift lên `src/domain/attention.ts`
 
 - **Done:** Horizon C — Usage accounting wired (telemetry opt-in deferred, spec-only)
 - **Done:** Horizon A — Deck bridge wired crossweave-side (attention lift + card + waiting); Deck UI deferred
-- **Next:** Horizon D — Sandbox + Gateway hardening for hosted
+- **In progress:** Horizon D — Sandbox + Gateway hardening (CI + E2E helpers done, relay infra deferred)
+- **Next:** Horizon E — File explorer + browser tabs in gateway web
 - Deferred: Stage 3 hosted relay E2E + infra, Windows packaging (until `cwd` on Windows)
 
 ## Horizon overview
@@ -49,7 +53,7 @@ Ghi chú cấu trúc: `deriveAttention` đã lift lên `src/domain/attention.ts`
 - **A** Deck × crossweave bridge — wired crossweave-side (`d99893d`), Deck UI deferred
 - **B** Session journal + Recent activity — đã wire (journal RPC + restore + activity rail)
 - **C** Usage accounting — engine + cockpit wired (telemetry opt-in deferred)
-- **D** Sandbox + Gateway hardening for hosted
+- **D** Sandbox + Gateway hardening — CI + E2E helpers wired (relay infra deferred)
 - **E** File explorer + browser tabs in gateway web
 - **F** Distribution hợp nhất (install.sh chung)
 
