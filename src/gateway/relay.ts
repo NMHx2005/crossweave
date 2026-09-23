@@ -2,8 +2,12 @@ import type { ClientTransport } from '../client/transport.js';
 
 /**
  * Stage 3: hosted relay — dumb forwarder between two transports.
- * The relay never inspects session.data content (E2E is between daemon and client);
- * it only forwards frames and preserves ordering. AuthZ stays at the ends.
+ * The relay never inspects `session.data` content (E2E is between daemon and client);
+ * it only forwards raw frames and preserves ordering. AuthZ (`ALLOWED_METHODS` /
+ * `READ_METHODS`/`CONTROL_METHODS`) stays at the ends — the relay does not parse
+ * JSON, does not enforce allowlists, and does not log. Workspace routing via
+ * `RelayOptions.workspaceId` (future multi-workspace relay) and presence via
+ * `onClose`/`onError`/`onEnd` closeBoth are the only awareness it has.
  */
 export interface RelayOptions {
   /** Workspace id for routing (future: multi-workspace relay). */

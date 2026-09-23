@@ -84,6 +84,12 @@ export interface SandboxDecision {
  * this decision come from the same place for the same reason
  * (`src/adapters/coverage.ts`): the UI must not be able to drift from the truth.
  */
+/**
+ * Sandbox parity (Horizon D): `buildBwrapArgs` + `planSandbox` linux branch is the
+ * same promise as seatbelt — private TMPDIR, narrow git binds, daemon/MCP socket
+ * binds, `--unshare-net` when network is false. CI job `sandbox-linux` (ubuntu-latest)
+ * runs `tests/isolation/sandbox.test.ts` with real `bwrap` to prove the escape table.
+ */
 export function decideSandbox(req: SandboxRequest): SandboxDecision {
   if (!req.enabled) return { skip: 'disabled' };
   if (req.worktreePath === null) return { skip: 'no-worktree' };
