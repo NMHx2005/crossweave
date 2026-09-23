@@ -84,7 +84,7 @@ export const READ_METHODS = new Set([
   // reporting what it has open — a read token must not be able to rewrite the pane
   // set another client will restore from.
   'journal.get',
-  'usage.summary', 'workspace.openFile',
+  'usage.summary', 'workspace.openFile', 'workspace.listFiles',
 ]);
 
 /** Control methods require a control-capable token (today: same token, but split for future). */

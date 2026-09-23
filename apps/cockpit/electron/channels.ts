@@ -15,7 +15,7 @@ export const COCKPIT_CHANNELS = [
   'land.session',
   'journal.get',
   'journal.set',
-  'usage.summary', 'workspace.openFile',
+  'usage.summary', 'workspace.openFile', 'workspace.listFiles',
   'session.wait',
   'session.unwait',
 ] as const

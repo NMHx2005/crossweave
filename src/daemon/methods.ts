@@ -451,6 +451,16 @@ export function buildMethods(
       const content = readFileSync(abs, 'utf8').slice(0, 512*1024); // cap 512k
       return { path: rel, content };
     },
+    'workspace.listFiles': (p) => {
+      const prefix = typeof p.prefix === 'string' ? p.prefix : '';
+      const { readdirSync, statSync } = require('node:fs');
+      const { join } = require('node:path');
+      const { assertContained } = require('../core/paths.js');
+      const dir = prefix === '' ? projectRoot : (() => { const d = join(projectRoot, prefix); assertContained(projectRoot, d); return d; })();
+      const entries = readdirSync(dir, { withFileTypes: true });
+      const files = entries.map((e: { name: string; isDirectory: () => boolean }) => ({ name: e.name, isDirectory: e.isDirectory() }));
+      return { prefix, files };
+    },
     'workspace.delete': (p) => {
       workspaces.delete(str(p, 'id'), { force: bool(p, 'force', false) });
       return { ok: true };

@@ -13,7 +13,7 @@ export interface WebClientOptions {
   onNotification?: (method: string, params: unknown) => void;
 }
 
-export async function createWebClient(opts: WebClientOptions): Promise<{ client: DaemonClient; attach: (sessionId: string) => Promise<void>; sendInput: (data: string, sessionId: string) => Promise<void>; openFile: (path: string, workspaceId?: string) => Promise<{ content: string }> }> {
+export async function createWebClient(opts: WebClientOptions): Promise<{ client: DaemonClient; attach: (sessionId: string) => Promise<void>; sendInput: (data: string, sessionId: string) => Promise<void>; openFile: (path: string, workspaceId?: string) => Promise<{ content: string }>; listFiles: (prefix?: string, workspaceId?: string) => Promise<{ files: { name: string; isDirectory: boolean }[] }> }> {
   const client = DaemonClient.attach(opts.transport);
   if (opts.onNotification) client.onNotification(opts.onNotification);
   // Notifications arrive as tui.event — the same seam Cockpit uses
@@ -33,6 +33,9 @@ export async function createWebClient(opts: WebClientOptions): Promise<{ client:
           }
         });
       }
+    },
+    async listFiles(prefix = '', workspaceId?: string) {
+      return client.call<{ files: { name: string; isDirectory: boolean }[] }>('workspace.listFiles', { prefix, ...(workspaceId ? { workspaceId } : {}) });
     },
     async openFile(path: string, workspaceId?: string) {
       return client.call<{ content: string }>('workspace.openFile', workspaceId ? { path, workspaceId } : { path });

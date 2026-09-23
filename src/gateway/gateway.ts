@@ -16,7 +16,7 @@ export const ALLOWED_METHODS = new Set([
   'session.new', 'session.list', 'session.resume', 'session.stop', 'session.kill', 'session.rm',
   'session.input', 'session.resize', 'session.attach', 'session.data', 'session.exit',
   'session.rename', 'land.session', 'converge.status', 'tui.event', 'tui.invalidate',
-  'journal.get', 'journal.set', 'usage.summary', 'workspace.openFile', 'session.wait', 'session.unwait',
+  'journal.get', 'journal.set', 'usage.summary', 'workspace.openFile', 'workspace.listFiles', 'session.wait', 'session.unwait',
 ]);
 
 export interface GatewayOptions {
