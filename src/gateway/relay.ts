@@ -9,6 +9,7 @@ import type { ClientTransport } from '../client/transport.js';
  * `RelayOptions.workspaceId` (future multi-workspace relay) and presence via
  * `onClose`/`onError`/`onEnd` closeBoth are the only awareness it has.
  */
+/** Workspace routing for hosted relay — stateless, header/query `workspaceId`, E2E at ends. */
 export interface RelayOptions {
   /** Workspace id for routing (future: multi-workspace relay). */
   workspaceId?: string;
