@@ -19,7 +19,8 @@
 | 2026-09-21 | Gateway serve polish (static + WS upgrade) | `c09ea7b` / `d88ad1b` | build |
 | 2026-09-21 | Gateway Stage 3 relay skeleton | `34aafde` | gateway-relay.test |
 | 2026-09-21 | Cockpit tests fix (worktreePath compat) | `5675e7b` | cockpit-host/session-data pass |
-| 2026-09-21 | Horizon A — Deck bridge — **skeleton, chưa wire** | `94d4115` | typecheck + deck-bridge.test 1 pass (in-memory) |
+| 2026-09-21 | Horizon A — Deck bridge — skeleton | `94d4115` | typecheck + 1 test |
+| 2026-09-24 | Horizon A — Deck bridge — **wired** (attention lift + card + waiting) | `d99893d` | deck-bridge 5 + attention 8 + session.wait 2 + typecheck + build |
 | 2026-09-21 | Horizon B — Journal + activity — **đã wire** | `6c53e9f` / `0856efb` + `798df0b` | journal-activity + methods-journal + cockpit-host/activity/tokens + live app (restore + unread row) |
 | 2026-09-24 | Horizon C — Usage spec | `87ae992` | design `2026-09-24-horizon-c-usage-design.md` |
 | 2026-09-24 | Horizon C — Usage aggregate + RPC | `bea4bc6` | usage-aggregate.test + methods-usage.test + typecheck + build |
@@ -27,30 +28,25 @@
 
 ## Nợ kỹ thuật
 
-**A vẫn là khung chưa wire** — chi tiết: `docs/superpowers/specs/2026-09-21-deck-bridge-known-limitations.md`.
-
-Đóng A:
-- Khởi tạo `DeckBridge` từ một entry point thật (extension/sidecar) — hiện không ai gọi.
-- Map card model của Deck thật (heading/colour/dot/selected frame) + reuse worktree creation flow.
-- Wire tín hiệu `waiting` đầu tiên để `needs_you` fire được (hiện `SessionRepo` ghi rõ UNREACHABLE).
+**A đã wire phía crossweave** (`d99893d`) — chi tiết: `docs/superpowers/specs/2026-09-21-deck-bridge-known-limitations.md` — còn lại: Deck extension/sidecar register, worktree creation reuse, land button/palette, session.data tail wiring.
 
 **B đã wired** (daemon sở hữu journal qua `journal.get`/`journal.set`, cockpit restore
 thứ tự pane + focus, rail có unread/View all/ack) — phần còn thiếu được ghi ở
 `docs/superpowers/specs/2026-09-21-journal-activity-known-limitations.md`: scrollback
 snapshot, `needs_you` chưa có producer, `fileSurfaces` luôn rỗng, TUI chưa tham gia.
 
-Ghi chú cấu trúc: `deriveAttention` nằm ở `apps/cockpit/src/lib/attention.ts` (renderer),
-không phải engine — A/C muốn dùng chung thì phải lift lên `src/`.
+Ghi chú cấu trúc: `deriveAttention` đã lift lên `src/domain/attention.ts` (d99893d) — A/C dùng chung engine version.
 
 ## In progress / Next
 
-- **In progress:** Horizon C — Usage accounting (engine + cockpit done, telemetry deferred)
-- **Next:** Horizon A — Deck bridge closure (lift deriveAttention + card mapping + waiting signal)
+- **Done:** Horizon C — Usage accounting wired (telemetry opt-in deferred, spec-only)
+- **Done:** Horizon A — Deck bridge wired crossweave-side (attention lift + card + waiting); Deck UI deferred
+- **Next:** Horizon D — Sandbox + Gateway hardening for hosted
 - Deferred: Stage 3 hosted relay E2E + infra, Windows packaging (until `cwd` on Windows)
 
 ## Horizon overview
 
-- **A** Deck × crossweave bridge — skeleton (`94d4115`), chưa wire
+- **A** Deck × crossweave bridge — wired crossweave-side (`d99893d`), Deck UI deferred
 - **B** Session journal + Recent activity — đã wire (journal RPC + restore + activity rail)
 - **C** Usage accounting — engine + cockpit wired (telemetry opt-in deferred)
 - **D** Sandbox + Gateway hardening for hosted

@@ -103,9 +103,7 @@ list in the rail — checked in the running app, not only in unit tests. What it
 does not do (no scrollback snapshot, no `needs_you` producer, `fileSurfaces` empty, TUI
 not participating) is in `2026-09-21-journal-activity-known-limitations.md`.
 
-**Horizon A is still a skeleton**: `src/deck/bridge.ts` has no call site and no Deck
-code was touched, so do not plan on driving crossweave from Deck
-(`2026-09-21-deck-bridge-known-limitations.md`).
+**Horizon A is wired crossweave-side** (`d99893d`): `src/domain/attention.ts` shared, `DeckBridge` has a call site (`src/deck/index.ts`), `WorktreeCard` carries `heading/colour/dot/selected`, and `session.wait/unwait` makes `needs_you` fire. Deck repo itself was not touched — remaining gap is Deck-side UI (extension register, worktree creation, land button). (`2026-09-21-deck-bridge-known-limitations.md`)
 
 ## Gaps closed after the milestone reports
 
