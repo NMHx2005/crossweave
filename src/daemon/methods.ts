@@ -35,7 +35,8 @@ import type { AcpAdapterDeps } from '../adapters/acp.js';
 import { emptyJournal, normalizeTabs, readJournal, writeJournal } from '../domain/journal.js';
 import { recordUsage } from '../domain/usage.js';
 import { aggregateUsage } from '../domain/usage-aggregate.js';
-// E2E helpers available: `src/gateway/e2e.ts` deriveKey/encrypt/decrypt — wired opt-in when gateway token exists.
+import { deriveKey, encrypt as e2eEncrypt } from '../gateway/e2e.js';
+import { readGatewayToken as e2eReadToken } from '../gateway/auth.js';
 import { NotificationGate } from '../radar/noise.js';
 import { notify, type NotifyDispatcherDeps } from '../notify/dispatcher.js';
 import { platformSend } from '../notify/macos.js';
@@ -250,13 +251,28 @@ export function buildMethods(
     return pending;
   }
 
+  // E2E: when gateway token exists, encrypt session.data at source. Cache key per projectRoot.
+  const _e2eKeyCache = new Map<string, Buffer>();
+  function _e2eEncryptChunk(chunk: string): unknown {
+    try {
+      let key = _e2eKeyCache.get(projectRoot);
+      if (!key) {
+        const tok = e2eReadToken(projectRoot, 'control') ?? e2eReadToken(projectRoot);
+        if (!tok) return chunk;
+        key = deriveKey(tok, projectRoot);
+        _e2eKeyCache.set(projectRoot, key);
+      }
+      return e2eEncrypt(chunk, key);
+    } catch { return chunk; }
+  }
+  const _shouldE2E = (() => { try { return !!(e2eReadToken(projectRoot, 'control') ?? e2eReadToken(projectRoot)); } catch { return false; } })();
   const runtime = new SessionRuntime((sessionId) => {
     sessions.clearRunning(sessionId);
     leaseManager.release(sessionId);
     radarWatchers.stop(sessionId);
     const handle = mcpServers.get(sessionId);
     if (handle !== undefined) void closeMcpServer(sessionId, handle);
-  });
+  }, _shouldE2E ? _e2eEncryptChunk : undefined);
   sessions.onKill = (id) => runtime.stop(id);
 
   // `start` awaits `leaseManager.acquire` before `runtime.start` registers the
