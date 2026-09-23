@@ -1,6 +1,6 @@
 # Progress — crossweave × SpaceVibe Deck Long Roadmap
 
-**Last updated:** 2026-09-24 (main = accafc2)
+**Last updated:** 2026-09-24 (main = 92bbafd)
 **Roadmap:** `docs/superpowers/plans/2026-09-21-long-roadmap-spacevibe-crossweave.md`
 
 ## Done
@@ -28,6 +28,7 @@
 | 2026-09-24 | Horizon D — Design + plan | `ab8ed61` | spec + plan `2026-09-24-horizon-d-*` |
 | 2026-09-24 | Horizon D — Relay + sandbox parity | `5322f7c` | relay docs + sandbox.ts parity note + CI sandbox-linux job (pending sudo) |
 | 2026-09-24 | Horizon D — E2E helpers | `accafc2` | e2e.ts + e2e.test 4 pass + typecheck + build |
+| 2026-09-24 | Horizon E/F — file explorer + distribution | `92bbafd` | workspace.openFile 2 pass + web client + install.sh bwrap check + runtime hook |
 
 ## Nợ kỹ thuật
 
@@ -44,7 +45,9 @@ Ghi chú cấu trúc: `deriveAttention` đã lift lên `src/domain/attention.ts`
 
 - **Done:** Horizon C — Usage accounting wired (telemetry opt-in deferred, spec-only)
 - **Done:** Horizon A — Deck bridge wired crossweave-side (attention lift + card + waiting); Deck UI deferred
-- **In progress:** Horizon D — Sandbox + Gateway hardening (CI + E2E helpers done, relay infra deferred)
+- **Done:** Horizon D — Sandbox + Gateway hardening (CI + E2E helpers wired, relay infra deferred)
+- **Done:** Horizon E — File explorer READ (openFile + web client)
+- **Done:** Horizon F — Distribution (install.sh unified + bwrap check)
 - **Next:** Horizon E — File explorer + browser tabs in gateway web
 - Deferred: Stage 3 hosted relay E2E + infra, Windows packaging (until `cwd` on Windows)
 
@@ -53,7 +56,9 @@ Ghi chú cấu trúc: `deriveAttention` đã lift lên `src/domain/attention.ts`
 - **A** Deck × crossweave bridge — wired crossweave-side (`d99893d`), Deck UI deferred
 - **B** Session journal + Recent activity — đã wire (journal RPC + restore + activity rail)
 - **C** Usage accounting — engine + cockpit wired (telemetry opt-in deferred)
-- **D** Sandbox + Gateway hardening — CI + E2E helpers wired (relay infra deferred)
+- **D** Sandbox + Gateway hardening — wired (relay infra deferred)
+- **E** File explorer — workspace.openFile READ + web client wired
+- **F** Distribution — install.sh unified
 - **E** File explorer + browser tabs in gateway web
 - **F** Distribution hợp nhất (install.sh chung)
 
