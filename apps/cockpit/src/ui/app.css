@@ -143,6 +143,91 @@ body,
   cursor: default;
 }
 
+/* Recent activity sits between the actions and the session list: it is what tells you
+   WHICH row below to look at, so it belongs above them. Six rows then scroll (the feed
+   remembers fifty) — the height is a calc over a token rather than a px literal, because
+   the stylesheet carries no dimensional literal outside the three structural ones. */
+.cockpit-rail__activity {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cw-space-1);
+  margin-bottom: var(--cw-space-3);
+  padding-bottom: var(--cw-space-2);
+  border-bottom: var(--cw-hairline) solid var(--cw-border);
+}
+
+.cockpit-rail__activity-head {
+  display: flex;
+  align-items: center;
+  gap: var(--cw-space-2);
+}
+
+.cockpit-rail__activity-title {
+  font-size: var(--cw-fs-micro);
+  font-weight: 600;
+  letter-spacing: var(--cw-tracking-label);
+  text-transform: uppercase;
+  color: var(--cw-text-dim);
+}
+
+.cockpit-rail__count {
+  background: var(--cw-surface-badge);
+  color: var(--cw-text-bright);
+  border-radius: var(--cw-radius-sm);
+  padding: 0 var(--cw-space-1);
+  font-size: var(--cw-fs-micro);
+}
+
+.cockpit-rail__link {
+  margin-left: auto;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--cw-accent);
+  font-family: inherit;
+  font-size: var(--cw-fs-micro);
+  cursor: pointer;
+}
+
+.cockpit-rail__activity-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--cw-hairline);
+  max-height: calc(var(--cw-row-h) * 6);
+  overflow-y: auto;
+}
+
+.cockpit-rail__activity-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--cw-space-2);
+  width: 100%;
+  padding: var(--cw-space-1) var(--cw-space-2);
+  background: none;
+  border: none;
+  border-radius: var(--cw-radius-sm);
+  color: var(--cw-text);
+  font-family: inherit;
+  font-size: var(--cw-fs-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.cockpit-rail__activity-item:hover {
+  background: var(--cw-surface-hover);
+}
+
+/* An already-read item keeps --cw-text-dim rather than fading with an opacity: dim on
+   surface is a pair tokens.test.ts measures, and an opacity would push the row under AA
+   while looking like exactly the same thing. */
+.cockpit-rail__activity-item.is-read {
+  color: var(--cw-text-dim);
+}
+
 .cockpit-rail__list {
   list-style: none;
   margin: 0;

@@ -63,6 +63,13 @@ export const cockpitApi = {
   landSession(idOrName: string, force?: boolean): Promise<unknown> {
     return cockpitInvoke('land.session', { idOrName, force })
   },
+  /** What this window last had open, so a restart can put it back (Horizon B journal). */
+  journalGet(): Promise<unknown> {
+    return cockpitInvoke('journal.get')
+  },
+  journalSet(openTabs: string[]): Promise<unknown> {
+    return cockpitInvoke('journal.set', { openTabs })
+  },
   onSessionData(cb: (payload: unknown) => void): () => void {
     return cockpitListen('session.data', cb)
   },

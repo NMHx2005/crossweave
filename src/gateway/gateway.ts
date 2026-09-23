@@ -16,6 +16,7 @@ export const ALLOWED_METHODS = new Set([
   'session.new', 'session.list', 'session.resume', 'session.stop', 'session.kill', 'session.rm',
   'session.input', 'session.resize', 'session.attach', 'session.data', 'session.exit',
   'session.rename', 'land.session', 'converge.status', 'tui.event', 'tui.invalidate',
+  'journal.get', 'journal.set',
 ]);
 
 export interface GatewayOptions {

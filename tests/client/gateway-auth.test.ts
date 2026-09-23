@@ -72,5 +72,9 @@ describe('gateway auth gate', () => {
     expect(READ_METHODS.has('session.list')).toBe(true);
     expect(READ_METHODS.has('land.session')).toBe(false);
     expect(READ_METHODS.has('session.input')).toBe(false);
+    // Reading the journal is a viewer's right; rewriting the pane set another client
+    // will restore from is not.
+    expect(READ_METHODS.has('journal.get')).toBe(true);
+    expect(READ_METHODS.has('journal.set')).toBe(false);
   });
 });

@@ -1,6 +1,6 @@
 # Progress — crossweave × SpaceVibe Deck Long Roadmap
 
-**Last updated:** 2026-09-21 (main = 0856efb)
+**Last updated:** 2026-09-21 (main = 8d45de6)
 **Roadmap:** `docs/superpowers/plans/2026-09-21-long-roadmap-spacevibe-crossweave.md`
 
 ## Done
@@ -19,8 +19,25 @@
 | 2026-09-21 | Gateway serve polish (static + WS upgrade) | `c09ea7b` / `d88ad1b` | build |
 | 2026-09-21 | Gateway Stage 3 relay skeleton | `34aafde` | gateway-relay.test |
 | 2026-09-21 | Cockpit tests fix (worktreePath compat) | `5675e7b` | cockpit-host/session-data pass |
-| 2026-09-21 | Horizon A — Deck bridge | `94d4115` | deck-bridge.test 1 pass |
-| 2026-09-21 | **Horizon B — Journal + Recent activity** | `6c53e9f` / `0856efb` | journal-activity.test 2 pass |
+| 2026-09-21 | Horizon A — Deck bridge — **skeleton, chưa wire** | `94d4115` | typecheck + deck-bridge.test 1 pass (in-memory) |
+| 2026-09-21 | Horizon B — Journal + activity — **đã wire** | `6c53e9f` / `0856efb` + wiring | journal-activity + methods-journal + cockpit-host/activity/tokens + live app (restore + unread row) |
+
+## Nợ kỹ thuật
+
+**A vẫn là khung chưa wire** — chi tiết: `docs/superpowers/specs/2026-09-21-deck-bridge-known-limitations.md`.
+
+Đóng A:
+- Khởi tạo `DeckBridge` từ một entry point thật (extension/sidecar) — hiện không ai gọi.
+- Map card model của Deck thật (heading/colour/dot/selected frame) + reuse worktree creation flow.
+- Wire tín hiệu `waiting` đầu tiên để `needs_you` fire được (hiện `SessionRepo` ghi rõ UNREACHABLE).
+
+**B đã wired** (daemon sở hữu journal qua `journal.get`/`journal.set`, cockpit restore
+thứ tự pane + focus, rail có unread/View all/ack) — phần còn thiếu được ghi ở
+`docs/superpowers/specs/2026-09-21-journal-activity-known-limitations.md`: scrollback
+snapshot, `needs_you` chưa có producer, `fileSurfaces` luôn rỗng, TUI chưa tham gia.
+
+Ghi chú cấu trúc: `deriveAttention` nằm ở `apps/cockpit/src/lib/attention.ts` (renderer),
+không phải engine — A/C muốn dùng chung thì phải lift lên `src/`.
 
 ## In progress / Next
 
@@ -29,8 +46,8 @@
 
 ## Horizon overview
 
-- **A** Deck × crossweave bridge — DONE (`94d4115`)
-- **B** Session journal + Recent activity — DONE (`0856efb`)
+- **A** Deck × crossweave bridge — skeleton (`94d4115`), chưa wire
+- **B** Session journal + Recent activity — đã wire (journal RPC + restore + activity rail)
 - **C** Usage accounting — NEXT
 - **D** Sandbox + Gateway hardening for hosted
 - **E** File explorer + browser tabs in gateway web

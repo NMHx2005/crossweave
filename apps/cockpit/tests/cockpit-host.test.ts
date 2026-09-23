@@ -3,6 +3,8 @@ import { blockedSessionFromEvent } from '../src/lib/attention'
 import {
   createAndStartSession,
   loadWorkspace,
+  orderSessionsByJournal,
+  parseJournalTabs,
   runCockpitAction,
   shouldBumpPaneAttach,
   stageStatusAfterFailure,
@@ -10,7 +12,7 @@ import {
 } from '../src/lib/cockpit-host'
 import { parseSessionList } from '../src/lib/sessions'
 
-function fakeApi(opts?: { resumeId?: string }) {
+function fakeApi(opts?: { resumeId?: string; journalTabs?: unknown }) {
   const calls: string[] = []
   const listeners: {
     invalidate?: (payload: unknown) => void
@@ -29,6 +31,10 @@ function fakeApi(opts?: { resumeId?: string }) {
     convergeStatus: async () => {
       calls.push('converge')
       return { ready: ['alpha'], unknown: [], blocked: [] }
+    },
+    journalGet: async () => {
+      calls.push('journal')
+      return { openTabs: opts?.journalTabs ?? [] }
     },
     newSession: async (payload: { name: string; agent: string }) => {
       calls.push(`new:${payload.name}:${payload.agent}`)
@@ -114,7 +120,7 @@ describe('runCockpitAction', () => {
       },
     )
     expect(error).toBe('resume failed')
-    expect(calls).toEqual(['new:delta:claude', 'resume:s9', 'ensure', 'list', 'converge'])
+    expect(calls).toEqual(['new:delta:claude', 'resume:s9', 'ensure', 'list', 'converge', 'journal'])
     expect(refreshCalls).toEqual(['partial'])
   })
 })
@@ -131,8 +137,49 @@ describe('loadWorkspace + daemon.gone', () => {
     expect(listeners.gone).toBeTypeOf('function')
     listeners.gone?.({})
     const loaded = await refreshDone
-    expect(calls).toEqual(['ensure', 'list', 'converge'])
+    expect(calls).toEqual(['ensure', 'list', 'converge', 'journal'])
     expect(loaded.sessions).toEqual([{ id: 's1', name: 'alpha', status: 'running' }])
+    expect(loaded.journalTabs).toEqual([])
+  })
+
+  test('a journal read failure costs the restore, not the load', async () => {
+    const { api } = fakeApi()
+    api.journalGet = async () => {
+      throw new Error('journal.get is not a thing this daemon knows')
+    }
+    const loaded = await loadWorkspace(api)
+    expect(loaded.journalTabs).toEqual([])
+    expect(loaded.sessions.length).toBe(1)
+  })
+})
+
+describe('journal restore', () => {
+  test('parseJournalTabs tolerates anything that is not a tab list', () => {
+    expect(parseJournalTabs({ openTabs: ['a', 2, null, 'b'] })).toEqual(['a', 'b'])
+    expect(parseJournalTabs({ openTabs: 'a' })).toEqual([])
+    expect(parseJournalTabs(undefined)).toEqual([])
+    expect(parseJournalTabs({})).toEqual([])
+  })
+
+  test('journal order comes first and everything else keeps the daemon order', () => {
+    const sessions = [
+      { id: 'a', name: 'alpha', status: 'running' },
+      { id: 'b', name: 'beta', status: 'running' },
+      { id: 'c', name: 'gamma', status: 'running' },
+    ] as never
+    expect(orderSessionsByJournal(sessions, ['c', 'a']).map((s) => s.id)).toEqual(['c', 'a', 'b'])
+    // A session the daemon no longer has is dropped, and a repeated id opens one pane,
+    // not two — two attaches on one session would fight over the same pty.
+    expect(orderSessionsByJournal(sessions, ['ghost', 'b', 'b', 'a']).map((s) => s.id)).toEqual([
+      'b', 'a', 'c',
+    ])
+    expect(orderSessionsByJournal(sessions, []).map((s) => s.id)).toEqual(['a', 'b', 'c'])
+  })
+
+  test('loadWorkspace hands the restore order to the caller', async () => {
+    const { api } = fakeApi({ journalTabs: ['s1'] })
+    const loaded = await loadWorkspace(api)
+    expect(loaded.journalTabs).toEqual(['s1'])
   })
 })
 
@@ -182,7 +229,7 @@ describe('subscribeCockpitHost tui.event', () => {
     listeners.event?.({ kind: 'blocked', session: 'auth' })
     await refreshDone
     expect(events).toEqual(['auth'])
-    expect(calls).toEqual(['ensure', 'list', 'converge'])
+    expect(calls).toEqual(['ensure', 'list', 'converge', 'journal'])
   })
 
   test('invalidate and gone are distinct from event so blocked names can be cleared', () => {

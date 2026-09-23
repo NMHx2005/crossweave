@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { ActivityFeed, activityFromEvent, type ActivityItem } from '../../../../src/domain/activity.js'
 import { cockpitApi, type ListedSession } from '../host/cockpit-api'
 import {
   blockedSessionFromEvent,
@@ -11,6 +12,7 @@ import {
 import {
   createAndStartSession,
   loadWorkspace,
+  orderSessionsByJournal,
   runCockpitAction,
   shouldBumpPaneAttach,
   stageStatusAfterFailure,
@@ -25,7 +27,7 @@ import {
   type LandResult,
 } from '../lib/land-actions'
 import { AgentRail } from './AgentRail'
-import { Stage, type StageStatus } from './Stage'
+import { pickPaneSessions, Stage, type StageStatus } from './Stage'
 
 const EMPTY_CONVERGE: ConvergeStatus = { ready: [], unknown: [], blocked: [] }
 
@@ -43,6 +45,17 @@ export function App() {
   const [landMessage, setLandMessage] = useState<string | null>(null)
   const [paneAttachEpoch, setPaneAttachEpoch] = useState(0)
   const [paneAttachBumps, setPaneAttachBumps] = useState<Record<string, number>>({})
+  /** What the last window had open, most recently focused first (Horizon B journal). */
+  const [journalTabs, setJournalTabs] = useState<string[]>([])
+  const lastJournalRef = useRef('')
+  /**
+   * Recent activity lives in a ref and is mirrored into state: the feed is a mutable
+   * unread/ack store (see src/domain/activity.ts), and re-rendering needs a new array
+   * reference, not a mutated one. Unread is per-window state, so a reload starting empty
+   * is correct rather than a gap.
+   */
+  const feedRef = useRef(new ActivityFeed())
+  const [activity, setActivity] = useState<ActivityItem[]>([])
   const cancelledRef = useRef(false)
   const sessionsRef = useRef(sessions)
   sessionsRef.current = sessions
@@ -54,9 +67,16 @@ export function App() {
       setSessions(loaded.sessions)
       setConverge(loaded.converge)
       setLandabilityByName(parseLandabilityByName(loaded.converge))
+      setJournalTabs(loaded.journalTabs)
       setFocusedId((current) => {
         if (current && loaded.sessions.some((session) => session.id === current)) return current
-        return loaded.sessions[0]?.id ?? null
+        // The window this one replaced had a focused pane; restore THAT session rather
+        // than whichever the daemon happens to list first. Ids the daemon no longer has
+        // fall through to the list order.
+        const restored = loaded.journalTabs.find((id) =>
+          loaded.sessions.some((session) => session.id === id),
+        )
+        return restored ?? loaded.sessions[0]?.id ?? null
       })
       setStatus(stageStatusAfterLoad(loaded.sessions.length))
       setError(null)
@@ -85,6 +105,11 @@ export function App() {
         })
       },
       onEvent: (payload) => {
+        const item = activityFromEvent(payload)
+        if (item) {
+          feedRef.current.push(item.kind, item.session)
+          setActivity(feedRef.current.all())
+        }
         const name = blockedSessionFromEvent(payload)
         if (!name) return
         setBlockedNames((prev) => nextBlockedNames(prev, { type: 'blocked', name }))
@@ -95,6 +120,27 @@ export function App() {
       unsub()
     }
   }, [load])
+
+  /** Journal order for the panes; the rail keeps the daemon's order so rows do not jump. */
+  const orderedSessions = useMemo(
+    () => orderSessionsByJournal(sessions, journalTabs),
+    [sessions, journalTabs],
+  )
+
+  /**
+   * Report the pane set back to the daemon, which owns the journal file. Skipped when
+   * the list is unchanged: a `tui.invalidate` arrives after every session mutation, so
+   * each reload would otherwise rewrite an identical journal. An empty pane set writes
+   * nothing at all — a window that cannot see sessions has nothing to remember, and
+   * stale ids are filtered on the way back in anyway.
+   */
+  useEffect(() => {
+    const tabs = pickPaneSessions(orderedSessions, focusedId).map((session) => session.id)
+    const key = tabs.join('\n')
+    if (tabs.length === 0 || lastJournalRef.current === key) return
+    lastJournalRef.current = key
+    void cockpitApi.journalSet(tabs).catch(() => undefined)
+  }, [orderedSessions, focusedId])
 
   const attentionById = useMemo(() => {
     const out: Record<string, AttentionKind> = {}
@@ -114,6 +160,29 @@ export function App() {
     ? converge.blocked.find((entry) => entry.name === focused.name)?.reason
     : undefined
   const canLandFocused = focusedLandability === 'ready' || focusedLandability === 'unknown'
+
+  /**
+   * Looking at a session is what clears its activity: the rail shows what you have not
+   * seen yet, and a session you just opened has been seen. Called from the rail row, a
+   * pane, and an activity row alike, so the count cannot disagree with what is on screen.
+   */
+  function focusSession(sessionId: string): void {
+    setFocusedId(sessionId)
+    const session = sessions.find((s) => s.id === sessionId)
+    if (!session) return
+    feedRef.current.ack(session.name)
+    setActivity(feedRef.current.all())
+  }
+
+  function selectActivity(sessionName: string): void {
+    feedRef.current.ack(sessionName)
+    setActivity(feedRef.current.all())
+    const session = sessions.find((s) => s.name === sessionName)
+    // A session that has since been removed (killed with --rm-worktree, landed) still
+    // gets its item acknowledged — an unactionable row that can never be cleared is
+    // worse than a row that disappears.
+    if (session) setFocusedId(session.id)
+  }
 
   async function runAction(action: () => Promise<unknown>): Promise<void> {
     const actionError = await runCockpitAction(action, (partialFailure) =>
@@ -233,7 +302,9 @@ export function App() {
         sessions={sessions}
         focusedId={focusedId}
         attentionById={attentionById}
-        onFocus={setFocusedId}
+        activity={activity}
+        onFocus={focusSession}
+        onSelectActivity={selectActivity}
         onNew={() => {
           void handleNew()
         }}
@@ -248,13 +319,13 @@ export function App() {
         }}
       />
       <Stage
-        sessions={sessions}
+        sessions={orderedSessions}
         focusedId={focusedId}
         status={status}
         error={error}
         paneAttachEpoch={paneAttachEpoch}
         paneAttachBumps={paneAttachBumps}
-        onFocus={setFocusedId}
+        onFocus={focusSession}
       />
       <footer class="cockpit-footer">
         <div class="cockpit-footer__actions">

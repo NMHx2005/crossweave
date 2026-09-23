@@ -116,6 +116,14 @@ describe('cockpit design tokens — legibility (WCAG AA)', () => {
     expect(contrast(T['--cw-text-dim'], T['--cw-surface-badge'])).toBeGreaterThanOrEqual(AA_NORMAL)
   })
 
+  it('the recent-activity rows and their badges', () => {
+    // Text on a hovered row, the "View all" link, and the unread count on its badge —
+    // the three pairs the activity section paints that nothing else does.
+    expect(contrast(T['--cw-text'], T['--cw-surface-hover'])).toBeGreaterThanOrEqual(AA_NORMAL)
+    expect(contrast(T['--cw-accent'], T['--cw-surface'])).toBeGreaterThanOrEqual(AA_NORMAL)
+    expect(contrast(T['--cw-text-bright'], T['--cw-surface-badge'])).toBeGreaterThanOrEqual(AA_NORMAL)
+  })
+
   it('button labels on the control surface', () => {
     expect(contrast(T['--cw-text-bright'], T['--cw-surface-control'])).toBeGreaterThanOrEqual(AA_NORMAL)
   })

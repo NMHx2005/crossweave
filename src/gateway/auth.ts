@@ -80,13 +80,17 @@ export const READ_METHODS = new Set([
   'workspace.info', 'session.list', 'converge.status',
   'tui.event', 'tui.invalidate', 'session.data', 'session.exit',
   'workspace.ensure',
+  // The journal is a read for a viewer and a control action for a window that is
+  // reporting what it has open — a read token must not be able to rewrite the pane
+  // set another client will restore from.
+  'journal.get',
 ]);
 
 /** Control methods require a control-capable token (today: same token, but split for future). */
 export const CONTROL_METHODS = new Set([
   'workspace.gc', 'session.new', 'session.resume', 'session.stop', 'session.kill', 'session.rm',
   'session.rename', 'session.input', 'session.resize', 'session.attach',
-  'land.session', 'contract.check',
+  'land.session', 'contract.check', 'journal.set',
 ]);
 
 export function isReadMethod(method: string): boolean {

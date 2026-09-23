@@ -32,6 +32,7 @@ import { landSession } from '../convergence/land.js';
 import { hashTestCommand, isTestCommandTrusted } from '../convergence/trust.js';
 import { createAdapter } from '../adapters/registry.js';
 import type { AcpAdapterDeps } from '../adapters/acp.js';
+import { emptyJournal, normalizeTabs, readJournal, writeJournal } from '../domain/journal.js';
 import { recordUsage } from '../domain/usage.js';
 import { NotificationGate } from '../radar/noise.js';
 import { notify, type NotifyDispatcherDeps } from '../notify/dispatcher.js';
@@ -827,6 +828,37 @@ export function buildMethods(
     'config.untrust': (p) => {
       configTrust.clear(str(p, 'workspaceId'));
       return { trusted: false };
+    },
+
+    // Horizon B's journal: what a client had open, so a restart can put it back. The
+    // daemon owns the file because it owns `.crossweave/` — a renderer writing it directly
+    // would break the one-writer rule AND could not work over the gateway, where the
+    // client has no local filesystem. See src/domain/journal.ts.
+    'journal.get': (p) => {
+      const workspaceId = str(p, 'workspaceId');
+      const entry = readJournal(projectRoot);
+      // A mismatched workspaceId reads as empty: a journal left over from a deleted
+      // workspace must not restore panes into the one that replaced it.
+      return entry && entry.workspaceId === workspaceId ? entry : emptyJournal(workspaceId);
+    },
+
+    // `openTabs` is client-supplied, so it is validated like any other external input:
+    // `sessions.list` already excludes the integration session (infrastructure the user
+    // cannot address, so never a pane) and this workspace's other sessions do not exist
+    // in it. normalizeTabs then dedupes and caps. fileSurfaces is written empty and
+    // always: there is no file-surface feature to journal yet, and a client-supplied
+    // path list would be state the daemon could not vouch for.
+    'journal.set': (p) => {
+      const workspaceId = str(p, 'workspaceId');
+      const known = new Set(sessions.list(workspaceId).map((s) => s.id));
+      const openTabs = normalizeTabs(p.openTabs, (id) => known.has(id));
+      writeJournal(projectRoot, {
+        workspaceId,
+        openTabs,
+        fileSurfaces: [],
+        at: new Date().toISOString(),
+      });
+      return { openTabs };
     },
 
     // The TUI's live feed: no params, subscribes this connection to every future

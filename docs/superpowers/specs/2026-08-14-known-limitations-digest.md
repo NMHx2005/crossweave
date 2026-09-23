@@ -93,6 +93,18 @@ stop a session from ignoring its leased port and squatting on another's.
   if LaunchServices accepts an app that later crashes. See
   `2026-09-18-cockpit-daily-driver-known-limitations.md`.
 
+## Where the roadmap horizons stand (2026-09-21)
+
+**Horizon B is wired**: the daemon owns `journal.get`/`journal.set`, the Cockpit
+restores its pane order and focus from it, and `tui.event` drives an unread activity
+list in the rail — checked in the running app, not only in unit tests. What it still
+does not do (no scrollback snapshot, no `needs_you` producer, `fileSurfaces` empty, TUI
+not participating) is in `2026-09-21-journal-activity-known-limitations.md`.
+
+**Horizon A is still a skeleton**: `src/deck/bridge.ts` has no call site and no Deck
+code was touched, so do not plan on driving crossweave from Deck
+(`2026-09-21-deck-bridge-known-limitations.md`).
+
 ## Gaps closed after the milestone reports
 
 The milestone documents below are historical snapshots. Later reliability

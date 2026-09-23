@@ -1,3 +1,4 @@
+import { guardRestore } from '../../../../src/domain/journal.js'
 import type { ListedSession } from './sessions'
 import { parseConvergeStatus, type ConvergeStatus } from './land-actions'
 
@@ -5,6 +6,7 @@ export type CockpitHostApi = {
   ensureWorkspace: () => Promise<unknown>
   listSessions: () => Promise<ListedSession[]>
   convergeStatus: () => Promise<unknown>
+  journalGet: () => Promise<unknown>
   newSession: (payload: { name: string; agent: string; worktree?: boolean }) => Promise<unknown>
   resumeSession: (idOrName: string) => Promise<unknown>
   onTuiInvalidate: (cb: (payload: unknown) => void) => () => void
@@ -15,6 +17,37 @@ export type CockpitHostApi = {
 export type LoadedWorkspace = {
   sessions: ListedSession[]
   converge: ConvergeStatus
+  /** Session ids the last window had open, most recently focused first. */
+  journalTabs: string[]
+}
+
+/**
+ * The journal's tab list from whatever `journal.get` returned. A client-side parse
+ * rather than a cast: the daemon is the writer, but a stale file, a downgrade or a
+ * hand-edited journal must degrade to "nothing to restore", not to a crash at boot.
+ */
+export function parseJournalTabs(payload: unknown): string[] {
+  const record = payload as { openTabs?: unknown } | null
+  if (!record || !Array.isArray(record.openTabs)) return []
+  return record.openTabs.filter((tab): tab is string => typeof tab === 'string')
+}
+
+/**
+ * Sessions in journal order, then everything else in the order the daemon listed it.
+ *
+ * The restore is a reordering, never a filter: a session that is not in the journal
+ * (started from the CLI while the window was closed) still gets a pane, it just comes
+ * after the ones the window had. Ids the journal names but the daemon no longer has are
+ * dropped, and the guard keeps a repeated id from opening a second pane on the same
+ * session — two attaches on one session fight over the same pty.
+ */
+export function orderSessionsByJournal(sessions: ListedSession[], tabs: string[]): ListedSession[] {
+  const byId = new Map(sessions.map((session) => [session.id, session]))
+  const seen = new Set<string>()
+  const restored = guardRestore(tabs, seen)
+    .map((id) => byId.get(id))
+    .filter((session): session is ListedSession => session !== undefined)
+  return [...restored, ...sessions.filter((session) => !seen.has(session.id))]
 }
 
 /**
@@ -22,12 +55,15 @@ export type LoadedWorkspace = {
  * dropped daemon does not leave the renderer stuck on a dead client.
  */
 export async function loadWorkspace(
-  api: Pick<CockpitHostApi, 'ensureWorkspace' | 'listSessions' | 'convergeStatus'>,
+  api: Pick<CockpitHostApi, 'ensureWorkspace' | 'listSessions' | 'convergeStatus' | 'journalGet'>,
 ): Promise<LoadedWorkspace> {
   await api.ensureWorkspace()
   const sessions = await api.listSessions()
   const converge = await api.convergeStatus().catch(() => undefined)
-  return { sessions, converge: parseConvergeStatus(converge) }
+  // Best effort: a daemon too old to know journal.get, or a failed read, costs the
+  // restore and nothing else. A window that cannot list sessions has already thrown.
+  const journal = await api.journalGet().catch(() => undefined)
+  return { sessions, converge: parseConvergeStatus(converge), journalTabs: parseJournalTabs(journal) }
 }
 
 export type RefreshSource = 'invalidate' | 'event' | 'gone'

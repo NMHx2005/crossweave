@@ -100,6 +100,21 @@ instead of fighting it.
 - **The CLI TUI stays cross-platform** (`cw tui`); the cockpit is macOS-only until
   `cwd` itself runs elsewhere.
 
+
+## Resource budget — RAM & CPU (local dev)
+
+Máy dev là tài nguyên chung — mọi lệnh test/build phải giữ mức tiêu thụ thấp. Quy tắc bắt buộc khi chạy bất kỳ check nào:
+
+- **Chạy tuần tự, không song song vô tội vạ.** Không chạy `bun test` + `typecheck` + `build` + `apps/cockpit` build cùng lúc. Mỗi lượt chỉ một gate nặng; xong mới chạy gate tiếp theo.
+- **Giới hạn concurrency của test.** Ưu tiên `bun test --concurrency 1` (hoặc `GATE_BUDGET` thấp) khi máy đang tải; chỉ tăng concurrency khi đã đo và thấy còn dư RAM/CPU. Không spawn subagent/daemon/pty hàng loạt trong test — dùng in-memory/fake double nếu có thể.
+- **Tránh watch/build lặp vô hạn.** Không để `tsc --watch`, `bun --watch`, `vite dev`, `electron dev` chạy nền sau khi xong việc. Kill process watch ngay khi không cần.
+- **Dọn sau mỗi lần chạy.** Đóng daemon/socket/tmp worktree mà test đã tạo (`afterEach`/`afterAll` phải cleanup). Không để `cwd` hay `cw` orphan chiếm RAM.
+- **Build có chọn lọc.** `bun run build` chỉ khi đụng `src/`; `apps/cockpit` build chỉ khi đụng `apps/cockpit/`. Không build toàn repo "cho chắc".
+- **Khi nghi ngờ, đo trước.** Chạy `ps aux | head` / `top -l 1` / `memory_pressure` (macOS) hoặc `free -m` (Linux) trước và sau gate nặng; nếu RAM > 80% hoặc CPU pinned > 30s, dừng lại, giảm concurrency và báo trong report.
+- **Report phải ghi chú.** Mỗi summary sau task ghi 1 dòng về gate đã chạy và mức concurrency đã dùng (vd: `bun test --concurrency 1 — pass`).
+
+Vi phạm = phải dừng và giảm tải, không đổ lỗi cho môi trường.
+
 ## Definition of done
 
 `bun run typecheck` · `bun test` · `bun run build` on what you touched — plus, for
