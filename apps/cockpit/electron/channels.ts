@@ -16,6 +16,8 @@ export const COCKPIT_CHANNELS = [
   'journal.get',
   'journal.set',
   'usage.summary',
+  'session.wait',
+  'session.unwait',
 ] as const
 
 export type CockpitChannel = (typeof COCKPIT_CHANNELS)[number]

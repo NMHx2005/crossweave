@@ -148,3 +148,27 @@ describe('usage.summary RPC', () => {
     expect(() => (methods['usage.summary']! as unknown as (p: Record<string, unknown>, c: unknown) => unknown)({}, ctx)).toThrow();
   });
 });
+
+describe('session.wait / session.unwait RPC', () => {
+  test('wait marks waiting, unwait restores running', async () => {
+    const { db } = (() => {
+      const db = openDatabase(':memory:');
+      new WorkspaceRepo(db).insert({ id: 'ws_1', name: 'w', rootPath: '/tmp/w', createdAt: 'now', defaultIsolation: 'worktree', safeModeTier: 'T2' });
+      new SessionRepo(db).insert({ id: 's_1', workspaceId: 'ws_1', name: 's_1', agentKind: 'claude', adapter: 'claude', status: 'running', worktreePath: null, branch: null, createdAt: 'now', lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costBudgetUsd: null, costSpentUsd: 0, enforcementTier: 'T2', pid: 123 });
+      return { db };
+    })();
+    const methods = buildMethods(db, '/tmp/w');
+    // @ts-ignore repo shape
+    const resWait = await methods['session.wait']!({ sessionId: 's_1' }, { notify: () => {}, onClose: () => {} });
+    expect(resWait).toMatchObject({ status: 'waiting' });
+    const resUnwait = await methods['session.unwait']!({ sessionId: 's_1' }, { notify: () => {}, onClose: () => {} });
+    expect(resUnwait).toMatchObject({ status: 'running' });
+  });
+  test('unknown sessionId throws NOT_FOUND', async () => {
+    const db = openDatabase(':memory:');
+    new WorkspaceRepo(db).insert({ id: 'ws_1', name: 'w', rootPath: '/tmp/w', createdAt: 'now', defaultIsolation: 'worktree', safeModeTier: 'T2' });
+    const methods = buildMethods(db, '/tmp/w');
+    expect(() => (methods['session.wait'] as unknown as (p: Record<string, unknown>, c: unknown) => unknown)({ sessionId: 'ghost' }, { notify: () => {}, onClose: () => {} })).toThrow();
+  });
+});
+

@@ -871,6 +871,25 @@ export function buildMethods(
       return { summaries };
     },
 
+    /** First real `waiting` writer: a hook/statusLine may call this when the agent wants input. */
+    'session.wait': (p) => {
+      const sessionId = str(p, 'sessionId');
+      // SessionManager keeps the repo private — reach via any, typed as repo shape.
+      const repo = (sessions as unknown as { sessions: { findById: (id: string) => { pid: number | null } | undefined; updateStatus: (id: string, s: string, pid: number | null) => void } }).sessions;
+      const row = repo.findById(sessionId);
+      if (!row) throw new CrossweaveError('NOT_FOUND', `Unknown session: ${sessionId}`);
+      repo.updateStatus(sessionId, 'waiting', row.pid);
+      return { ok: true, status: 'waiting' as const };
+    },
+    'session.unwait': (p) => {
+      const sessionId = str(p, 'sessionId');
+      const repo = (sessions as unknown as { sessions: { findById: (id: string) => { pid: number | null; status: string } | undefined; updateStatus: (id: string, s: string, pid: number | null) => void } }).sessions;
+      const row = repo.findById(sessionId);
+      if (!row) throw new CrossweaveError('NOT_FOUND', `Unknown session: ${sessionId}`);
+      if (row.status === 'waiting') repo.updateStatus(sessionId, 'running', row.pid);
+      return { ok: true, status: row.status === 'waiting' ? 'running' : row.status };
+    },
+
     // The TUI's live feed: no params, subscribes this connection to every future
     // `tui.event`/`tui.invalidate` broadcast until it closes (see
     // src/daemon/broadcast.ts's own doc comment for the two message kinds).

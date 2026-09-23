@@ -91,7 +91,7 @@ export const READ_METHODS = new Set([
 export const CONTROL_METHODS = new Set([
   'workspace.gc', 'session.new', 'session.resume', 'session.stop', 'session.kill', 'session.rm',
   'session.rename', 'session.input', 'session.resize', 'session.attach',
-  'land.session', 'contract.check', 'journal.set',
+  'land.session', 'contract.check', 'journal.set', 'session.wait', 'session.unwait',
 ]);
 
 export function isReadMethod(method: string): boolean {
