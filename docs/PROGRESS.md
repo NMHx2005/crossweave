@@ -1,6 +1,6 @@
 # Progress — crossweave × SpaceVibe Deck Long Roadmap
 
-**Last updated:** 2026-09-24 (main = 92bbafd)
+**Last updated:** 2026-09-24 (main = eff82d9)
 **Roadmap:** `docs/superpowers/plans/2026-09-21-long-roadmap-spacevibe-crossweave.md`
 
 ## Done
@@ -29,6 +29,7 @@
 | 2026-09-24 | Horizon D — Relay + sandbox parity | `5322f7c` | relay docs + sandbox.ts parity note + CI sandbox-linux job (pending sudo) |
 | 2026-09-24 | Horizon D — E2E helpers | `accafc2` | e2e.ts + e2e.test 4 pass + typecheck + build |
 | 2026-09-24 | Horizon E/F — file explorer + distribution | `92bbafd` | workspace.openFile 2 pass + web client + install.sh bwrap check + runtime hook |
+| 2026-09-24 | C/D hardening sprint — telemetry + E2E wire | `eff82d9` | telemetry 1 pass + e2e wire decrypt + typecheck + build |
 
 ## Nợ kỹ thuật
 
@@ -48,7 +49,8 @@ Ghi chú cấu trúc: `deriveAttention` đã lift lên `src/domain/attention.ts`
 - **Done:** Horizon D — Sandbox + Gateway hardening (CI + E2E helpers wired, relay infra deferred)
 - **Done:** Horizon E — File explorer READ (openFile + web client)
 - **Done:** Horizon F — Distribution (install.sh unified + bwrap check)
-- **Next:** Horizon E — File explorer + browser tabs in gateway web
+- **Done:** C/D hardening sprint — telemetry opt-in (default OFF) + session.data E2E wire (ends-only envelope)
+- **Next:** Horizon E remaining — browser tabs as tabs on stage strip (Monaco deferred)
 - Deferred: Stage 3 hosted relay E2E + infra, Windows packaging (until `cwd` on Windows)
 
 ## Horizon overview
