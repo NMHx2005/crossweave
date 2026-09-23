@@ -423,6 +423,18 @@ export function buildMethods(
       }
       return { ...info, disk };
     },
+    'workspace.openFile': (p) => {
+      const rel = str(p, 'path');
+      const { readFileSync, existsSync } = require('node:fs');
+      const { join } = require('node:path');
+      const { assertContained } = require('../core/paths.js');
+      // projectRoot is the source of truth — workspaceId is optional and ignored for now (single root daemon).
+      const abs = join(projectRoot, rel);
+      assertContained(projectRoot, abs);
+      if (!existsSync(abs)) throw new (require('../core/errors.js').CrossweaveError)('NOT_FOUND', `Not found: ${rel}`);
+      const content = readFileSync(abs, 'utf8').slice(0, 512*1024); // cap 512k
+      return { path: rel, content };
+    },
     'workspace.delete': (p) => {
       workspaces.delete(str(p, 'id'), { force: bool(p, 'force', false) });
       return { ok: true };

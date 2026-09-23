@@ -13,7 +13,7 @@ export interface WebClientOptions {
   onNotification?: (method: string, params: unknown) => void;
 }
 
-export async function createWebClient(opts: WebClientOptions): Promise<{ client: DaemonClient; attach: (sessionId: string) => Promise<void>; sendInput: (data: string, sessionId: string) => Promise<void> }> {
+export async function createWebClient(opts: WebClientOptions): Promise<{ client: DaemonClient; attach: (sessionId: string) => Promise<void>; sendInput: (data: string, sessionId: string) => Promise<void>; openFile: (path: string, workspaceId?: string) => Promise<{ content: string }> }> {
   const client = DaemonClient.attach(opts.transport);
   if (opts.onNotification) client.onNotification(opts.onNotification);
   // Notifications arrive as tui.event — the same seam Cockpit uses
@@ -33,6 +33,9 @@ export async function createWebClient(opts: WebClientOptions): Promise<{ client:
           }
         });
       }
+    },
+    async openFile(path: string, workspaceId?: string) {
+      return client.call<{ content: string }>('workspace.openFile', workspaceId ? { path, workspaceId } : { path });
     },
     async sendInput(data: string, sessionId: string) {
       await client.call('session.input', { sessionId, data });

@@ -36,7 +36,7 @@ interface RunningSession {
 export class SessionRuntime {
   private readonly running = new Map<string, RunningSession>();
 
-  constructor(private readonly onExit: (sessionId: string, code: number) => void) {}
+  constructor(private readonly onExit: (sessionId: string, code: number) => void, private readonly encryptChunk?: (chunk: string) => unknown) {}
 
   start(
     session: SessionRow,
@@ -75,7 +75,8 @@ export class SessionRuntime {
 
     proc.onData((chunk) => {
       entry.scrollback = (entry.scrollback + chunk).slice(-SCROLLBACK_LIMIT);
-      notifyAll(entry.subscribers, 'session.data', { sessionId: session.id, chunk });
+      const payload = this.encryptChunk ? { sessionId: session.id, chunk: this.encryptChunk(chunk) } : { sessionId: session.id, chunk };
+      notifyAll(entry.subscribers, 'session.data', payload);
     });
 
     proc.onExit((code) => {

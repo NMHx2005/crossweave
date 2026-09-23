@@ -225,6 +225,9 @@ if [ -n "$staged_cockpit" ]; then
   echo "crossweave: installed Cockpit to $cockpit_target"
 fi
 
+if [ "$(os)" = "linux" ] && ! command -v bwrap >/dev/null 2>&1; then
+  echo "crossweave: bwrap not found — Linux sandbox will run unconfined until you install bubblewrap" >&2
+fi
 echo "crossweave: installed to $INSTALL_DIR/cw"
 case ":$PATH:" in
   *":$INSTALL_DIR:"*) ;;
