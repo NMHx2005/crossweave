@@ -95,3 +95,56 @@ describe('session.new RPC: budget params', () => {
     expect(result.costBudgetUsd).toBeNull();
   });
 });
+
+
+describe('usage.summary RPC', () => {
+  function seedSummary() {
+    const db = openDatabase(':memory:');
+    new WorkspaceRepo(db).insert({
+      id: 'ws_1', name: 'w', rootPath: '/tmp/w', createdAt: '2026-09-24T00:00:00.000Z',
+      defaultIsolation: 'worktree', safeModeTier: 'T2',
+    });
+    const sessions = new SessionRepo(db);
+    sessions.insert({
+      id: 's_1', workspaceId: 'ws_1', name: 'a', agentKind: 'claude', adapter: 'claude',
+      status: 'running', worktreePath: null, branch: null, createdAt: '2026-09-24T10:00:00.000Z',
+      lastActiveAt: '2026-09-24T10:00:00.000Z', tokenBudget: null, tokenSpent: 100, costBudgetUsd: null, costSpentUsd: 0.01, enforcementTier: 'T2', pid: null,
+    });
+    sessions.insert({
+      id: 's_2', workspaceId: 'ws_1', name: 'b', agentKind: 'claude', adapter: 'claude',
+      status: 'running', worktreePath: null, branch: null, createdAt: '2026-09-24T12:00:00.000Z',
+      lastActiveAt: '2026-09-24T12:00:00.000Z', tokenBudget: null, tokenSpent: 200, costBudgetUsd: null, costSpentUsd: 0.02, enforcementTier: 'T2', pid: null,
+    });
+    return { db };
+  }
+
+  test('returns summaries grouped by day+agent by default', async () => {
+    const { db } = seedSummary();
+    const methods = buildMethods(db, '/tmp/w');
+    const res = await methods['usage.summary']!({ workspaceId: 'ws_1' }, ctx) as { summaries: { agentKind: string; tokens: number }[] };
+    expect(res.summaries).toHaveLength(1);
+    expect(res.summaries[0]!.agentKind).toBe('claude');
+    expect(res.summaries[0]!.tokens).toBe(300);
+  });
+
+  test('empty workspace returns empty summaries', async () => {
+    const db = openDatabase(':memory:');
+    new WorkspaceRepo(db).insert({ id: 'ws_x', name: 'x', rootPath: '/tmp/x', createdAt: 'now', defaultIsolation: 'worktree', safeModeTier: 'T2' });
+    const methods = buildMethods(db, '/tmp/x');
+    const res = await methods['usage.summary']!({ workspaceId: 'ws_x' }, ctx) as { summaries: unknown[] };
+    expect(res.summaries).toEqual([]);
+  });
+
+  test('groupBy param is respected', async () => {
+    const { db } = seedSummary();
+    const methods = buildMethods(db, '/tmp/w');
+    const res = await methods['usage.summary']!({ workspaceId: 'ws_1', groupBy: 'day' }, ctx) as { summaries: { agentKind: string }[] };
+    expect(res.summaries[0]!.agentKind).toBe('all');
+  });
+
+  test('missing workspaceId throws', async () => {
+    const { db } = seedSummary();
+    const methods = buildMethods(db, '/tmp/w');
+    expect(() => (methods['usage.summary']! as unknown as (p: Record<string, unknown>, c: unknown) => unknown)({}, ctx)).toThrow();
+  });
+});

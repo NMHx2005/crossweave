@@ -34,6 +34,7 @@ import { createAdapter } from '../adapters/registry.js';
 import type { AcpAdapterDeps } from '../adapters/acp.js';
 import { emptyJournal, normalizeTabs, readJournal, writeJournal } from '../domain/journal.js';
 import { recordUsage } from '../domain/usage.js';
+import { aggregateUsage } from '../domain/usage-aggregate.js';
 import { NotificationGate } from '../radar/noise.js';
 import { notify, type NotifyDispatcherDeps } from '../notify/dispatcher.js';
 import { platformSend } from '../notify/macos.js';
@@ -859,6 +860,15 @@ export function buildMethods(
         at: new Date().toISOString(),
       });
       return { openTabs };
+    },
+
+    'usage.summary': (p) => {
+      const workspaceId = str(p, 'workspaceId');
+      const groupByRaw = typeof p.groupBy === 'string' ? p.groupBy : undefined;
+      const groupBy = groupByRaw === 'day' || groupByRaw === 'agent' || groupByRaw === 'day+agent' ? groupByRaw : undefined;
+      const rows = sessions.list(workspaceId);
+      const summaries = aggregateUsage(rows, groupBy ? { groupBy } : undefined);
+      return { summaries };
     },
 
     // The TUI's live feed: no params, subscribes this connection to every future
