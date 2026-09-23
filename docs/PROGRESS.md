@@ -1,6 +1,6 @@
 # Progress — crossweave × SpaceVibe Deck Long Roadmap
 
-**Last updated:** 2026-09-21 (main = 8d45de6)
+**Last updated:** 2026-09-24 (main = 0d8759c)
 **Roadmap:** `docs/superpowers/plans/2026-09-21-long-roadmap-spacevibe-crossweave.md`
 
 ## Done
@@ -20,7 +20,10 @@
 | 2026-09-21 | Gateway Stage 3 relay skeleton | `34aafde` | gateway-relay.test |
 | 2026-09-21 | Cockpit tests fix (worktreePath compat) | `5675e7b` | cockpit-host/session-data pass |
 | 2026-09-21 | Horizon A — Deck bridge — **skeleton, chưa wire** | `94d4115` | typecheck + deck-bridge.test 1 pass (in-memory) |
-| 2026-09-21 | Horizon B — Journal + activity — **đã wire** | `6c53e9f` / `0856efb` + wiring | journal-activity + methods-journal + cockpit-host/activity/tokens + live app (restore + unread row) |
+| 2026-09-21 | Horizon B — Journal + activity — **đã wire** | `6c53e9f` / `0856efb` + `798df0b` | journal-activity + methods-journal + cockpit-host/activity/tokens + live app (restore + unread row) |
+| 2026-09-24 | Horizon C — Usage spec | `87ae992` | design `2026-09-24-horizon-c-usage-design.md` |
+| 2026-09-24 | Horizon C — Usage aggregate + RPC | `bea4bc6` | usage-aggregate.test + methods-usage.test + typecheck + build |
+| 2026-09-24 | Horizon C — Cockpit usage pane | `0d8759c` | cockpit channels/api/App + app.css tokens + cockpit build |
 
 ## Nợ kỹ thuật
 
@@ -41,14 +44,15 @@ không phải engine — A/C muốn dùng chung thì phải lift lên `src/`.
 
 ## In progress / Next
 
-- **Next:** Horizon C — Usage accounting hợp nhất (group by agent/day, telemetry opt-in)
+- **In progress:** Horizon C — Usage accounting (engine + cockpit done, telemetry deferred)
+- **Next:** Horizon A — Deck bridge closure (lift deriveAttention + card mapping + waiting signal)
 - Deferred: Stage 3 hosted relay E2E + infra, Windows packaging (until `cwd` on Windows)
 
 ## Horizon overview
 
 - **A** Deck × crossweave bridge — skeleton (`94d4115`), chưa wire
 - **B** Session journal + Recent activity — đã wire (journal RPC + restore + activity rail)
-- **C** Usage accounting — NEXT
+- **C** Usage accounting — engine + cockpit wired (telemetry opt-in deferred)
 - **D** Sandbox + Gateway hardening for hosted
 - **E** File explorer + browser tabs in gateway web
 - **F** Distribution hợp nhất (install.sh chung)

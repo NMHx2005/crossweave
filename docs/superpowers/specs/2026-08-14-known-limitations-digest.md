@@ -95,6 +95,8 @@ stop a session from ignoring its leased port and squatting on another's.
 
 ## Where the roadmap horizons stand (2026-09-21)
 
+**Horizon C is wired (engine + cockpit):** `usage.summary` READ RPC aggregates `SessionRow` by `day`/`agent`/`day+agent`; cockpit shows table with "estimate, not billing". Telemetry is spec-only (opt-in per-day file + POST `api.deck.spacevibe.dev/v1/ping`) — not yet implemented, default OFF. Token semantics still M6a: ACP `tokenSpent` is context occupancy, may decrease after compaction. (`2026-09-24-horizon-c-usage-design.md`)
+
 **Horizon B is wired**: the daemon owns `journal.get`/`journal.set`, the Cockpit
 restores its pane order and focus from it, and `tui.event` drives an unread activity
 list in the rail — checked in the running app, not only in unit tests. What it still
