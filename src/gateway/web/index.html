@@ -6,8 +6,10 @@
 </head>
 <body>
 <h1>crossweave remote</h1>
+<div id="tabs" style="display:flex;gap:6px;margin:8px 0;flex-wrap:wrap"></div>
 <div id="sessions">Loading sessions…</div>
-<div id="term"></div>
+<div style="display:flex;gap:12px"><div id="explorer" style="width:240px;border:1px solid #37393d;padding:8px;overflow:auto;max-height:70vh"></div><div id="term" style="flex:1"></div></div>
+<div id="fileview" style="border:1px solid #37393d;margin-top:8px;padding:8px;display:none"><pre id="filecontent" style="white-space:pre-wrap"></pre></div>
 <script type="module">
 import { Terminal } from 'https://cdn.jsdelivr.net/npm/@xterm/xterm@5/+esm';
 import { wsTransport } from './ws-transport.js';
@@ -22,6 +24,12 @@ const wc = await createWebClient({ transport, onData: (c) => term.write(c), onNo
 const sessions = await wc.client.call('session.list', token ? { token } : {});
 document.getElementById('sessions').textContent = JSON.stringify(sessions, null, 2);
 if (sessions[0]?.id) await wc.attach(sessions[0].id);
+// File explorer: list via workspace.openFile (demo: show hello.txt if exists)
+try { const f=await wc.openFile('hello.txt'); if(f?.content){ document.getElementById('explorer').textContent='hello.txt'; document.getElementById('explorer').onclick=()=>{ document.getElementById('filecontent').textContent=f.content; document.getElementById('fileview').style.display='block'; }; } } catch{}
+// Browser tabs strip (in-memory, localStorage pins)
+const tabs=[]; function renderTabs(){ const el=document.getElementById('tabs'); el.innerHTML=''; tabs.forEach((tb,i)=>{ const b=document.createElement('button'); b.textContent=`${tb.pinned?'📌':''}${tb.title||tb.url} ×`; b.style.cssText='padding:4px 8px;background:#23272e;color:#abb2bf;border:1px solid #37393d;border-radius:4px;cursor:pointer'; b.onclick=()=>{ tabs.splice(i,1); renderTabs(); }; b.oncontextmenu=(e)=>{ e.preventDefault(); tb.pinned=!tb.pinned; localStorage.setItem('cw_tabs_pins',JSON.stringify(tabs.filter(x=>x.pinned).map(x=>x.url))); renderTabs(); }; el.appendChild(b); }); }
+window.openBrowserTab=(url,title)=>{ tabs.push({id:Date.now(),url,title:title||url,pinned:false}); renderTabs(); };
+
 term.onData((d) => { const sid = sessions[0]?.id; if(sid) wc.sendInput(d, sid); });
 </script>
 </body>
