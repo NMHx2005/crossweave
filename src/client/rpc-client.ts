@@ -3,6 +3,8 @@ import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CrossweaveError } from '../core/errors.js';
 import { crossweaveDir } from '../core/paths.js';
+import { decrypt as e2eDecrypt, deriveKey } from '../gateway/e2e.js';
+import { readGatewayToken } from '../gateway/auth.js';
 import { createFrameDecoder, encodeFrame } from '../daemon/rpc.js';
 import { unixSocketTransport, type ClientTransport } from './transport.js';
 
@@ -72,7 +74,28 @@ export class DaemonClient {
     };
     if (typeof r.id !== 'number') {
       if (typeof r.method === 'string') {
-        for (const h of this.notificationHandlers) h(r.method, r.params);
+        let params: unknown = r.params;
+        if (r.method === 'session.data') {
+          try {
+            const rec = r.params as { chunk?: unknown };
+            const c = rec?.chunk as { nonce?: string; ct?: string; tag?: string } | undefined;
+            if (c && typeof c.nonce === 'string' && typeof c.ct === 'string' && typeof c.tag === 'string') {
+              const roots: string[] = [];
+              try { roots.push(process.cwd()); } catch {}
+              for (const root of roots) {
+                try {
+                  const tok = readGatewayToken(root, 'control') ?? readGatewayToken(root);
+                  if (!tok) continue;
+                  const key = deriveKey(tok, root);
+                  const plain = e2eDecrypt(c as never, key);
+                  params = { ...(rec as Record<string, unknown>), chunk: plain };
+                  break;
+                } catch {}
+              }
+            }
+          } catch {}
+        }
+        for (const h of this.notificationHandlers) h(r.method, params);
       }
       return;
     }
