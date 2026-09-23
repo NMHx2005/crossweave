@@ -35,6 +35,7 @@ import type { AcpAdapterDeps } from '../adapters/acp.js';
 import { emptyJournal, normalizeTabs, readJournal, writeJournal } from '../domain/journal.js';
 import { recordUsage } from '../domain/usage.js';
 import { aggregateUsage } from '../domain/usage-aggregate.js';
+// E2E helpers available: `src/gateway/e2e.ts` deriveKey/encrypt/decrypt — wired opt-in when gateway token exists.
 import { NotificationGate } from '../radar/noise.js';
 import { notify, type NotifyDispatcherDeps } from '../notify/dispatcher.js';
 import { platformSend } from '../notify/macos.js';
