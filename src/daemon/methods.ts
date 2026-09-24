@@ -252,16 +252,26 @@ export function buildMethods(
     return pending;
   }
 
-  // E2E: when gateway token exists, encrypt session.data at source. Cache key per projectRoot.
+  // E2E: encrypt session.data at source. Cache key per workspace's project root; today there's one root,
+  // but deriving per-session.workspaceId keeps multi-workspace correct and lets relay stay dumb.
   const _e2eKeyCache = new Map<string, Buffer>();
-  function _e2eEncryptChunk(chunk: string): unknown {
+  function _resolveWorkspaceRoot(workspaceId: string): string {
     try {
-      let key = _e2eKeyCache.get(projectRoot);
+      const ws = workspaces.list().find((w) => w.id === workspaceId);
+      if (ws?.rootPath) return ws.rootPath;
+    } catch {}
+    return projectRoot;
+  }
+  function _e2eEncryptChunk(chunk: string, session?: { workspaceId: string }): unknown {
+    try {
+      const wid = session?.workspaceId ?? workspaces.list()[0]?.id ?? projectRoot;
+      const root = _resolveWorkspaceRoot(wid);
+      let key = _e2eKeyCache.get(root);
       if (!key) {
-        const tok = e2eReadToken(projectRoot, 'control') ?? e2eReadToken(projectRoot);
+        const tok = e2eReadToken(root, 'control') ?? e2eReadToken(root);
         if (!tok) return chunk;
-        key = deriveKey(tok, projectRoot);
-        _e2eKeyCache.set(projectRoot, key);
+        key = deriveKey(tok, root);
+        _e2eKeyCache.set(root, key);
       }
       return e2eEncrypt(chunk, key);
     } catch { return chunk; }

@@ -31,12 +31,13 @@ interface RunningSession {
   proc: AgentProcess;
   scrollback: string;
   subscribers: Set<MethodContext>;
+  session: SessionRow;
 }
 
 export class SessionRuntime {
   private readonly running = new Map<string, RunningSession>();
 
-  constructor(private readonly onExit: (sessionId: string, code: number) => void, private readonly encryptChunk?: (chunk: string) => unknown) {}
+  constructor(private readonly onExit: (sessionId: string, code: number) => void, private readonly encryptChunk?: (chunk: string, session: SessionRow) => unknown) {}
 
   start(
     session: SessionRow,
@@ -70,12 +71,13 @@ export class SessionRuntime {
       sandbox,
     });
 
-    const entry: RunningSession = { proc, scrollback: '', subscribers: new Set() };
+    const entry: RunningSession = { proc, scrollback: '', subscribers: new Set(), session };
+
     this.running.set(session.id, entry);
 
     proc.onData((chunk) => {
       entry.scrollback = (entry.scrollback + chunk).slice(-SCROLLBACK_LIMIT);
-      const payload = this.encryptChunk ? { sessionId: session.id, chunk: this.encryptChunk(chunk) } : { sessionId: session.id, chunk };
+      const payload = this.encryptChunk ? { sessionId: session.id, workspaceId: session.workspaceId, chunk: this.encryptChunk(chunk, session) } : { sessionId: session.id, workspaceId: session.workspaceId, chunk };
       notifyAll(entry.subscribers, 'session.data', payload);
     });
 
@@ -118,7 +120,8 @@ export class SessionRuntime {
     entry.subscribers.add(ctx);
     ctx.onClose(() => entry.subscribers.delete(ctx));
     if (entry.scrollback.length > 0) {
-      ctx.notify('session.data', { sessionId, chunk: entry.scrollback });
+      const chunk = this.encryptChunk ? this.encryptChunk(entry.scrollback, entry.session) : entry.scrollback;
+      ctx.notify('session.data', { sessionId, workspaceId: entry.session.workspaceId, chunk });
     }
   }
 

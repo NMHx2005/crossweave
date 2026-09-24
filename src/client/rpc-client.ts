@@ -26,6 +26,9 @@ export class DaemonClient {
   }
 
   setProjectRoot(root: string): void { this.projectRootHint = root; }
+  private workspaceRoots = new Map<string, string>();
+  setWorkspaceRoot(workspaceId: string, root: string): void { this.workspaceRoots.set(workspaceId, root); }
+  setWorkspaceRoots(map: Record<string, string>): void { for (const [k,v] of Object.entries(map)) this.workspaceRoots.set(k, v); }
 
   onClose(cb: () => void): void {
     if (this.gone) {
@@ -86,9 +89,17 @@ export class DaemonClient {
               const roots: string[] = [];
               if (this.projectRootHint) roots.push(this.projectRootHint);
               try { const cwd = process.cwd(); if (!roots.includes(cwd)) roots.push(cwd); } catch {}
-              // Also try workspaceId carried in notification if present
+              // workspaceId in notification is an id (ws_...), not a path — don't treat as root directly.
+              // Daemon now also sends the per-workspace derived key via workspaceId, so try the hint/root that matches it.
+              // If the client was told the workspace root via setProjectRoot/setWorkspaceRoots, that will be tried above.
+              // Keeping check harmless: only unshift if it looks like a filesystem path (contains /).
               const wid = (rec as Record<string, unknown>)?.workspaceId as string | undefined;
-              if (typeof wid === 'string' && wid.length > 0 && !roots.includes(wid)) roots.unshift(wid);
+              if (typeof wid === 'string' && wid.includes('/') && !roots.includes(wid)) roots.unshift(wid);
+              // If wid is an id with a known root, try that root first
+              if (typeof wid === 'string' && this.workspaceRoots.has(wid)) {
+                const r2 = this.workspaceRoots.get(wid)!;
+                if (!roots.includes(r2)) roots.unshift(r2);
+              }
               for (const root of roots) {
                 try {
                   const tok = readGatewayToken(root, 'control') ?? readGatewayToken(root);
