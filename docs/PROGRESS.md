@@ -1,6 +1,6 @@
 # Progress — crossweave × SpaceVibe Deck Long Roadmap
 
-**Last updated:** 2026-09-24 (main = eff82d9)
+**Last updated:** 2026-09-24 (main = 3003a73)
 **Roadmap:** `docs/superpowers/plans/2026-09-21-long-roadmap-spacevibe-crossweave.md`
 
 ## Done
@@ -47,10 +47,10 @@ Ghi chú cấu trúc: `deriveAttention` đã lift lên `src/domain/attention.ts`
 - **Done:** Horizon C — Usage accounting wired (telemetry opt-in deferred, spec-only)
 - **Done:** Horizon A — Deck bridge wired crossweave-side (attention lift + card + waiting); Deck UI deferred
 - **Done:** Horizon D — Sandbox + Gateway hardening (CI + E2E helpers wired, relay infra deferred)
-- **Done:** Horizon E — File explorer READ (openFile + web client)
+- **Done:** Horizon E — File explorer READ + browser tabs strip (openFile + listFiles + Monaco placeholder + drag reorder)
 - **Done:** Horizon F — Distribution (install.sh unified + bwrap check)
-- **Done:** C/D hardening sprint — telemetry opt-in (default OFF) + session.data E2E wire (ends-only envelope)
-- **Next:** Horizon E remaining — browser tabs as tabs on stage strip (Monaco deferred)
+- **Done:** C/D hardening sprint — telemetry opt-in + session.data E2E wire
+- **Next:** Stage 3 hosted relay deploy (`api.deck.spacevibe.dev` Worker) + Gateway web Monaco bundle Stage 3 hosted relay deploy + Horizon F Windows (deferred)
 - Deferred: Stage 3 hosted relay E2E + infra, Windows packaging (until `cwd` on Windows)
 
 ## Horizon overview
@@ -59,10 +59,8 @@ Ghi chú cấu trúc: `deriveAttention` đã lift lên `src/domain/attention.ts`
 - **B** Session journal + Recent activity — đã wire (journal RPC + restore + activity rail)
 - **C** Usage accounting — engine + cockpit wired (telemetry opt-in deferred)
 - **D** Sandbox + Gateway hardening — wired (relay infra deferred)
-- **E** File explorer — workspace.openFile READ + web client wired
-- **F** Distribution — install.sh unified
-- **E** File explorer + browser tabs in gateway web
-- **F** Distribution hợp nhất (install.sh chung)
+- **E** File explorer — workspace.openFile + workspace.listFiles + web explorer + browser tabs strip wired
+- **F** Distribution — install.sh unified + bwrap check
 
 ## How to verify
 
