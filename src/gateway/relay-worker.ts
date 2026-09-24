@@ -2,10 +2,11 @@ import { createRelay, type RelayOptions } from './relay.js';
 import type { ClientTransport } from '../client/transport.js';
 
 /**
- * Minimal Worker entry for hosted relay — routing by workspaceId query/header.
+ * Worker entry for hosted relay — routing by workspaceId query/header.
  * Real deploy: Cloudflare Worker `fetch` event upgrades to WebSocket, then pairs
  * with a second WS (or daemon side) via createRelay. Presence via closeBoth.
  * This stub pairs two ClientTransports and exposes the same contract for tests.
+ * E2E stays at ends (`src/gateway/e2e.ts`); relay never inspects session.data.
  */
 export function handleRelayUpgrade(a: ClientTransport, b: ClientTransport, opts: RelayOptions): { close: () => void } {
   return createRelay(a, b, opts);
@@ -26,4 +27,18 @@ export function extractWorkspaceId(url: string, headers?: Record<string, string>
     }
   } catch {}
   return undefined;
+}
+
+// Minimal Cloudflare Worker fetch handler stub (for wrangler deploy)
+// Usage: wrangler.toml routes `api.deck.spacevibe.dev` -> this fetch handler.
+export async function fetchHandler(request: Request): Promise<Response> {
+  const url = new URL(request.url);
+  const workspaceId = extractWorkspaceId(url.toString(), Object.fromEntries(request.headers.entries()));
+  if (request.headers.get('upgrade') !== 'websocket') {
+    return new Response('Expected WebSocket', { status: 426 });
+  }
+  // Upgrade handling is runtime-specific (Cloudflare `WebSocketPair`); stub returns 101
+  // Real impl pairs the two WebSockets via handleRelayUpgrade.
+  void workspaceId;
+  return new Response(null, { status: 101 });
 }
