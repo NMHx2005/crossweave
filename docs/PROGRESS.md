@@ -1,6 +1,6 @@
 # Progress — crossweave × SpaceVibe Deck Long Roadmap
 
-**Last updated:** 2026-09-24 (main = 3003a73)
+**Last updated:** 2026-09-24 (main = d418545)
 **Roadmap:** `docs/superpowers/plans/2026-09-21-long-roadmap-spacevibe-crossweave.md`
 
 ## Done
@@ -30,6 +30,12 @@
 | 2026-09-24 | Horizon D — E2E helpers | `accafc2` | e2e.ts + e2e.test 4 pass + typecheck + build |
 | 2026-09-24 | Horizon E/F — file explorer + distribution | `92bbafd` | workspace.openFile 2 pass + web client + install.sh bwrap check + runtime hook |
 | 2026-09-24 | C/D hardening sprint — telemetry + E2E wire | `eff82d9` | telemetry 1 pass + e2e wire decrypt + typecheck + build |
+| 2026-09-24 | Web browser tabs + file explorer wiring | `5680cd4` | tab strip pin/close/reorder + file explorer web |
+| 2026-09-24 | Gateway E2E encrypt at source | `95213ae` | runtime encryptChunk + decrypt wire + typecheck + build |
+| 2026-09-24 | Stage 3 relay Worker + hosted stub | `e64003b` | relay dumb forwarder + Worker stub + relay.test 1 pass |
+| 2026-09-24 | Web workspace.listFiles + explorer tree | `3003a73` | listFiles 2 pass + listFiles web client + explorer tree |
+| 2026-09-24 | Web Monaco + drag reorder | `2501ff9` | openMonaco + drag reorder + typecheck + build |
+| 2026-09-24 | Gateway relay Worker routing | `d418545` | extractWorkspaceId 3 pass + handleRelayUpgrade |
 
 ## Nợ kỹ thuật
 
@@ -49,7 +55,7 @@ Ghi chú cấu trúc: `deriveAttention` đã lift lên `src/domain/attention.ts`
 - **Done:** Horizon D — Sandbox + Gateway hardening (CI + E2E helpers wired, relay infra deferred)
 - **Done:** Horizon E — File explorer READ + browser tabs strip (openFile + listFiles + Monaco placeholder + drag reorder)
 - **Done:** Horizon F — Distribution (install.sh unified + bwrap check)
-- **Done:** C/D hardening sprint — telemetry opt-in + session.data E2E wire
+- **Done:** C/D hardening sprint — telemetry opt-in + session.data E2E wire + Stage 3 relay Worker routing + E web Monaco
 - **Next:** Stage 3 hosted relay deploy (`api.deck.spacevibe.dev` Worker) + Gateway web Monaco bundle Stage 3 hosted relay deploy + Horizon F Windows (deferred)
 - Deferred: Stage 3 hosted relay E2E + infra, Windows packaging (until `cwd` on Windows)
 
