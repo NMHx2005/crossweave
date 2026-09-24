@@ -114,6 +114,12 @@ export class DaemonBridge {
     try {
       const workspace = await client.call<WorkspaceSnapshot>('workspace.init', {})
       await client.call('daemon.subscribe', {})
+      // E2E hint: let DaemonClient decrypt session.data for this workspace
+      try {
+        const maybe = client as unknown as { setProjectRoot?: (r: string) => void; setWorkspaceRoot?: (id: string, r: string) => void };
+        if (maybe.setProjectRoot) maybe.setProjectRoot(projectRoot);
+        if (maybe.setWorkspaceRoot) maybe.setWorkspaceRoot(workspace.id, projectRoot);
+      } catch {}
       this.client = client
       this.projectRoot = projectRoot
       this.workspace = workspace

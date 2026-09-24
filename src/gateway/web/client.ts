@@ -8,18 +8,19 @@ import type { ClientTransport } from '../../client/transport.js';
  */
 export interface WebClientOptions {
   transport: ClientTransport;
+  /** Workspace root hint for E2E decrypt when gateway token exists. */
+  workspaceRoots?: Record<string, string>;
+  projectRoot?: string;
   onSessions?: (sessions: unknown[]) => void;
   onData?: (chunk: string) => void;
   onNotification?: (method: string, params: unknown) => void;
 }
 
-export async function createWebClient(opts: WebClientOptions): Promise<{ client: DaemonClient; attach: (sessionId: string) => Promise<void>; sendInput: (data: string, sessionId: string) => Promise<void>; openFile: (path: string, workspaceId?: string) => Promise<{ content: string }>; listFiles: (prefix?: string, workspaceId?: string) => Promise<{ files: { name: string; isDirectory: boolean }[] }> }> {
+export async function createWebClient(opts: WebClientOptions): Promise<{ client: DaemonClient; attach: (sessionId: string) => Promise<void>; sendInput: (data: string, sessionId: string) => Promise<void>; openFile: (path: string, workspaceId?: string) => Promise<{ content: string }>; listFiles: (prefix?: string, workspaceId?: string) => Promise<{ files: { name: string; isDirectory: boolean }[] }>; setWorkspaceRoots: (map: Record<string, string>) => void; setProjectRoot: (root: string) => void }> {
   const client = DaemonClient.attach(opts.transport);
+  if (opts.projectRoot) client.setProjectRoot(opts.projectRoot);
+  if (opts.workspaceRoots) client.setWorkspaceRoots(opts.workspaceRoots);
   if (opts.onNotification) client.onNotification(opts.onNotification);
-  // Notifications arrive as tui.event — the same seam Cockpit uses
-  if (opts.onNotification) {
-    client.onNotification((method, params) => opts.onNotification?.(method, params));
-  }
   return {
     client,
     async attach(sessionId: string) {
@@ -40,6 +41,8 @@ export async function createWebClient(opts: WebClientOptions): Promise<{ client:
     async openFile(path: string, workspaceId?: string) {
       return client.call<{ content: string }>('workspace.openFile', workspaceId ? { path, workspaceId } : { path });
     },
+    setWorkspaceRoots(map: Record<string, string>) { client.setWorkspaceRoots(map); },
+    setProjectRoot(root: string) { client.setProjectRoot(root); },
     async sendInput(data: string, sessionId: string) {
       await client.call('session.input', { sessionId, data });
     },
