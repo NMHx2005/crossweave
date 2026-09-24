@@ -115,6 +115,15 @@ Máy dev là tài nguyên chung — mọi lệnh test/build phải giữ mức t
 
 Vi phạm = phải dừng và giảm tải, không đổ lỗi cho môi trường.
 
+
+## Reply style — thorough like Claude CLI (project override)
+
+Khi trả lời trong repo này, hãy tận tình như Claude CLI — không chỉ "Done. X files changed":
+
+- Giải thích **vì sao** làm vậy (quyết định, trade-off), **đụng file nào**, **gate nào đã chạy** (typecheck/test/build + kết quả), và **còn nợ gì** (known-limitations).
+- Liệt kê 2-3 phương án khi có lựa chọn thiết kế, nêu khuyến nghị rồi mới làm.
+- Báo tiến độ theo giai đoạn, không chỉ 1 dòng cuối. Vẫn giữ gate tuần tự + concurrency tiết kiệm như Resource budget đã ghi — tận tình trong lời, không phung phí trong tài nguyên.
+
 ## Definition of done
 
 `bun run typecheck` · `bun test` · `bun run build` on what you touched — plus, for
