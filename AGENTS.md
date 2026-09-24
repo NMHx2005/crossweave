@@ -101,6 +101,29 @@ instead of fighting it.
   `cwd` itself runs elsewhere.
 
 
+## Working style — thorough like Claude CLI (project override)
+
+> Override `~/.codex/AGENTS.md` §2 (surgical) + §7 (short report) cho repo này: code và quy trình phải tận tâm như Claude CLI, không qua loa.
+
+### Tư duy
+- **Hiểu sâu trước khi code**: đọc context, spec, `known-limitations`, git log liên quan. Nếu request mơ hồ → đặt 2-3 câu hỏi làm rõ trước khi đụng code.
+- **Thiết kế trước**: với task >2 file hoặc đụng contract/schema/API → viết `docs/superpowers/specs/...` + `docs/superpowers/plans/...` trước (như đã làm cho Horizon C/D). Task nhỏ vẫn nêu approach 2-3 dòng trong chat trước khi code.
+- **Liệt kê lựa chọn**: khi có trade-off (vd: E2E ở ends vs transport, bwrap vs seatbelt) → trình 2-3 phương án + khuyến nghị, đợi bạn ok nếu là quyết định kiến trúc.
+
+### Chất lượng code
+- **TDD**: red → green → refactor. Test phải pin behaviour/contract, không assert log string hay private internals. Bug fix luôn kèm regression test.
+- **Bao phủ biên**: empty/null/boundary/error-path/concurrency nơi cần. Deterministic, không network/clock/random thật nếu không có seam.
+- **Sạch nợ**: không để `any`/`!`/`@ts-ignore` nếu không có lý do ghi rõ; xóa orphan do mình tạo; comment chỉ ghi WHY (race đã đóng, alternative đã loại).
+- **Bảo mật**: validate/sanitize ở biên, parameterized queries, không `eval`/nối chuỗi shell, fail closed không lộ stack.
+
+### Quy trình làm việc
+- **Gate bắt buộc trước khi báo done**: `bun run typecheck` · `bun test --concurrency 1` · `bun run build` (và `apps/cockpit` build + screenshot/CDP nếu đụng UI). Báo rõ kết quả từng gate, không báo xanh ảo. Nếu gate không chạy được do môi trường → ghi rõ "unfinished" + lý do.
+- **Commit nhỏ có nghĩa**: 1 logical change / commit, Conventional Commits, message ghi *what + why*. Không gộp 10 việc vào 1 commit. `main` linear, push sau khi gate xanh.
+- **Tài liệu nợ**: mọi gap phát hiện → ghi vào `docs/superpowers/specs/*-known-limitations.md` + 1 dòng trong `docs/superpowers/specs/2026-08-14-known-limitations-digest.md`.
+- **Tiến độ**: báo theo giai đoạn (đã xong gì, đang làm gì, tiếp theo gì), kèm file đã đụng và gate đã chạy. Xong 1 giai đoạn lớn → báo bạn trước khi sang giai đoạn lớn tiếp theo.
+
+Vẫn giữ `Resource budget — RAM & CPU` bên dưới: tận tâm trong chất lượng/lời, tiết kiệm trong tài nguyên (gate tuần tự, concurrency 1 khi tải cao, không để daemon/watch orphan).
+
 ## Resource budget — RAM & CPU (local dev)
 
 Máy dev là tài nguyên chung — mọi lệnh test/build phải giữ mức tiêu thụ thấp. Quy tắc bắt buộc khi chạy bất kỳ check nào:
@@ -115,14 +138,6 @@ Máy dev là tài nguyên chung — mọi lệnh test/build phải giữ mức t
 
 Vi phạm = phải dừng và giảm tải, không đổ lỗi cho môi trường.
 
-
-## Reply style — thorough like Claude CLI (project override)
-
-Khi trả lời trong repo này, hãy tận tình như Claude CLI — không chỉ "Done. X files changed":
-
-- Giải thích **vì sao** làm vậy (quyết định, trade-off), **đụng file nào**, **gate nào đã chạy** (typecheck/test/build + kết quả), và **còn nợ gì** (known-limitations).
-- Liệt kê 2-3 phương án khi có lựa chọn thiết kế, nêu khuyến nghị rồi mới làm.
-- Báo tiến độ theo giai đoạn, không chỉ 1 dòng cuối. Vẫn giữ gate tuần tự + concurrency tiết kiệm như Resource budget đã ghi — tận tình trong lời, không phung phí trong tài nguyên.
 
 ## Definition of done
 
