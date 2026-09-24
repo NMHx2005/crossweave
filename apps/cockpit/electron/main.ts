@@ -2,13 +2,14 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFileSync } from 'node:child_process'
-import { app, BrowserWindow, dialog, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu } from 'electron'
 import { connectOrStart } from '../../../src/client/rpc-client.js'
 import { COCKPIT_CHANNELS, isCockpitChannel, type CockpitEvent } from './channels'
 import { DaemonBridge } from './daemon-bridge'
 import { findCrossweaveRoot, resolveCockpitDaemonEntry } from './daemon-entry'
 import { projectRootFromAdditionalData, projectRootFromArgv, resolveLaunchProjectRoot } from './project-root'
 import { switchCockpitWorkspace } from './workspace-switch'
+import { pushRecent } from './recent.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -29,6 +30,7 @@ function saveRoot(root: string): void {
   const file = savedRootPath()
   mkdirSync(dirname(file), { recursive: true })
   writeFileSync(file, `${JSON.stringify({ projectRoot: root })}\n`)
+  try { pushRecent(root); } catch {}
 }
 
 function sendToRenderers(event: CockpitEvent, payload: unknown): void {
@@ -57,6 +59,66 @@ function resolveBunCommand(): string {
   } catch {
     return 'bun'
   }
+}
+
+function buildMenu(): void {
+  const template: Electron.MenuItemConstructorOptions[] = [
+    {
+      label: 'File',
+      submenu: [
+        {
+          label: 'Open Folder…',
+          accelerator: 'CmdOrCtrl+O',
+          click: async () => {
+            const picked = await pickFolder();
+            if (picked) await switchWorkspace(picked);
+          },
+        },
+        {
+          label: 'Open Recent',
+          submenu: [
+            {
+              label: 'Clear Recent',
+              click: () => {
+                try { const { clearRecent } = require('./recent.js'); clearRecent(); } catch {}
+              },
+            },
+          ],
+        },
+        { type: 'separator' as const },
+        { role: 'close' as const },
+      ],
+    },
+    {
+      label: 'View',
+      submenu: [
+        { role: 'reload' as const },
+        { role: 'toggleDevTools' as const },
+        { type: 'separator' as const },
+        { role: 'togglefullscreen' as const },
+      ],
+    },
+    {
+      label: 'Window',
+      submenu: [
+        { role: 'minimize' as const },
+        { role: 'close' as const },
+      ],
+    },
+  ];
+  // Keep File->Open Recent dynamic via recent.ts if available; fallback hides it
+  try {
+    const { buildRecentSubmenu } = require('./recent.js');
+    const recent = buildRecentSubmenu((root: string) => switchWorkspace(root));
+    if (recent && recent.length > 0) {
+      const file = template[0] as { submenu?: unknown[] };
+      const submenu = file.submenu as unknown[];
+      // Replace placeholder Open Recent submenu
+      const idx = submenu.findIndex((x: unknown) => (x as { label?: string }).label === 'Open Recent');
+      if (idx !== -1) submenu[idx] = { label: 'Open Recent', submenu: recent };
+    }
+  } catch {}
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template as never));
 }
 
 function createBridge(): DaemonBridge {
@@ -117,6 +179,8 @@ async function switchWorkspace(projectRoot: string): Promise<void> {
   }
 
   try {
+    // Rebuild File->Open Recent so it shows immediately after switching
+    try { buildMenu(); } catch {}
     await switchCockpitWorkspace(projectRoot, {
       ensure: async (root) => {
         await bridge?.handle('workspace.ensure', { projectRoot: root })
@@ -144,6 +208,7 @@ if (!hasSingleInstanceLock) {
   })
 
   app.whenReady().then(async () => {
+    buildMenu()
     bridge = createBridge()
     registerHandlers(bridge)
     createWindow()
