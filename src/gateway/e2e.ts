@@ -1,4 +1,4 @@
-import { createHmac, randomBytes, createCipheriv, createDecipheriv, hkdfSync } from 'node:crypto';
+import { randomBytes, createCipheriv, createDecipheriv, hkdfSync } from 'node:crypto';
 
 /**
  * Derive a 32-byte symmetric key from the per-workspace gateway token.
@@ -35,8 +35,3 @@ export function decrypt(blob: E2EBlob, key: Buffer): string {
   return pt.toString('utf8');
 }
 
-// Unused helper kept for completeness — not exported to avoid encouraging HMAC misuse.
-function _hmac(data: string, key: Buffer): string {
-  return createHmac('sha256', key).update(data).digest('hex');
-}
-void _hmac;

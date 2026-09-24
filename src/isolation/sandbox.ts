@@ -120,7 +120,7 @@ export const BWRAP_EXEC = 'bwrap';
 
 function hasBwrapOnPath(): boolean {
   try {
-    execFileSync('which', ['bwrap'], { stdio: 'ignore' });
+    execFileSync('sh', ['-c', 'command -v bwrap >/dev/null 2>&1'], { stdio: 'ignore' });
     return true;
   } catch {
     return false;
@@ -277,6 +277,8 @@ export function buildBwrapArgs(spec: SandboxSpec, home: string, tmpRoot: string)
 
   // Narrow git writes: branch ref + worktrees bookkeeping + logs + objects fanout.
   // Keep ro elsewhere by not binding the rest of gitDir rw.
+  // Ordering warning: bwrap processes binds sequentially — later --bind shadows earlier --ro-bind.
+  // Do NOT add a --ro-bind that re-covers /tmp or the worktree after the --bind above, or the private TMPDIR/worktree rw is lost.
   if (gitDir !== undefined) {
     const objects = `${gitDir}/objects`;
     // Fanout dirs and tmp_obj are the only object paths git creates; binding the

@@ -1,6 +1,6 @@
 # Progress — crossweave × SpaceVibe Deck Long Roadmap
 
-**Last updated:** 2026-09-24 (main = d418545)
+**Last updated:** 2026-09-24 (main = 2575a92)
 **Roadmap:** `docs/superpowers/plans/2026-09-21-long-roadmap-spacevibe-crossweave.md`
 
 ## Done
@@ -50,7 +50,7 @@ Ghi chú cấu trúc: `deriveAttention` đã lift lên `src/domain/attention.ts`
 
 ## In progress / Next
 
-- **Done:** Horizon C — Usage accounting wired (telemetry opt-in deferred, spec-only)
+- **Done:** Horizon C — Usage accounting wired (usage engine + cockpit + telemetry opt-in `src/gateway/telemetry.ts` wired; server flush POST stub)
 - **Done:** Horizon A — Deck bridge wired crossweave-side (attention lift + card + waiting); Deck UI deferred
 - **Done:** Horizon D — Sandbox + Gateway hardening (CI + E2E helpers wired, relay infra deferred)
 - **Done:** Horizon E — File explorer READ + browser tabs strip (openFile + listFiles + Monaco placeholder + drag reorder)
@@ -63,8 +63,8 @@ Ghi chú cấu trúc: `deriveAttention` đã lift lên `src/domain/attention.ts`
 
 - **A** Deck × crossweave bridge — wired crossweave-side (`d99893d`), Deck UI deferred
 - **B** Session journal + Recent activity — đã wire (journal RPC + restore + activity rail)
-- **C** Usage accounting — engine + cockpit wired (telemetry opt-in deferred)
-- **D** Sandbox + Gateway hardening — wired (relay infra deferred)
+- **C** Usage accounting — engine + cockpit + telemetry opt-in wired (`src/gateway/telemetry.ts` consent 0600 + per-day file, `POST /v1/ping` best-effort)
+- **D** Sandbox + Gateway hardening — wired (E2E HKDF+aes-gcm + decrypt at client, relay dumb forwarder + Worker routing; hosted deploy deferred)
 - **E** File explorer — workspace.openFile + workspace.listFiles + web explorer + browser tabs strip wired
 - **F** Distribution — install.sh unified + bwrap check
 

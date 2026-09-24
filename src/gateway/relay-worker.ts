@@ -34,7 +34,7 @@ export function extractWorkspaceId(url: string, headers?: Record<string, string>
 export async function fetchHandler(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const workspaceId = extractWorkspaceId(url.toString(), Object.fromEntries(request.headers.entries()));
-  if (request.headers.get('upgrade') !== 'websocket') {
+  if ((request.headers.get('upgrade') ?? '').toLowerCase() !== 'websocket') {
     return new Response('Expected WebSocket', { status: 426 });
   }
   // Upgrade handling is runtime-specific (Cloudflare `WebSocketPair`); stub returns 101

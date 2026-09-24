@@ -15,6 +15,7 @@ export interface RelayOptions {
   workspaceId?: string;
 }
 
+/** Note: ClientTransport has no offData — closeBoth tears down transports; reusing same pair for multiple relays must close previous. */
 export function createRelay(a: ClientTransport, b: ClientTransport, _opts: RelayOptions = {}): { close: () => void } {
   const onA = (chunk: Buffer | string) => b.write(chunk.toString());
   const onB = (chunk: Buffer | string) => a.write(chunk.toString());

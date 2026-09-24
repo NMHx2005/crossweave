@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite';
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { WorkspaceManager } from '../domain/workspace.js';
 import { SessionManager, type AdapterFactory } from '../domain/session.js';
@@ -37,6 +37,7 @@ import { recordUsage } from '../domain/usage.js';
 import { aggregateUsage } from '../domain/usage-aggregate.js';
 import { deriveKey, encrypt as e2eEncrypt } from '../gateway/e2e.js';
 import { readGatewayToken as e2eReadToken } from '../gateway/auth.js';
+
 import { NotificationGate } from '../radar/noise.js';
 import { notify, type NotifyDispatcherDeps } from '../notify/dispatcher.js';
 import { platformSend } from '../notify/macos.js';
@@ -441,23 +442,18 @@ export function buildMethods(
     },
     'workspace.openFile': (p) => {
       const rel = str(p, 'path');
-      const { readFileSync, existsSync } = require('node:fs');
-      const { join } = require('node:path');
-      const { assertContained } = require('../core/paths.js');
       // projectRoot is the source of truth — workspaceId is optional and ignored for now (single root daemon).
       const abs = join(projectRoot, rel);
       assertContained(projectRoot, abs);
-      if (!existsSync(abs)) throw new (require('../core/errors.js').CrossweaveError)('NOT_FOUND', `Not found: ${rel}`);
+      if (!existsSync(abs)) throw new CrossweaveError('NOT_FOUND', `Not found: ${rel}`);
       const content = readFileSync(abs, 'utf8').slice(0, 512*1024); // cap 512k
       return { path: rel, content };
     },
     'workspace.listFiles': (p) => {
       const prefix = typeof p.prefix === 'string' ? p.prefix : '';
-      const { readdirSync, statSync } = require('node:fs');
-      const { join } = require('node:path');
-      const { assertContained } = require('../core/paths.js');
       const dir = prefix === '' ? projectRoot : (() => { const d = join(projectRoot, prefix); assertContained(projectRoot, d); return d; })();
-      const entries = readdirSync(dir, { withFileTypes: true });
+      let entries;
+      try { entries = readdirSync(dir, { withFileTypes: true }); } catch (e) { throw new CrossweaveError('NOT_FOUND', `Not found: ${prefix || '.'}`); }
       const files = entries.map((e: { name: string; isDirectory: () => boolean }) => ({ name: e.name, isDirectory: e.isDirectory() }));
       return { prefix, files };
     },

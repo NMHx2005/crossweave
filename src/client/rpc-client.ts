@@ -14,6 +14,7 @@ interface Pending {
 }
 
 export class DaemonClient {
+  private projectRootHint: string | undefined;
   private nextId = 1;
   private gone = false;
   private readonly pending = new Map<number, Pending>();
@@ -23,6 +24,8 @@ export class DaemonClient {
   onNotification(cb: (method: string, params: unknown) => void): void {
     this.notificationHandlers.push(cb);
   }
+
+  setProjectRoot(root: string): void { this.projectRootHint = root; }
 
   onClose(cb: () => void): void {
     if (this.gone) {
@@ -81,7 +84,11 @@ export class DaemonClient {
             const c = rec?.chunk as { nonce?: string; ct?: string; tag?: string } | undefined;
             if (c && typeof c.nonce === 'string' && typeof c.ct === 'string' && typeof c.tag === 'string') {
               const roots: string[] = [];
-              try { roots.push(process.cwd()); } catch {}
+              if (this.projectRootHint) roots.push(this.projectRootHint);
+              try { const cwd = process.cwd(); if (!roots.includes(cwd)) roots.push(cwd); } catch {}
+              // Also try workspaceId carried in notification if present
+              const wid = (rec as Record<string, unknown>)?.workspaceId as string | undefined;
+              if (typeof wid === 'string' && wid.length > 0 && !roots.includes(wid)) roots.unshift(wid);
               for (const root of roots) {
                 try {
                   const tok = readGatewayToken(root, 'control') ?? readGatewayToken(root);

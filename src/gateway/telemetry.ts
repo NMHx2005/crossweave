@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { crossweaveDir } from '../core/paths.js';
 
@@ -20,7 +20,8 @@ export function setConsent(projectRoot: string, consent: boolean): void {
   mkdirSync(crossweaveDir(projectRoot), { recursive: true });
   const p = consentPath(projectRoot);
   const tmp = `${p}.tmp`;
-  writeFileSync(tmp, JSON.stringify({ consent }, null, 2));
+  writeFileSync(tmp, JSON.stringify({ consent }, null, 2), { mode: 0o600 });
+  try { chmodSync(tmp, 0o600); } catch {}
   renameSync(tmp, p);
 }
 export function record(projectRoot: string, event: Record<string, unknown>): void {
@@ -35,7 +36,8 @@ export function record(projectRoot: string, event: Record<string, unknown>): voi
   for (const k of ['kind', 'agentKind', 'at']) if (k in event) safe[k] = event[k];
   arr.push({ ...safe, at: new Date().toISOString() });
   const tmp = `${p}.tmp`;
-  writeFileSync(tmp, JSON.stringify(arr, null, 2));
+  writeFileSync(tmp, JSON.stringify(arr, null, 2), { mode: 0o600 });
+  try { chmodSync(tmp, 0o600); } catch {}
   renameSync(tmp, p);
 }
 export async function flush(projectRoot: string): Promise<void> {

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync, unlinkSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { crossweaveDir } from '../core/paths.js';
@@ -104,7 +104,6 @@ export function auditLogPath(projectRoot: string): string {
 
 export function appendAudit(projectRoot: string, entry: { method: string; kind?: string; at?: string }): void {
   try {
-    const { appendFileSync, mkdirSync } = require('node:fs');
     const dir = crossweaveDir(projectRoot);
     mkdirSync(dir, { recursive: true });
     const line = JSON.stringify({ at: entry.at ?? new Date().toISOString(), method: entry.method, kind: entry.kind ?? 'control' }) + '\n';
