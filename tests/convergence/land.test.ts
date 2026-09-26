@@ -108,7 +108,11 @@ describe('landSession', () => {
 
       await expect(
         landSession({ db, projectRoot: fixture.root, sessions, leaseManager, ledger, config, configTrust }, 'ws_1', 's_a', { force: false }),
-      ).rejects.toMatchObject({ code: 'LAND_CONFLICT' });
+      ).rejects.toMatchObject({
+        code: 'LAND_CONFLICT',
+        // Names the file, and says what to do about it rather than only what broke.
+        message: expect.stringMatching(/shared\.txt.*Merge the base into it.*cw land session s_a --yes/),
+      });
     } finally {
       await fixture.cleanup();
     }

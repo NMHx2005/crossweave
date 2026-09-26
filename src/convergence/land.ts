@@ -201,7 +201,11 @@ export async function landSession(
         if (trial.result === 'conflict') {
           throw new CrossweaveError(
             'LAND_CONFLICT',
-            `Session ${row.name}'s branch conflicts with the current base: ${trial.detail ?? '(no files reported)'}`,
+            `Session ${row.name}'s branch conflicts with the current base: ${trial.detail ?? '(no files reported)'}. ` +
+              // The next step, not just the diagnosis: the conflict has to be resolved
+              // on the session's branch, which only its own worktree has checked out.
+              `Merge the base into it from ${row.worktreePath ?? 'its worktree'}, commit, then run ` +
+              `\`cw land session ${row.name} --yes\` again.`,
           );
         }
 
@@ -308,7 +312,11 @@ export async function landSession(
                 // Nothing to abort, or the abort itself failed — the `finally`
                 // below's `resetIntegration` makes a second, independent attempt.
               }
-              throw new CrossweaveError('LAND_REBASE_CONFLICT', gitFailureText(cause));
+              throw new CrossweaveError(
+                'LAND_REBASE_CONFLICT',
+                `${gitFailureText(cause)}. Rebase it onto the base from ${row.worktreePath ?? 'its worktree'}, ` +
+                  `then run \`cw land session ${row.name} --yes\` again.`,
+              );
             }
             // `git rebase <upstream> <branch>` checks `<branch>` out as a side effect,
             // which the integration worktree can absorb harmlessly but the main
