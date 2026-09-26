@@ -167,3 +167,28 @@ describe('DaemonClient with an undecryptable chunk', () => {
     }
   });
 });
+
+describe('DaemonClient with sealed terminal output', () => {
+  // Terminal panes' output is sealed like session.data, bound to the terminal id.
+  it('opens terminal.data with the terminal id as AAD', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cw-e2e-term-'));
+    try {
+      const key = deriveKey(issueGatewayToken(root, 'control'), root);
+      const subs: Array<(c: Buffer | string) => void> = [];
+      const t: ClientTransport = {
+        write: () => {}, onData: (cb) => { subs.push(cb); }, onEnd: () => {}, onError: () => {}, onClose: () => {},
+        isWritable: () => true, close: () => {},
+      };
+      const client = DaemonClient.attach(t);
+      client.setProjectRoot(root);
+      const got: unknown[] = [];
+      client.onNotification((m, p) => { if (m === 'terminal.data') got.push((p as { chunk: unknown }).chunk); });
+      const frame = { jsonrpc: '2.0', method: 'terminal.data', params: { terminalId: 't_1', sessionId: 's_1', workspaceId: 'w', chunk: encrypt('$ ls\r\n', key, 't_1') } };
+      for (const cb of subs) cb(JSON.stringify(frame) + '\n');
+      await new Promise((r) => setTimeout(r, 10));
+      expect(got).toEqual(['$ ls\r\n']);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});

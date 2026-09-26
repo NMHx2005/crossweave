@@ -50,14 +50,15 @@ export class DaemonClient {
    * made every consumer — which only renders string chunks — lose the output with
    * no sign anything was wrong.
    */
-  private openSessionData(raw: unknown): unknown {
+  private openSessionData(raw: unknown, idField: 'sessionId' | 'terminalId' = 'sessionId'): unknown {
     if (typeof raw !== 'object' || raw === null) return raw;
     const rec = raw as Record<string, unknown>;
     const c = rec.chunk as { nonce?: unknown; ct?: unknown; tag?: unknown } | undefined;
     if (typeof c !== 'object' || c === null || typeof c.nonce !== 'string' || typeof c.ct !== 'string' || typeof c.tag !== 'string') {
       return raw;
     }
-    const sessionId = typeof rec.sessionId === 'string' ? rec.sessionId : '';
+    // The AAD the daemon sealed with: the session id, or a terminal's own id.
+    const sessionId = typeof rec[idField] === 'string' ? rec[idField] as string : '';
     for (const root of this.decryptRoots(rec.workspaceId)) {
       try {
         const tok = readGatewayToken(root, 'control');
@@ -128,8 +129,8 @@ export class DaemonClient {
     if (typeof r.id !== 'number') {
       if (typeof r.method === 'string') {
         let params: unknown = r.params;
-        if (r.method === 'session.data') {
-          params = this.openSessionData(r.params);
+        if (r.method === 'session.data' || r.method === 'terminal.data') {
+          params = this.openSessionData(r.params, r.method === 'terminal.data' ? 'terminalId' : 'sessionId');
           if (params === undefined) return;
         }
         for (const h of this.notificationHandlers) h(r.method, params);

@@ -44,7 +44,9 @@ import { platformSend } from '../notify/macos.js';
 import { BroadcastRegistry } from './broadcast.js';
 import { measureWorktrees } from '../isolation/disk-guard.js';
 import { LeaseRepo } from '../db/repositories/lease.js';
-import { decideSandbox } from '../isolation/sandbox.js';
+import { decideSandbox, sandboxTmpDir } from '../isolation/sandbox.js';
+import { spawnShell } from '../adapters/shell.js';
+import { TerminalRegistry } from './terminals.js';
 
 function str(params: Record<string, unknown>, key: string): string {
   const v = params[key];
@@ -126,6 +128,8 @@ export function buildMethods(
     // Injected so tests can assert on notification call counts without spawning a
     // real terminal-notifier/osascript process — defaults to the real platform send.
     notifySend?: (title: string, message: string, clickCommand: string[] | undefined) => void;
+    /** The Terminal pane's shell; defaults to $SHELL. Injected so tests run /bin/sh. */
+    shell?: string;
   } = {},
 ): Record<string, MethodHandler> {
   const workspaces = new WorkspaceManager(db);
@@ -278,6 +282,41 @@ export function buildMethods(
     broadcastRegistry.broadcast('tui.invalidate', {});
   }, sealChunk);
   sessions.onKill = (id) => runtime.stop(id);
+
+  // Shells in a session's worktree (the Terminal pane). Same OS sandbox as the agent,
+  // but under their own sandbox id: the agent's profile and TMPDIR are cleaned up when
+  // ITS process exits, and a shell sharing them would delete the agent's temp dir on
+  // its way out.
+  const terminals = new TerminalRegistry((row, terminalId) => {
+    const sandbox = decideSandbox({
+      enabled: config.sandbox.enabled,
+      network: config.sandbox.network,
+      projectRoot,
+      worktreePath: row.worktreePath,
+      branch: row.branch,
+      sessionId: `${row.id}-${terminalId}`,
+    });
+    const env: Record<string, string> = { CW_SESSION_ID: row.id, CW_SESSION_NAME: row.name };
+    if (sandbox.spec !== undefined) {
+      // `~` is not writable inside the sandbox: history goes where the shell may write.
+      const tmp = sandboxTmpDir(projectRoot, sandbox.spec.sessionId);
+      env.TMPDIR = tmp;
+      env.HISTFILE = join(tmp, '.shell_history');
+    }
+    return spawnShell({
+      shell: opts.shell ?? process.env.SHELL ?? '/bin/sh',
+      cwd: row.worktreePath as string,
+      env,
+      sandbox: sandbox.spec,
+    });
+  }, sealChunk, () => broadcastRegistry.broadcast('tui.invalidate', {}));
+
+  /** Close the shells of every session that no longer exists (its worktree is gone). */
+  async function closeOrphanTerminals(workspaceId: string): Promise<void> {
+    const live = new Set(sessions.list(workspaceId).map((s) => s.id));
+    const orphaned = terminals.list(workspaceId).filter((t) => !live.has(t.sessionId));
+    await Promise.all(orphaned.map((t) => terminals.close(t.terminalId)));
+  }
 
   // `start` awaits `leaseManager.acquire` before `runtime.start` registers the
   // session as running, so two rapid `session.start`/`session.resume` RPCs for the
@@ -470,6 +509,7 @@ export function buildMethods(
     'workspace.gc': async (p) => {
       const id = str(p, 'id');
       const result = await collectGarbage(db, id, { force: bool(p, 'force', false) });
+      await closeOrphanTerminals(id);
       // Otherwise `workspace.info`'s disk figure (Important 3's TTL cache) can keep
       // showing pre-gc usage for up to `DISK_USAGE_CACHE_TTL_MS` after a gc, even
       // though the session list itself refreshes immediately via the broadcast below.
@@ -532,19 +572,46 @@ export function buildMethods(
     'session.rename': (p) =>
       sessions.rename(str(p, 'workspaceId'), str(p, 'idOrName'), str(p, 'newName')),
     'session.kill': async (p) => {
-      await sessions.kill(str(p, 'workspaceId'), str(p, 'idOrName'), {
-        removeWorktree: bool(p, 'removeWorktree', false),
-      });
+      const removeWorktree = bool(p, 'removeWorktree', false);
+      // Killing keeps the worktree (it can still be landed), and a shell there is
+      // still useful; only a kill that deletes it takes the shells first.
+      if (removeWorktree) {
+        await terminals.closeForSession(sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName')).id);
+      }
+      await sessions.kill(str(p, 'workspaceId'), str(p, 'idOrName'), { removeWorktree });
       broadcastRegistry.broadcast('tui.invalidate', {});
       return { ok: true };
     },
     'session.rm': async (p) => {
+      await terminals.closeForSession(sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName')).id);
       await sessions.remove(str(p, 'workspaceId'), str(p, 'idOrName'));
       broadcastRegistry.broadcast('tui.invalidate', {});
       return { ok: true };
     },
 
     'session.start': (p) => start(p),
+
+    'terminal.open': (p) => {
+      const row = sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName'));
+      if (row.worktreePath === null || !existsSync(row.worktreePath)) {
+        throw new CrossweaveError('SESSION_NO_WORKDIR', `Session has no working directory: ${row.name}`);
+      }
+      return terminals.open(row);
+    },
+    'terminal.list': (p) => terminals.list(str(p, 'workspaceId')),
+    'terminal.attach': (p, ctx) => terminals.subscribe(str(p, 'terminalId'), ctx),
+    'terminal.input': (p) => {
+      terminals.write(str(p, 'terminalId'), str(p, 'data'));
+      return { ok: true };
+    },
+    'terminal.resize': (p) => {
+      terminals.resize(str(p, 'terminalId'), num(p, 'cols'), num(p, 'rows'));
+      return { ok: true };
+    },
+    'terminal.close': async (p) => {
+      await terminals.close(str(p, 'terminalId'));
+      return { ok: true };
+    },
 
     'session.resume': async (p) => {
       const row = sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName'));
@@ -813,6 +880,8 @@ export function buildMethods(
     'land.session': async (p) => {
       const workspaceId = str(p, 'workspaceId');
       const target = sessions.resolve(workspaceId, str(p, 'idOrName'));
+      // Landing removes the worktree the session's shells are sitting in.
+      await terminals.closeForSession(target.id);
       const force = bool(p, 'force', false);
       // `landSession` only has raw `SessionRepo` access and cannot reach the running
       // agent process — stopping it here, before landing, is what makes `--force`
@@ -965,6 +1034,7 @@ export function buildMethods(
 
     'daemon.shutdown': async () => {
       convergenceScheduler.stop();
+      await terminals.closeAll();
       radarWatchers.stopAll();
       await runtime.stopAll();
       // stopAll's exit callbacks have already begun closing most of these; anything
