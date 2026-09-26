@@ -99,7 +99,11 @@ export class ClaudePtyAdapter implements AgentAdapter {
   spawn(opts: SpawnOptions): AgentProcess {
     // The settings JSON is part of THIS adapter's argv, so the sandbox line is
     // assembled here rather than in the daemon (see SpawnOptions.sandbox).
-    const agentArgs = [...this.args, '--settings', radarHookSettings()];
+    const agentArgs = [
+      ...this.args,
+      ...(opts.resumeId === undefined ? [] : ['--resume', opts.resumeId]),
+      '--settings', radarHookSettings(),
+    ];
     const plan = opts.sandbox === undefined ? undefined : planSandbox(opts.sandbox, this.command, agentArgs);
     return spawnInPty(plan?.argv ?? [this.command, ...agentArgs], opts, plan?.cleanup);
   }

@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { crossweaveDir } from '../core/paths.js';
 import { mcpSocketPath } from '../mcp/protocol.js';
 
@@ -46,6 +46,8 @@ export interface SandboxSpec {
   /** Test seams; both default to the real host. */
   platform?: NodeJS.Platform;
   home?: string;
+  /** Home-relative state paths the wrapped agent writes (adapters/catalog.ts); Claude Code's when absent. */
+  statePaths?: string[];
 }
 
 /**
@@ -63,6 +65,8 @@ export interface SandboxRequest {
   platform?: NodeJS.Platform;
   /** Test seam for bwrap presence on linux; defaults to probing PATH. */
   hasBwrap?: boolean;
+  /** The agent's own state paths, home-relative (adapters/catalog.ts). */
+  statePaths?: string[];
 }
 
 /** Why a requested sandbox was not built, in words a log line can print. */
@@ -101,6 +105,7 @@ export function decideSandbox(req: SandboxRequest): SandboxDecision {
       network: req.network,
       sessionId: req.sessionId,
       ...(req.branch === null ? {} : { branch: req.branch }),
+      ...(req.statePaths === undefined ? {} : { statePaths: req.statePaths }),
     },
   };
 }
@@ -136,8 +141,8 @@ export function sandboxTmpDir(projectRoot: string, sessionId: string): string {
  * State the CLI agents keep in the home directory. Named explicitly so the REST of
  * the home directory stays read-only, which is the point of the exercise.
  */
-function agentStatePaths(home: string): string[] {
-  return [join(home, '.claude'), join(home, '.claude.json')];
+function agentStatePaths(home: string, statePaths: string[] = ['.claude', '.claude.json']): string[] {
+  return statePaths.map((p) => join(home, p));
 }
 
 /**
@@ -279,8 +284,16 @@ export function buildBwrapArgs(spec: SandboxSpec, home: string, tmpRoot: string)
   // Worktree itself — the one place the session may write.
   args.push('--bind', worktree, worktree);
 
-  // Agent state in $HOME — named, not all of $HOME.
-  for (const p of agentStatePaths(home)) {
+  // Agent state in $HOME — named, not all of $HOME. A bind needs an existing source,
+  // and an agent on its first run could not create its own dir (the rest of $HOME is
+  // read-only in here), so a missing state DIR is created; a missing state FILE
+  // (`.claude.json`) is skipped rather than failing the whole spawn.
+  for (const p of agentStatePaths(home, spec.statePaths)) {
+    if (!existsSync(p)) {
+      // `.claude.json` is a file; `.gemini`, `.codex` are dirs — a dot past the first char.
+      if (basename(p).lastIndexOf('.') > 0) continue;
+      mkdirSync(p, { recursive: true });
+    }
     args.push('--bind', p, p);
   }
   // Cache the agent legitimately uses.
@@ -355,7 +368,7 @@ export function planSandbox(spec: SandboxSpec, command: string, args: string[]):
     const bwrapPrefix = buildBwrapArgs(spec, home, tmpRoot);
     return {
       argv: [...bwrapPrefix, '--', command, ...args],
-      writable: [spec.worktreePath, tmpRoot, ...agentStatePaths(home)],
+      writable: [spec.worktreePath, tmpRoot, ...agentStatePaths(home, spec.statePaths)],
       cleanup: () => {
         try { rmSync(tmpRoot, { recursive: true, force: true }); } catch {}
       },
@@ -375,7 +388,7 @@ export function planSandbox(spec: SandboxSpec, command: string, args: string[]):
 
   return {
     argv: [SANDBOX_EXEC, '-f', profilePath, command, ...args],
-    writable: [realpathSync(spec.worktreePath), tmpRoot, ...agentStatePaths(home)],
+    writable: [realpathSync(spec.worktreePath), tmpRoot, ...agentStatePaths(home, spec.statePaths)],
     cleanup: () => {
       try {
         rmSync(profilePath, { force: true });
@@ -415,7 +428,7 @@ export function buildSeatbeltProfile(spec: SandboxSpec, home: string, tmpRoot: s
     // wraps, so the grant covers the pty device pattern rather than one path;
     // opening another pty for WRITE is still denied above, and ioctl needs an fd.
     '(allow file-ioctl (literal "/dev/tty") (regex "^/dev/ttys[0-9]+$"))',
-    ...agentStatePaths(home).flatMap((p) => [
+    ...agentStatePaths(home, spec.statePaths).flatMap((p) => [
       `(allow file-write* (literal "${p}") (subpath "${p}"))`,
     ]),
   ];

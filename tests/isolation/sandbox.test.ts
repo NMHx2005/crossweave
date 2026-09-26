@@ -159,6 +159,14 @@ describe('buildSeatbeltProfile', () => {
     expect(p).not.toMatch(/file-write\*?[^)]*\.git\/hooks/);
   });
 
+  // Each agent writes its own state dir; the profile opens that one, not every agent's.
+  it('opens the state paths of the agent it wraps, defaulting to Claude Code\'s', () => {
+    const codex = buildSeatbeltProfile({ ...spec, statePaths: ['.codex'] }, home, sandboxTmpDir(fx.root, 's_one'));
+    expect(codex).toContain(`(literal "${home}/.codex")`);
+    expect(codex).not.toContain(`(literal "${home}/.claude")`);
+    expect(profile()).toContain(`(literal "${home}/.claude")`);
+  });
+
   it('allows the keychain mach services a logged-in agent needs', () => {
     const p = profile();
     expect(p).toContain('(allow mach-lookup');
@@ -301,6 +309,13 @@ describe('bwrap (pure, no binary needed)', () => {
     expect(rw).toContain(`${gitDir}/objects/ff`);
     expect(rw).toContain(`${gitDir}/objects/pack`);
     expect(existsSync(`${gitDir}/objects/ab`)).toBe(true);
+  });
+
+  it('creates a missing agent state dir to bind, and skips a missing state file', () => {
+    const rw = rwBinds(buildBwrapArgs({ ...spec, platform: 'linux', statePaths: ['.gemini', '.claude.json'] } as SandboxSpec, home, '/tmp/cw-tmp-one'));
+    expect(rw).toContain(join(home, '.gemini'));
+    expect(existsSync(join(home, '.gemini'))).toBe(true);
+    expect(rw).not.toContain(join(home, '.claude.json'));
   });
 
   it('planSandbox on linux produces a bwrap argv and is gated on hasBwrap', () => {

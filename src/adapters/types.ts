@@ -16,6 +16,8 @@ export interface SpawnOptions {
    * boundary — the daemon says so out loud and the session runs as it always did.
    */
   sandbox?: SandboxSpec;
+  /** Reopen this conversation instead of starting a new one (see adapters/catalog.ts). */
+  resumeId?: string;
 }
 
 export interface AgentProcess {

@@ -46,6 +46,8 @@ import { measureWorktrees } from '../isolation/disk-guard.js';
 import { LeaseRepo } from '../db/repositories/lease.js';
 import { decideSandbox, sandboxTmpDir } from '../isolation/sandbox.js';
 import { spawnShell } from '../adapters/shell.js';
+import { profileFor } from '../adapters/catalog.js';
+import { loadSettings, saveSettings, splitCommand, type UserSettings } from '../core/settings.js';
 import { TerminalRegistry } from './terminals.js';
 
 function str(params: Record<string, unknown>, key: string): string {
@@ -295,6 +297,8 @@ export function buildMethods(
       worktreePath: row.worktreePath,
       branch: row.branch,
       sessionId: `${row.id}-${terminalId}`,
+      // So the session's own agent CLI can be run by hand in its shell.
+      statePaths: profileFor(row.agentKind).statePaths,
     });
     const env: Record<string, string> = { CW_SESSION_ID: row.id, CW_SESSION_NAME: row.name };
     if (sandbox.spec !== undefined) {
@@ -373,6 +377,9 @@ export function buildMethods(
         worktreePath: row.worktreePath,
         branch: row.branch,
         sessionId: row.id,
+        // The dirs THIS agent writes its own state to (Codex: ~/.codex, …), not
+        // Claude Code's for every agent.
+        statePaths: profileFor(row.agentKind).statePaths,
       });
       // Silence here would be a lie of omission: a workspace that asked for a boundary
       // and got none (no provider on this platform, a shared-checkout session) must be
@@ -590,6 +597,28 @@ export function buildMethods(
     },
 
     'session.start': (p) => start(p),
+
+    // The agent catalog for pickers: enabled or not, and whether its command resolves.
+    'agents.list': () => {
+      const settings = loadSettings();
+      return settings.agents.map((a) => {
+        let available = false;
+        try { available = Bun.which(splitCommand(a.command)[0]!) !== null; } catch { available = false; }
+        return { id: a.id, label: a.label, enabled: a.enabled, builtin: a.builtin, tier: profileFor(a.id).tier, available };
+      });
+    },
+    'settings.get': () => loadSettings(),
+    // Local clients only: this sets commands the daemon will run, so it is never in the
+    // gateway's allowlist.
+    'settings.set': (p) => {
+      const next = p.settings as UserSettings | undefined;
+      if (typeof next !== 'object' || next === null) {
+        throw new CrossweaveError('INVALID_SETTINGS', 'settings must be an object');
+      }
+      saveSettings(next);
+      broadcastRegistry.broadcast('tui.invalidate', {});
+      return loadSettings();
+    },
 
     'terminal.open': (p) => {
       const row = sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName'));

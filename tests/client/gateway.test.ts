@@ -72,4 +72,12 @@ describe('gateway transport', () => {
     expect(ALLOWED_METHODS.has('session.list')).toBe(true);
     expect(ALLOWED_METHODS.has('evil.method')).toBe(false);
   });
+
+  // settings.set chooses commands the daemon runs, and terminal.* is a shell: neither
+  // is something a remote token may reach.
+  it('never allows settings or terminals through the gateway', () => {
+    for (const m of ['settings.set', 'settings.get', 'terminal.open', 'terminal.input']) {
+      expect(ALLOWED_METHODS.has(m)).toBe(false);
+    }
+  });
 });
