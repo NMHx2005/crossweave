@@ -47,12 +47,12 @@ describe('ConvergenceScheduler', () => {
       sessions.insert({
         id: 's_a', workspaceId: 'ws_1', name: 'a', agentKind: 'claude', adapter: 'claude',
         status: 'running', worktreePath: fixture.root, branch: 'cw/a', createdAt: 'now',
-        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null, launchArgs: null,
       });
       sessions.insert({
         id: 's_b', workspaceId: 'ws_1', name: 'b', agentKind: 'claude', adapter: 'claude',
         status: 'running', worktreePath: fixture.root, branch: 'cw/b', createdAt: 'now',
-        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null, launchArgs: null,
       });
 
       await scheduler.tick();
@@ -78,12 +78,12 @@ describe('ConvergenceScheduler', () => {
       sessions.insert({
         id: 's_a', workspaceId: 'ws_1', name: 'a', agentKind: 'claude', adapter: 'claude',
         status: 'running', worktreePath: fixture.root, branch: 'cw/a', createdAt: 'now',
-        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null, launchArgs: null,
       });
       sessions.insert({
         id: 's_b', workspaceId: 'ws_1', name: 'b', agentKind: 'claude', adapter: 'claude',
         status: 'running', worktreePath: fixture.root, branch: 'cw/b', createdAt: 'now',
-        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null, launchArgs: null,
       });
 
       await scheduler.tick();
@@ -106,12 +106,12 @@ describe('ConvergenceScheduler', () => {
       sessions.insert({
         id: 's_a', workspaceId: 'ws_1', name: 'a', agentKind: 'claude', adapter: 'claude',
         status: 'running', worktreePath: fixture.root, branch: 'cw/a', createdAt: 'now',
-        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null, launchArgs: null,
       });
       sessions.insert({
         id: 's_b', workspaceId: 'ws_1', name: 'b', agentKind: 'claude', adapter: 'claude',
         status: 'running', worktreePath: fixture.root, branch: 'cw/b', createdAt: 'now',
-        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null, launchArgs: null,
       });
 
       await scheduler.tick();
@@ -140,7 +140,7 @@ describe('ConvergenceScheduler', () => {
         sessions.insert({
           id: `s_${name}`, workspaceId: 'ws_1', name, agentKind: 'claude', adapter: 'claude',
           status: 'running', worktreePath: fixture.root, branch: `cw/${name}`, createdAt: 'now',
-          lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+          lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null, launchArgs: null,
         });
       }
 
@@ -174,7 +174,7 @@ describe('ConvergenceScheduler', () => {
       sessions.insert({
         id: 's_a', workspaceId: 'ws_1', name: 'a', agentKind: 'claude', adapter: 'claude',
         status: 'running', worktreePath: fixture.root, branch: 'cw/a', createdAt: 'now',
-        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null, launchArgs: null,
       });
 
       // A single active session has no PARTNER to pair against — this must
@@ -211,7 +211,7 @@ describe('ConvergenceScheduler', () => {
         sessions.insert({
           id: `s_${i}`, workspaceId: 'ws_1', name: `s${i}`, agentKind: 'claude', adapter: 'claude',
           status: 'running', worktreePath: fixture.root, branch: `cw/s${i}`, createdAt: 'now',
-          lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+          lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null, launchArgs: null,
         });
       }
 
@@ -261,7 +261,7 @@ describe('ConvergenceScheduler', () => {
         sessions.insert({
           id: `s_${name}`, workspaceId: 'ws_1', name, agentKind: 'claude', adapter: 'claude',
           status: 'running', worktreePath: fixture.root, branch: `cw/${name}`, createdAt: 'now',
-          lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+          lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null, launchArgs: null,
         });
       }
 
@@ -279,7 +279,7 @@ describe('ConvergenceScheduler', () => {
       sessions.insert({
         id: 's_d', workspaceId: 'ws_1', name: 'd', agentKind: 'claude', adapter: 'claude',
         status: 'running', worktreePath: fixture.root, branch: 'cw/d', createdAt: 'now',
-        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null, launchArgs: null,
       });
       await scheduler.tick();
       const fullIntegration2 = new MergeTrialRepo(db).listByWorkspace('ws_1').filter((t) => t.branches.length === 4);
@@ -335,12 +335,12 @@ describe('ConvergenceScheduler', () => {
         sessions.insert({
           id: `s_a${i}`, workspaceId: 'ws_a', name: `a${i}`, agentKind: 'claude', adapter: 'claude',
           status: 'running', worktreePath: fixtureA.root, branch: `cw/a${i}`, createdAt: 'now',
-          lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+          lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null, launchArgs: null,
         });
         sessions.insert({
           id: `s_b${i}`, workspaceId: 'ws_b', name: `b${i}`, agentKind: 'claude', adapter: 'claude',
           status: 'running', worktreePath: fixtureB.root, branch: `cw/b${i}`, createdAt: 'now',
-          lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+          lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null, launchArgs: null,
         });
       }
 
@@ -408,12 +408,12 @@ describe('ConvergenceScheduler: convergence notify', () => {
       sessions.insert({
         id: 's_a', workspaceId: 'ws_1', name: 'auth', agentKind: 'claude', adapter: 'claude',
         status: 'running', worktreePath: fixture.root, branch: 'cw/a', createdAt: 'now',
-        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null, launchArgs: null,
       });
       sessions.insert({
         id: 's_b', workspaceId: 'ws_1', name: 'payments', agentKind: 'claude', adapter: 'claude',
         status: 'running', worktreePath: fixture.root, branch: 'cw/b', createdAt: 'now',
-        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null, launchArgs: null,
       });
 
       await scheduler.tick();
@@ -475,7 +475,7 @@ describe('ConvergenceScheduler: convergence notify', () => {
         sessions.insert({
           id: `s_${i}`, workspaceId: 'ws_1', name: `s${i}`, agentKind: 'claude', adapter: 'claude',
           status: 'running', worktreePath: fixture.root, branch, createdAt: 'now',
-          lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+          lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null, launchArgs: null,
         });
         i += 1;
       }
@@ -522,12 +522,12 @@ describe('ConvergenceScheduler: convergence notify', () => {
       sessions.insert({
         id: 's_a', workspaceId: 'ws_1', name: 'a', agentKind: 'claude', adapter: 'claude',
         status: 'running', worktreePath: fixture.root, branch: 'cw/a', createdAt: 'now',
-        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null, launchArgs: null,
       });
       sessions.insert({
         id: 's_b', workspaceId: 'ws_1', name: 'b', agentKind: 'claude', adapter: 'claude',
         status: 'running', worktreePath: fixture.root, branch: 'cw/b', createdAt: 'now',
-        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null, launchArgs: null,
       });
 
       await scheduler.tick();

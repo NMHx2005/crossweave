@@ -99,8 +99,11 @@ export class ClaudePtyAdapter implements AgentAdapter {
   spawn(opts: SpawnOptions): AgentProcess {
     // The settings JSON is part of THIS adapter's argv, so the sandbox line is
     // assembled here rather than in the daemon (see SpawnOptions.sandbox).
+    // Radar's --settings stays last, after the user's flags (validateLaunchArgs
+    // refuses a user --settings outright, so T2 cannot be switched off from here).
     const agentArgs = [
       ...this.args,
+      ...(opts.extraArgs ?? []),
       ...(opts.resumeId === undefined ? [] : ['--resume', opts.resumeId]),
       '--settings', radarHookSettings(),
     ];

@@ -30,7 +30,7 @@ async function seeded() {
     id: 's_1', workspaceId: 'ws_1', name: 's_1', agentKind: 'claude', adapter: 'claude',
     status: 'running', worktreePath: fixture.root, branch: 'cw/s_1', createdAt: 'now',
     lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null,
-    enforcementTier: 'T2', pid: null,
+    enforcementTier: 'T2', pid: null, launchArgs: null,
   });
   return db;
 }

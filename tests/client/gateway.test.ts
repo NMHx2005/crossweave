@@ -81,3 +81,29 @@ describe('gateway transport', () => {
     }
   });
 });
+
+// Launch flags reach an agent's argv, and an agent flag can run code (Claude's
+// --settings declares hooks): a remote token must not become a remote command line.
+describe('gateway and launch flags', () => {
+  it('refuses any args param instead of forwarding it', async () => {
+    const clientSide = memoryTransport();
+    const gatewayClientSide = memoryTransport();
+    const gatewayDaemonSide = memoryTransport();
+    (clientSide as unknown as { _peer: unknown })._peer = gatewayClientSide;
+    (gatewayClientSide as unknown as { _peer: unknown })._peer = clientSide;
+    const daemonSent: string[] = [];
+    const origWrite = gatewayDaemonSide.write.bind(gatewayDaemonSide);
+    gatewayDaemonSide.write = (f: string) => { daemonSent.push(f); origWrite(f); };
+    await createGatewayTransport(gatewayClientSide as unknown as ClientTransport, {
+      socketPath: '/tmp/fake.sock',
+      requireToken: 'tok',
+      connectDaemon: async () => gatewayDaemonSide as unknown as ClientTransport,
+    });
+    const client = DaemonClient.attach(clientSide as unknown as ClientTransport);
+    for (const method of ['session.new', 'session.resume']) {
+      await expect(client.call(method, { token: 'tok', idOrName: 'a', name: 'a', agent: 'claude', args: ['--dangerously-skip-permissions'] }))
+        .rejects.toMatchObject({ message: expect.stringContaining('local') });
+    }
+    expect(daemonSent.length).toBe(0);
+  });
+});

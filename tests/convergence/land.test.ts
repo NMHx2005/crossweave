@@ -54,7 +54,7 @@ function insertSession(sessions: SessionRepo, overrides: Partial<SessionRow> & {
     tokenBudget: null,
     tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null,
     enforcementTier: 'T3',
-    pid: null,
+    pid: null, launchArgs: null,
   });
 }
 

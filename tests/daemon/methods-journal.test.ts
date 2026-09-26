@@ -44,7 +44,7 @@ function setup() {
       id, workspaceId: 'ws_1', name: id, agentKind, adapter: agentKind,
       status: 'idle', worktreePath: `${dir}/${id}`, branch: `cw/${id}`, createdAt: 'now',
       lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costBudgetUsd: null,
-      costSpentUsd: 0, enforcementTier: 'T2', pid: null,
+      costSpentUsd: 0, enforcementTier: 'T2', pid: null, launchArgs: null,
     });
   };
   insert('s_a', 'claude');

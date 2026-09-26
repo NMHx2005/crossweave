@@ -44,12 +44,12 @@ describe('AcpAdapter composed with the real decideBlocked (not a stub)', () => {
     sessionsRepo.insert({
       id: 's_1', workspaceId: 'ws_1', name: 's_1', agentKind: 'cursor', adapter: 'cursor',
       status: 'running', worktreePath: process.cwd(), branch: 'cw/s_1', createdAt: 'now',
-      lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T1', pid: null,
+      lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T1', pid: null, launchArgs: null,
     });
     sessionsRepo.insert({
       id: 's_2', workspaceId: 'ws_1', name: 's_2', agentKind: 'claude', adapter: 'claude',
       status: 'running', worktreePath: process.cwd(), branch: 'cw/s_2', createdAt: 'now',
-      lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T2', pid: null,
+      lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T2', pid: null, launchArgs: null,
     });
     new FileClaimRepo(db).upsert({
       id: 'fc_1', sessionId: 's_2', workspaceId: 'ws_1', path: 'x.ts', symbol: null,
@@ -90,7 +90,7 @@ describe('AcpAdapter composed with the real decideBlocked (not a stub)', () => {
     sessionsRepo.insert({
       id: 's_1', workspaceId: 'ws_1', name: 's_1', agentKind: 'cursor', adapter: 'cursor',
       status: 'running', worktreePath: process.cwd(), branch: 'cw/s_1', createdAt: 'now',
-      lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T1', pid: null,
+      lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T1', pid: null, launchArgs: null,
     });
 
     const workspaces = new WorkspaceManager(db);
@@ -127,7 +127,7 @@ describe('AcpAdapter composed with the real decideBlocked (not a stub)', () => {
       id: 's_1', workspaceId: 'ws_1', name: 's_1', agentKind: 'cursor', adapter: 'cursor',
       status: 'running', worktreePath: process.cwd(), branch: 'cw/s_1', createdAt: 'now',
       lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costBudgetUsd: null,
-      costSpentUsd: 0, enforcementTier: 'T1', pid: null,
+      costSpentUsd: 0, enforcementTier: 'T1', pid: null, launchArgs: null,
     });
 
     const workspaces = new WorkspaceManager(db);

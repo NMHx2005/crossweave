@@ -29,6 +29,7 @@ function makeRow(overrides: Partial<SessionRow> = {}): SessionRow {
     tokenSpent: 0, costBudgetUsd: null, costSpentUsd: 0,
     enforcementTier: 'T3',
     pid: null,
+    launchArgs: null,
     ...overrides,
   };
 }
@@ -58,6 +59,17 @@ describe('SessionRepo', () => {
     const row = makeRow();
     repo.insert(row);
     expect(repo.findById(row.id)).toEqual(row);
+  });
+
+  it('round-trips launch flags, and tells never-given from deliberately empty', () => {
+    const given = makeRow({ name: 'given', launchArgs: ['--model', 'opus'] });
+    const none = makeRow({ name: 'none' });
+    repo.insert(given);
+    repo.insert(none);
+    expect(repo.findById(given.id)?.launchArgs).toEqual(['--model', 'opus']);
+    expect(repo.findById(none.id)?.launchArgs).toBeNull();
+    repo.setLaunchArgs(none.id, []);
+    expect(repo.findById(none.id)?.launchArgs).toEqual([]);
   });
 
   it('round-trips cost columns', () => {

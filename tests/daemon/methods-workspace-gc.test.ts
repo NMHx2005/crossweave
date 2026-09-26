@@ -73,7 +73,7 @@ describe('workspace.gc RPC', () => {
         id: 's_1', workspaceId: 'ws_2', name: 's_1', agentKind: 'claude', adapter: 'claude',
         status: 'running', worktreePath: worktree, branch: 'cw/s_1', createdAt: 'now',
         lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costBudgetUsd: null,
-        costSpentUsd: 0, enforcementTier: 'T2', pid: null,
+        costSpentUsd: 0, enforcementTier: 'T2', pid: null, launchArgs: null,
       });
       const methods = buildMethods(db, fixture.root);
       const ctx = { notify: () => undefined, onClose: () => undefined };

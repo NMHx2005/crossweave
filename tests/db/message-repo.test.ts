@@ -46,14 +46,14 @@ beforeEach(async () => {
     id: fromId, workspaceId, name: 'a', agentKind: 'claude', adapter: 'claude', status: 'idle',
     worktreePath: null, branch: null, createdAt: '2026-08-10T00:00:00.000Z',
     lastActiveAt: '2026-08-10T00:00:00.000Z', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null,
-    enforcementTier: 'T3', pid: null,
+    enforcementTier: 'T3', pid: null, launchArgs: null,
   });
   toId = newId('s');
   sessions.insert({
     id: toId, workspaceId, name: 'b', agentKind: 'claude', adapter: 'claude', status: 'idle',
     worktreePath: null, branch: null, createdAt: '2026-08-10T00:00:00.000Z',
     lastActiveAt: '2026-08-10T00:00:00.000Z', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null,
-    enforcementTier: 'T3', pid: null,
+    enforcementTier: 'T3', pid: null, launchArgs: null,
   });
   messages = new MessageRepo(db);
 });

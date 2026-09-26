@@ -23,6 +23,8 @@ export interface CreateSessionOptions {
   budgetUsd?: number;
   /** Branch or commit the worktree starts from; the project's HEAD when omitted. */
   base?: string;
+  /** Launch flags to remember for this session (already validated by the caller). */
+  launchArgs?: string[];
 }
 
 /**
@@ -123,6 +125,7 @@ export class SessionManager {
       tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: opts.budgetUsd ?? null,
       enforcementTier: adapter.enforcementTier,
       pid: null,
+      launchArgs: opts.launchArgs ?? null,
     };
     try {
       this.sessions.insert(row);

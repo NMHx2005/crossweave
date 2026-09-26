@@ -22,7 +22,7 @@ describe('session.list lease visibility', () => {
         status: id === 's_leased' ? 'running' : 'idle',
         worktreePath: `/tmp/demo/${id}`, branch: `cw/${id}`, createdAt: 'now',
         lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costBudgetUsd: null,
-        costSpentUsd: 0, enforcementTier: 'T2', pid: null,
+        costSpentUsd: 0, enforcementTier: 'T2', pid: null, launchArgs: null,
       });
     }
 

@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 11;
+export const SCHEMA_VERSION = 12;
 
 /**
  * Each migration is a list of single statements, never one multi-statement blob.
@@ -230,5 +230,11 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
     // old branch-count heuristic for those rows (see `isPairwiseTrial`), which is
     // exactly how they were already being classified when they were written.
     `ALTER TABLE merge_trial ADD COLUMN pairwise INTEGER`,
+  ],
+  [
+    // A session's own launch flags (`--model opus`), as a JSON array: typed once when
+    // the user starts it, reused on every start and resume after. NULL = never given,
+    // which is not the same as `[]` (given, and deliberately empty).
+    `ALTER TABLE session ADD COLUMN launch_args TEXT`,
   ],
 ];

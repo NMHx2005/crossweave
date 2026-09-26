@@ -84,6 +84,7 @@ export class SessionRuntime {
       rows: 24,
       sandbox,
       ...(resumeId === undefined ? {} : { resumeId }),
+      ...(session.launchArgs ? { extraArgs: session.launchArgs } : {}),
     });
 
     const entry: RunningSession = { proc, scrollback: '', subscribers: new Set(), session };

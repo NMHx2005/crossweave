@@ -47,7 +47,7 @@ import { measureWorktrees } from '../isolation/disk-guard.js';
 import { LeaseRepo } from '../db/repositories/lease.js';
 import { decideSandbox } from '../isolation/sandbox.js';
 import { spawnShell } from '../adapters/shell.js';
-import { profileFor, resolveAgent } from '../adapters/catalog.js';
+import { profileFor, resolveAgent, validateLaunchArgs } from '../adapters/catalog.js';
 import { findConversation, latestWords } from '../domain/agent-logs.js';
 import { listWorktreeFiles, readWorktreeFile, writeWorktreeFile } from '../domain/worktree-files.js';
 import { loginShellPath, mergePaths } from '../core/login-path.js';
@@ -365,8 +365,13 @@ export function buildMethods(
   }
 
   async function start(p: Record<string, unknown>): Promise<SessionRow> {
-    const row = sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName'));
+    let row = sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName'));
     assertResumable(row);
+    // Flags given with this start replace the remembered ones; absent means reuse.
+    if (p.args !== undefined) {
+      sessionsRepo.setLaunchArgs(row.id, validateLaunchArgs(row.agentKind, p.args));
+      row = sessions.resolve(row.workspaceId, row.id);
+    }
     // Synchronous check-and-mark, before the first `await` below: see the comment
     // on `starting` above for why this closes the concurrent-start race.
     if (starting.has(row.id)) {
@@ -549,6 +554,7 @@ export function buildMethods(
     'workspace.setSafeMode': (p) => workspaces.setSafeMode(str(p, 'id'), str(p, 'tier')),
 
     'session.new': (p) => {
+      const launchArgs = p.args === undefined ? undefined : validateLaunchArgs(str(p, 'agent'), p.args);
       const row = sessions.create({
         workspaceId: str(p, 'workspaceId'),
         name: str(p, 'name'),
@@ -557,6 +563,7 @@ export function buildMethods(
         budgetTokens: optionalNum(p, 'budgetTokens'),
         budgetUsd: optionalNum(p, 'budgetUsd'),
         base: optionalStr(p, 'base'),
+        ...(launchArgs === undefined ? {} : { launchArgs }),
       });
       broadcastRegistry.broadcast('tui.invalidate', {});
       return row;

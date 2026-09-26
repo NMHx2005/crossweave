@@ -18,6 +18,8 @@ export interface SpawnOptions {
   sandbox?: SandboxSpec;
   /** Reopen this conversation instead of starting a new one (see adapters/catalog.ts). */
   resumeId?: string;
+  /** The session's own launch flags (`--model opus`), after the configured command. */
+  extraArgs?: string[];
 }
 
 export interface AgentProcess {

@@ -65,3 +65,28 @@ export function resumeArgv(kind: ResumeKind, argv: string[], id: string): string
   if (kind === 'codex') return [command, 'resume', id, ...rest];
   return [command, ...rest, '--session', id];
 }
+
+const MAX_LAUNCH_ARGS = 64;
+const MAX_LAUNCH_ARG_LENGTH = 4096;
+
+/**
+ * A session's launch flags, checked before they are stored or spawned. They are argv
+ * entries, never a shell string, and bounded; Claude's `--settings` is refused because
+ * crossweave's own carries the Radar hook — a second one could quietly turn T2 off.
+ */
+export function validateLaunchArgs(agentKind: string, value: unknown): string[] {
+  const refuse = (why: string): never => {
+    throw new CrossweaveError('INVALID_LAUNCH_ARGS', `Invalid launch flags: ${why}`);
+  };
+  if (!Array.isArray(value)) return refuse('expected a list of arguments');
+  if (value.length > MAX_LAUNCH_ARGS) return refuse(`at most ${MAX_LAUNCH_ARGS} arguments`);
+  for (const arg of value) {
+    if (typeof arg !== 'string') return refuse('every argument must be text');
+    if (arg.length > MAX_LAUNCH_ARG_LENGTH) return refuse(`an argument is longer than ${MAX_LAUNCH_ARG_LENGTH} characters`);
+    if (arg.includes('\0')) return refuse('an argument contains a NUL byte');
+    if (agentKind === 'claude' && (arg === '--settings' || arg.startsWith('--settings='))) {
+      return refuse('--settings is set by crossweave for Claude (it carries the Radar hook)');
+    }
+  }
+  return [...value] as string[];
+}

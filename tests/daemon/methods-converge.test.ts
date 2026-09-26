@@ -36,7 +36,7 @@ describe('converge.status RPC', () => {
       sessions.insert({
         id, workspaceId: 'ws_1', name, agentKind: 'claude', adapter: 'claude',
         status: 'running', worktreePath: tmpdir(), branch: `cw/${name}`, createdAt: 'now',
-        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null, launchArgs: null,
       });
     }
 
@@ -80,7 +80,7 @@ describe('converge.status RPC', () => {
       sessions.insert({
         id, workspaceId: 'ws_1', name, agentKind: 'claude', adapter: 'claude',
         status: 'running', worktreePath: tmpdir(), branch: `cw/${name}`, createdAt: 'now',
-        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null, launchArgs: null,
       });
     }
     new MergeTrialRepo(db).insert({
@@ -128,7 +128,7 @@ describe('converge.status RPC', () => {
       new SessionRepo(db).insert({
         id: 's_solo', workspaceId: 'ws_1', name: 'solo', agentKind: 'claude', adapter: 'claude',
         status: 'idle', worktreePath: tmpdir(), branch: 'cw/solo', createdAt: 'now',
-        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null, launchArgs: null,
       });
       const methods = buildMethods(db, root);
       const status = async () => (await methods['converge.status']!(
@@ -163,7 +163,7 @@ describe('converge.status RPC', () => {
       sessions.insert({
         id, workspaceId: 'ws_1', name, agentKind: 'claude', adapter: 'claude',
         status: 'running', worktreePath: tmpdir(), branch: `cw/${name}`, createdAt: 'now',
-        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null, launchArgs: null,
       });
     }
     const trials = new MergeTrialRepo(db);
@@ -199,12 +199,12 @@ describe('converge.status RPC', () => {
     sessions.insert({
       id: 's_a', workspaceId: 'ws_1', name: 'a', agentKind: 'claude', adapter: 'claude',
       status: 'running', worktreePath: tmpdir(), branch: 'cw/a', createdAt: 'now',
-      lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+      lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null, launchArgs: null,
     });
     sessions.insert({
       id: 's_b', workspaceId: 'ws_1', name: 'b', agentKind: 'claude', adapter: 'claude',
       status: 'running', worktreePath: tmpdir(), branch: 'cw/b', createdAt: 'now',
-      lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+      lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null, launchArgs: null,
     });
     new MergeTrialRepo(db).insert({
       id: 'mt_1', workspaceId: 'ws_1', ts: 'now', branches: ['cw/a', 'cw/b'],
@@ -236,7 +236,7 @@ describe('converge.status RPC', () => {
       sessions.insert({
         id: `s_${i}`, workspaceId: 'ws_1', name: `s${i}`, agentKind: 'claude', adapter: 'claude',
         status: 'running', worktreePath: tmpdir(), branch: `cw/s${i}`, createdAt: 'now',
-        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null, launchArgs: null,
       });
     }
 
@@ -277,7 +277,7 @@ describe('converge.status RPC', () => {
       sessions.insert({
         id, workspaceId: 'ws_1', name: id.slice(2), agentKind: 'claude', adapter: 'claude',
         status: 'running', worktreePath: tmpdir(), branch, createdAt,
-        lastActiveAt: createdAt, tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+        lastActiveAt: createdAt, tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null, launchArgs: null,
       });
     }
     new MergeTrialRepo(db).insert({
@@ -350,7 +350,7 @@ describe('converge.status: trial kind is read from the recorded kind, not the br
         sessions.insert({
           id, workspaceId: 'ws_1', name, agentKind: 'claude', adapter: 'claude',
           status: 'running', worktreePath: fixture.root, branch: `cw/${name}`, createdAt: `now-${name}`,
-          lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+          lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null, launchArgs: null,
         });
       }
       // fullIntegrationIntervalMs: 0 makes the full-integration run happen on the
@@ -405,7 +405,7 @@ describe('converge.status: trial kind is read from the recorded kind, not the br
         sessions.insert({
           id, workspaceId: 'ws_1', name, agentKind: 'claude', adapter: 'claude',
           status: 'running', worktreePath: root, branch: `cw/${name}`, createdAt: `now-${name}`,
-          lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+          lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null, launchArgs: null,
         });
       }
       new MergeTrialRepo(db).insert({

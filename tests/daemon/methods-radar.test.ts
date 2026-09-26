@@ -19,7 +19,7 @@ describe('radar.check RPC', () => {
       sessions.insert({
         id, workspaceId: 'ws_1', name: id, agentKind: 'claude', adapter: 'claude',
         status: 'running', worktreePath: `/tmp/w/${id}`, branch: `cw/${id}`, createdAt: 'now',
-        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null, launchArgs: null,
       });
     }
     new FileClaimRepo(db).upsert({
@@ -51,7 +51,7 @@ describe('radar.check RPC', () => {
         id, workspaceId: 'ws_1', name: id, agentKind: 'claude', adapter: 'claude',
         status: 'running', worktreePath: `/tmp/w/${id}`, branch: `cw/${id}`, createdAt: 'now',
         lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null,
-        enforcementTier: tier, pid: null,
+        enforcementTier: tier, pid: null, launchArgs: null,
       });
     }
     new FileClaimRepo(db).upsert({
@@ -88,7 +88,7 @@ describe('radar.check RPC', () => {
       sessions.insert({
         id, workspaceId: 'ws_1', name: id, agentKind: 'claude', adapter: 'claude',
         status: 'running', worktreePath: `/tmp/w/${id}`, branch: `cw/${id}`, createdAt: 'now',
-        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null, launchArgs: null,
       });
     }
     new FileClaimRepo(db).upsert({
@@ -136,7 +136,7 @@ describe('radar.check RPC', () => {
       sessions.insert({
         id, workspaceId: 'ws_1', name: id, agentKind: 'claude', adapter: 'claude',
         status: 'running', worktreePath: `/tmp/w/${id}`, branch: `cw/${id}`, createdAt: 'now',
-        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null, launchArgs: null,
       });
     }
     new FileClaimRepo(db).upsert({
@@ -172,7 +172,7 @@ describe('radar.check RPC', () => {
       sessions.insert({
         id, workspaceId: 'ws_1', name: id, agentKind: 'claude', adapter: 'claude',
         status: 'running', worktreePath: `/tmp/w/${id}`, branch: `cw/${id}`, createdAt: 'now',
-        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null, launchArgs: null,
       });
     }
     new FileClaimRepo(db).upsert({

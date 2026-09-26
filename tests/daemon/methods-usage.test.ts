@@ -15,7 +15,7 @@ function seed() {
     id: 's_1', workspaceId: 'ws_1', name: 's_1', agentKind: 'claude', adapter: 'claude',
     status: 'running', worktreePath: '/tmp/w/s_1', branch: 'cw/s_1', createdAt: 'now',
     lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costBudgetUsd: null,
-    costSpentUsd: 0, enforcementTier: 'T2', pid: null,
+    costSpentUsd: 0, enforcementTier: 'T2', pid: null, launchArgs: null,
   });
   return { db, sessions };
 }
@@ -108,12 +108,12 @@ describe('usage.summary RPC', () => {
     sessions.insert({
       id: 's_1', workspaceId: 'ws_1', name: 'a', agentKind: 'claude', adapter: 'claude',
       status: 'running', worktreePath: null, branch: null, createdAt: '2026-09-24T10:00:00.000Z',
-      lastActiveAt: '2026-09-24T10:00:00.000Z', tokenBudget: null, tokenSpent: 100, costBudgetUsd: null, costSpentUsd: 0.01, enforcementTier: 'T2', pid: null,
+      lastActiveAt: '2026-09-24T10:00:00.000Z', tokenBudget: null, tokenSpent: 100, costBudgetUsd: null, costSpentUsd: 0.01, enforcementTier: 'T2', pid: null, launchArgs: null,
     });
     sessions.insert({
       id: 's_2', workspaceId: 'ws_1', name: 'b', agentKind: 'claude', adapter: 'claude',
       status: 'running', worktreePath: null, branch: null, createdAt: '2026-09-24T12:00:00.000Z',
-      lastActiveAt: '2026-09-24T12:00:00.000Z', tokenBudget: null, tokenSpent: 200, costBudgetUsd: null, costSpentUsd: 0.02, enforcementTier: 'T2', pid: null,
+      lastActiveAt: '2026-09-24T12:00:00.000Z', tokenBudget: null, tokenSpent: 200, costBudgetUsd: null, costSpentUsd: 0.02, enforcementTier: 'T2', pid: null, launchArgs: null,
     });
     return { db };
   }
@@ -154,7 +154,7 @@ describe('session.wait / session.unwait RPC', () => {
     const { db } = (() => {
       const db = openDatabase(':memory:');
       new WorkspaceRepo(db).insert({ id: 'ws_1', name: 'w', rootPath: '/tmp/w', createdAt: 'now', defaultIsolation: 'worktree', safeModeTier: 'T2' });
-      new SessionRepo(db).insert({ id: 's_1', workspaceId: 'ws_1', name: 's_1', agentKind: 'claude', adapter: 'claude', status: 'running', worktreePath: null, branch: null, createdAt: 'now', lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costBudgetUsd: null, costSpentUsd: 0, enforcementTier: 'T2', pid: 123 });
+      new SessionRepo(db).insert({ id: 's_1', workspaceId: 'ws_1', name: 's_1', agentKind: 'claude', adapter: 'claude', status: 'running', worktreePath: null, branch: null, createdAt: 'now', lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costBudgetUsd: null, costSpentUsd: 0, enforcementTier: 'T2', pid: 123, launchArgs: null });
       return { db };
     })();
     const methods = buildMethods(db, '/tmp/w');

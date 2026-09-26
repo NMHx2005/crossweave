@@ -128,7 +128,7 @@ async function ensureIntegrationWorktreeUncached(
   const row: SessionRow = {
     id, workspaceId, name: INTEGRATION_SESSION_NAME, agentKind: 'integration', adapter: 'integration',
     status: 'idle', worktreePath: path, branch: INTEGRATION_BRANCH, createdAt: now, lastActiveAt: now,
-    tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+    tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null, launchArgs: null,
   };
   sessions.insert(row);
   return { sessionId: id, path, branch: INTEGRATION_BRANCH };

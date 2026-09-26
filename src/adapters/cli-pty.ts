@@ -22,9 +22,10 @@ export class CliPtyAdapter implements AgentAdapter {
   ) {}
 
   spawn(opts: SpawnOptions): AgentProcess {
+    const base = [...this.argv, ...(opts.extraArgs ?? [])];
     const argv = opts.resumeId !== undefined && this.profile.resume !== undefined
-      ? resumeArgv(this.profile.resume, this.argv, opts.resumeId)
-      : this.argv;
+      ? resumeArgv(this.profile.resume, base, opts.resumeId)
+      : base;
     const [command, ...args] = argv as [string, ...string[]];
     const plan = opts.sandbox === undefined ? undefined : planSandbox(opts.sandbox, command, args);
     return spawnInPty(plan?.argv ?? argv, opts, plan?.cleanup);

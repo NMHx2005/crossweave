@@ -25,6 +25,8 @@ export interface SessionRow {
   costSpentUsd: number;
   enforcementTier: EnforcementTier;
   pid: number | null;
+  /** The session's own launch flags; null when never given (see migration). */
+  launchArgs: string[] | null;
 }
 
 interface SessionRecord {
@@ -44,12 +46,13 @@ interface SessionRecord {
   cost_spent_usd: number;
   enforcement_tier: string;
   pid: number | null;
+  launch_args: string | null;
 }
 
 const COLUMNS =
   'id, workspace_id, name, agent_kind, adapter, status, worktree_path, branch, ' +
   'created_at, last_active_at, token_budget, token_spent, enforcement_tier, pid, ' +
-  'cost_budget_usd, cost_spent_usd';
+  'cost_budget_usd, cost_spent_usd, launch_args';
 
 const LIVE_STATUSES = ['idle', 'running', 'waiting'] as const;
 
@@ -71,7 +74,18 @@ function toRow(r: SessionRecord): SessionRow {
     costSpentUsd: r.cost_spent_usd,
     enforcementTier: r.enforcement_tier as EnforcementTier,
     pid: r.pid,
+    launchArgs: parseLaunchArgs(r.launch_args),
   };
+}
+
+function parseLaunchArgs(raw: string | null): string[] | null {
+  if (raw === null) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.every((a) => typeof a === 'string') ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
 export class SessionRepo {
@@ -79,12 +93,13 @@ export class SessionRepo {
 
   insert(row: SessionRow): void {
     this.db
-      .prepare(`INSERT INTO session (${COLUMNS}) VALUES (${'?, '.repeat(15)}?)`)
+      .prepare(`INSERT INTO session (${COLUMNS}) VALUES (${'?, '.repeat(16)}?)`)
       .run(
         row.id, row.workspaceId, row.name, row.agentKind, row.adapter, row.status,
         row.worktreePath, row.branch, row.createdAt, row.lastActiveAt,
         row.tokenBudget, row.tokenSpent, row.enforcementTier, row.pid,
         row.costBudgetUsd, row.costSpentUsd,
+        row.launchArgs == null ? null : JSON.stringify(row.launchArgs),
       );
   }
 
@@ -145,6 +160,10 @@ export class SessionRepo {
     if (sets.length === 0) return;
     values.push(id);
     this.db.prepare(`UPDATE session SET ${sets.join(', ')} WHERE id = ?`).run(...values);
+  }
+
+  setLaunchArgs(id: string, args: string[]): void {
+    this.db.prepare('UPDATE session SET launch_args = ? WHERE id = ?').run(JSON.stringify(args), id);
   }
 
   rename(id: string, name: string): void {

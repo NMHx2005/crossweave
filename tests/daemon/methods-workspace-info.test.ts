@@ -25,7 +25,7 @@ describe('workspace.info RPC', () => {
         id: 's_1', workspaceId: 'ws_1', name: 's_1', agentKind: 'claude', adapter: 'claude',
         status: 'running', worktreePath: worktree, branch: 'cw/s_1', createdAt: 'now',
         lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costBudgetUsd: null,
-        costSpentUsd: 0, enforcementTier: 'T2', pid: null,
+        costSpentUsd: 0, enforcementTier: 'T2', pid: null, launchArgs: null,
       });
 
       const methods = buildMethods(db, '/tmp/w');
@@ -83,7 +83,7 @@ describe('workspace.info RPC', () => {
         id: 's_normal', workspaceId: 'ws_3', name: 's_normal', agentKind: 'claude', adapter: 'claude',
         status: 'running', worktreePath: normalWorktree, branch: 'cw/s_normal', createdAt: 'now',
         lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costBudgetUsd: null,
-        costSpentUsd: 0, enforcementTier: 'T2', pid: null,
+        costSpentUsd: 0, enforcementTier: 'T2', pid: null, launchArgs: null,
       });
       // Same agentKind/adapter/name shape WorkspaceManager.info()'s own regression
       // test (tests/domain/workspace.test.ts) uses for this session kind.
@@ -91,7 +91,7 @@ describe('workspace.info RPC', () => {
         id: 's_integration', workspaceId: 'ws_3', name: '__integration__', agentKind: 'integration',
         adapter: 'integration', status: 'idle', worktreePath: integrationWorktree, branch: 'cw/integration',
         createdAt: 'now', lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costBudgetUsd: null,
-        costSpentUsd: 0, enforcementTier: 'T3', pid: null,
+        costSpentUsd: 0, enforcementTier: 'T3', pid: null, launchArgs: null,
       });
 
       const methods = buildMethods(db, '/tmp/w');
@@ -131,7 +131,7 @@ describe('workspace.info RPC', () => {
         id: 's_1', workspaceId: 'ws_cache', name: 's_1', agentKind: 'claude', adapter: 'claude',
         status: 'running', worktreePath: worktree, branch: 'cw/s_1', createdAt: 'now',
         lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costBudgetUsd: null,
-        costSpentUsd: 0, enforcementTier: 'T2', pid: null,
+        costSpentUsd: 0, enforcementTier: 'T2', pid: null, launchArgs: null,
       });
 
       const methods = buildMethods(db, '/tmp/w');

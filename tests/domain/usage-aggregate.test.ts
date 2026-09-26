@@ -19,7 +19,7 @@ function row(over: Partial<SessionRow> & { createdAt: string }): SessionRow {
     costBudgetUsd: null,
     costSpentUsd: 0,
     enforcementTier: 'T2',
-    pid: null,
+    pid: null, launchArgs: null,
   };
   return { ...base, ...over } as SessionRow;
 }

@@ -8,7 +8,7 @@ import type { SessionRow } from '../../src/db/repositories/session.js';
 const session = (id: string, workspaceId = 'w1'): SessionRow => ({
   id, workspaceId, name: `name-${id}`, agentKind: 'claude', adapter: 'claude', status: 'running',
   worktreePath: tmpdir(), branch: `cw/${id}`, createdAt: 'now', lastActiveAt: 'now',
-  tokenBudget: null, tokenSpent: 0, costBudgetUsd: null, costSpentUsd: 0, enforcementTier: 'T2', pid: null,
+  tokenBudget: null, tokenSpent: 0, costBudgetUsd: null, costSpentUsd: 0, enforcementTier: 'T2', pid: null, launchArgs: null,
 });
 
 /** A real pty running `sh`, so input, output and exit are the genuine article. */

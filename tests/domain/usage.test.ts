@@ -16,7 +16,7 @@ describe('recordUsage', () => {
       id: 's_1', workspaceId: 'ws_1', name: 's_1', agentKind: 'claude', adapter: 'claude',
       status: 'running', worktreePath: '/tmp/w/s_1', branch: 'cw/s_1', createdAt: 'now',
       lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costBudgetUsd: null,
-      costSpentUsd: 0, enforcementTier: 'T2', pid: null,
+      costSpentUsd: 0, enforcementTier: 'T2', pid: null, launchArgs: null,
     });
     return sessions;
   }

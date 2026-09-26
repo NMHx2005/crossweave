@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   formatLeaseSummary,
   formatSpend,
+  launchArgsAfterDashes,
   parseOptionalNumberArg,
 } from '../../src/cli/commands/session.js';
 
@@ -70,5 +71,16 @@ describe('formatLeaseSummary', () => {
       dbStrategy: 'none',
       dbValue: null,
     })).toBe('port=43000,compose=cw_s_1');
+  });
+});
+
+describe('launchArgsAfterDashes', () => {
+  test('takes everything after a bare --, verbatim', () => {
+    expect(launchArgsAfterDashes(['api', '--', '--model', 'opus', '--'])).toEqual(['--model', 'opus', '--']);
+  });
+
+  test('no -- means "reuse the remembered flags"; a trailing -- clears them', () => {
+    expect(launchArgsAfterDashes(['api'])).toBeUndefined();
+    expect(launchArgsAfterDashes(['api', '--'])).toEqual([]);
   });
 });

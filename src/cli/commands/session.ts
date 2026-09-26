@@ -37,6 +37,17 @@ export function formatSandbox(s: { sandbox?: { confined: boolean; reason?: strin
 
 /** Exported for direct testing. citty has no numeric arg type (only string, boolean,
  * positional, enum) — flags declared `type: 'string'` are parsed here instead. */
+/**
+ * The agent's own flags: everything after a bare `--` (`cw session start api --
+ * --model opus`). Undefined without a `--`, which the daemon reads as "reuse the
+ * session's remembered flags" — distinct from `--` with nothing after it, which
+ * clears them.
+ */
+export function launchArgsAfterDashes(rawArgs: readonly string[]): string[] | undefined {
+  const at = rawArgs.indexOf('--');
+  return at === -1 ? undefined : rawArgs.slice(at + 1);
+}
+
 export function parseOptionalNumberArg(flag: string, raw: string | undefined): number | undefined {
   if (raw === undefined) return undefined;
   const n = Number(raw);
@@ -80,7 +91,7 @@ export const sessionCommand = defineCommand({
     attach: attachCommand,
 
     new: defineCommand({
-      meta: { name: 'new', description: 'Create a session' },
+      meta: { name: 'new', description: 'Create a session (agent flags after --, e.g. -- --model opus)' },
       // citty derives `--no-worktree` automatically from a boolean named `worktree`,
       // so declaring a literal `no-worktree` flag would collide with that negation.
       args: {
@@ -93,9 +104,10 @@ export const sessionCommand = defineCommand({
         'budget-usd': { type: 'string', description: 'Warn once cumulative cost (USD) exceeds this' },
         base: { type: 'string', description: 'Branch or commit to start the worktree from (default: HEAD)' },
       },
-      async run({ args }) {
+      async run({ args, rawArgs }) {
         try {
           const name = args.sessionName ?? args.name;
+          const launchArgs = launchArgsAfterDashes(rawArgs);
           if (name === undefined || name === '') {
             throw new CrossweaveError('INVALID_ARGUMENTS', 'Missing session name: cw session new <name>');
           }
@@ -119,6 +131,7 @@ export const sessionCommand = defineCommand({
             const created = await client.call<Session>('session.new', {
               workspaceId, name, agent: args.agent, worktree, budgetTokens, budgetUsd,
               ...(args.base === undefined ? {} : { base: args.base }),
+              ...(launchArgs === undefined ? {} : { args: launchArgs }),
             });
             process.stdout.write(
               `${created.name}\t${created.status}\t${tierWithCoverage(created.enforcementTier)}\t${created.worktreePath ?? '-'}\n`,
@@ -196,20 +209,22 @@ export const sessionCommand = defineCommand({
     // that `kill` is terminal has no escape hatch a user can reach — SESSION_ENDED
     // would be advising a command that does not exist.
     start: defineCommand({
-      meta: { name: 'start', description: 'Start the agent for a session that is not running (idle or stopped)' },
+      meta: { name: 'start', description: 'Start the agent for a session that is not running (idle or stopped); agent flags after -- replace the remembered ones' },
       // Optional + validated by hand for the same reason `stop` does it: citty's own
       // missing-positional error has no `CODE:` prefix, which would break the contract
       // that every CLI failure emits exactly one `CODE: message` line.
       args: { target: { type: 'positional', description: 'Session name or id', required: false } },
-      async run({ args }) {
+      async run({ args, rawArgs }) {
         try {
           if (args.target === undefined) {
             throw new CrossweaveError('INVALID_ARGUMENTS', 'Missing required argument: TARGET');
           }
+          const launchArgs = launchArgsAfterDashes(rawArgs);
           await withClient(async (client) => {
             const workspaceId = await currentWorkspaceId(client);
             const row = await client.call<Session>('session.resume', {
               workspaceId, idOrName: args.target, env: { ...process.env },
+              ...(launchArgs === undefined ? {} : { args: launchArgs }),
             });
             process.stdout.write(
               `${row.name}\t${row.status}\t${tierWithCoverage(row.enforcementTier)}\t${row.worktreePath ?? '-'}\n`,
