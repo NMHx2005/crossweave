@@ -113,6 +113,16 @@ describe('cw CLI', () => {
     expect(missing.stderr).toContain('cw session new <name>');
   });
 
+  it('land names a missing session before asking for --yes, and gives the exact re-run command', async () => {
+    await cw(['init']);
+    const ghost = await cw(['land', 'session', 'ghost']);
+    expect(ghost.stderr).toContain('SESSION_NOT_FOUND');
+    await cw(['session', 'new', 'real']);
+    const unconfirmed = await cw(['land', 'session', 'real']);
+    expect(unconfirmed.stderr).toContain('CONFIRMATION_REQUIRED');
+    expect(unconfirmed.stderr).toContain('cw land session real --yes');
+  });
+
   it('runs the full session lifecycle', async () => {
     await cw(['init']);
 

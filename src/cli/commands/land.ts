@@ -10,11 +10,12 @@ import { withClient, fail, currentWorkspaceId } from '../context.js';
 
 export { chooseNextLand };
 
-export function assertLandConfirmed(yes: boolean): void {
+export function assertLandConfirmed(yes: boolean, rerun?: string): void {
   if (!yes) {
     throw new CrossweaveError(
       'CONFIRMATION_REQUIRED',
-      'Landing merges the session\'s branch into the base branch and removes its worktree. Re-run with --yes.',
+      'Landing merges the session\'s branch into the base branch and removes its worktree. ' +
+        (rerun === undefined ? 'Re-run with --yes.' : `Re-run as: ${rerun}`),
     );
   }
 }
@@ -38,9 +39,16 @@ const singleCommand = defineCommand({
       if (args.target === undefined) {
         throw new CrossweaveError('INVALID_ARGUMENTS', 'Missing required argument: TARGET');
       }
-      assertLandConfirmed(args.yes);
+      const target = args.target;
       await withClient(async (client) => {
         const workspaceId = await currentWorkspaceId(client);
+        // Resolved BEFORE asking for confirmation: demanding --yes for a session that
+        // does not exist only sent the user round again to learn that.
+        const sessions = await client.call<Array<{ id: string; name: string }>>('session.list', { workspaceId });
+        if (!sessions.some((s) => s.name === target || s.id === target)) {
+          throw new CrossweaveError('SESSION_NOT_FOUND', `No such session: ${target}`);
+        }
+        assertLandConfirmed(args.yes, `cw land session ${target} --yes${args.force ? ' --force' : ''}`);
         const result = await client.call<LandResult>('land.session', {
           workspaceId, idOrName: args.target, force: args.force,
         });
