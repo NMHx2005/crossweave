@@ -5,14 +5,22 @@ const NOT_RUNNING = new Set(['idle', 'dead', 'landed'])
 export function deriveAttention(input: DeriveAttentionInput): AttentionKind {
   if (input.recentBlocked) return 'blocked'
   if (input.status === 'waiting') return 'needs_you'
-  if (NOT_RUNNING.has(input.status)) return 'unknown'
+  // A stopped session keeps its landability: stopping is how finished work waits to
+  // land, and hiding a conflict there hid the one signal worth acting on. The label
+  // (attentionLabel) says "stopped · …", so a green badge never reads as "running".
+  if (input.status === 'landed') return 'unknown'
   if (input.landability === 'blocked') return 'conflict'
   if (input.landability === 'ready') return 'ready'
-  if (input.landability === 'unknown') return 'unknown'
+  if (input.landability === 'unknown' || NOT_RUNNING.has(input.status)) return 'unknown'
   return 'working'
 }
 export function attentionLabel(kind: AttentionKind, status: string): string {
-  if (kind === 'unknown' && NOT_RUNNING.has(status)) return status === 'idle' ? 'stopped' : status
+  if (NOT_RUNNING.has(status)) {
+    const state = status === 'idle' ? 'stopped' : status
+    if (kind === 'conflict') return `${state} · conflict`
+    if (kind === 'ready') return `${state} · ready to land`
+    if (kind === 'unknown') return state
+  }
   return kind === 'needs_you' ? 'needs you' : kind
 }
 export function blockedSessionFromEvent(payload: unknown): string | null {

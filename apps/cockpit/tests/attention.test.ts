@@ -34,16 +34,24 @@ describe('deriveAttention', () => {
     expect(deriveAttention({ status: 'idle', landability: 'unknown' })).toBe('unknown')
   })
 
-  test('a session with no agent process is never "ready" — a green badge on a stopped session is a lie', () => {
-    // Found in the running app: a session sitting at `idle` with a "ready" badge while
-    // its own pane said "is not running". Landability is a claim about work to land;
-    // with no agent there is no work in flight, so the badge must not carry it.
-    for (const status of ['idle', 'dead', 'landed']) {
-      expect(deriveAttention({ status, landability: 'ready' })).toBe('unknown')
-      expect(deriveAttention({ status, landability: 'blocked' })).toBe('unknown')
+  test('a stopped session keeps its landability, and the label says both facts', () => {
+    // Was: stopped → always "unknown", because a bare green "ready" beside a pane
+    // saying "is not running" read as a lie. But that also hid a CONFLICT on every
+    // stopped session — and stopping is exactly how an agent's finished work waits to
+    // land (kill keeps the worktree for that). The label now carries both facts.
+    for (const status of ['idle', 'dead']) {
+      expect(deriveAttention({ status, landability: 'ready' })).toBe('ready')
+      expect(deriveAttention({ status, landability: 'blocked' })).toBe('conflict')
+      expect(deriveAttention({ status, landability: 'unknown' })).toBe('unknown')
     }
+    expect(attentionLabel('conflict', 'idle')).toBe('stopped · conflict')
+    expect(attentionLabel('ready', 'idle')).toBe('stopped · ready to land')
+    expect(attentionLabel('conflict', 'dead')).toBe('dead · conflict')
+    // Landed work has nothing left to land or collide.
+    expect(deriveAttention({ status: 'landed', landability: 'blocked' })).toBe('unknown')
     // A running session is unaffected.
     expect(deriveAttention({ status: 'running', landability: 'ready' })).toBe('ready')
+    expect(attentionLabel('ready', 'running')).toBe('ready')
     expect(deriveAttention({ status: 'running', landability: 'blocked' })).toBe('conflict')
   })
 
