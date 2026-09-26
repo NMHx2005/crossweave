@@ -6,6 +6,7 @@ import '@xterm/xterm/css/xterm.css'
 import { cockpitApi } from '../host/cockpit-api'
 import { decodeSessionData } from '../lib/session-data'
 import { stripFocusReports, stripTerminalReports } from '../../../../src/client/terminal-reports.js'
+import { clipboardWriteFromOsc52 } from '../../../../src/client/osc52.js'
 import { XTERM_FONT_FAMILY, XTERM_FONT_SIZE, XTERM_THEME } from './tokens'
 
 export type XtermPaneProps = {
@@ -42,6 +43,16 @@ export function XtermPane({ sessionId, focused }: XtermPaneProps) {
     term.loadAddon(fit)
     term.open(container)
     termRef.current = term
+
+    // An agent that tracks the mouse (Claude Code) makes its own selection and copies
+    // it with OSC 52; xterm.js ignores that sequence, so the clipboard never changed.
+    // Writes only — see clipboardWriteFromOsc52. The browser refuses a write from an
+    // unfocused window, so a background agent cannot fill the clipboard unseen.
+    const osc52 = term.parser.registerOscHandler(52, (data) => {
+      const text = clipboardWriteFromOsc52(data)
+      if (text !== undefined) void navigator.clipboard.writeText(text).catch(() => undefined)
+      return true
+    })
 
     let cancelled = false
     let lastCols = 0
@@ -117,6 +128,7 @@ export function XtermPane({ sessionId, focused }: XtermPaneProps) {
 
     return () => {
       cancelled = true
+      osc52.dispose()
       unlisten()
       exitUnlisten()
       dataSub.dispose()
