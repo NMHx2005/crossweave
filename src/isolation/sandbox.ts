@@ -408,6 +408,13 @@ export function buildSeatbeltProfile(spec: SandboxSpec, home: string, tmpRoot: s
     `(allow file-write* (subpath "${home}/Library/Caches"))`,
     '(allow file-write* (literal "/dev/null") (literal "/dev/stdout") (literal "/dev/stderr")' +
       ' (literal "/dev/tty") (literal "/dev/dtracehelper"))',
+    // Terminal ioctls on the session's pty. `(deny default)` refused them all, so an
+    // agent could not enter raw mode (TIOCGETD/TIOCSETA: "Operation not permitted")
+    // and Claude Code saw no keypresses — arrows came back as `^[[B`, echoed by a
+    // cooked tty. The pty's own name is only known after the spawn this profile
+    // wraps, so the grant covers the pty device pattern rather than one path;
+    // opening another pty for WRITE is still denied above, and ioctl needs an fd.
+    '(allow file-ioctl (literal "/dev/tty") (regex "^/dev/ttys[0-9]+$"))',
     ...agentStatePaths(home).flatMap((p) => [
       `(allow file-write* (literal "${p}") (subpath "${p}"))`,
     ]),

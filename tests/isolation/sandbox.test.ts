@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { $ } from 'bun';
 import { makeGitFixture, type GitFixture } from '../helpers/git-fixture.js';
 import { createWorktree } from '../../src/isolation/worktree.js';
+import { ClaudePtyAdapter } from '../../src/adapters/claude-pty.js';
 import {
   SANDBOX_EXEC, buildSeatbeltProfile, decideSandbox, isSandboxAvailable, planSandbox,
   resolveGitDir, resolveWorktreeAdminDir, sandboxTmpDir, seatbeltRegexLiteral, buildBwrapArgs,
@@ -383,6 +384,21 @@ describe.skipIf(!canRunSeatbelt)('seatbelt integration (real sandbox-exec)', () 
   it('refuses touching the git config and planting a hook', () => {
     expect(run(`echo no >> "${fx.root}/.git/config"`).code).not.toBe(0);
     expect(run(`echo no > "${fx.root}/.git/hooks/pre-commit"`).code).not.toBe(0);
+  });
+
+  // Without an ioctl grant on the session's pty, `(deny default)` refused every
+  // terminal ioctl (TIOCGETD, TIOCSETA): an agent could not enter raw mode, so
+  // Claude Code saw no keypresses — arrow keys arrived echoed as `^[[B` by a
+  // cooked tty. Run through the real adapter so the process has a real pty.
+  it('lets the agent put its pty into raw mode', async () => {
+    const adapter = new ClaudePtyAdapter('sh', ['-c', 'stty raw -echo && echo RAW_OK || echo RAW_FAIL', 'sh']);
+    const proc = adapter.spawn({
+      cwd: spec.worktreePath, env: { TMPDIR: sandboxTmpDir(fx.root, 's_one') }, cols: 80, rows: 24, sandbox: spec,
+    });
+    let out = '';
+    proc.onData((c) => { out += c; });
+    await new Promise<void>((r) => proc.onExit(() => r()));
+    expect(out).toContain('RAW_OK');
   });
 
   it('refuses rewriting another session\'s worktree HEAD', async () => {
