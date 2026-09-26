@@ -131,3 +131,15 @@ export async function runCockpitAction(
     return message
   }
 }
+
+/**
+ * The daemon's own sentence from an invoke failure. Electron wraps every rejected
+ * invoke as "Error invoking remote method 'x': <Class>: <message>"; the channel name
+ * and error class mean nothing to the user and push the actual reason off-screen.
+ */
+export function plainErrorMessage(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err)
+  return message
+    .replace(/^Error invoking remote method '[^']+': /, '')
+    .replace(/^\w*Error: /, '')
+}

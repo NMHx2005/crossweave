@@ -12,6 +12,8 @@ export type StageProps = {
   sessions: ListedSession[]
   status: StageStatus
   error: string | null
+  /** Try attaching the workspace again after a failure. */
+  onRetry: () => void
   /** Global re-attach epoch — daemon.gone replaces every pane's connection. */
   paneAttachEpoch?: number
   /** Per-session re-attach counters: a session that started re-keys only its panes. */
@@ -224,7 +226,13 @@ export function Stage(props: StageProps) {
       ) : null}
       {error && stage.tabs.length > 0 ? <p class="cockpit-error" role="alert">{error}</p> : null}
       {status === 'loading' && <p class="cockpit-placeholder">Connecting to cwd…</p>}
-      {status === 'error' && stage.tabs.length === 0 && <p class="cockpit-placeholder">Workspace error: {error}</p>}
+      {status === 'error' && stage.tabs.length === 0 ? (
+        <div class="cockpit-placeholder cockpit-placeholder--error" role="alert">
+          <p>Could not reach the crossweave daemon.</p>
+          {error ? <p class="cockpit-muted">{error}</p> : null}
+          <button type="button" onClick={props.onRetry}>Retry</button>
+        </div>
+      ) : null}
       {status !== 'loading' && status !== 'error' && stage.tabs.length === 0 ? (
         <p class="cockpit-placeholder">
           No open tabs. Press <strong>⌘T</strong> for a new agent, or pick a session in the rail.

@@ -4,6 +4,7 @@ import {
   createAndStartSession,
   loadWorkspace,
   parseJournalTabs,
+  plainErrorMessage,
   runCockpitAction,
   shouldBumpPaneAttach,
   stageStatusAfterFailure,
@@ -228,5 +229,13 @@ describe('subscribeCockpitHost tui.event', () => {
     listeners.event?.({ kind: 'blocked', session: 'auth' })
     listeners.gone?.({})
     expect(sources).toEqual(['invalidate', 'event', 'gone'])
+  })
+})
+
+describe('plainErrorMessage', () => {
+  test('keeps only the daemon sentence from an invoke failure', () => {
+    expect(plainErrorMessage(new Error("Error invoking remote method 'workspace.ensure': CrossweaveError: Daemon did not come up"))).toBe('Daemon did not come up')
+    expect(plainErrorMessage(new Error('Error: plain'))).toBe('plain')
+    expect(plainErrorMessage('a string')).toBe('a string')
   })
 })

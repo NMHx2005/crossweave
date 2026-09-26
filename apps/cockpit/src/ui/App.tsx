@@ -19,6 +19,7 @@ import {
 import {
   createAndStartSession,
   loadWorkspace,
+  plainErrorMessage,
   runCockpitAction,
   shouldBumpPaneAttach,
   stageStatusAfterFailure,
@@ -137,7 +138,15 @@ export function App() {
       const firstLoad = knownRef.current === null
       const known = knownRef.current
       projectRootRef.current = loaded.projectRoot
-      if (firstLoad) setColors(readColors(loaded.projectRoot))
+      if (firstLoad) {
+        setColors(readColors(loaded.projectRoot))
+        // After ensure, never alongside it: a settings.get racing the first attach
+        // failed "Workspace is not attached" and the saved layouts silently vanished.
+        void cockpitApi.getSettings().then((s) => {
+          const saved = (s as { layouts?: unknown } | null)?.layouts
+          if (saved && typeof saved === 'object') setLayouts(saved as Record<string, SavedLayout>)
+        }).catch(() => undefined)
+      }
       setStage((prev) => {
         // The first load restores this workspace's tabs from the last window, if any.
         const base = firstLoad ? (readStoredStage(loaded.projectRoot) ?? prev) : prev
@@ -165,7 +174,7 @@ export function App() {
       }
     } catch (err) {
       if (cancelledRef.current) return
-      setError(err instanceof Error ? err.message : String(err))
+      setError(plainErrorMessage(err))
       setStatus(stageStatusAfterFailure(sessionsRef.current.length))
     }
   }, [])
@@ -173,10 +182,6 @@ export function App() {
   useEffect(() => {
     cancelledRef.current = false
     void load()
-    void cockpitApi.getSettings().then((s) => {
-      const saved = (s as { layouts?: unknown } | null)?.layouts
-      if (saved && typeof saved === 'object') setLayouts(saved as Record<string, SavedLayout>)
-    }).catch(() => undefined)
     const unsub = subscribeCockpitHost(cockpitApi, {
       refresh: (source) => {
         void load({
@@ -391,9 +396,7 @@ export function App() {
       return null
     } catch (err) {
       // Only the daemon's sentence: not the IPC wrapper or the error class in front of it.
-      return err instanceof Error
-        ? err.message.replace(/^Error invoking remote method '[^']+': /, '').replace(/^\w*Error: /, '')
-        : String(err)
+      return plainErrorMessage(err)
     }
   }
 
@@ -570,6 +573,10 @@ export function App() {
         sessions={sessions}
         status={status}
         error={error}
+        onRetry={() => {
+          setStatus('loading')
+          void load()
+        }}
         paneAttachEpoch={paneAttachEpoch}
         paneAttachBumps={paneAttachBumps}
         onActivateTab={(tabId) => setStage((s) => ({ ...s, activeTabId: tabId }))}

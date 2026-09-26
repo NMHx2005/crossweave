@@ -56,12 +56,18 @@ function asRecord(value: unknown): Record<string, unknown> {
   return {}
 }
 
+function hasProjectRoot(payload: unknown): boolean {
+  return typeof (payload as { projectRoot?: unknown } | null | undefined)?.projectRoot === 'string'
+}
+
 export class DaemonBridge {
   private client: DaemonLike | undefined
   private workspace: WorkspaceSnapshot | undefined
   private projectRoot: string | undefined
   /** Serializes ensure so main+renderer cannot race the folder picker / double-connect. */
   private ensureTail: Promise<void> = Promise.resolve()
+  /** The ensure in flight, which a root-less ensure joins instead of queueing behind. */
+  private ensuring: Promise<{ projectRoot: string; workspace: WorkspaceSnapshot }> | undefined
 
   constructor(private readonly deps: DaemonBridgeDeps) {}
 
@@ -70,13 +76,21 @@ export class DaemonBridge {
       throw new Error(`Disallowed invoke channel: ${channel}`)
     }
     if (channel === 'workspace.ensure') {
+      // "The current workspace" while one is being attached IS that attach: queueing
+      // behind it doubled the wait before a dead daemon was reported, and spawned a
+      // second daemon to find out.
+      if (this.ensuring !== undefined && !hasProjectRoot(payload)) return this.ensuring
       const run = this.ensureTail.then(() => this.ensure(payload))
-      this.ensureTail = run.then(
-        () => undefined,
-        () => undefined,
-      )
+      this.ensuring = run
+      const settle = (): void => {
+        if (this.ensuring === run) this.ensuring = undefined
+      }
+      this.ensureTail = run.then(settle, settle)
       return run
     }
+    // The window exists before main's first ensure finishes; a call made in that gap
+    // waits for it rather than failing "not attached".
+    if (this.ensuring !== undefined) await this.ensuring.catch(() => undefined)
     if (!this.client || !this.workspace) {
       throw new Error('Workspace is not attached; invoke workspace.ensure first')
     }

@@ -363,3 +363,50 @@ describe('terminal notifications', () => {
       .toEqual({ terminalId: 't_1', sessionId: 's_1', chunk: '$ ls\r\n' })
   })
 })
+
+describe('startup ordering', () => {
+  function gatedConnect(fake: FakeDaemon) {
+    let open!: () => void
+    let fail!: (err: Error) => void
+    let connects = 0
+    const gate = new Promise<void>((resolve, reject) => { open = resolve; fail = reject })
+    // Rejected possibly before connect() awaits it; the awaiting callers own the error.
+    gate.catch(() => undefined)
+    return {
+      connect: async () => { connects++; await gate; return fake },
+      open: () => open(),
+      fail: (err: Error) => fail(err),
+      connects: () => connects,
+    }
+  }
+
+  // The window is created before main's workspace.ensure finishes; a renderer call
+  // in that window used to fail "Workspace is not attached" (settings.get lost the
+  // saved layouts that way).
+  test('a call made while the workspace is attaching waits for it', async () => {
+    const fake = new FakeDaemon()
+    const gate = gatedConnect(fake)
+    const { bridge } = makeBridge({ fake, connect: gate.connect, saved: '/tmp/demo' })
+    const ensuring = bridge.handle('workspace.ensure', { projectRoot: '/tmp/demo' })
+    const listing = bridge.handle('session.list', {})
+    gate.open()
+    await ensuring
+    expect(await listing).toEqual([{ id: 's1', name: 'alpha' }])
+  })
+
+  // Main attaches at launch and the renderer's first load asks again: queueing the
+  // second behind the first doubled the wait before a dead daemon was reported, and
+  // spawned a second daemon to find out.
+  test('an ensure for the current root joins the one in flight, failure included', async () => {
+    const fake = new FakeDaemon()
+    const gate = gatedConnect(fake)
+    const { bridge } = makeBridge({ fake, connect: gate.connect, saved: '/tmp/demo' })
+    const fromMain = bridge.handle('workspace.ensure', { projectRoot: '/tmp/demo' })
+    const fromRenderer = bridge.handle('workspace.ensure')
+    gate.fail(new Error('DAEMON_START_FAILED'))
+    const [main, renderer] = await Promise.allSettled([fromMain, fromRenderer])
+    expect(main.status === 'rejected' && String(main.reason)).toContain('DAEMON_START_FAILED')
+    expect(renderer.status === 'rejected' && String(renderer.reason)).toContain('DAEMON_START_FAILED')
+    expect(gate.connects()).toBe(1)
+  })
+})
