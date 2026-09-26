@@ -10,6 +10,8 @@ export type PaneRef =
   | { kind: 'terminal'; terminalId: string; sessionId: string }
   | { kind: 'file'; sessionId: string; path: string }
   | { kind: 'browser'; url: string }
+  /** What landing the session would bring in: its diff and its convergence verdict. */
+  | { kind: 'changes'; sessionId: string }
 
 export type SplitDir = 'row' | 'column'
 
@@ -46,6 +48,7 @@ export function paneKey(pane: PaneRef): string {
     case 'terminal': return `terminal:${pane.terminalId}`
     case 'file': return `file:${pane.sessionId}:${pane.path}`
     case 'browser': return `browser:${pane.url}`
+    case 'changes': return `changes:${pane.sessionId}`
   }
 }
 
@@ -210,7 +213,7 @@ export function resizeSplit(state: StageState, tabId: string, splitId: string, i
  */
 export function reconcile(state: StageState, live: { sessionIds: ReadonlySet<string>; terminalIds: ReadonlySet<string> }): StageState {
   const alive = (pane: PaneRef): boolean => {
-    if (pane.kind === 'session' || pane.kind === 'file') return live.sessionIds.has(pane.sessionId)
+    if (pane.kind === 'session' || pane.kind === 'file' || pane.kind === 'changes') return live.sessionIds.has(pane.sessionId)
     if (pane.kind === 'terminal') return live.terminalIds.has(pane.terminalId)
     return true
   }
@@ -236,7 +239,8 @@ export type SavedLayout = { tabs: Array<{ title: string; pinned: boolean; root: 
 function saveNode(node: LayoutNode, names: ReadonlyMap<string, string>): SavedNode | null {
   if (node.type === 'pane') {
     const p = node.pane
-    if (p.kind === 'terminal') return null // an ephemeral shell cannot be brought back
+    // An ephemeral shell cannot be brought back; a review pane is reopened on demand.
+    if (p.kind === 'terminal' || p.kind === 'changes') return null
     if (p.kind === 'browser') return { type: 'pane', pane: { kind: 'browser', url: p.url } }
     const name = names.get(p.sessionId)
     if (name === undefined) return null

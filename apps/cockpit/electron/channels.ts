@@ -31,6 +31,8 @@ export const COCKPIT_CHANNELS = [
   'settings.set',
   // Files in a session's worktree (the in-app editor) and branches to start from.
   'file.list',
+  // What landing a session would bring in (the Changes pane).
+  'session.diff',
   'file.read',
   'file.write',
   'git.branches',

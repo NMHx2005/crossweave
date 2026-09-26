@@ -5,6 +5,7 @@ import { nextAttentionSession } from '../lib/attention-jump'
 import { QuickPicker, type NewSessionOptions } from './QuickPicker'
 import { LaunchLine } from './LaunchLine'
 import { ConfirmDialog, type ConfirmRequest } from './ConfirmDialog'
+import { ChangesPane } from './ChangesPane'
 import { launchLineFor, parseLaunchLine, rememberLine } from '../lib/launch-line'
 import { QuickOpen } from './QuickOpen'
 import { FilePane } from './FilePane'
@@ -34,6 +35,8 @@ import {
   parseConvergeStatus,
   type ConvergeStatus,
   type LandResult,
+  landVerdict,
+  type ConvergeDetail,
 } from '../lib/land-actions'
 import {
   closeOthers,
@@ -97,6 +100,9 @@ export function App() {
   /** Each agent's launch command from Settings, for the launch line. */
   const [agentCommands, setAgentCommands] = useState<Record<string, string>>({})
   const [launchHistory, setLaunchHistory] = useState<Record<string, string[]>>(readLaunchHistory)
+  /** Bumped on every successful load, so open Changes panes refetch after new work. */
+  const [sessionsRevision, setSessionsRevision] = useState(0)
+  const [convergeDetail, setConvergeDetail] = useState<ConvergeDetail>({ pairwise: [], empty: [] })
   const [confirmState, setConfirmState] = useState<(ConfirmRequest & { resolve: (ok: boolean) => void }) | null>(null)
   const [branches, setBranches] = useState<string[]>([])
   /** Non-null while ⌘P is open: the session whose worktree it searches. */
@@ -141,6 +147,7 @@ export function App() {
       const openTerminals = await cockpitApi.listTerminals().catch(() => [] as TerminalInfo[])
       if (cancelledRef.current) return
       setSessions(loaded.sessions)
+      setSessionsRevision((n) => n + 1)
       const firstLoad = knownRef.current === null
       const known = knownRef.current
       projectRootRef.current = loaded.projectRoot
@@ -164,6 +171,7 @@ export function App() {
         terminalIds: new Set(openTerminals.map((t) => t.terminalId)),
       }
       setConverge(loaded.converge)
+      setConvergeDetail(loaded.convergeDetail)
       setLandabilityByName(parseLandabilityByName(loaded.converge))
       setStatus(stageStatusAfterLoad(loaded.sessions.length))
       setError(null)
@@ -375,6 +383,15 @@ export function App() {
         onLaunch={(line) => launch(session, line)}
       />
     )
+  }
+
+  /** The Changes pane for a session: beside the focused pane, or focused if open. */
+  function openChanges(targetId?: string): void {
+    const target = sessionById(targetId)
+    if (!target) return
+    const at = locatePane(stage, `changes:${target.id}`)
+    if (at) setStage((s) => focusPane(s, at.tabId, at.paneId))
+    else openSurface({ kind: 'changes', sessionId: target.id }, `${target.name} · changes`)
   }
 
   function jumpToAttention(): void {
@@ -680,6 +697,21 @@ export function App() {
         colorById={colors}
         inApp={(sessionId, path) => openFilePane(sessionId, path)}
         renderSurface={(pane, paneFocused, at) => {
+          if (pane.kind === 'changes') {
+            const session = sessions.find((s) => s.id === pane.sessionId)
+            if (!session) return null
+            const namesByBranch = new Map(sessions.flatMap((s) => (s.branch ? [[s.branch, s.name] as const] : [])))
+            return (
+              <ChangesPane
+                sessionName={session.name}
+                verdict={landVerdict(session, converge, convergeDetail, namesByBranch)}
+                revision={sessionsRevision}
+                loadDiff={() => cockpitApi.sessionDiff(session.id)}
+                onLand={() => void handleLand(session.id)}
+                landBusy={landBusy}
+              />
+            )
+          }
           if (pane.kind === 'file') return <FilePane sessionId={pane.sessionId} path={pane.path} focused={paneFocused} />
           if (pane.kind === 'browser') {
             return (

@@ -63,6 +63,57 @@ export function parseConvergeStatus(value: unknown): ConvergeStatus {
   }
 }
 
+/** The parts of converge.status the Changes pane shows beyond ready/unknown/blocked. */
+export type ConvergeDetail = {
+  pairwise: Array<{ a: string; b: string; result: string }>
+  /** Sessions with no commits ahead of the base. */
+  empty: string[]
+}
+
+export function parseConvergeDetail(value: unknown): ConvergeDetail {
+  const record = asRecord(value)
+  const pairwise: ConvergeDetail['pairwise'] = []
+  if (Array.isArray(record.pairwise)) {
+    for (const item of record.pairwise) {
+      const p = asRecord(item)
+      if (typeof p.a === 'string' && typeof p.b === 'string' && typeof p.result === 'string') {
+        pairwise.push({ a: p.a, b: p.b, result: p.result })
+      }
+    }
+  }
+  return { pairwise, empty: stringList(record.empty) }
+}
+
+export type LandVerdict = {
+  kind: 'ready' | 'blocked' | 'unknown' | 'empty' | 'none'
+  reason?: string
+  /** Sessions whose latest trial merge with this one conflicted. */
+  conflictsWith: string[]
+}
+
+/** Everything the land decision for one session rests on, in one place. */
+export function landVerdict(
+  session: { name: string; branch?: string | null },
+  status: ConvergeStatus,
+  detail: ConvergeDetail,
+  namesByBranch: ReadonlyMap<string, string>,
+): LandVerdict {
+  const branch = session.branch ?? null
+  const conflictsWith = branch === null ? [] : detail.pairwise
+    .filter((p) => p.result === 'conflict' && (p.a === branch || p.b === branch))
+    .map((p) => {
+      const other = p.a === branch ? p.b : p.a
+      return namesByBranch.get(other) ?? other
+    })
+  const blocked = status.blocked.find((e) => e.name === session.name)
+  if (blocked) return { kind: 'blocked', reason: blocked.reason, conflictsWith }
+  if (detail.empty.includes(session.name)) return { kind: 'empty', reason: 'no commits yet', conflictsWith }
+  if (status.ready.includes(session.name)) return { kind: 'ready', conflictsWith }
+  const unknown = status.unknown.find((e) => e.name === session.name)
+  if (unknown) return { kind: 'unknown', reason: unknown.reason, conflictsWith }
+  return { kind: 'none', conflictsWith }
+}
+
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }

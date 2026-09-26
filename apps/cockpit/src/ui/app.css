@@ -1107,3 +1107,100 @@ body,
   font-size: var(--cw-fs-sm);
   white-space: pre-wrap;
 }
+
+/* The Changes pane: verdict, files, and the diff landing would bring in. */
+.cockpit-changes {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  font-size: var(--cw-fs-sm);
+}
+
+.cockpit-changes__head {
+  position: sticky;
+  top: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--cw-space-2);
+  padding: var(--cw-space-2) var(--cw-space-3);
+  background: var(--cw-surface-input);
+  border-bottom: var(--cw-hairline) solid var(--cw-border);
+}
+
+.cockpit-changes__verdict { font-weight: 600; }
+.cockpit-changes__verdict.is-ready { color: var(--cw-ready); }
+.cockpit-changes__verdict.is-blocked { color: var(--cw-blocked); }
+.cockpit-changes__verdict.is-unknown,
+.cockpit-changes__verdict.is-empty,
+.cockpit-changes__verdict.is-none { color: var(--cw-text-dim); }
+
+.cockpit-changes__land {
+  padding: var(--cw-control-pad-y) var(--cw-space-3);
+  background: var(--cw-accent);
+  border: none;
+  border-radius: var(--cw-radius-sm);
+  color: var(--cw-surface);
+  font: inherit;
+  cursor: pointer;
+}
+
+.cockpit-changes__land:disabled {
+  background: var(--cw-surface-control);
+  color: var(--cw-text-dim);
+  cursor: default;
+}
+
+.cockpit-changes__note { margin: var(--cw-space-2) var(--cw-space-3); }
+
+.cockpit-changes__files {
+  margin: 0;
+  padding: 0 var(--cw-space-2) var(--cw-space-2);
+  list-style: none;
+}
+
+.cockpit-changes__files button {
+  width: 100%;
+  display: flex;
+  gap: var(--cw-space-2);
+  padding: var(--cw-control-pad-y) var(--cw-space-1);
+  background: transparent;
+  border: none;
+  border-radius: var(--cw-radius-sm);
+  color: var(--cw-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cockpit-changes__files button:hover { background: var(--cw-surface-hover); }
+.cockpit-changes__mark { font-family: var(--cw-font-mono); }
+.cockpit-changes__mark.is-added { color: var(--cw-ready); }
+.cockpit-changes__mark.is-modified { color: var(--cw-needs-you); }
+.cockpit-changes__mark.is-deleted { color: var(--cw-blocked); }
+.cockpit-changes__path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cockpit-changes__count { color: var(--cw-text-dim); font-family: var(--cw-font-mono); }
+
+.cockpit-changes__file {
+  margin: 0;
+  padding: var(--cw-space-1) var(--cw-space-3);
+  background: var(--cw-surface-badge);
+  color: var(--cw-text-bright);
+  font-size: var(--cw-fs-sm);
+  font-family: var(--cw-font-mono);
+}
+
+.cockpit-changes__patch pre {
+  margin: 0;
+  padding: var(--cw-space-1) 0;
+  font-family: var(--cw-font-mono);
+  font-size: var(--cw-fs-sm);
+}
+
+.cockpit-diff-line { padding: 0 var(--cw-space-3); white-space: pre-wrap; word-break: break-all; color: var(--cw-text); }
+.cockpit-diff-line.is-add { color: var(--cw-ready); }
+.cockpit-diff-line.is-del { color: var(--cw-blocked); }
+.cockpit-diff-line.is-hunk { color: var(--cw-accent); }
+.cockpit-diff-line.is-meta { color: var(--cw-text-dim); }

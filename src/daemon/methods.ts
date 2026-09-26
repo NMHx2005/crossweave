@@ -26,6 +26,7 @@ import { assertContained } from '../core/paths.js';
 import { ConvergenceScheduler } from './convergence-scheduler.js';
 import { MergeTrialRepo, isPairwiseTrial } from '../db/repositories/merge-trial.js';
 import { baseConflictFiles, commitsAhead } from '../convergence/trial.js';
+import { sessionDiff } from '../domain/session-diff.js';
 import { ConfigTrustRepo } from '../db/repositories/config-trust.js';
 import { NotifyConfigRepo, type NotifyEventKind } from '../db/repositories/notify-config.js';
 import { buildConflictGraph, recommendOrder } from '../convergence/graph.js';
@@ -631,6 +632,16 @@ export function buildMethods(
     },
 
     'session.start': (p) => start(p),
+
+    // What landing the session would bring in, for the cockpit's Changes pane. Local
+    // clients only (not in the gateway allowlist): it is the repository's content.
+    'session.diff': (p) => {
+      const row = sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName'));
+      if (row.branch === null) {
+        throw new CrossweaveError('DIFF_UNAVAILABLE', `${row.name} works in the shared checkout; it has no branch of its own to diff.`);
+      }
+      return sessionDiff(projectRoot, row.branch, row.worktreePath);
+    },
 
     // The agent catalog for pickers: enabled or not, and whether its command resolves.
     'agents.list': async () => {

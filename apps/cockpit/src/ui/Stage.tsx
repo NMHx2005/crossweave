@@ -48,6 +48,7 @@ function paneLabel(pane: PaneRef, names: ReadonlyMap<string, string>): string {
     case 'terminal': return `${names.get(pane.sessionId) ?? pane.sessionId} · shell`
     case 'file': return pane.path.split('/').pop() ?? pane.path
     case 'browser': return pane.url.replace(/^https?:\/\//, '')
+    case 'changes': return `${names.get(pane.sessionId) ?? pane.sessionId} · changes`
   }
 }
 
@@ -96,6 +97,7 @@ export function Stage(props: StageProps) {
     }
     const { pane } = node
     const focused = tab.focusedPaneId === node.id
+    // A shell can be split off beside anything that has a worktree behind it.
     const hasSession = pane.kind !== 'browser'
     return (
       <div

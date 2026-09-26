@@ -13,6 +13,8 @@ export type ListedSession = {
   latestWords?: string
   /** Base of the session's leased port block while it runs (its dev server's port). */
   portBase?: number
+  /** `cw/<name>`, or null for a session in the shared checkout. */
+  branch?: string | null
   /** The flags this session was last started with; null when never given. */
   launchArgs?: string[] | null
 }
@@ -46,6 +48,8 @@ export function parseSessionList(value: unknown): ListedSession[] {
     if (typeof record.latestWords === 'string' && record.latestWords !== '') row.latestWords = record.latestWords
     const portBase = (record.leases as { portBase?: unknown } | undefined)?.portBase
     if (typeof portBase === 'number') row.portBase = portBase
+    if (typeof record.branch === 'string') row.branch = record.branch
+    else if (record.branch === null) row.branch = null
     if (record.launchArgs === null) row.launchArgs = null
     else if (Array.isArray(record.launchArgs) && record.launchArgs.every((a) => typeof a === 'string')) {
       row.launchArgs = record.launchArgs as string[]

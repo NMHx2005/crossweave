@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
   closeOthers, closePane, closeTab, closeToRight, emptyStage, findPane, focusPane, moveTab,
-  openInNewTab, paneKeys, reconcile, resizeSplit, setPinned, splitPane, type PaneRef, type StageState,
+  openInNewTab, paneKey, paneKeys, reconcile, resizeSplit, setPinned, splitPane, toSavedLayout, type PaneRef, type StageState,
 } from '../src/lib/layout'
 
 const session = (sessionId: string): PaneRef => ({ kind: 'session', sessionId })
@@ -190,5 +190,15 @@ describe('placeBeside', () => {
     expect(s.tabs.length).toBe(2)
     expect(s.activeTabId).toBe(s.tabs[1]!.id)
     expect(placeBeside(emptyStage(), { kind: 'browser', url: 'http://y/' }, 'web').tabs.length).toBe(1)
+  })
+})
+
+describe('changes panes', () => {
+  test('are keyed by session, close with it, and are not saved in a named layout', () => {
+    const pane = { kind: 'changes' as const, sessionId: 's1' }
+    expect(paneKey(pane)).toBe('changes:s1')
+    const stage = openInNewTab(emptyStage(), pane, 'a · changes')
+    expect(reconcile(stage, { sessionIds: new Set(), terminalIds: new Set() }).tabs).toEqual([])
+    expect(toSavedLayout(stage, new Map([['s1', 'a']])).tabs).toEqual([])
   })
 })

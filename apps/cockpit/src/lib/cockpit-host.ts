@@ -1,5 +1,5 @@
 import type { ListedSession } from './sessions'
-import { parseConvergeStatus, type ConvergeStatus } from './land-actions'
+import { parseConvergeDetail, parseConvergeStatus, type ConvergeDetail, type ConvergeStatus } from './land-actions'
 
 export type CockpitHostApi = {
   ensureWorkspace: () => Promise<unknown>
@@ -16,6 +16,7 @@ export type CockpitHostApi = {
 export type LoadedWorkspace = {
   sessions: ListedSession[]
   converge: ConvergeStatus
+  convergeDetail: ConvergeDetail
   /** Session ids the last window had open, most recently focused first. */
   journalTabs: string[]
   /** The workspace root this window is attached to ('' when unknown). */
@@ -49,7 +50,7 @@ export async function loadWorkspace(
   const projectRoot = typeof (ensured as { projectRoot?: unknown } | undefined)?.projectRoot === 'string'
     ? (ensured as { projectRoot: string }).projectRoot
     : ''
-  return { sessions, converge: parseConvergeStatus(converge), journalTabs: parseJournalTabs(journal), projectRoot }
+  return { sessions, converge: parseConvergeStatus(converge), convergeDetail: parseConvergeDetail(converge), journalTabs: parseJournalTabs(journal), projectRoot }
 }
 
 export type RefreshSource = 'invalidate' | 'event' | 'gone'

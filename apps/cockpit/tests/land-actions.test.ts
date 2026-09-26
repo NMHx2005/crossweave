@@ -2,6 +2,8 @@ import { describe, expect, test } from 'bun:test'
 import {
   landAllReady,
   landSelected,
+  landVerdict,
+  parseConvergeDetail,
   parseConvergeStatus,
   type ConvergeStatus,
   type LandResult,
@@ -216,5 +218,27 @@ describe('parseConvergeStatus', () => {
   test('empty or non-object is empty buckets', () => {
     expect(parseConvergeStatus(undefined)).toEqual({ ready: [], unknown: [], blocked: [] })
     expect(parseConvergeStatus([])).toEqual({ ready: [], unknown: [], blocked: [] })
+  })
+})
+
+describe('landVerdict', () => {
+  const names = new Map([['cw/a', 'a'], ['cw/b', 'b'], ['cw/c', 'c']])
+  const detail = parseConvergeDetail({
+    pairwise: [{ a: 'cw/a', b: 'cw/b', result: 'conflict' }, { a: 'cw/a', b: 'cw/c', result: 'clean' }, { bogus: 1 }],
+    empty: ['c'],
+  })
+
+  test('names who a session conflicts with, alongside the blocking reason', () => {
+    const status = { ready: [], unknown: [], blocked: [{ name: 'a', reason: 'conflicts with b' }] }
+    expect(landVerdict({ name: 'a', branch: 'cw/a' }, status, detail, names))
+      .toEqual({ kind: 'blocked', reason: 'conflicts with b', conflictsWith: ['b'] })
+  })
+
+  test('nothing to land wins over "ready"; ready and unknown pass through', () => {
+    const status = { ready: ['c', 'b'], unknown: [{ name: 'd', reason: 'no trial yet' }], blocked: [] }
+    expect(landVerdict({ name: 'c', branch: 'cw/c' }, status, detail, names).kind).toBe('empty')
+    expect(landVerdict({ name: 'b', branch: 'cw/b' }, status, detail, names)).toEqual({ kind: 'ready', conflictsWith: ['a'] })
+    expect(landVerdict({ name: 'd', branch: 'cw/d' }, status, detail, names)).toMatchObject({ kind: 'unknown', reason: 'no trial yet' })
+    expect(landVerdict({ name: 'e', branch: null }, status, detail, names)).toEqual({ kind: 'none', conflictsWith: [] })
   })
 })

@@ -1,3 +1,4 @@
+import type { SessionDiff } from '../lib/patch'
 import type { CockpitChannel, CockpitEvent } from '../../electron/channels'
 import { parseSessionList, type ListedSession } from '../lib/sessions'
 
@@ -122,6 +123,9 @@ export const cockpitApi = {
   },
   setSettings(settings: unknown): Promise<unknown> {
     return cockpitInvoke('settings.set', { settings })
+  },
+  sessionDiff(idOrName: string): Promise<SessionDiff> {
+    return cockpitInvoke('session.diff', { idOrName })
   },
   listFiles(idOrName: string): Promise<string[]> {
     return cockpitInvoke('file.list', { idOrName })

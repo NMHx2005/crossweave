@@ -95,3 +95,15 @@ describe('per-session launch flags', () => {
     } finally { db.close(); }
   });
 });
+
+describe('session.diff', () => {
+  test('a fresh session diffs to nothing; a shared one has no branch to diff', async () => {
+    const { db, call } = await harness();
+    try {
+      await call('session.new', { name: 'own', agent: 'claude' });
+      expect(await call('session.diff', { idOrName: 'own' })).toMatchObject({ files: [], patch: '', uncommitted: 0 });
+      await call('session.new', { name: 'shared', agent: 'claude', worktree: false });
+      await expect(call('session.diff', { idOrName: 'shared' })).rejects.toMatchObject({ code: 'DIFF_UNAVAILABLE' });
+    } finally { db.close(); }
+  });
+});
