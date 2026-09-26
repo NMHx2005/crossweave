@@ -5,6 +5,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { cockpitApi } from '../host/cockpit-api'
 import { decodeSessionData } from '../lib/session-data'
+import { stripFocusReports, stripTerminalReports } from '../../../../src/client/terminal-reports.js'
 import { XTERM_FONT_FAMILY, XTERM_FONT_SIZE, XTERM_THEME } from './tokens'
 
 export type XtermPaneProps = {
@@ -40,6 +41,11 @@ export function XtermPane({ sessionId, focused }: XtermPaneProps) {
     let cancelled = false
     let lastCols = 0
     let lastRows = 0
+    // The daemon replays scrollback during session.attach, and xterm answers the
+    // agent's old terminal queries in it (device attributes, focus). Those answers
+    // typed `^[[?1;2c` into Claude Code's prompt. Until shortly after the replay,
+    // only terminal reports are dropped — keystrokes still go through.
+    let replayAnsweredUntil = Number.POSITIVE_INFINITY
 
     // Listen BEFORE attach: the daemon replays scrollback during session.attach.
     const unlisten = cockpitApi.onSessionData((payload) => {
@@ -71,14 +77,18 @@ export function XtermPane({ sessionId, focused }: XtermPaneProps) {
       term.write(`\r\n\r\n[session exited${code === undefined ? '' : ` (code ${code})`} — press Start to bring it back]\r\n`)
     })
 
-    const dataSub = term.onData((data) => {
+    const dataSub = term.onData((raw) => {
       if (cancelled) return
+      const live = stripFocusReports(raw)
+      const data = Date.now() < replayAnsweredUntil ? stripTerminalReports(live) : live
+      if (data === '') return
       void cockpitApi.sendInput(sessionId, data).catch(() => undefined)
     })
 
     void cockpitApi
       .attachSession(sessionId)
       .then(() => {
+        replayAnsweredUntil = Date.now() + 500
         if (cancelled) {
           void cockpitApi.detachSession(sessionId)
           return
@@ -87,6 +97,7 @@ export function XtermPane({ sessionId, focused }: XtermPaneProps) {
         if (focusedRef.current) term.focus()
       })
       .catch((err: unknown) => {
+        replayAnsweredUntil = 0
         if (cancelled) return
         const message = err instanceof Error ? err.message : String(err)
         // Never the raw IPC message: it names the transport channel and the error

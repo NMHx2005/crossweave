@@ -1,5 +1,6 @@
 import { defineCommand } from 'citty';
 import { withClient, fail, currentWorkspaceId } from '../context.js';
+import { stripTerminalReports } from '../../client/terminal-reports.js';
 
 /**
  * Ctrl-]. Written as an escape, never as a literal control byte: an invisible 0x1D
@@ -11,6 +12,9 @@ import { withClient, fail, currentWorkspaceId } from '../context.js';
  * detach; a real keypress arrives as its own chunk.
  */
 export const DETACH_KEY = '\x1d';
+
+/** How long after a scrollback replay terminal reports are treated as its echo. */
+const REPLAY_ANSWER_WINDOW_MS = 500;
 
 export const attachCommand = defineCommand({
   meta: { name: 'attach', description: 'Attach the terminal to a running session (Ctrl-] to detach)' },
@@ -67,8 +71,15 @@ export const attachCommand = defineCommand({
             }).catch(() => undefined);
           };
 
+          // The scrollback was replayed during the attach RPC; the terminal answers the
+          // agent's old queries in it for a moment after. Those answers are not input.
+          const replayAnsweredUntil = Date.now() + REPLAY_ANSWER_WINDOW_MS;
           const onInput = (buf: Buffer): void => {
-            const data = buf.toString('utf8');
+            let data = buf.toString('utf8');
+            if (Date.now() < replayAnsweredUntil) {
+              data = stripTerminalReports(data);
+              if (data === '') return;
+            }
             if (data === DETACH_KEY) {
               process.stdout.write('\n[detached]\n');
               finish();
