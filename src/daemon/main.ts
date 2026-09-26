@@ -4,6 +4,9 @@ import { crossweaveDir, findProjectRoot } from '../core/paths.js';
 import { createDaemon } from './server.js';
 import { buildMethods } from './methods.js';
 
+/** One stat every few seconds is noise; an unreachable daemon lingering that long is not. */
+const SOCKET_WATCHDOG_MS = 5_000;
+
 async function main(): Promise<void> {
   const projectRoot = findProjectRoot(process.cwd());
   const dir = crossweaveDir(projectRoot);
@@ -11,17 +14,22 @@ async function main(): Promise<void> {
   const daemon = createDaemon({
     socketPath: join(dir, 'daemon.sock'),
     methods: buildMethods(db, projectRoot, undefined, undefined, { startBackgroundJobs: true }),
+    watchdogMs: SOCKET_WATCHDOG_MS,
+    onSocketLost: () => {
+      process.stderr.write('crossweave: daemon socket removed or replaced — shutting down\n');
+      shutdown();
+    },
   });
 
   await daemon.listen();
   process.stdout.write(`crossweave daemon listening at ${join(dir, 'daemon.sock')}\n`);
 
-  const shutdown = (): void => {
+  function shutdown(): void {
     void daemon.close().then(() => {
       db.close();
       process.exit(0);
     });
-  };
+  }
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
 }

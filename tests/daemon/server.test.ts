@@ -130,3 +130,73 @@ describe('daemon server', () => {
     await daemon.listen();
   });
 });
+
+/** Send raw bytes and resolve with the first decoded reply. */
+function rawReply(bytes: string): Promise<{ id: unknown; error?: { code: number } }> {
+  return new Promise((resolve, reject) => {
+    const sock: Socket = connect(socketPath, () => sock.write(bytes));
+    sock.on('data', createFrameDecoder((msg) => {
+      sock.end();
+      resolve(msg as { id: unknown; error?: { code: number } });
+    }));
+    sock.on('error', reject);
+    setTimeout(() => { sock.destroy(); reject(new Error('no reply')); }, 2000);
+  });
+}
+
+describe('daemon server — frames that are valid JSON but not a request', () => {
+  // Reading `.id` off `null` threw inside the handler: no reply was ever written, so
+  // the caller hung until its socket closed.
+  for (const line of ['null', '42', '"x"', '[1,2]']) {
+    it(`answers ${line} with INVALID_REQUEST instead of never replying`, async () => {
+      const reply = await rawReply(`${line}\n`);
+      expect(reply.error?.code).toBe(RPC_ERROR_CODES.INVALID_REQUEST);
+    });
+  }
+});
+
+describe('daemon server — socket ownership', () => {
+  async function waitFor(pred: () => boolean, ms = 2000): Promise<void> {
+    const end = Date.now() + ms;
+    while (!pred()) {
+      if (Date.now() > end) throw new Error('waitFor timed out');
+      await new Promise((r) => setTimeout(r, 10));
+    }
+  }
+
+  // Deleting `.crossweave` (a demo script, a test's cleanup) left daemons running
+  // forever with no socket anyone could reach — eleven of them, on one dev machine.
+  it('reports the socket lost when its file is deleted', async () => {
+    const path = join(fx.root, '.crossweave', 'watched.sock');
+    let lost = 0;
+    const d = createDaemon({ socketPath: path, methods: {}, watchdogMs: 20, onSocketLost: () => { lost++; } });
+    await d.listen();
+    try {
+      const { unlinkSync } = await import('node:fs');
+      unlinkSync(path);
+      await waitFor(() => lost > 0);
+      expect(lost).toBe(1);
+    } finally {
+      await d.close();
+    }
+  });
+
+  it('reports the socket lost when another daemon now owns the path', async () => {
+    const path = join(fx.root, '.crossweave', 'taken.sock');
+    let lost = 0;
+    const a = createDaemon({ socketPath: path, methods: {}, watchdogMs: 20, onSocketLost: () => { lost++; } });
+    await a.listen();
+    const { unlinkSync } = await import('node:fs');
+    unlinkSync(path);
+    const b = createDaemon({ socketPath: path, methods: { ping: () => ({ ok: true }) } });
+    await b.listen();
+    try {
+      await waitFor(() => lost > 0);
+    } finally {
+      await a.close();
+      // A's close must not unlink the socket B now owns.
+      expect(existsSync(path)).toBe(true);
+      await b.close();
+    }
+  });
+});

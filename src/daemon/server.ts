@@ -1,5 +1,5 @@
 import { connect, createServer, type Server, type Socket } from 'node:net';
-import { chmodSync, existsSync, mkdirSync, unlinkSync } from 'node:fs';
+import { chmodSync, mkdirSync, statSync, unlinkSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { CrossweaveError } from '../core/errors.js';
 import {
@@ -59,11 +59,30 @@ function bindOnce(instance: Server, socketPath: string): Promise<void> {
   });
 }
 
+/** The socket file's identity, or undefined when nothing is at the path. */
+function socketIdentity(path: string): string | undefined {
+  try {
+    const st = statSync(path);
+    return `${st.dev}:${st.ino}`;
+  } catch {
+    return undefined;
+  }
+}
+
 export function createDaemon(opts: {
   socketPath: string;
   methods: Record<string, MethodHandler>;
+  /**
+   * How often to check that the socket file is still the one this daemon bound;
+   * 0 or unset disables the check.
+   */
+  watchdogMs?: number;
+  /** Called once when the socket file is gone or belongs to someone else. */
+  onSocketLost?: () => void;
 }): Daemon {
   const sockets = new Set<Socket>();
+  let boundIdentity: string | undefined;
+  let watchdog: ReturnType<typeof setInterval> | undefined;
   let server: Server | undefined;
 
   function respond(sock: Socket, res: RpcResponse): void {
@@ -71,6 +90,15 @@ export function createDaemon(opts: {
   }
 
   async function handle(sock: Socket, msg: unknown, ctx: MethodContext): Promise<void> {
+    // Valid JSON is not necessarily an object: reading `.id` off `null` threw here,
+    // no reply was written, and the caller waited on it until its socket closed.
+    if (typeof msg !== 'object' || msg === null) {
+      respond(sock, {
+        jsonrpc: '2.0', id: 0,
+        error: { code: RPC_ERROR_CODES.INVALID_REQUEST, message: 'Request must be an object' },
+      });
+      return;
+    }
     const req = msg as { id?: number; method?: string; params?: Record<string, unknown> };
     const id = typeof req.id === 'number' ? req.id : 0;
 
@@ -187,9 +215,25 @@ export function createDaemon(opts: {
       // leaves the socket group- and world-readable. Anyone able to connect can
       // drive the daemon, so tighten it explicitly rather than trusting umask.
       chmodSync(opts.socketPath, 0o600);
+      boundIdentity = socketIdentity(opts.socketPath);
+
+      // A daemon whose socket file was deleted (its `.crossweave` removed, say) can
+      // never be reached again, yet nothing stopped it: orphans piled up for days. If
+      // the path is gone or now holds another daemon's socket, this one is done.
+      if (opts.watchdogMs !== undefined && opts.watchdogMs > 0) {
+        watchdog = setInterval(() => {
+          if (socketIdentity(opts.socketPath) === boundIdentity) return;
+          clearInterval(watchdog);
+          watchdog = undefined;
+          opts.onSocketLost?.();
+        }, opts.watchdogMs);
+        watchdog.unref();
+      }
     },
 
     close(): Promise<void> {
+      if (watchdog !== undefined) clearInterval(watchdog);
+      watchdog = undefined;
       for (const s of sockets) s.destroy();
       sockets.clear();
       return new Promise((resolve) => {
@@ -197,9 +241,19 @@ export function createDaemon(opts: {
           resolve();
           return;
         }
-        server.close(() => {
-          if (existsSync(opts.socketPath)) unlinkSync(opts.socketPath);
-          server = undefined;
+        const instance = server;
+        server = undefined;
+        // Closing a unix listener unlinks its path BY NAME (libuv does it, after the
+        // fact). Once the path holds a newer daemon's socket that would cut the newer
+        // one off from every client, so a daemon that lost its path only unrefs its
+        // listener — the fd goes with the process, which is exiting anyway.
+        if (socketIdentity(opts.socketPath) !== boundIdentity) {
+          instance.unref();
+          resolve();
+          return;
+        }
+        instance.close(() => {
+          if (socketIdentity(opts.socketPath) === boundIdentity) unlinkSync(opts.socketPath);
           resolve();
         });
       });
