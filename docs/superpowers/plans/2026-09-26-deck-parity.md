@@ -4,6 +4,7 @@
 (signing, notarization, installer, updater) comes last, separately.
 **Tier:** Large — agent catalog, resume, user settings, new RPCs, cockpit layout rewrite.
 **Branch:** `feat/deck-parity`, one commit per task, reported per phase.
+**Status:** done (2026-09-26), phases A–E; release work deferred as asked. Gaps: `2026-09-26-deck-parity-known-limitations.md`.
 
 ## Decisions (asked, answered)
 
