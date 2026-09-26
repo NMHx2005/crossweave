@@ -143,3 +143,4 @@ work closed these previously recorded gaps:
 - `2026-09-26-terminal-pane-known-limitations.md` — cockpit Terminal pane: a shell in a session's worktree, sandboxed but not guarded by Radar; cockpit-only, ephemeral
 - `2026-09-26-deck-parity-known-limitations.md` — agent catalog (only Claude guarded), resume/latest words from agents' private logs, sandbox network on by default, tabs/splits/file/browser panes, Settings
 - `2026-09-26-command-first-known-limitations.md` — create ≠ start (launch line, per-session flags, local-only), ⌘K command bar, Changes pane (commits only, 512 KB), review fixes; Telex duplication unconfirmed; TUI key hints and web palette open
+- `2026-09-27-shell-sessions-known-limitations.md` — sessions are a worktree + the user's shell; Radar, tiers, agent adapters, MCP, sandbox and spend removed (tag v0.3-radar); no pre-write collision signal, stale `--agent` flags silently name the session

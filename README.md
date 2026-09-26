@@ -9,33 +9,27 @@ cross-thread that binds them so the fabric holds together.
 [![Bun](https://img.shields.io/badge/bun-%3E%3D1.3.13-black)](https://bun.sh)
 [![Platforms](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)](#requirements)
 
-crossweave is a local-first tool that makes running many AI coding agents on
-one repository *safe and mergeable*. It is not a coding agent — it's the
-layer that sits above Claude Code, Cursor Agent, and any
-[ACP](https://agentclientprotocol.com)-compatible agent, running each one in
-its own git worktree while a background daemon:
+crossweave is a local-first cockpit for running many sessions on one repository
+and landing them back. A **session is a git worktree plus a shell in it** — like a
+tmux window, but each one on its own branch. What runs in that shell is yours to
+type: `claude …`, your own `cx` wrapper, `codex …`, a dev server. crossweave does
+not pick, configure or launch agents. A background daemon:
 
-- **isolates runtime, not just files** — separate ports, DB, Docker, cache
-  per session, not just separate working directories;
-- **warns at write time** — the Collision Radar flags two sessions editing
-  the same file/symbol before it becomes a merge conflict;
-- **closes the loop** — the Convergence Engine trial-merges sessions against
-  each other in the background, so `cw land` tells you what's safe to merge
-  and in what order, instead of "create a staging branch by hand and pray";
-- **makes disk and cost visible** — a live TUI dashboard, budget/burn
-  tracking, and desktop notifications for collisions, blocked writes, land
-  results, and convergence state changes.
+- **isolates runtime, not just files** — each session gets its own port block
+  (`$PORT`), cache dir and optional DB/Docker names, not just its own checkout;
+- **closes the loop** — it trial-merges sessions against each other in the
+  background, so `cw land` tells you what is safe to merge and in what order;
+- **shows what landing would bring in** — a per-session diff against where it left
+  the base, before you land it.
 
-See `docs/superpowers/specs/2026-08-09-crossweave-design.md` for the full
-design and the milestone-by-milestone rollout.
+The collision guard (Collision Radar, tiers/Safe Mode, agent adapters, the OS
+sandbox) was removed on 2026-09-27; the last version with it is tag `v0.3-radar`.
 
 ## Status
 
-Core loop (workspace/session management, worktree isolation, Collision
-Radar, Convergence Engine, Safe Mode enforcement, budget tracking, push
-notifications, distribution/self-update, live TUI dashboard) is built,
-tested, and released — [`v0.3.0`](https://github.com/NMHx2005/crossweave/releases)
-is the current published version.
+Workspace/session management, worktree isolation, per-session leases, the
+Convergence Engine, land / land all, notifications, distribution/self-update, the
+TUI and the desktop cockpit are built and tested.
 
 > [!NOTE]
 > Interactive TTY testing of the TUI (`cw tui`) has been reviewed but not
@@ -52,7 +46,6 @@ is the current published version.
 | Runtime | [Bun](https://bun.sh) 1.3.13+ (earlier 1.3.x has a unix-socket bug that lets a second daemon steal a live one's socket; 1.3.12 itself truncates the code signature on `bun build --compile` macOS output, which gets the binary SIGKILLed on launch) |
 | OS | macOS or Linux (Bun's pty support is POSIX-only; Windows is not a V1 target) |
 | VCS | git |
-| Optional | [ripgrep](https://github.com/BurntSushi/ripgrep) (`rg`) — Collision Radar's symbol-reference check degrades silently without it |
 
 ## Install
 
@@ -85,38 +78,15 @@ bun run scripts/build.ts   # produces dist/cw and dist/cwd
 ```bash
 cd your-project        # any git repo
 cw init                # create/attach this repo's crossweave workspace
-cw                     # opens the live dashboard (like `claude`, `codex`)
+cw                     # opens the cockpit (macOS) or the TUI
 
-cw session new --name alice --agent claude   # creates the session (its worktree and branch)
-cw session new --name bob   --agent claude
+cw session new alice   # a worktree on branch cw/alice
+cw session attach alice   # opens its shell (starting it if needed); Ctrl-] detaches
+# …in that shell, run whatever you like: claude --model opus, cx, codex, npm run dev
 
-cw session attach alice     # starts the agent if needed; Ctrl-] to detach, agent keeps running
-cw session start alice      # start the agent without attaching
-cw session stop alice       # stop the agent, keep the session resumable
+cw session stop alice  # close the shell (and what runs in it); the worktree stays
+cw session start alice # open a fresh shell there
 ```
-
-> [!TIP]
-> Bare `cw` opens that dashboard directly — session list, convergence matrix and a
-> real-time collision/notification feed. Piped or non-interactive, it prints the
-> command list instead, so scripts and CI are unaffected.
-
-### Agents
-
-| `--agent` | Safe Mode tier | How it runs |
-|---|---|---|
-| `claude` (default) | **T2** — blocks before the write | Claude Code, through its `PreToolUse` hook |
-| `cursor` | **T1** — blocks before the write | ACP. Current `cursor-agent` builds (2026.08+) dropped ACP, so this kind fails fast with a clear error instead of hanging — it no longer runs at all |
-| `cursor-print` | **T3** — advisory only | `cursor-agent --print --output-format stream-json`; no permission interception |
-
-A session is always reported at its real tier — `cw session list`, the desktop
-rail, and the session banner never present an advisory session as enforced.
-
-While both sessions work, crossweave's daemon is already:
-
-- indexing every file+symbol each session touches (Collision Radar) and
-  warning both sessions the moment they edit the same symbol;
-- trial-merging their branches against each other in the background
-  (Convergence Engine).
 
 Check what's safe to merge:
 
@@ -129,11 +99,11 @@ Other everyday commands:
 
 | Command | What it does |
 |---|---|
-| `cw tui` | Live dashboard — sessions, convergence, radar feed |
-| `cw session list` | What's running, budget spent, status |
-| `cw blame <path>:<line>` | Which session committed this line |
+| `cw tui` | Live dashboard — sessions, convergence, activity |
+| `cw session list` | Sessions, their branch and their leases |
+| `cw session path <name>` | A session's worktree (`cd $(cw session path alice)`) |
 | `cw gc` | Reclaim worktrees/branches from ended sessions |
-| `cw config notify off` | Mute desktop notifications (or `--event <kind>`) |
+| `cw config notify off` | Mute desktop notifications (or `--event land\|convergence`) |
 | `cw config trust` | Trust `converge.testCommand` for this workspace |
 
 Full command tree: `cw --help`, and `cw <command> --help` for any
@@ -142,9 +112,10 @@ subcommand.
 ## Cockpit (desktop)
 
 For daily use, **crossweave Cockpit** is an Electron thin client over
-`cwd` — real xterm panes, an attention rail (working / needs-you /
-blocked / landability), and land selected / land all from the UI. Same
-daemon and evidence gate as the CLI; the app never spawns agents itself.
+`cwd`: ⌘T or ⌘K `new <name>` opens a session's shell at once; tabs, split panes,
+extra shells, a file editor, a browser pane, a Changes pane (the diff landing would
+bring in) and land / land all. Same daemon and evidence gate as the CLI; the app
+never spawns anything itself.
 On macOS arm64 the standard installer includes it when the selected release
 carries the app asset, and bare `cw` opens it
 for the current repository. If the app is absent or cannot launch, `cw`
@@ -161,40 +132,11 @@ falls back to the TUI; `cw tui` always selects the terminal dashboard.
 
 ## Configuration
 
-Per-repo settings live in `crossweave.config.json` at the repo root
-(created by `cw init`) — Safe Mode tier, budget defaults, notification
-preferences, and `converge.testCommand` (must be explicitly trusted via
-`cw config trust` before crossweave will run it — it's arbitrary shell).
-
-### OS-level session sandbox
-
-Safe Mode intercepts what an agent *reports* about its tool calls, so a write
-made through a shell or a subprocess slips past every tier. The sandbox closes
-that by confining the session **process** itself:
-
-```jsonc
-{
-  "sandbox": {
-    "enabled": true,   // default; runs each session under an OS boundary
-    "network": false   // default; opt in when the session needs the network
-  }
-}
-```
-
-On **macOS** each session spawns under `sandbox-exec` with a generated seatbelt
-profile: it may write inside its own worktree and its private temp dir, and
-nowhere else — not the main checkout, not another session's worktree, not
-`$HOME`, not `.git/config` or hooks. Commits still work, because the profile
-grants exactly the object/ref/log shapes `git commit` writes in the *shared*
-`.git` a linked worktree commits through. On **Linux** the same promise is
-implemented with `bwrap` (bubblewrap) when it is on `PATH` — private `/tmp`,
-worktree-only writes, narrow git binds, `--unshare-net` when `network` is off.
-Network is denied unless `sandbox.network` is true.
-
-Where no provider exists (Linux without `bwrap`, Windows, or a `--no-worktree`
-session) the session runs unconfined **and says so**: the daemon logs
-`runs WITHOUT an OS sandbox (<reason>)` and the CLI keeps printing the tier
-with its real coverage. See `docs/superpowers/specs/2026-09-18-os-sandbox-design.md`.
+Per-repo settings live in `crossweave.config.json` at the repo root — ports, disk
+limits, the DB lease strategy, and `converge.testCommand` (must be explicitly
+trusted via `cw config trust` before crossweave will run it — it's arbitrary shell).
+Per-user settings (the editor Cmd+click opens, saved cockpit layouts) live in
+`~/.crossweave/settings.json`.
 
 ## Contributing / development
 

@@ -7,7 +7,7 @@ collision guard ("sửa trùng file") entirely, from the app, the CLI and the da
 target is a SpaceVibe-Deck-like tool, standardised for the user's own use.
 **Tier:** Large — removes modules, changes the session model, RPCs and the CLI surface.
 **Branch:** `feat/shell-sessions`. The last version with the guard is tagged `v0.3-radar`.
-**Status:** in progress.
+**Status:** done (2026-09-27), phases A–D. Gaps: `2026-09-27-shell-sessions-known-limitations.md`.
 
 ## Decisions (asked, answered)
 

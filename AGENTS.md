@@ -6,11 +6,13 @@
 
 ## What this is
 
-`cw` (CLI) and `cwd` (daemon) make N parallel agents on one repository safe and
-mergeable. The daemon is the **sole owner** of `.crossweave/state.db` and of the
-unix socket its clients speak JSON-RPC over; the CLI, the TUI and the Electron
-cockpit are thin clients. **No client spawns agents, and nothing writes the
-database except the daemon.**
+`cw` (CLI) and `cwd` (daemon) run N parallel sessions on one repository and land
+them back: a **session is a git worktree plus the user's shell in it** (like a tmux
+window). What runs in that shell — `claude …`, a `cx` wrapper, `codex …` — is the
+user's to type; crossweave does not choose, configure or launch agents. The daemon is
+the **sole owner** of `.crossweave/state.db` and of the unix socket its clients speak
+JSON-RPC over; the CLI, the TUI and the Electron cockpit are thin clients. **No client
+spawns shells, and nothing writes the database except the daemon.**
 
 Runtime constraints that shape every decision:
 
@@ -38,10 +40,12 @@ Runtime constraints that shape every decision:
 `package:smoke` fail. Run `bun node_modules/electron/install.js` once inside
 `apps/cockpit`.
 
-**Trap — two real-binary verifications need to run outside any sandbox.** The cursor
-and claude adapters are verified against the real CLIs, which need network, `~/.cursor`
-and `~/.claude`. Spike scripts belong in `/tmp` and are throwaway; the conclusions get
-recorded in the adapter's own comment (see `src/adapters/cursor-print.ts`).
+**Trap — pty tests need a real terminal allocator.** Anything spawning a session
+shell (`tests/daemon/runtime.test.ts`, the CLI end-to-end suite) fails with
+`Failed to open PTY` inside a restricted sandbox; run the gate outside it.
+
+**Trap — citty ignores unknown flags.** A stale `cw session new --agent claude` names
+the session `claude` instead of failing; the flag no longer exists.
 
 **Trap — some tests cannot pass in a restricted shell.** Anything binding a unix
 socket or probing host ports (`tests/client/*`, `tests/isolation/*`,
@@ -58,13 +62,12 @@ instead of fighting it.
 |---|---|
 | `src/core` | config (validated hard — `ports.named` may not shadow `PATH`/`PORT`), path containment (`assertContained`, symlink-by-symlink), framing, ids, errors |
 | `src/db` | schema + forward-only migrations (applied inside `BEGIN IMMEDIATE`), repositories |
-| `src/domain` | workspace, session lifecycle, event ledger, message bus, context store, gc, reconciliation |
+| `src/domain` | workspace, session lifecycle, event ledger, gc, reconciliation, session diff, latest words from agent logs |
 | `src/isolation` | worktrees, leases (port/db/docker/cache), disk guard |
-| `src/radar` | Collision Radar: claim indexer, contracts, noise gate, `decideBlocked` (the one blocking policy) |
 | `src/convergence` | trial merges, conflict graph, `classifyLandability`, `land.ts` |
-| `src/daemon` | RPC method table, session runtime (pty), worktree watchers, scheduler |
-| `src/adapters` | `claude` (T2), `cursor` (T1/ACP), `cursor-print` (T3) |
-| `src/mcp` | per-session MCP server (8 tools) |
+| `src/daemon` | RPC method table, session runtime (pty), extra terminals, convergence scheduler |
+| `src/adapters` | the pty and the session shell — the only process a session runs |
+| `src/notify` | desktop notifications for land and convergence, and their throttle |
 | `apps/cockpit` | Electron thin client (macOS arm64 v1) |
 
 ## House conventions that are load-bearing
@@ -85,12 +88,15 @@ instead of fighting it.
 
 ## Decisions already made (do not relitigate)
 
-- **Safe Mode never overstates.** T1 (ACP) and T2 (the Claude hook) block before a
-  write; T3 is advisory and must always be *displayed* as advisory. Do not present a
-  weaker tier as enforced to make a demo look better.
+- **No collision guard, no agent model (2026-09-27).** Collision Radar, tiers/Safe
+  Mode, agent adapters, launch flags, resume, the MCP server and the OS sandbox were
+  removed; the last version with them is tag `v0.3-radar`. Their tables and columns
+  stay (forward-only migrations) and are unused. Do not reintroduce a picker that
+  chooses an AI: the user types their own command in the shell. Rationale:
+  `docs/superpowers/plans/2026-09-27-shell-sessions.md`.
 - **Leases are cooperative, not a sandbox.** They inject per-session port/docker/cache/
   db values; a process that ignores them still collides.
-- **Toolchain stays reversible**: only three seams touch Bun — the adapter pty, the
+- **Toolchain stays reversible**: only three seams touch Bun — the session pty, the
   sqlite repositories, and `node:net` for the socket.
 - **Cockpit borrows Cursor's *material*, not its anatomy.** One token source
   (`apps/cockpit/src/ui/tokens.ts`) feeds both the CSS chrome and the xterm pane;
