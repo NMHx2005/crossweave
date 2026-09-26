@@ -32,6 +32,11 @@ export function XtermPane({ sessionId, focused }: XtermPaneProps) {
       fontSize: XTERM_FONT_SIZE,
       scrollback: 5000,
       theme: XTERM_THEME,
+      // Agents like Claude Code turn on mouse tracking (?1000/1002/1006), which hands
+      // every drag to the agent — and on macOS xterm.js then offers NO way to select
+      // text unless this is on. With it, Option+drag selects (as in iTerm2), so a
+      // pane's output can be copied with Cmd+C.
+      macOptionClickForcesSelection: true,
     })
     const fit = new FitAddon()
     term.loadAddon(fit)
