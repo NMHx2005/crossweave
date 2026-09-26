@@ -28,6 +28,7 @@ import {
 } from '../lib/land-actions'
 import { AgentRail } from './AgentRail'
 import { pickPaneSessions, Stage, type StageStatus } from './Stage'
+import { sessionsThatStartedRunning } from '../lib/sessions'
 
 const EMPTY_CONVERGE: ConvergeStatus = { ready: [], unknown: [], blocked: [] }
 
@@ -65,6 +66,15 @@ export function App() {
     try {
       const loaded = await loadWorkspace(cockpitApi)
       if (cancelledRef.current) return
+      const started = sessionsThatStartedRunning(sessionsRef.current, loaded.sessions)
+      if (started.length > 0) {
+        // Re-key only those panes: a global bump would remount every live terminal.
+        setPaneAttachBumps((bumps) => {
+          const out = { ...bumps }
+          for (const id of started) out[id] = (out[id] ?? 0) + 1
+          return out
+        })
+      }
       setSessions(loaded.sessions)
       setConverge(loaded.converge)
       setLandabilityByName(parseLandabilityByName(loaded.converge))
@@ -211,12 +221,10 @@ export function App() {
   async function handleStart(): Promise<void> {
     if (!focused) return
     const target = focused.id
+    // The pane re-attaches from load(): the session's move to `running` is detected
+    // there, the same way as when the CLI or another window starts it. Bumping here
+    // as well would remount the pane twice.
     await runAction(() => cockpitApi.resumeSession(target))
-    // The pane attached to a session that had no agent, so it is showing the reason
-    // instead of a terminal. Re-key THAT pane only: a global bump remounted every
-    // other pane too, which flickered four live agent terminals to fix one (measured:
-    // a MutationObserver on the grid saw 4 panes removed by a single Start click).
-    setPaneAttachBumps((bumps) => ({ ...bumps, [target]: (bumps[target] ?? 0) + 1 }))
   }
 
   async function handleStop(): Promise<void> {

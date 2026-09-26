@@ -68,3 +68,21 @@ export function formatRailMeta(session: ListedSession): string | undefined {
 export function isSessionRunning(session: Pick<ListedSession, 'status'>): boolean {
   return session.status === 'running'
 }
+
+const LIVE = new Set(['running', 'waiting'])
+
+/**
+ * Ids of sessions that were known and not live in `prev` and are live in `next`.
+ * Their panes attached to "no agent" and must re-attach — whichever client started
+ * them. Only the cockpit's own Start button used to trigger that, so a session
+ * started from the CLI kept its "not running" pane until the window was reloaded.
+ */
+export function sessionsThatStartedRunning(
+  prev: ReadonlyArray<{ id: string; status?: string }>,
+  next: ReadonlyArray<{ id: string; status?: string }>,
+): string[] {
+  const before = new Map(prev.map((s) => [s.id, s.status ?? '']))
+  return next
+    .filter((s) => before.has(s.id) && !LIVE.has(before.get(s.id)!) && LIVE.has(s.status ?? ''))
+    .map((s) => s.id)
+}
