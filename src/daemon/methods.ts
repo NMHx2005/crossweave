@@ -49,6 +49,7 @@ import { decideSandbox, sandboxTmpDir } from '../isolation/sandbox.js';
 import { spawnShell } from '../adapters/shell.js';
 import { profileFor, resolveAgent } from '../adapters/catalog.js';
 import { findConversation, latestWords } from '../domain/agent-logs.js';
+import { loginShellPath, mergePaths } from '../core/login-path.js';
 import { loadSettings, saveSettings, splitCommand, type UserSettings } from '../core/settings.js';
 import { TerminalRegistry } from './terminals.js';
 
@@ -384,7 +385,12 @@ export function buildMethods(
     try {
       // A lease must win over the client's shell, or a session's port would depend
       // on what the user happened to export.
-      const env = { ...clientEnv(p), ...(await leaseManager.acquire(row.id)) };
+      const fromClient = clientEnv(p);
+      const env: Record<string, string> = { ...fromClient, ...(await leaseManager.acquire(row.id)) };
+      // The user's terminal PATH as well as the client's: a cockpit opened from the Dock
+      // has launchd's minimal PATH, where ~/.local/bin (claude, codex) does not exist.
+      const path = mergePaths(fromClient.PATH ?? process.env.PATH, await loginShellPath());
+      if (path !== undefined) env.PATH = path;
       const sandbox = decideSandbox({
         enabled: config.sandbox.enabled,
         network: config.sandbox.network,
@@ -628,11 +634,13 @@ export function buildMethods(
     'session.start': (p) => start(p),
 
     // The agent catalog for pickers: enabled or not, and whether its command resolves.
-    'agents.list': () => {
+    'agents.list': async () => {
       const settings = loadSettings();
+      // Resolved on the same PATH a started agent gets (see start()).
+      const PATH = mergePaths(process.env.PATH, await loginShellPath()) ?? '';
       return settings.agents.map((a) => {
         let available = false;
-        try { available = Bun.which(splitCommand(a.command)[0]!) !== null; } catch { available = false; }
+        try { available = Bun.which(splitCommand(a.command)[0]!, { PATH }) !== null; } catch { available = false; }
         return { id: a.id, label: a.label, enabled: a.enabled, builtin: a.builtin, tier: profileFor(a.id).tier, available };
       });
     },
