@@ -3,7 +3,6 @@ import { blockedSessionFromEvent } from '../src/lib/attention'
 import {
   createAndStartSession,
   loadWorkspace,
-  orderSessionsByJournal,
   parseJournalTabs,
   runCockpitAction,
   shouldBumpPaneAttach,
@@ -159,21 +158,6 @@ describe('journal restore', () => {
     expect(parseJournalTabs({ openTabs: 'a' })).toEqual([])
     expect(parseJournalTabs(undefined)).toEqual([])
     expect(parseJournalTabs({})).toEqual([])
-  })
-
-  test('journal order comes first and everything else keeps the daemon order', () => {
-    const sessions = [
-      { id: 'a', name: 'alpha', status: 'running' },
-      { id: 'b', name: 'beta', status: 'running' },
-      { id: 'c', name: 'gamma', status: 'running' },
-    ] as never
-    expect(orderSessionsByJournal(sessions, ['c', 'a']).map((s) => s.id)).toEqual(['c', 'a', 'b'])
-    // A session the daemon no longer has is dropped, and a repeated id opens one pane,
-    // not two — two attaches on one session would fight over the same pty.
-    expect(orderSessionsByJournal(sessions, ['ghost', 'b', 'b', 'a']).map((s) => s.id)).toEqual([
-      'b', 'a', 'c',
-    ])
-    expect(orderSessionsByJournal(sessions, []).map((s) => s.id)).toEqual(['a', 'b', 'c'])
   })
 
   test('loadWorkspace hands the restore order to the caller', async () => {

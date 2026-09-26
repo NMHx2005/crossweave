@@ -14,7 +14,6 @@ import {
 import {
   createAndStartSession,
   loadWorkspace,
-  orderSessionsByJournal,
   runCockpitAction,
   shouldBumpPaneAttach,
   stageStatusAfterFailure,
@@ -28,16 +27,51 @@ import {
   type ConvergeStatus,
   type LandResult,
 } from '../lib/land-actions'
+import {
+  closeOthers,
+  closePane,
+  closeTab,
+  closeToRight,
+  emptyStage,
+  findPane,
+  focusPane,
+  fromSavedLayout,
+  locatePane,
+  moveTab,
+  openInNewTab,
+  paneKeys,
+  parseStoredStage,
+  resizeSplit,
+  setPinned,
+  splitPane,
+  syncStage,
+  toSavedLayout,
+  type PaneRef,
+  type SavedLayout,
+  type SplitDir,
+  type StageState,
+} from '../lib/layout'
 import { AgentRail } from './AgentRail'
 import { Stage, type StageStatus } from './Stage'
-import { pickPaneSessions } from '../lib/panes'
 import { sessionsThatStartedRunning } from '../lib/sessions'
 
 const EMPTY_CONVERGE: ConvergeStatus = { ready: [], unknown: [], blocked: [] }
 
+/** Where this window keeps its tabs: per workspace, in this browser profile only. */
+const stageKey = (projectRoot: string): string => `cw.stage.v1:${projectRoot}`
+
+function readStoredStage(projectRoot: string): StageState | null {
+  try {
+    const text = window.localStorage.getItem(stageKey(projectRoot))
+    return text === null ? null : parseStoredStage(text)
+  } catch {
+    return null
+  }
+}
+
 export function App() {
   const [sessions, setSessions] = useState<ListedSession[]>([])
-  const [focusedId, setFocusedId] = useState<string | null>(null)
+  const [stage, setStage] = useState<StageState>(emptyStage)
   const [status, setStatus] = useState<StageStatus>('loading')
   const [error, setError] = useState<string | null>(null)
   const [landabilityByName, setLandabilityByName] = useState<Map<string, Landability>>(
@@ -47,15 +81,12 @@ export function App() {
   const [blockedNames, setBlockedNames] = useState<ReadonlySet<string>>(() => new Set())
   const [landBusy, setLandBusy] = useState(false)
   const [landMessage, setLandMessage] = useState<string | null>(null)
-  const [terminals, setTerminals] = useState<TerminalInfo[]>([])
   /** Non-null while the ⌘T picker is open. */
   const [pickerAgents, setPickerAgents] = useState<AgentOption[] | null>(null)
-  const [focusedTerminalId, setFocusedTerminalId] = useState<string | null>(null)
+  const [layouts, setLayouts] = useState<Record<string, SavedLayout>>({})
   const [usageRows, setUsageRows] = useState<{ date: string; agentKind: string; sessions: number; tokens: number; costUsd: number }[] | null>(null)
   const [paneAttachEpoch, setPaneAttachEpoch] = useState(0)
   const [paneAttachBumps, setPaneAttachBumps] = useState<Record<string, number>>({})
-  /** What the last window had open, most recently focused first (Horizon B journal). */
-  const [journalTabs, setJournalTabs] = useState<string[]>([])
   const lastJournalRef = useRef('')
   /**
    * Recent activity lives in a ref and is mirrored into state: the feed is a mutable
@@ -68,6 +99,9 @@ export function App() {
   const cancelledRef = useRef(false)
   const sessionsRef = useRef(sessions)
   sessionsRef.current = sessions
+  /** What the previous load saw; null until the first load (see syncStage). */
+  const knownRef = useRef<{ sessionIds: Set<string>; terminalIds: Set<string> } | null>(null)
+  const projectRootRef = useRef('')
 
   const load = useCallback(async (opts?: { keepBlocked?: boolean; bumpAttach?: boolean }): Promise<void> => {
     try {
@@ -82,26 +116,25 @@ export function App() {
           return out
         })
       }
-      setSessions(loaded.sessions)
       // Listed from the daemon, not kept only in this window: a reload must find the
       // shells it had open rather than leave them running with no pane.
       const openTerminals = await cockpitApi.listTerminals().catch(() => [] as TerminalInfo[])
       if (cancelledRef.current) return
-      setTerminals(openTerminals)
-      setFocusedTerminalId((current) => (current && openTerminals.some((t) => t.terminalId === current) ? current : null))
+      setSessions(loaded.sessions)
+      const firstLoad = knownRef.current === null
+      const known = knownRef.current
+      projectRootRef.current = loaded.projectRoot
+      setStage((prev) => {
+        // The first load restores this workspace's tabs from the last window, if any.
+        const base = firstLoad ? (readStoredStage(loaded.projectRoot) ?? prev) : prev
+        return syncStage(base, { sessions: loaded.sessions, terminals: openTerminals }, known)
+      })
+      knownRef.current = {
+        sessionIds: new Set(loaded.sessions.map((s) => s.id)),
+        terminalIds: new Set(openTerminals.map((t) => t.terminalId)),
+      }
       setConverge(loaded.converge)
       setLandabilityByName(parseLandabilityByName(loaded.converge))
-      setJournalTabs(loaded.journalTabs)
-      setFocusedId((current) => {
-        if (current && loaded.sessions.some((session) => session.id === current)) return current
-        // The window this one replaced had a focused pane; restore THAT session rather
-        // than whichever the daemon happens to list first. Ids the daemon no longer has
-        // fall through to the list order.
-        const restored = loaded.journalTabs.find((id) =>
-          loaded.sessions.some((session) => session.id === id),
-        )
-        return restored ?? loaded.sessions[0]?.id ?? null
-      })
       setStatus(stageStatusAfterLoad(loaded.sessions.length))
       setError(null)
       try {
@@ -126,6 +159,10 @@ export function App() {
   useEffect(() => {
     cancelledRef.current = false
     void load()
+    void cockpitApi.getSettings().then((s) => {
+      const saved = (s as { layouts?: unknown } | null)?.layouts
+      if (saved && typeof saved === 'object') setLayouts(saved as Record<string, SavedLayout>)
+    }).catch(() => undefined)
     const unsub = subscribeCockpitHost(cockpitApi, {
       refresh: (source) => {
         void load({
@@ -150,6 +187,17 @@ export function App() {
     }
   }, [load])
 
+  // Keep this workspace's tabs for the next window. Best effort: storage can be full
+  // or disabled, and losing the layout is not worth an error.
+  useEffect(() => {
+    if (projectRootRef.current === '') return
+    try {
+      window.localStorage.setItem(stageKey(projectRootRef.current), JSON.stringify(stage))
+    } catch {
+      // ignore
+    }
+  }, [stage])
+
   // Menu accelerators (⌘T, ⌘⇧A, ⌘⇧T) arrive as commands from the main process. The ref
   // keeps the listener registered once while always calling the current handlers.
   const commandRef = useRef<(command: string) => void>(() => undefined)
@@ -163,26 +211,24 @@ export function App() {
     if (typeof command === 'string') commandRef.current(command)
   }), [])
 
-  /** Journal order for the panes; the rail keeps the daemon's order so rows do not jump. */
-  const orderedSessions = useMemo(
-    () => orderSessionsByJournal(sessions, journalTabs),
-    [sessions, journalTabs],
-  )
+  /** The session behind the focused pane of the active tab — what the rail's buttons act on. */
+  const focusedId = useMemo(() => {
+    const tab = stage.tabs.find((t) => t.id === stage.activeTabId)
+    const pane = tab ? findPane(tab.root, tab.focusedPaneId)?.pane : undefined
+    return pane && pane.kind !== 'browser' ? pane.sessionId : null
+  }, [stage])
 
   /**
-   * Report the pane set back to the daemon, which owns the journal file. Skipped when
-   * the list is unchanged: a `tui.invalidate` arrives after every session mutation, so
-   * each reload would otherwise rewrite an identical journal. An empty pane set writes
-   * nothing at all — a window that cannot see sessions has nothing to remember, and
-   * stale ids are filtered on the way back in anyway.
+   * Report the open sessions back to the daemon, which owns the journal file. Skipped
+   * when unchanged: a `tui.invalidate` arrives after every session mutation.
    */
   useEffect(() => {
-    const tabs = pickPaneSessions(orderedSessions, focusedId).map((session) => session.id)
-    const key = tabs.join('\n')
-    if (tabs.length === 0 || lastJournalRef.current === key) return
+    const ids = [...new Set(paneKeys(stage).filter((k) => k.startsWith('session:')).map((k) => k.slice('session:'.length)))]
+    const key = ids.join('\n')
+    if (ids.length === 0 || lastJournalRef.current === key) return
     lastJournalRef.current = key
-    void cockpitApi.journalSet(tabs).catch(() => undefined)
-  }, [orderedSessions, focusedId])
+    void cockpitApi.journalSet(ids).catch(() => undefined)
+  }, [stage])
 
   const attentionById = useMemo(() => {
     const out: Record<string, AttentionKind> = {}
@@ -204,13 +250,16 @@ export function App() {
   const canLandFocused = focusedLandability === 'ready' || focusedLandability === 'unknown'
 
   /**
-   * Looking at a session is what clears its activity: the rail shows what you have not
-   * seen yet, and a session you just opened has been seen. Called from the rail row, a
-   * pane, and an activity row alike, so the count cannot disagree with what is on screen.
+   * Show a session: its existing pane if a tab has one, else a new tab. Looking at a
+   * session is also what clears its activity — the rail shows what you have not seen.
    */
   function focusSession(sessionId: string): void {
-    setFocusedId(sessionId)
-    setFocusedTerminalId(null)
+    setStage((s) => {
+      const at = locatePane(s, `session:${sessionId}`)
+      if (at) return focusPane(s, at.tabId, at.paneId)
+      const name = sessionsRef.current.find((x) => x.id === sessionId)?.name ?? sessionId
+      return openInNewTab(s, { kind: 'session', sessionId }, name)
+    })
     const session = sessions.find((s) => s.id === sessionId)
     if (!session) return
     feedRef.current.ack(session.name)
@@ -221,10 +270,9 @@ export function App() {
     feedRef.current.ack(sessionName)
     setActivity(feedRef.current.all())
     const session = sessions.find((s) => s.name === sessionName)
-    // A session that has since been removed (killed with --rm-worktree, landed) still
-    // gets its item acknowledged — an unactionable row that can never be cleared is
-    // worse than a row that disappears.
-    if (session) setFocusedId(session.id)
+    // A session that has since been removed still gets its item acknowledged — an
+    // unactionable row that can never be cleared is worse than one that disappears.
+    if (session) focusSession(session.id)
   }
 
   async function runAction(action: () => Promise<unknown>): Promise<void> {
@@ -253,7 +301,7 @@ export function App() {
   }
 
   function jumpToAttention(): void {
-    const target = nextAttentionSession(orderedSessions, attentionById, focusedTerminalId === null ? focusedId : null)
+    const target = nextAttentionSession(sessions, attentionById, focusedId)
     if (target !== null) focusSession(target)
   }
 
@@ -261,22 +309,45 @@ export function App() {
     if (!focused) return
     const target = focused.id
     // The pane re-attaches from load(): the session's move to `running` is detected
-    // there, the same way as when the CLI or another window starts it. Bumping here
-    // as well would remount the pane twice.
+    // there, the same way as when the CLI or another window starts it.
     await runAction(() => cockpitApi.resumeSession(target))
+  }
+
+  /** A shell for `sessionId`, split beside `at` (or in a tab of its own). */
+  async function openShell(sessionId: string, at?: { tabId: string; paneId: string; dir: SplitDir }): Promise<void> {
+    await runAction(async () => {
+      const opened = await cockpitApi.openTerminal(sessionId)
+      const pane: PaneRef = { kind: 'terminal', terminalId: opened.terminalId, sessionId }
+      setStage((s) => {
+        // A load that raced this call may have opened it already.
+        const existing = locatePane(s, `terminal:${opened.terminalId}`)
+        if (existing) return focusPane(s, existing.tabId, existing.paneId)
+        const tab = at ? s.tabs.find((t) => t.id === at.tabId) : s.tabs.find((t) => t.id === s.activeTabId)
+        if (!tab) return openInNewTab(s, pane, `${opened.sessionName} · shell`)
+        return splitPane(s, tab.id, at?.paneId ?? tab.focusedPaneId, at?.dir ?? 'row', pane)
+      })
+    })
   }
 
   async function handleTerminal(): Promise<void> {
     if (!focused) return
-    const target = focused.id
-    await runAction(async () => {
-      const opened = await cockpitApi.openTerminal(target)
-      setFocusedTerminalId(opened.terminalId)
-    })
+    await openShell(focused.id)
   }
 
-  async function handleCloseTerminal(terminalId: string): Promise<void> {
-    await runAction(() => cockpitApi.closeTerminal(terminalId))
+  function handleClosePane(tabId: string, paneId: string, pane: PaneRef): void {
+    // Closing a shell's pane ends the shell; closing an agent's pane only hides it.
+    if (pane.kind === 'terminal') void cockpitApi.closeTerminal(pane.terminalId).catch(() => undefined)
+    setStage((s) => closePane(s, tabId, paneId))
+  }
+
+  async function saveLayouts(next: Record<string, SavedLayout>): Promise<void> {
+    setLayouts(next)
+    try {
+      const current = await cockpitApi.getSettings() as Record<string, unknown>
+      await cockpitApi.setSettings({ ...current, layouts: next })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
   }
 
   async function handleStop(): Promise<void> {
@@ -398,18 +469,37 @@ export function App() {
         }}
       />
       <Stage
-        sessions={orderedSessions}
-        focusedId={focusedId}
+        stage={stage}
+        sessions={sessions}
         status={status}
         error={error}
         paneAttachEpoch={paneAttachEpoch}
         paneAttachBumps={paneAttachBumps}
-        onFocus={focusSession}
-        terminals={terminals}
-        focusedTerminalId={focusedTerminalId}
-        onFocusTerminal={setFocusedTerminalId}
-        onCloseTerminal={(terminalId) => {
-          void handleCloseTerminal(terminalId)
+        onActivateTab={(tabId) => setStage((s) => ({ ...s, activeTabId: tabId }))}
+        onFocusPane={(tabId, paneId) => setStage((s) => focusPane(s, tabId, paneId))}
+        onClosePane={handleClosePane}
+        onSplit={(tabId, paneId, dir, pane) => {
+          if (pane.kind !== 'browser') void openShell(pane.sessionId, { tabId, paneId, dir })
+        }}
+        onResize={(tabId, splitId, index, delta) => setStage((s) => resizeSplit(s, tabId, splitId, index, delta))}
+        onMoveTab={(tabId, toIndex) => setStage((s) => moveTab(s, tabId, toIndex))}
+        onPinTab={(tabId, pinned) => setStage((s) => setPinned(s, tabId, pinned))}
+        onCloseTab={(tabId) => setStage((s) => closeTab(s, tabId))}
+        onCloseOthers={(tabId) => setStage((s) => closeOthers(s, tabId))}
+        onCloseToRight={(tabId) => setStage((s) => closeToRight(s, tabId))}
+        layouts={Object.keys(layouts).sort()}
+        onSaveLayout={(name) => {
+          const saved = toSavedLayout(stage, new Map(sessions.map((s) => [s.id, s.name])))
+          void saveLayouts({ ...layouts, [name]: saved })
+        }}
+        onApplyLayout={(name) => {
+          const saved = layouts[name]
+          if (saved) setStage(fromSavedLayout(saved, new Map(sessions.map((s) => [s.name, s.id]))))
+        }}
+        onDeleteLayout={(name) => {
+          const next = { ...layouts }
+          delete next[name]
+          void saveLayouts(next)
         }}
       />
       {usageRows !== null && usageRows.length > 0 ? (

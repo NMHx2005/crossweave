@@ -1,4 +1,3 @@
-import { guardRestore } from '../../../../src/domain/journal.js'
 import type { ListedSession } from './sessions'
 import { parseConvergeStatus, type ConvergeStatus } from './land-actions'
 
@@ -19,6 +18,8 @@ export type LoadedWorkspace = {
   converge: ConvergeStatus
   /** Session ids the last window had open, most recently focused first. */
   journalTabs: string[]
+  /** The workspace root this window is attached to ('' when unknown). */
+  projectRoot: string
 }
 
 /**
@@ -33,37 +34,22 @@ export function parseJournalTabs(payload: unknown): string[] {
 }
 
 /**
- * Sessions in journal order, then everything else in the order the daemon listed it.
- *
- * The restore is a reordering, never a filter: a session that is not in the journal
- * (started from the CLI while the window was closed) still gets a pane, it just comes
- * after the ones the window had. Ids the journal names but the daemon no longer has are
- * dropped, and the guard keeps a repeated id from opening a second pane on the same
- * session — two attaches on one session fight over the same pty.
- */
-export function orderSessionsByJournal(sessions: ListedSession[], tabs: string[]): ListedSession[] {
-  const byId = new Map(sessions.map((session) => [session.id, session]))
-  const seen = new Set<string>()
-  const restored = guardRestore(tabs, seen)
-    .map((id) => byId.get(id))
-    .filter((session): session is ListedSession => session !== undefined)
-  return [...restored, ...sessions.filter((session) => !seen.has(session.id))]
-}
-
-/**
  * Re-attach then refresh. Used on boot, tui.invalidate, and daemon.gone so a
  * dropped daemon does not leave the renderer stuck on a dead client.
  */
 export async function loadWorkspace(
   api: Pick<CockpitHostApi, 'ensureWorkspace' | 'listSessions' | 'convergeStatus' | 'journalGet'>,
 ): Promise<LoadedWorkspace> {
-  await api.ensureWorkspace()
+  const ensured = await api.ensureWorkspace()
   const sessions = await api.listSessions()
   const converge = await api.convergeStatus().catch(() => undefined)
   // Best effort: a daemon too old to know journal.get, or a failed read, costs the
   // restore and nothing else. A window that cannot list sessions has already thrown.
   const journal = await api.journalGet().catch(() => undefined)
-  return { sessions, converge: parseConvergeStatus(converge), journalTabs: parseJournalTabs(journal) }
+  const projectRoot = typeof (ensured as { projectRoot?: unknown } | undefined)?.projectRoot === 'string'
+    ? (ensured as { projectRoot: string }).projectRoot
+    : ''
+  return { sessions, converge: parseConvergeStatus(converge), journalTabs: parseJournalTabs(journal), projectRoot }
 }
 
 export type RefreshSource = 'invalidate' | 'event' | 'gone'
