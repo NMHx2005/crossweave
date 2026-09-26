@@ -41,6 +41,23 @@ describe('connectablePath', () => {
     expect(readlinkSync(connectablePath(target, base))).toBe(target);
   });
 
+  // A link that is itself too long would fail the same way the original did, later
+  // and less clearly; the refusal names the problem instead.
+  it('refuses rather than return a link that is still too long', () => {
+    const deep = join(base, 'd'.repeat(90));
+    mkdirSync(deep);
+    expect(() => connectablePath(longSocket(), deep)).toThrow(expect.objectContaining({ code: 'SOCKET_PATH_TOO_LONG' }));
+  });
+
+  it('defaults to a base short enough on every platform', () => {
+    const short = connectablePath(longSocket());
+    try {
+      expect(Buffer.byteLength(short)).toBeLessThanOrEqual(MAX_SOCKET_PATH_BYTES);
+    } finally {
+      rmSync(short, { force: true });
+    }
+  });
+
   // Another user who can write the shared temp dir must not be able to pre-create
   // the link directory and aim our client at their own socket.
   it('refuses a link directory other users can write', () => {

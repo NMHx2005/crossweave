@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
 import { lstatSync, mkdirSync, readlinkSync, renameSync, symlinkSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CrossweaveError } from '../core/errors.js';
 
@@ -22,9 +21,11 @@ export const MAX_SOCKET_PATH_BYTES = 103;
  *
  * The link lives in a per-user directory that must be ours and closed to others:
  * a link directory another local user could write would let them aim this client
- * at a socket of their own.
+ * at a socket of their own. It defaults to `/tmp`, not `os.tmpdir()`: macOS's
+ * per-user `/var/folders/…/T/` is itself ~50 bytes, which left the "short" link over
+ * the limit too.
  */
-export function connectablePath(socketPath: string, base = tmpdir()): string {
+export function connectablePath(socketPath: string, base = '/tmp'): string {
   if (Buffer.byteLength(socketPath) <= MAX_SOCKET_PATH_BYTES) return socketPath;
 
   const uid = process.getuid?.() ?? 0;
@@ -38,7 +39,13 @@ export function connectablePath(socketPath: string, base = tmpdir()): string {
     );
   }
 
-  const link = join(dir, `${createHash('sha256').update(socketPath).digest('hex').slice(0, 24)}.sock`);
+  const link = join(dir, `${createHash('sha256').update(socketPath).digest('hex').slice(0, 16)}.sock`);
+  if (Buffer.byteLength(link) > MAX_SOCKET_PATH_BYTES) {
+    throw new CrossweaveError(
+      'SOCKET_PATH_TOO_LONG',
+      `The daemon socket path is too long to connect to (${socketPath}), and so is the link directory ${dir}.`,
+    );
+  }
   let current: string | undefined;
   try {
     current = readlinkSync(link);
