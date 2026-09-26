@@ -9,13 +9,12 @@ import { editorLaunch, resolveLinkTarget } from '../electron/editor-open'
 
 describe('nextAttentionSession (⌘⇧A)', () => {
   const order = [{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }]
-  test('picks the most urgent: needs you, then blocked, then conflict, then ready', () => {
-    expect(nextAttentionSession(order, { a: 'working', b: 'ready', c: 'needs_you', d: 'blocked' }, null)).toBe('c')
+  test('picks the most urgent: a conflict, then work ready to land', () => {
     expect(nextAttentionSession(order, { a: 'working', b: 'ready', c: 'conflict', d: 'unknown' }, null)).toBe('c')
     expect(nextAttentionSession(order, { a: 'ready', b: 'working' }, null)).toBe('a')
   })
   test('pressing again cycles through sessions of the same urgency', () => {
-    const att = { a: 'needs_you', b: 'working', c: 'needs_you', d: 'needs_you' } as const
+    const att = { a: 'conflict', b: 'working', c: 'conflict', d: 'conflict' } as const
     expect(nextAttentionSession(order, att, 'a')).toBe('c')
     expect(nextAttentionSession(order, att, 'c')).toBe('d')
     expect(nextAttentionSession(order, att, 'd')).toBe('a')
@@ -40,7 +39,7 @@ describe('findFileLinks (Cmd+click)', () => {
 })
 
 describe('quick picker names', () => {
-  test('suggests the first free agent-n name', () => {
+  test('suggests the first free <prefix>-n name', () => {
     expect(suggestSessionName('codex', ['codex-1', 'codex-2', 'claude-1'])).toBe('codex-3')
     expect(suggestSessionName('claude', [])).toBe('claude-1')
   })

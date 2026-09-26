@@ -2,7 +2,6 @@ import { useCallback, useRef, useState } from 'preact/hooks'
 import { useDismiss } from './useDismiss'
 import type { ActivityItem } from '../../../../src/domain/activity.js'
 import type { ListedSession } from '../host/cockpit-api'
-import { tierCoverageSentence } from '../../../../src/adapters/coverage.js'
 import { formatRailMeta, isSessionRunning } from '../lib/sessions'
 import { attentionLabel, type AttentionKind } from '../lib/attention'
 import { ACTIVITY_BADGE, ACTIVITY_LABEL } from '../lib/activity'
@@ -163,15 +162,10 @@ export function AgentRail({
                       ) : null}
                       {session.name}
                     </span>
-                    {session.agentKind ? (
-                      <span class="cockpit-muted">{session.agentKind}</span>
-                    ) : null}
-                    {meta ? (
-                      <span class="cockpit-muted" title={tierCoverageSentence(session.enforcementTier ?? '')}>{meta}</span>
-                    ) : null}
+                    {meta ? <span class="cockpit-muted">{meta}</span> : null}
                     {session.latestWords ? (
-                      // What the agent last said: tells you whether it needs you without
-                      // opening its pane.
+                      // What an agent last said in this worktree: whether it needs you,
+                      // without opening its pane.
                       <span class="cockpit-rail__words" title={session.latestWords}>
                         “{session.latestWords}”
                       </span>

@@ -1304,3 +1304,20 @@ body,
 }
 
 .cockpit-command__hint { margin: 0; font-size: var(--cw-fs-micro); }
+
+.cockpit-launch__start {
+  padding: var(--cw-control-pad-y) var(--cw-space-3);
+  background: var(--cw-accent);
+  border: none;
+  border-radius: var(--cw-radius-sm);
+  color: var(--cw-surface);
+  font: inherit;
+  font-size: var(--cw-fs-sm);
+  cursor: pointer;
+}
+
+.cockpit-launch__start:disabled {
+  background: var(--cw-surface-control);
+  color: var(--cw-text-dim);
+  cursor: default;
+}

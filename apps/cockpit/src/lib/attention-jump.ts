@@ -1,12 +1,12 @@
 import type { AttentionKind } from './attention'
 
-/** Most urgent first. `working` and `unknown` never ask for you. */
-const URGENCY: Partial<Record<AttentionKind, number>> = { needs_you: 0, blocked: 1, conflict: 2, ready: 3 }
+/** Most urgent first: a conflict to resolve, then work ready to land. */
+const URGENCY: Partial<Record<AttentionKind, number>> = { conflict: 0, ready: 1 }
 
 /**
  * The session ⌘⇧A jumps to: the most urgent one, and on a repeat press the next of
- * the same urgency after the one already focused, so every waiting agent is one key
- * away. Null when nothing needs you.
+ * the same urgency after the one already focused, so each is one key away. Null when
+ * nothing needs you.
  */
 export function nextAttentionSession(
   order: ReadonlyArray<{ id: string }>,

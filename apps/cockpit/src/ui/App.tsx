@@ -1,23 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { ActivityFeed, activityFromEvent, type ActivityItem } from '../../../../src/domain/activity.js'
-import { cockpitApi, type AgentOption, type ListedSession, type TerminalInfo } from '../host/cockpit-api'
+import { cockpitApi, type ListedSession, type TerminalInfo } from '../host/cockpit-api'
 import { nextAttentionSession } from '../lib/attention-jump'
 import { QuickPicker, type NewSessionOptions } from './QuickPicker'
-import { LaunchLine } from './LaunchLine'
+import { StoppedBar } from './StoppedBar'
 import { ConfirmDialog, type ConfirmRequest } from './ConfirmDialog'
 import { ChangesPane } from './ChangesPane'
 import { CommandBar } from './CommandBar'
-import type { Command } from '../lib/commands'
-import { launchLineFor, parseLaunchLine, rememberLine } from '../lib/launch-line'
+import { rememberLine, type Command } from '../lib/commands'
 import { QuickOpen } from './QuickOpen'
 import { FilePane } from './FilePane'
 import { BrowserPane } from './BrowserPane'
 import { SettingsPanel, type UserSettings } from './SettingsPanel'
 import { readColors, writeColors, type SessionColor } from '../lib/colors'
 import {
-  blockedSessionFromEvent,
   deriveAttention,
-  nextBlockedNames,
   parseLandabilityByName,
   type AttentionKind,
   type Landability,
@@ -93,15 +90,11 @@ export function App() {
     () => new Map(),
   )
   const [converge, setConverge] = useState<ConvergeStatus>(EMPTY_CONVERGE)
-  const [blockedNames, setBlockedNames] = useState<ReadonlySet<string>>(() => new Set())
   const [landBusy, setLandBusy] = useState(false)
   const [landMessage, setLandMessage] = useState<string | null>(null)
   /** Non-null while the ⌘T picker is open. */
-  const [pickerAgents, setPickerAgents] = useState<AgentOption[] | null>(null)
+  const [pickerOpen, setPickerOpen] = useState(false)
   const [layouts, setLayouts] = useState<Record<string, SavedLayout>>({})
-  /** Each agent's launch command from Settings, for the launch line. */
-  const [agentCommands, setAgentCommands] = useState<Record<string, string>>({})
-  const [launchHistory, setLaunchHistory] = useState<Record<string, string[]>>(readLaunchHistory)
   /** Bumped on every successful load, so open Changes panes refetch after new work. */
   const [sessionsRevision, setSessionsRevision] = useState(0)
   const [convergeDetail, setConvergeDetail] = useState<ConvergeDetail>({ pairwise: [], empty: [], baseBranch: null })
@@ -109,15 +102,13 @@ export function App() {
   const [commandHistory, setCommandHistory] = useState<string[]>(() => readStringList(COMMAND_HISTORY_KEY))
   /** Commands first: the rail's buttons are an opt-in (Settings, or `buttons on`). */
   const [showButtons, setShowButtons] = useState<boolean>(() => readFlag(SHOW_BUTTONS_KEY))
-  const [enabledAgents, setEnabledAgents] = useState<string[]>([])
   const [confirmState, setConfirmState] = useState<(ConfirmRequest & { resolve: (ok: boolean) => void }) | null>(null)
   const [branches, setBranches] = useState<string[]>([])
   /** Non-null while ⌘P is open: the session whose worktree it searches. */
   const [quickOpen, setQuickOpen] = useState<{ sessionId: string; name: string; files: string[] } | null>(null)
   const [colors, setColors] = useState<Record<string, SessionColor>>({})
   /** Non-null while Settings is open. */
-  const [settingsOpen, setSettingsOpen] = useState<{ settings: UserSettings; agents: AgentOption[] } | null>(null)
-  const [usageRows, setUsageRows] = useState<{ date: string; agentKind: string; sessions: number; tokens: number; costUsd: number }[] | null>(null)
+  const [settingsOpen, setSettingsOpen] = useState<{ settings: UserSettings } | null>(null)
   const [paneAttachEpoch, setPaneAttachEpoch] = useState(0)
   const [paneAttachBumps, setPaneAttachBumps] = useState<Record<string, number>>({})
   const lastJournalRef = useRef('')
@@ -136,7 +127,7 @@ export function App() {
   const knownRef = useRef<{ sessionIds: Set<string>; terminalIds: Set<string> } | null>(null)
   const projectRootRef = useRef('')
 
-  const load = useCallback(async (opts?: { keepBlocked?: boolean; bumpAttach?: boolean }): Promise<void> => {
+  const load = useCallback(async (opts?: { bumpAttach?: boolean }): Promise<void> => {
     try {
       const loaded = await loadWorkspace(cockpitApi)
       if (cancelledRef.current) return
@@ -165,7 +156,6 @@ export function App() {
         void cockpitApi.getSettings().then((s) => {
           const saved = (s as { layouts?: unknown } | null)?.layouts
           if (saved && typeof saved === 'object') setLayouts(saved as Record<string, SavedLayout>)
-          setAgentCommands(commandsOf(s))
         }).catch(() => undefined)
       }
       setStage((prev) => {
@@ -182,17 +172,9 @@ export function App() {
       setLandabilityByName(parseLandabilityByName(loaded.converge))
       setStatus(stageStatusAfterLoad(loaded.sessions.length))
       setError(null)
-      try {
-        const u = (await cockpitApi.usageSummary({ groupBy: 'day+agent' })) as { summaries: { date: string; agentKind: string; sessions: number; tokens: number; costUsd: number }[] } | null
-        if (u && Array.isArray((u as { summaries: unknown[] }).summaries)) setUsageRows((u as { summaries: { date: string; agentKind: string; sessions: number; tokens: number; costUsd: number }[] }).summaries)
-        else setUsageRows([])
-      } catch { setUsageRows([]) }
       if (opts?.bumpAttach) {
         // daemon.gone: every pane's socket is dead, so every pane re-attaches.
         setPaneAttachEpoch((current) => current + 1)
-      }
-      if (!opts?.keepBlocked) {
-        setBlockedNames((prev) => nextBlockedNames(prev, { type: 'clear' }))
       }
     } catch (err) {
       if (cancelledRef.current) return
@@ -206,10 +188,7 @@ export function App() {
     void load()
     const unsub = subscribeCockpitHost(cockpitApi, {
       refresh: (source) => {
-        void load({
-          keepBlocked: source === 'event',
-          bumpAttach: shouldBumpPaneAttach(source),
-        })
+        void load({ bumpAttach: shouldBumpPaneAttach(source) })
       },
       onEvent: (payload) => {
         const item = activityFromEvent(payload)
@@ -217,9 +196,6 @@ export function App() {
           feedRef.current.push(item.kind, item.session)
           setActivity(feedRef.current.all())
         }
-        const name = blockedSessionFromEvent(payload)
-        if (!name) return
-        setBlockedNames((prev) => nextBlockedNames(prev, { type: 'blocked', name }))
       },
     })
     return () => {
@@ -243,7 +219,7 @@ export function App() {
   // keeps the listener registered once while always calling the current handlers.
   const commandRef = useRef<(command: string) => void>(() => undefined)
   commandRef.current = (command: string) => {
-    if (command === 'command-bar') void openCommandBar()
+    if (command === 'command-bar') openCommandBar()
     else if (command === 'new-agent') void handleNew()
     else if (command === 'jump-attention') jumpToAttention()
     else if (command === 'open-terminal') void handleTerminal()
@@ -281,11 +257,10 @@ export function App() {
       out[session.id] = deriveAttention({
         status: session.status ?? '',
         landability: landabilityByName.get(session.name),
-        recentBlocked: blockedNames.has(session.name),
       })
     }
     return out
-  }, [sessions, landabilityByName, blockedNames])
+  }, [sessions, landabilityByName])
 
   const focused = sessions.find((session) => session.id === focusedId) ?? null
   const focusedLandability = focused ? landabilityByName.get(focused.name) : undefined
@@ -321,9 +296,7 @@ export function App() {
   }
 
   async function runAction(action: () => Promise<unknown>): Promise<void> {
-    const actionError = await runCockpitAction(action, (partialFailure) =>
-      load({ keepBlocked: partialFailure }),
-    )
+    const actionError = await runCockpitAction(action, () => load())
     if (actionError) {
       setError(actionError)
       setStatus(stageStatusAfterFailure(sessionsRef.current.length))
@@ -331,64 +304,44 @@ export function App() {
   }
 
   async function handleNew(): Promise<void> {
-    // Fetched on open, not cached: an agent installed or enabled a minute ago should
-    // show up without a reload.
-    const [agents, branchList] = await Promise.all([
-      cockpitApi.listAgents().catch(() => [] as AgentOption[]),
-      cockpitApi.listBranches().catch(() => [] as string[]),
-    ])
-    setBranches(branchList)
-    setPickerAgents(agents)
+    setBranches(await cockpitApi.listBranches().catch(() => [] as string[]))
+    setPickerOpen(true)
   }
 
-  async function handlePickerCreate(agentId: string, name: string, options: NewSessionOptions): Promise<void> {
-    setPickerAgents(null)
+  /** A new session is a worktree and its shell, opened at once — like a tmux window. */
+  async function createAndOpen(name: string, options: NewSessionOptions): Promise<void> {
     await runAction(async () => {
-      // Created, not started: the pane opens on its launch line, where the user adds
-      // their own flags (--model, a bypass mode) before anything runs.
-      const created = await cockpitApi.newSession({ name, agent: agentId, ...options }) as { id?: string }
-      if (typeof created?.id === 'string') focusSession(created.id)
+      const created = await cockpitApi.newSession({ name, ...options }) as { id?: string }
+      if (typeof created?.id !== 'string') return
+      await cockpitApi.resumeSession(created.id)
+      await load()
+      focusSession(created.id)
     })
   }
 
-  /** Start `session` from a launch line; resolves to an error sentence, or null. */
-  async function launch(session: ListedSession, line: string): Promise<string | null> {
-    const command = agentCommands[session.agentKind ?? '']
-    let args: string[] | undefined
-    if (command !== undefined) {
-      const parsed = parseLaunchLine(line, command)
-      if (!parsed.ok) return parsed.error
-      args = parsed.args
-    }
-    try {
-      await cockpitApi.resumeSession(session.id, args)
-    } catch (err) {
-      return plainErrorMessage(err)
-    }
-    const kind = session.agentKind ?? ''
-    setLaunchHistory((all) => {
-      const next = { ...all, [kind]: rememberLine(all[kind] ?? [], line) }
-      writeLaunchHistory(next)
-      return next
-    })
-    await load()
-    return null
+  async function handlePickerCreate(name: string, options: NewSessionOptions): Promise<void> {
+    setPickerOpen(false)
+    await createAndOpen(name, options)
   }
 
+  /** What a stopped session's pane shows under its terminal: a way to reopen its shell. */
   function launchFor(sessionId: string, focused: boolean): preact.JSX.Element | null {
     const session = sessions.find((s) => s.id === sessionId)
     if (!session || session.status !== 'idle') return null
-    const command = agentCommands[session.agentKind ?? '']
-    // An agent Settings does not list (cursor's adapters) has no command to edit.
-    const initial = command === undefined ? '' : safeLaunchLine(command, session.launchArgs)
     return (
-      <LaunchLine
+      <StoppedBar
         key={session.id}
         sessionName={session.name}
-        initial={initial}
-        history={launchHistory[session.agentKind ?? ''] ?? []}
         focused={focused}
-        onLaunch={(line) => launch(session, line)}
+        onStart={async () => {
+          try {
+            await cockpitApi.resumeSession(session.id)
+          } catch (err) {
+            return plainErrorMessage(err)
+          }
+          await load()
+          return null
+        }}
       />
     )
   }
@@ -402,10 +355,7 @@ export function App() {
     else openSurface({ kind: 'changes', sessionId: target.id }, `${target.name} · changes`)
   }
 
-  async function openCommandBar(): Promise<void> {
-    // Fetched on open, like the picker: an agent enabled a minute ago should complete.
-    const agents = await cockpitApi.listAgents().catch(() => [] as AgentOption[])
-    setEnabledAgents(agents.filter((a) => a.enabled).map((a) => a.id))
+  function openCommandBar(): void {
     setCommandBarOpen(true)
   }
 
@@ -423,20 +373,15 @@ export function App() {
     })
     try {
       switch (command.kind) {
-        case 'new': {
-          const created = await cockpitApi.newSession({
-            name: command.name,
-            agent: command.agent,
+        case 'new':
+          setCommandBarOpen(false)
+          await createAndOpen(command.name, {
             worktree: !command.shared,
             ...(command.base === undefined ? {} : { base: command.base }),
-            ...(command.args === undefined ? {} : { args: command.args }),
-          }) as { id?: string }
-          await load()
-          if (typeof created?.id === 'string') focusSession(created.id)
+          })
           return null
-        }
         case 'start':
-          await cockpitApi.resumeSession(command.session, command.args)
+          await cockpitApi.resumeSession(command.session)
           await load()
           focusSession(command.session)
           return null
@@ -510,12 +455,12 @@ export function App() {
     return sessions.find((s) => s.id === (id ?? focusedId)) ?? null
   }
 
-  async function handleStart(targetId?: string, args?: string[]): Promise<void> {
+  async function handleStart(targetId?: string): Promise<void> {
     const target = sessionById(targetId)
     if (!target) return
     // The pane re-attaches from load(): the session's move to `running` is detected
     // there, the same way as when the CLI or another window starts it.
-    await runAction(() => cockpitApi.resumeSession(target.id, args))
+    await runAction(() => cockpitApi.resumeSession(target.id))
   }
 
   /** A shell for `sessionId`, split beside `at` (or in a tab of its own). */
@@ -563,8 +508,7 @@ export function App() {
 
   async function handleOpenSettings(): Promise<void> {
     await runAction(async () => {
-      const [settings, agents] = await Promise.all([cockpitApi.getSettings(), cockpitApi.listAgents()])
-      setSettingsOpen({ settings: settings as UserSettings, agents })
+      setSettingsOpen({ settings: await cockpitApi.getSettings() as UserSettings })
     })
   }
 
@@ -573,7 +517,6 @@ export function App() {
     try {
       const saved = await cockpitApi.setSettings(next) as UserSettings
       setLayouts((saved.layouts ?? {}) as Record<string, SavedLayout>)
-      setAgentCommands(commandsOf(saved))
       return null
     } catch (err) {
       // Only the daemon's sentence: not the IPC wrapper or the error class in front of it.
@@ -588,7 +531,7 @@ export function App() {
   }
 
   function handleClosePane(tabId: string, paneId: string, pane: PaneRef): void {
-    // Closing a shell's pane ends the shell; closing an agent's pane only hides it.
+    // Closing an extra shell's pane ends it; closing a session's pane only hides it.
     if (pane.kind === 'terminal') void cockpitApi.closeTerminal(pane.terminalId).catch(() => undefined)
     setStage((s) => closePane(s, tabId, paneId))
   }
@@ -615,8 +558,8 @@ export function App() {
     const ok = await askConfirm({
       title: `Kill ${target.name}?`,
       body: removeWorktree
-        ? 'The agent ends and its worktree and branch are deleted. Unlanded work is lost.'
-        : 'The agent ends and cannot be started again. Its worktree stays, so its work can still be landed.',
+        ? 'Its shell (and whatever runs in it) ends, and its worktree and branch are deleted. Unlanded work is lost.'
+        : 'Its shell (and whatever runs in it) ends and the session cannot be reopened. Its worktree stays, so its work can still be landed.',
       confirmLabel: removeWorktree ? 'Kill and delete' : 'Kill',
       danger: true,
     })
@@ -708,7 +651,6 @@ export function App() {
           context={{
             sessions: sessions.map((s) => ({ id: s.id, name: s.name, ...(s.status === undefined ? {} : { status: s.status }) })),
             focusedName: focused?.name ?? null,
-            agents: enabledAgents,
           }}
           history={commandHistory}
           onRun={runCommand}
@@ -722,26 +664,23 @@ export function App() {
           onCancel={() => { confirmState.resolve(false); setConfirmState(null) }}
         />
       ) : null}
-      {pickerAgents !== null ? (
+      {pickerOpen ? (
         <QuickPicker
-          agents={pickerAgents}
           takenNames={sessions.map((s) => s.name)}
           branches={branches}
-          onCreate={(agentId, name, options) => {
-            void handlePickerCreate(agentId, name, options)
+          onCreate={(name, options) => {
+            void handlePickerCreate(name, options)
           }}
-          onCancel={() => setPickerAgents(null)}
+          onCancel={() => setPickerOpen(false)}
         />
       ) : null}
       {settingsOpen !== null ? (
         <SettingsPanel
           initial={settingsOpen.settings}
-          agents={settingsOpen.agents}
           onSave={saveSettings}
           onClose={() => setSettingsOpen(null)}
           showButtons={showButtons}
           onShowButtons={setButtons}
-          usage={usageRows ?? []}
         />
       ) : null}
       {quickOpen !== null ? (
@@ -765,7 +704,7 @@ export function App() {
         onSelectActivity={selectActivity}
         header={workspaceSummary(projectRootRef.current, convergeDetail.baseBranch, sessions)}
         showButtons={showButtons}
-        onCommandBar={() => { void openCommandBar() }}
+        onCommandBar={openCommandBar}
         onChanges={() => openChanges()}
         onNew={() => {
           void handleNew()
@@ -893,49 +832,6 @@ export function App() {
       </footer>
     </div>
   )
-}
-
-function commandsOf(settings: unknown): Record<string, string> {
-  const agents = (settings as { agents?: unknown } | null)?.agents
-  const out: Record<string, string> = {}
-  if (!Array.isArray(agents)) return out
-  for (const a of agents as Array<{ id?: unknown; command?: unknown }>) {
-    if (typeof a.id === 'string' && typeof a.command === 'string') out[a.id] = a.command
-  }
-  return out
-}
-
-function safeLaunchLine(command: string, args: string[] | null | undefined): string {
-  try {
-    return launchLineFor(command, args)
-  } catch {
-    return command
-  }
-}
-
-const LAUNCH_HISTORY_KEY = 'cw.launch-history.v1'
-
-/** Per-viewer convenience only: losing it costs the ↑ recall, nothing else. */
-function readLaunchHistory(): Record<string, string[]> {
-  try {
-    const parsed: unknown = JSON.parse(localStorage.getItem(LAUNCH_HISTORY_KEY) ?? '{}')
-    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
-    const out: Record<string, string[]> = {}
-    for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
-      if (Array.isArray(v)) out[k] = v.filter((l): l is string => typeof l === 'string')
-    }
-    return out
-  } catch {
-    return {}
-  }
-}
-
-function writeLaunchHistory(history: Record<string, string[]>): void {
-  try {
-    localStorage.setItem(LAUNCH_HISTORY_KEY, JSON.stringify(history))
-  } catch {
-    // storage unavailable: history is a convenience
-  }
 }
 
 const COMMAND_HISTORY_KEY = 'cw.command-history.v1'

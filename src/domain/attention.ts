@@ -1,10 +1,8 @@
-export type AttentionKind = 'working' | 'needs_you' | 'blocked' | 'ready' | 'unknown' | 'conflict'
+export type AttentionKind = 'working' | 'ready' | 'unknown' | 'conflict'
 export type Landability = 'ready' | 'unknown' | 'blocked'
-export type DeriveAttentionInput = { status: string; landability?: Landability; recentBlocked?: boolean }
+export type DeriveAttentionInput = { status: string; landability?: Landability }
 const NOT_RUNNING = new Set(['idle', 'dead', 'landed'])
 export function deriveAttention(input: DeriveAttentionInput): AttentionKind {
-  if (input.recentBlocked) return 'blocked'
-  if (input.status === 'waiting') return 'needs_you'
   // A stopped session keeps its landability: stopping is how finished work waits to
   // land, and hiding a conflict there hid the one signal worth acting on. The label
   // (attentionLabel) says "stopped · …", so a green badge never reads as "running".
@@ -21,20 +19,9 @@ export function attentionLabel(kind: AttentionKind, status: string): string {
     if (kind === 'ready') return `${state} · ready to land`
     if (kind === 'unknown') return state
   }
-  return kind === 'needs_you' ? 'needs you' : kind
-}
-export function blockedSessionFromEvent(payload: unknown): string | null {
-  const record = asRecord(payload)
-  if (record.kind !== 'blocked') return null
-  return typeof record.session === 'string' && record.session.length > 0 ? record.session : null
-}
-export type BlockedNamesAction = { type: 'clear' } | { type: 'blocked'; name: string }
-export function nextBlockedNames(current: ReadonlySet<string>, action: BlockedNamesAction): ReadonlySet<string> {
-  if (action.type === 'clear') return new Set()
-  if (current.has(action.name)) return current
-  const next = new Set(current)
-  next.add(action.name)
-  return next
+  // `working` meant an agent at work; a session is now a shell, and all crossweave
+  // knows is that it is open.
+  return kind === 'working' ? 'running' : kind
 }
 export function parseLandabilityByName(value: unknown): Map<string, Landability> {
   const map = new Map<string, Landability>()

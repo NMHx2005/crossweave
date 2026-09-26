@@ -14,7 +14,7 @@ const MAX_ITEMS = 50;
  * same workspace has its own idea of what it has seen, and a reload legitimately starts
  * from nothing. That is why this class is in-memory and why it is not in the DB.
  */
-export type ActivityKind = 'blocked' | 'needs_you' | 'landed' | 'land_failed';
+export type ActivityKind = 'landed' | 'land_failed';
 
 export interface ActivityItem {
   kind: ActivityKind;
@@ -48,22 +48,15 @@ export class ActivityFeed {
  * The one parser for the payloads that feed this list.
  *
  * These are `tui.event` payloads — `NotifyEvent` from src/notify/dispatcher.ts, the same
- * objects the desktop notification and the TUI's own feed line are formatted from. The
- * cockpit already parses that shape once for the rail badge
- * (`blockedSessionFromEvent`); this is a second consumer of the same shape, not a second
- * shape.
- *
- * `collision` and `convergence` name TWO sessions and describe a pair, so they are
- * deliberately not items: an item is something ONE session needs a human for, and the
- * rail badge already carries the collision state. `needs_you` has no producer until
- * something writes `waiting` (see src/db/repositories/session.ts) — the kind exists, and
- * nothing in the UI presents an event as producing it.
+ * objects the desktop notification and the TUI's own feed line are formatted from.
+ * A land (or a failed one) is an item; `convergence` names two sessions and describes
+ * a pair, so it is deliberately not — an item is something ONE session needs a human
+ * for, and the rail badge already carries the pair's conflict.
  */
 export function activityFromEvent(payload: unknown): { kind: ActivityKind; session: string } | null {
   if (typeof payload !== 'object' || payload === null) return null;
   const record = payload as { kind?: unknown; session?: unknown; ok?: unknown };
   if (typeof record.session !== 'string' || record.session === '') return null;
-  if (record.kind === 'blocked') return { kind: 'blocked', session: record.session };
   if (record.kind === 'land') {
     return { kind: record.ok === false ? 'land_failed' : 'landed', session: record.session };
   }

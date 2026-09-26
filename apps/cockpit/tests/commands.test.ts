@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { COMMANDS, completions, parseCommand, type CommandContext } from '../src/lib/commands'
+import { COMMANDS, completions, parseCommand, rememberLine, type CommandContext } from '../src/lib/commands'
 
 const ctx: CommandContext = {
   sessions: [
@@ -7,7 +7,6 @@ const ctx: CommandContext = {
     { id: 's2', name: 'auth-refactor', status: 'running' },
   ],
   focusedName: 'api',
-  agents: ['claude', 'codex'],
 }
 
 const ok = (line: string) => {
@@ -22,25 +21,23 @@ const err = (line: string) => {
 }
 
 describe('parseCommand', () => {
-  test('new: a name, an optional agent, a base, shared, and agent flags after --', () => {
-    expect(ok('new web')).toEqual({ kind: 'new', name: 'web', agent: 'claude', shared: false })
-    expect(ok('new web codex --base main -- --full-auto -c x=1'))
-      .toEqual({ kind: 'new', name: 'web', agent: 'codex', base: 'main', shared: false, args: ['--full-auto', '-c', 'x=1'] })
+  // A session is a worktree and a shell: no agent to name, no flags to pass.
+  test('new: a name, a base, shared', () => {
+    expect(ok('new web')).toEqual({ kind: 'new', name: 'web', shared: false })
+    expect(ok('new web --base main')).toEqual({ kind: 'new', name: 'web', base: 'main', shared: false })
     expect(ok('new web --shared')).toMatchObject({ shared: true })
   })
 
-  test('new: refuses a taken or invalid name and an unknown agent', () => {
+  test('new: refuses a taken or invalid name, and anything extra', () => {
     expect(err('new api')).toMatch(/exists/)
     expect(err('new "bad name"')).toMatch(/name/i)
-    expect(err('new web gemini')).toMatch(/gemini/)
+    expect(err('new web claude')).toMatch(/too many/i)
     expect(err('new')).toMatch(/usage/i)
   })
 
   test('session verbs default to the focused session and resolve a named one', () => {
     expect(ok('start')).toEqual({ kind: 'start', session: 's1' })
-    expect(ok('start api -- --model opus')).toEqual({ kind: 'start', session: 's1', args: ['--model', 'opus'] })
-    // A trailing -- is "start with no flags", not "reuse the remembered ones".
-    expect(ok('start api --')).toEqual({ kind: 'start', session: 's1', args: [] })
+    expect(ok('start api')).toEqual({ kind: 'start', session: 's1' })
     expect(ok('stop auth-refactor')).toEqual({ kind: 'stop', session: 's2' })
     expect(ok('kill api --rm')).toEqual({ kind: 'kill', session: 's1', removeWorktree: true })
     expect(ok('land')).toEqual({ kind: 'land', session: 's1' })
@@ -87,11 +84,16 @@ describe('completions', () => {
     expect(completions('land ', ctx).map((x) => x.value)).toEqual(['land api ', 'land auth-refactor '])
   })
 
-  test('new completes its agent after the name', () => {
-    expect(completions('new web c', ctx).map((x) => x.value)).toEqual(['new web claude ', 'new web codex '])
-  })
-
   test('every documented verb parses in its simplest form', () => {
     for (const spec of COMMANDS) expect(spec.usage.startsWith(spec.name)).toBe(true)
+  })
+})
+
+describe('rememberLine', () => {
+  test('newest first, no duplicates, bounded', () => {
+    expect(rememberLine(['b', 'a'], 'a')).toEqual(['a', 'b'])
+    expect(rememberLine([], '  ')).toEqual([])
+    const many = Array.from({ length: 30 }, (_, i) => `l${i}`)
+    expect(rememberLine(many, 'new')).toHaveLength(20)
   })
 })

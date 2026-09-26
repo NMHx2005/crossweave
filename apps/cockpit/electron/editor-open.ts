@@ -1,6 +1,7 @@
 import { existsSync, realpathSync, statSync } from 'node:fs'
 import { isAbsolute, join, relative, sep } from 'node:path'
-import { splitCommand, type EditorSetting } from '../../../src/core/settings.js'
+import { splitCommand } from '../../../src/core/argv.js'
+import type { EditorSetting } from '../../../src/core/settings.js'
 
 export type EditorLaunch = { kind: 'url'; url: string } | { kind: 'exec'; argv: string[] }
 

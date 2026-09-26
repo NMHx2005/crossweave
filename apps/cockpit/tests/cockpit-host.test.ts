@@ -1,5 +1,4 @@
 import { describe, expect, test } from 'bun:test'
-import { blockedSessionFromEvent } from '../src/lib/attention'
 import {
   loadWorkspace,
   parseJournalTabs,
@@ -182,7 +181,7 @@ describe('stageStatusAfterFailure', () => {
 })
 
 describe('subscribeCockpitHost tui.event', () => {
-  test('blocked tui.event still refreshes without dropping the host subscription', async () => {
+  test('a tui.event still refreshes without dropping the host subscription', async () => {
     const { api, calls, listeners } = fakeApi()
     const events: unknown[] = []
     let refreshDone: Promise<unknown> = Promise.resolve()
@@ -191,16 +190,16 @@ describe('subscribeCockpitHost tui.event', () => {
         refreshDone = loadWorkspace(api)
       },
       onEvent: (payload) => {
-        events.push(blockedSessionFromEvent(payload))
+        events.push((payload as { session?: unknown }).session)
       },
     })
-    listeners.event?.({ kind: 'blocked', session: 'auth' })
+    listeners.event?.({ kind: 'land', session: 'auth', ok: true })
     await refreshDone
     expect(events).toEqual(['auth'])
     expect(calls).toEqual(['ensure', 'list', 'converge', 'journal'])
   })
 
-  test('invalidate and gone are distinct from event so blocked names can be cleared', () => {
+  test('invalidate, event and gone reach refresh as distinct sources', () => {
     const { api, listeners } = fakeApi()
     const sources: string[] = []
     subscribeCockpitHost(api, {
@@ -209,7 +208,7 @@ describe('subscribeCockpitHost tui.event', () => {
       },
     })
     listeners.invalidate?.({})
-    listeners.event?.({ kind: 'blocked', session: 'auth' })
+    listeners.event?.({ kind: 'land', session: 'auth', ok: true })
     listeners.gone?.({})
     expect(sources).toEqual(['invalidate', 'event', 'gone'])
   })

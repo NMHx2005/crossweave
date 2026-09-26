@@ -21,16 +21,6 @@ export type TerminalInfo = {
   sessionName: string
 }
 
-export type AgentOption = {
-  id: string
-  label: string
-  enabled: boolean
-  builtin: boolean
-  tier: string
-  /** Whether its command resolves on the daemon's PATH. */
-  available: boolean
-}
-
 export function cockpitInvoke<T = unknown>(channel: CockpitChannel, payload?: unknown): Promise<T> {
   return window.cockpit.invoke(channel, payload) as Promise<T>
 }
@@ -47,15 +37,14 @@ export const cockpitApi = {
   listSessions(): Promise<ListedSession[]> {
     return cockpitInvoke('session.list').then(parseSessionList)
   },
-  newSession(payload: { name: string; agent: string; worktree?: boolean; base?: string; args?: string[] }): Promise<unknown> {
+  newSession(payload: { name: string; worktree?: boolean; base?: string }): Promise<unknown> {
     return cockpitInvoke('session.new', payload)
   },
   startSession(idOrName: string): Promise<unknown> {
     return cockpitInvoke('session.start', { idOrName })
   },
-  /** `args` replaces the session's remembered launch flags; omitted reuses them. */
-  resumeSession(idOrName: string, args?: string[]): Promise<unknown> {
-    return cockpitInvoke('session.resume', { idOrName, ...(args === undefined ? {} : { args }) })
+  resumeSession(idOrName: string): Promise<unknown> {
+    return cockpitInvoke('session.resume', { idOrName })
   },
   attachSession(idOrName: string): Promise<SessionAttachResult> {
     return cockpitInvoke('session.attach', { idOrName })
@@ -88,9 +77,6 @@ export const cockpitApi = {
   journalSet(openTabs: string[]): Promise<unknown> {
     return cockpitInvoke('journal.set', { openTabs })
   },
-  usageSummary(payload?: { groupBy?: string }): Promise<unknown> {
-    return cockpitInvoke('usage.summary', payload)
-  },
   openTerminal(idOrName: string): Promise<TerminalInfo> {
     return cockpitInvoke('terminal.open', { idOrName })
   },
@@ -114,9 +100,6 @@ export const cockpitApi = {
   },
   onTerminalExit(cb: (payload: unknown) => void): () => void {
     return cockpitListen('terminal.exit', cb)
-  },
-  listAgents(): Promise<AgentOption[]> {
-    return cockpitInvoke('agents.list')
   },
   getSettings(): Promise<unknown> {
     return cockpitInvoke('settings.get')

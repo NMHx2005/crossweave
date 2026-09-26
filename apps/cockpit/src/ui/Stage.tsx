@@ -15,7 +15,7 @@ export type StageProps = {
   error: string | null
   /** Try attaching the workspace again after a failure. */
   onRetry: () => void
-  /** What a session pane shows under its terminal while the agent is not running. */
+  /** What a session pane shows under its terminal while its shell is closed. */
   launchFor?: (sessionId: string, focused: boolean) => preact.JSX.Element | null
   /** Global re-attach epoch — daemon.gone replaces every pane's connection. */
   paneAttachEpoch?: number
@@ -130,7 +130,7 @@ export function Stage(props: StageProps) {
               <XtermPane
                 key={`${pane.sessionId}:${paneAttachEpoch}:${paneAttachBumps[pane.sessionId] ?? 0}`}
                 source={sessionSource(pane.sessionId, props.inApp)}
-                // The launch line takes the keyboard while there is no agent to type to.
+                // The stopped bar takes the keyboard while there is no shell to type to.
                 focused={focused && launch === null}
               />
               {launch}
@@ -286,7 +286,7 @@ export function Stage(props: StageProps) {
       ) : null}
       {status !== 'loading' && status !== 'error' && stage.tabs.length === 0 ? (
         <p class="cockpit-placeholder">
-          No open tabs. Press <strong>⌘T</strong> for a new agent, or pick a session in the rail.
+          No open tabs. Press <strong>⌘T</strong> for a new session, or pick one in the rail.
         </p>
       ) : null}
       {active ? <div class="cockpit-stage__body">{renderNode(active, active.root)}</div> : null}

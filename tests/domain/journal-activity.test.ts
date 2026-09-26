@@ -74,7 +74,7 @@ describe('journal', () => {
 describe('activity', () => {
   it('tracks unread and ack', () => {
     const feed = new ActivityFeed();
-    feed.push('blocked', 's1');
+    feed.push('land_failed', 's1');
     feed.push('landed', 's2');
     expect(feed.unread(5).length).toBe(2);
     feed.ack('s1');
@@ -84,7 +84,7 @@ describe('activity', () => {
 
   it('keeps the newest first and does not grow without bound', () => {
     const feed = new ActivityFeed();
-    for (let i = 0; i < 60; i++) feed.push('blocked', `s${i}`);
+    for (let i = 0; i < 60; i++) feed.push('landed', `s${i}`);
     expect(feed.all().length).toBe(50);
     expect(feed.all()[0]?.session).toBe('s59');
     expect(feed.unread(5).length).toBe(5);
@@ -93,9 +93,6 @@ describe('activity', () => {
 
 describe('activityFromEvent', () => {
   it('maps the tui.event payloads that have a producer', () => {
-    expect(
-      activityFromEvent({ kind: 'blocked', session: 'auth', path: 'a.ts', symbol: null, workspaceId: 'ws_1' }),
-    ).toEqual({ kind: 'blocked', session: 'auth' });
     expect(
       activityFromEvent({ kind: 'land', session: 'auth', ok: true, baseBranch: 'main', workspaceId: 'ws_1' }),
     ).toEqual({ kind: 'landed', session: 'auth' });

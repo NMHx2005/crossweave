@@ -7,7 +7,7 @@ import type { ActivityKind } from '../../../src/domain/activity.js'
 const cockpitRoot = fileURLToPath(new URL('..', import.meta.url))
 const css = readFileSync(`${cockpitRoot}src/ui/app.css`, 'utf8')
 
-const KINDS: ActivityKind[] = ['blocked', 'needs_you', 'landed', 'land_failed']
+const KINDS: ActivityKind[] = ['landed', 'land_failed']
 
 describe('activity rows', () => {
   test('every kind the feed can hold has a word and a badge', () => {

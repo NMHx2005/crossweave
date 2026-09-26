@@ -33,7 +33,7 @@ describe('agent shortcuts', () => {
   test('⌘K opens the command bar, ⌘T the agent picker, ⌘⇧A jumps to attention, from the menu', () => {
     const fired: string[] = []
     const menu = appMenuTemplate({ platform: 'darwin', openFolder: noop, recent: [], command: (c) => fired.push(c) })
-    const agent = menu.find((m) => m.label === 'Agent')!.submenu as Array<{ label: string; accelerator?: string; click?: () => void }>
+    const agent = menu.find((m) => m.label === 'Session')!.submenu as Array<{ label: string; accelerator?: string; click?: () => void }>
     expect(agent.map((i) => i.accelerator)).toEqual(['CmdOrCtrl+K', 'CmdOrCtrl+T', 'CmdOrCtrl+Shift+A', 'CmdOrCtrl+Shift+T'])
     for (const item of agent) item.click?.()
     expect(fired).toEqual(['command-bar', 'new-agent', 'jump-attention', 'open-terminal'])

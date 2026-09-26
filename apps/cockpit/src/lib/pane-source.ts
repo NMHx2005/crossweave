@@ -2,7 +2,7 @@ import { cockpitApi } from '../host/cockpit-api'
 import { decodeSessionData } from './session-data'
 
 /**
- * What an xterm pane is connected to: a session's agent, or a Terminal pane's shell.
+ * What an xterm pane is connected to: a session's own shell, or an extra Terminal pane's.
  * The pane itself (fit, replay-answer filtering, OSC 52, copy/paste) is the same for
  * both; only where bytes come from and go to differs.
  */

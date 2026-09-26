@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { ClaudePtyAdapter } from '../../../src/adapters/claude-pty.ts'
+import { argvAdapter } from '../../../tests/helpers/argv-adapter.ts'
 import type { SessionRow } from '../../../src/db/repositories/session.ts'
 import { SessionRuntime } from '../../../src/daemon/runtime.ts'
 import { encodeSessionData } from '../electron/daemon-bridge'
@@ -67,41 +67,22 @@ describe('parseSessionList', () => {
     ])
   })
 
-  test('keeps enforcementTier and spend when session.list already has them', () => {
+  test('keeps the branch and the dev port; ignores fields the rail no longer shows', () => {
     expect(
       parseSessionList([
-        {
-          id: 's1',
-          name: 'alpha',
-          status: 'running',
-          agentKind: 'claude',
-          enforcementTier: 'T2',
-          costSpentUsd: 1.5,
-          tokenSpent: 2000,
-        },
+        { id: 's1', name: 'alpha', status: 'running', branch: 'cw/alpha', leases: { portBase: 43010 }, enforcementTier: 'T2' },
+        { id: 's2', name: 'shared', status: 'idle', branch: null, worktreePath: null },
       ]),
     ).toEqual([
-      {
-        id: 's1',
-        name: 'alpha',
-        status: 'running',
-        agentKind: 'claude',
-        enforcementTier: 'T2',
-        costSpentUsd: 1.5,
-        tokenSpent: 2000,
-      },
+      { id: 's1', name: 'alpha', status: 'running', branch: 'cw/alpha', portBase: 43010 },
+      { id: 's2', name: 'shared', status: 'idle', branch: null, worktreePath: null },
     ])
   })
 
-  test('formatRailMeta shows what the tier covers, not just the tier, plus spend', () => {
+  test('formatRailMeta says where the session works and its port while running', () => {
     expect(formatRailMeta({ id: 's1', name: 'alpha' })).toBeUndefined()
-    // A bare `T2` in the rail implies the session is contained, which is false for
-    // anything outside Edit|Write — see
-    // docs/superpowers/specs/2026-09-17-tier-coverage-honesty-design.md §3.5.
-    expect(
-      formatRailMeta({ id: 's1', name: 'alpha', enforcementTier: 'T2', costSpentUsd: 1.5 }),
-    ).toBe('guarded · edits only · $1.50')
-    expect(formatRailMeta({ id: 's2', name: 'b', enforcementTier: 'T3' })).toBe('advisory')
+    expect(formatRailMeta({ id: 's1', name: 'alpha', branch: 'cw/alpha', portBase: 43010 })).toBe('cw/alpha · port 43010')
+    expect(formatRailMeta({ id: 's2', name: 'b', branch: null })).toBe('shared checkout')
   })
 
   test('empty or non-array is empty', () => {
@@ -150,7 +131,7 @@ describe('fidelity attach path', () => {
     const seen: string[] = []
     runtime.start(
       row,
-      new ClaudePtyAdapter('sh', ['-c', 'printf "\\033[2K\\033[1G⠋ Thinking…"; sleep 2']),
+      argvAdapter(['sh', '-c', 'printf "\\033[2K\\033[1G⠋ Thinking…"; sleep 2']),
     )
     runtime.subscribe(row.id, row.name, collectDecoded(seen))
     const deadline = Date.now() + 5000
@@ -175,29 +156,16 @@ describe('fidelity attach path', () => {
   })
 })
 
-describe('parseSessionList launch flags', () => {
-  test('keeps a flags list, keeps null (never given), drops anything malformed', () => {
-    const [given, never, bad] = parseSessionList([
-      { id: 's1', name: 'a', launchArgs: ['--model', 'opus'] },
-      { id: 's2', name: 'b', launchArgs: null },
-      { id: 's3', name: 'c', launchArgs: ['--x', 3] },
-    ])
-    expect(given?.launchArgs).toEqual(['--model', 'opus'])
-    expect(never?.launchArgs).toBeNull()
-    expect(bad?.launchArgs).toBeUndefined()
-  })
-})
-
 describe('workspaceSummary', () => {
-  test('names the workspace, its base branch, what runs, and the spend', () => {
+  test('names the workspace, its base branch, and how many shells are open', () => {
     const sessions = [
-      { id: 'a', name: 'a', status: 'running', costSpentUsd: 0.25 },
-      { id: 'b', name: 'b', status: 'idle', costSpentUsd: 0.125 },
+      { id: 'a', name: 'a', status: 'running' },
+      { id: 'b', name: 'b', status: 'idle' },
       { id: 'c', name: 'c', status: 'waiting' },
       { id: 'd', name: 'd', status: 'dead' },
     ]
     expect(workspaceSummary('/Users/me/work/shop/', 'main', sessions))
-      .toEqual({ title: 'shop', meta: 'main · 2 of 3 running · ≈$0.38' })
-    expect(workspaceSummary('/r', null, []).meta).toBe('detached HEAD · 0 of 0 running · ≈$0.00')
+      .toEqual({ title: 'shop', meta: 'main · 2 of 3 running' })
+    expect(workspaceSummary('/r', null, []).meta).toBe('detached HEAD · 0 of 0 running')
   })
 })

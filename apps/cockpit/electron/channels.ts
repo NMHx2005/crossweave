@@ -15,9 +15,7 @@ export const COCKPIT_CHANNELS = [
   'land.session',
   'journal.get',
   'journal.set',
-  'usage.summary', 'workspace.openFile', 'workspace.listFiles',
-  'session.wait',
-  'session.unwait',
+  'workspace.openFile', 'workspace.listFiles',
   // The Terminal pane: a shell the daemon runs in a session's worktree.
   'terminal.open',
   'terminal.list',
@@ -25,8 +23,7 @@ export const COCKPIT_CHANNELS = [
   'terminal.input',
   'terminal.resize',
   'terminal.close',
-  // The agent catalog and per-user settings (daemon RPCs).
-  'agents.list',
+  // Per-user settings (daemon RPCs).
   'settings.get',
   'settings.set',
   // Files in a session's worktree (the in-app editor) and branches to start from.

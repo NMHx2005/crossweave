@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
-import type { AgentOption } from '../host/cockpit-api'
 import { sessionNameError, suggestSessionName } from '../lib/quick-picker'
 
 export type NewSessionOptions = {
@@ -10,31 +9,19 @@ export type NewSessionOptions = {
 }
 
 export type QuickPickerProps = {
-  agents: AgentOption[]
   takenNames: string[]
   /** Branches a worktree can start from, most recent first. */
   branches: string[]
-  onCreate: (agentId: string, name: string, options: NewSessionOptions) => void
+  onCreate: (name: string, options: NewSessionOptions) => void
   onCancel: () => void
 }
 
-/** The honest tier label: only a hooked agent (T1/T2) can be stopped before a write. */
-function tierNote(tier: string): string {
-  return tier === 'T1' || tier === 'T2' ? 'guarded' : 'advisory'
-}
-
 /**
- * ⌘T: pick an agent, name the session, Enter. Replaces two window.prompt boxes. Agents
- * turned off in Settings are left out; ones whose command is not installed are shown
- * but cannot be picked, so a missing CLI is visible rather than a failed start.
+ * ⌘T: name a session, choose where its worktree starts, Enter. It opens as a shell in
+ * that worktree; what runs there (`cx`, `claude …`) is the user's to type.
  */
-export function QuickPicker({ agents, takenNames, branches, onCreate, onCancel }: QuickPickerProps) {
-  const usable = agents.filter((a) => a.enabled)
-  const firstAvailable = Math.max(usable.findIndex((a) => a.available), 0)
-  const [index, setIndex] = useState(firstAvailable)
-  const selected = usable[index]
-  const [name, setName] = useState(selected ? suggestSessionName(selected.id, takenNames) : '')
-  const [nameTouched, setNameTouched] = useState(false)
+export function QuickPicker({ takenNames, branches, onCreate, onCancel }: QuickPickerProps) {
+  const [name, setName] = useState(() => suggestSessionName('session', takenNames))
   const [base, setBase] = useState('')
   const [isolated, setIsolated] = useState(true)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -44,37 +31,19 @@ export function QuickPicker({ agents, takenNames, branches, onCreate, onCancel }
     inputRef.current?.select()
   }, [])
 
-  const choose = (i: number): void => {
-    setIndex(i)
-    const agent = usable[i]
-    if (agent && !nameTouched) setName(suggestSessionName(agent.id, takenNames))
-  }
-  const error = selected === undefined
-    ? 'No agent is enabled — turn one on in Settings'
-    : !selected.available
-      ? `${selected.label} is not installed on this machine`
-      : sessionNameError(name) ?? (takenNames.includes(name) ? 'A session with this name exists' : null)
+  const error = sessionNameError(name) ?? (takenNames.includes(name) ? 'A session with this name exists' : null)
 
   const submit = (): void => {
-    if (error === null && selected) {
-      onCreate(selected.id, name, { worktree: isolated, ...(isolated && base !== '' ? { base } : {}) })
-    }
+    if (error === null) onCreate(name, { worktree: isolated, ...(isolated && base !== '' ? { base } : {}) })
   }
 
   const onKeyDown = (e: KeyboardEvent): void => {
-    // A composing IME (Vietnamese Telex, …) owns Enter and the arrows until it commits.
+    // A composing IME (Vietnamese Telex, …) owns Enter until it commits.
     if (e.isComposing) return
-    const pressed = e.key
-    if (pressed === 'Escape') {
+    if (e.key === 'Escape') {
       e.preventDefault()
       onCancel()
-    } else if (pressed === 'ArrowDown') {
-      e.preventDefault()
-      choose(Math.min(index + 1, usable.length - 1))
-    } else if (pressed === 'ArrowUp') {
-      e.preventDefault()
-      choose(Math.max(index - 1, 0))
-    } else if (pressed === 'Enter') {
+    } else if (e.key === 'Enter') {
       e.preventDefault()
       submit()
     }
@@ -85,38 +54,17 @@ export function QuickPicker({ agents, takenNames, branches, onCreate, onCancel }
       <div
         class="cockpit-picker"
         role="dialog"
-        aria-label="New agent"
+        aria-label="New session"
         onClick={(e) => e.stopPropagation()}
         onKeyDown={onKeyDown}
       >
-        <h2 class="cockpit-picker__title">New agent</h2>
-        <ul class="cockpit-picker__list" role="listbox" aria-label="Agent">
-          {usable.map((agent, i) => (
-            <li key={agent.id}>
-              <button
-                type="button"
-                role="option"
-                aria-selected={i === index}
-                class={i === index ? 'cockpit-picker__agent is-selected' : 'cockpit-picker__agent'}
-                onClick={() => choose(i)}
-              >
-                <span>{agent.label}</span>
-                <span class="cockpit-muted">
-                  {agent.available ? tierNote(agent.tier) : 'not installed'}
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
+        <h2 class="cockpit-picker__title">New session</h2>
         <label class="cockpit-picker__field">
-          <span class="cockpit-muted">Session name</span>
+          <span class="cockpit-muted">Name</span>
           <input
             ref={inputRef}
             value={name}
-            onInput={(e) => {
-              setNameTouched(true)
-              setName((e.target as HTMLInputElement).value)
-            }}
+            onInput={(e) => setName((e.target as HTMLInputElement).value)}
             spellcheck={false}
           />
         </label>
@@ -135,7 +83,7 @@ export function QuickPicker({ agents, takenNames, branches, onCreate, onCancel }
         <div class="cockpit-picker__actions">
           <button type="button" onClick={onCancel}>Cancel</button>
           <button type="button" class="is-primary" disabled={error !== null} onClick={submit}>
-            Create
+            Create and open shell
           </button>
         </div>
       </div>

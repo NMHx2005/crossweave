@@ -40,10 +40,10 @@ export function appMenuTemplate(deps: AppMenuDeps): MenuItemConstructorOptions[]
     {
       // Accelerators live in the menu, not a keydown listener: a focused terminal pane
       // swallows keystrokes, and the menu both wins over it and shows the shortcut.
-      label: 'Agent',
+      label: 'Session',
       submenu: [
         { label: 'Command…', accelerator: 'CmdOrCtrl+K', click: () => deps.command('command-bar') },
-        { label: 'New Agent…', accelerator: 'CmdOrCtrl+T', click: () => deps.command('new-agent') },
+        { label: 'New Session…', accelerator: 'CmdOrCtrl+T', click: () => deps.command('new-agent') },
         { label: 'Jump to Attention', accelerator: 'CmdOrCtrl+Shift+A', click: () => deps.command('jump-attention') },
         { label: 'Open Terminal', accelerator: 'CmdOrCtrl+Shift+T', click: () => deps.command('open-terminal') },
       ],

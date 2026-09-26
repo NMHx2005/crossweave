@@ -1,9 +1,7 @@
 import { useState } from 'preact/hooks'
-import type { AgentOption } from '../host/cockpit-api'
 
-export type AgentSetting = { id: string; label: string; command: string; enabled: boolean; builtin: boolean }
 export type EditorSetting = { kind: 'vscode' | 'cursor' | 'zed' | 'custom' | 'cockpit'; command?: string }
-export type UserSettings = { agents: AgentSetting[]; editor: EditorSetting; layouts: Record<string, unknown> }
+export type UserSettings = { editor: EditorSetting; layouts: Record<string, unknown> }
 
 const EDITORS: Array<{ kind: EditorSetting['kind']; label: string }> = [
   { kind: 'vscode', label: 'VS Code' },
@@ -14,45 +12,23 @@ const EDITORS: Array<{ kind: EditorSetting['kind']; label: string }> = [
 ]
 
 /**
- * Settings (⌘,): which agents exist and how they launch, and which editor Cmd+click
- * opens. Saved per user by the daemon, which validates everything again — this form
- * only shows its answer. A command is split into arguments, never run through a shell.
+ * Settings (⌘,): which editor Cmd+click opens, and this viewer's cockpit preferences.
+ * Saved per user by the daemon, which validates everything again — this form only
+ * shows its answer. A custom editor command is split into arguments, never run
+ * through a shell.
  */
-export type UsageRow = { date: string; agentKind: string; sessions: number; tokens: number; costUsd: number }
-
-/** The usage table shows recent days; older rows are what `cw usage` is for. */
-const USAGE_ROWS_SHOWN = 14
-
-export function SettingsPanel({ initial, agents, onSave, onClose, showButtons, onShowButtons, usage }: {
+export function SettingsPanel({ initial, onSave, onClose, showButtons, onShowButtons }: {
   initial: UserSettings
-  /** Tier and availability, from agents.list. */
-  agents: AgentOption[]
   onSave: (next: UserSettings) => Promise<string | null>
   onClose: () => void
   /** A cockpit preference of this viewer's, applied at once (not part of Save). */
   showButtons: boolean
   onShowButtons: (on: boolean) => void
-  usage: UsageRow[]
 }) {
   const [draft, setDraft] = useState<UserSettings>(initial)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
-  const [newAgent, setNewAgent] = useState({ id: '', label: '', command: '' })
-  const info = new Map(agents.map((a) => [a.id, a]))
 
-  const updateAgent = (id: string, patch: Partial<AgentSetting>): void => {
-    setDraft({ ...draft, agents: draft.agents.map((a) => (a.id === id ? { ...a, ...patch } : a)) })
-  }
-  const addAgent = (): void => {
-    const id = newAgent.id.trim()
-    if (id === '' || newAgent.command.trim() === '') {
-      setError('A new agent needs an id and a command')
-      return
-    }
-    setDraft({ ...draft, agents: [...draft.agents, { id, label: newAgent.label.trim() || id, command: newAgent.command.trim(), enabled: true, builtin: false }] })
-    setNewAgent({ id: '', label: '', command: '' })
-    setError(null)
-  }
   const save = async (): Promise<void> => {
     setSaving(true)
     const problem = await onSave(draft)
@@ -71,52 +47,6 @@ export function SettingsPanel({ initial, agents, onSave, onClose, showButtons, o
         onKeyDown={(e) => { if (e.key === 'Escape') onClose() }}
       >
         <h2 class="cockpit-picker__title">Settings</h2>
-
-        <h3 class="cockpit-settings__heading">Agents</h3>
-        <p class="cockpit-muted">
-          Commands run as typed, split into arguments (no shell). Only Claude Code is guarded; every
-          other agent is advisory.
-        </p>
-        <div class="cockpit-settings__agents">
-          {draft.agents.map((agent) => {
-            const meta = info.get(agent.id)
-            return (
-              <div class="cockpit-settings__agent" key={agent.id}>
-                <label class="cockpit-settings__toggle">
-                  <input
-                    type="checkbox"
-                    checked={agent.enabled}
-                    onChange={(e) => updateAgent(agent.id, { enabled: (e.target as HTMLInputElement).checked })}
-                  />
-                  <span>{agent.label}</span>
-                </label>
-                <span class="cockpit-muted">
-                  {meta === undefined ? 'custom' : meta.available ? (meta.tier === 'T2' || meta.tier === 'T1' ? 'guarded' : 'advisory') : 'not installed'}
-                </span>
-                <input
-                  class="cockpit-settings__command"
-                  value={agent.command}
-                  spellcheck={false}
-                  aria-label={`${agent.label} command`}
-                  onInput={(e) => updateAgent(agent.id, { command: (e.target as HTMLInputElement).value })}
-                />
-                {!agent.builtin ? (
-                  <button type="button" aria-label={`Remove ${agent.label}`}
-                    onClick={() => setDraft({ ...draft, agents: draft.agents.filter((a) => a.id !== agent.id) })}>×</button>
-                ) : <span />}
-              </div>
-            )
-          })}
-          <div class="cockpit-settings__agent">
-            <input placeholder="id" aria-label="New agent id" spellcheck={false} value={newAgent.id}
-              onInput={(e) => setNewAgent({ ...newAgent, id: (e.target as HTMLInputElement).value })} />
-            <input placeholder="Label" aria-label="New agent label" value={newAgent.label}
-              onInput={(e) => setNewAgent({ ...newAgent, label: (e.target as HTMLInputElement).value })} />
-            <input class="cockpit-settings__command" placeholder="command --and-args" aria-label="New agent command" spellcheck={false}
-              value={newAgent.command} onInput={(e) => setNewAgent({ ...newAgent, command: (e.target as HTMLInputElement).value })} />
-            <button type="button" onClick={addAgent}>Add</button>
-          </div>
-        </div>
 
         <h3 class="cockpit-settings__heading">Cmd+click opens files in</h3>
         <div class="cockpit-settings__editors" role="radiogroup" aria-label="Editor">
@@ -150,24 +80,6 @@ export function SettingsPanel({ initial, agents, onSave, onClose, showButtons, o
             onChange={(e) => onShowButtons((e.target as HTMLInputElement).checked)} />
           <span>Show action buttons in the rail (⌘K runs every action as a command either way)</span>
         </label>
-
-        {usage.length > 0 ? (
-          <>
-            <h3 class="cockpit-settings__heading">Usage — estimate, not billing</h3>
-            <table class="cockpit-usage__table">
-              <thead>
-                <tr><th>date</th><th>agent</th><th>sessions</th><th>tokens</th><th>cost</th></tr>
-              </thead>
-              <tbody>
-                {[...usage].sort((a, b) => b.date.localeCompare(a.date)).slice(0, USAGE_ROWS_SHOWN).map((r) => (
-                  <tr key={`${r.date}-${r.agentKind}`}>
-                    <td>{r.date}</td><td>{r.agentKind}</td><td>{r.sessions}</td><td>{r.tokens}</td><td>${r.costUsd.toFixed(4)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </>
-        ) : null}
 
         {error ? <p class="cockpit-error" role="alert">{error}</p> : null}
         <div class="cockpit-picker__actions">

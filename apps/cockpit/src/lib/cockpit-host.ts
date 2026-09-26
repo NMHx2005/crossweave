@@ -6,8 +6,8 @@ export type CockpitHostApi = {
   listSessions: () => Promise<ListedSession[]>
   convergeStatus: () => Promise<unknown>
   journalGet: () => Promise<unknown>
-  newSession: (payload: { name: string; agent: string; worktree?: boolean; base?: string; args?: string[] }) => Promise<unknown>
-  resumeSession: (idOrName: string, args?: string[]) => Promise<unknown>
+  newSession: (payload: { name: string; worktree?: boolean; base?: string }) => Promise<unknown>
+  resumeSession: (idOrName: string) => Promise<unknown>
   onTuiInvalidate: (cb: (payload: unknown) => void) => () => void
   onTuiEvent: (cb: (payload: unknown) => void) => () => void
   onDaemonGone: (cb: (payload: unknown) => void) => () => void

@@ -1,9 +1,9 @@
 import type { Database } from 'bun:sqlite';
 
 /**
- * `waiting` fires when an adapter detects the agent wants input (Claude hook,
- * future statusLine/prompt signal). Wired in Horizon A — see session.wait RPC
- * and deriveAttention(status === 'waiting' -> needs_you).
+ * `waiting` was written by the Claude hook (removed with the collision guard); nothing
+ * writes it now, and reconciliation turns a leftover one back into `idle` on boot. The
+ * value stays in the type because older databases can still hold it.
  */
 export type SessionStatus = 'idle' | 'running' | 'waiting' | 'dead' | 'landed';
 export type EnforcementTier = 'T1' | 'T2' | 'T3';
