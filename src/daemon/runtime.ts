@@ -3,6 +3,7 @@ import type { AgentAdapter, AgentProcess } from '../adapters/types.js';
 import type { SessionRow } from '../db/repositories/session.js';
 import { sandboxTmpDir, type SandboxSpec } from '../isolation/sandbox.js';
 import type { MethodContext } from './server.js';
+import type { ChunkSealer } from '../gateway/e2e-sealer.js';
 
 const SCROLLBACK_LIMIT = 64 * 1024;
 
@@ -37,7 +38,18 @@ interface RunningSession {
 export class SessionRuntime {
   private readonly running = new Map<string, RunningSession>();
 
-  constructor(private readonly onExit: (sessionId: string, code: number) => void, private readonly encryptChunk?: (chunk: string, session: SessionRow) => unknown) {}
+  constructor(
+    private readonly onExit: (sessionId: string, code: number) => void,
+    /** Seals a chunk for the wire; `undefined` means drop it (see ChunkSealer). */
+    private readonly sealChunk?: ChunkSealer,
+  ) {}
+
+  /** The session.data payload for one chunk, or undefined when it must not be sent. */
+  private dataPayload(session: SessionRow, chunk: string): Record<string, unknown> | undefined {
+    const sealed = this.sealChunk ? this.sealChunk(chunk, session) : chunk;
+    if (sealed === undefined) return undefined;
+    return { sessionId: session.id, workspaceId: session.workspaceId, chunk: sealed };
+  }
 
   start(
     session: SessionRow,
@@ -77,8 +89,8 @@ export class SessionRuntime {
 
     proc.onData((chunk) => {
       entry.scrollback = (entry.scrollback + chunk).slice(-SCROLLBACK_LIMIT);
-      const payload = this.encryptChunk ? { sessionId: session.id, workspaceId: session.workspaceId, chunk: this.encryptChunk(chunk, session) } : { sessionId: session.id, workspaceId: session.workspaceId, chunk };
-      notifyAll(entry.subscribers, 'session.data', payload);
+      const payload = this.dataPayload(session, chunk);
+      if (payload !== undefined) notifyAll(entry.subscribers, 'session.data', payload);
     });
 
     proc.onExit((code) => {
@@ -120,8 +132,8 @@ export class SessionRuntime {
     entry.subscribers.add(ctx);
     ctx.onClose(() => entry.subscribers.delete(ctx));
     if (entry.scrollback.length > 0) {
-      const chunk = this.encryptChunk ? this.encryptChunk(entry.scrollback, entry.session) : entry.scrollback;
-      ctx.notify('session.data', { sessionId, workspaceId: entry.session.workspaceId, chunk });
+      const payload = this.dataPayload(entry.session, entry.scrollback);
+      if (payload !== undefined) ctx.notify('session.data', payload);
     }
   }
 

@@ -35,8 +35,7 @@ import type { AcpAdapterDeps } from '../adapters/acp.js';
 import { emptyJournal, normalizeTabs, readJournal, writeJournal } from '../domain/journal.js';
 import { recordUsage } from '../domain/usage.js';
 import { aggregateUsage } from '../domain/usage-aggregate.js';
-import { deriveKey, encrypt as e2eEncrypt } from '../gateway/e2e.js';
-import { readGatewayToken as e2eReadToken } from '../gateway/auth.js';
+import { createChunkSealer } from '../gateway/e2e-sealer.js';
 
 import { NotificationGate } from '../radar/noise.js';
 import { notify, type NotifyDispatcherDeps } from '../notify/dispatcher.js';
@@ -252,38 +251,28 @@ export function buildMethods(
     return pending;
   }
 
-  // E2E: encrypt session.data at source. Cache key per workspace's project root; today there's one root,
-  // but deriving per-session.workspaceId keeps multi-workspace correct and lets relay stay dumb.
-  const _e2eKeyCache = new Map<string, Buffer>();
-  function _resolveWorkspaceRoot(workspaceId: string): string {
-    try {
+  // E2E: session.data is sealed at source with the workspace's gateway key, so a
+  // relay only ever forwards ciphertext. Resolved per session's workspace, not the
+  // daemon's root, so a multi-workspace daemon uses each workspace's own key.
+  // Roots are cached: this runs per output chunk and a workspace's root never moves.
+  const sealRoots = new Map<string, string>();
+  const sealChunk = createChunkSealer((workspaceId) => {
+    let root = sealRoots.get(workspaceId);
+    if (root === undefined) {
       const ws = workspaces.list().find((w) => w.id === workspaceId);
-      if (ws?.rootPath) return ws.rootPath;
-    } catch {}
-    return projectRoot;
-  }
-  function _e2eEncryptChunk(chunk: string, session?: { workspaceId: string }): unknown {
-    try {
-      const wid = session?.workspaceId ?? workspaces.list()[0]?.id ?? projectRoot;
-      const root = _resolveWorkspaceRoot(wid);
-      let key = _e2eKeyCache.get(root);
-      if (!key) {
-        const tok = e2eReadToken(root, 'control') ?? e2eReadToken(root);
-        if (!tok) return chunk;
-        key = deriveKey(tok, root);
-        _e2eKeyCache.set(root, key);
-      }
-      return e2eEncrypt(chunk, key);
-    } catch { return chunk; }
-  }
-  const _shouldE2E = (() => { try { return !!(e2eReadToken(projectRoot, 'control') ?? e2eReadToken(projectRoot)); } catch { return false; } })();
+      if (ws === undefined) throw new CrossweaveError('WORKSPACE_NOT_FOUND', `Unknown workspace: ${workspaceId}`);
+      root = ws.rootPath;
+      sealRoots.set(workspaceId, root);
+    }
+    return root;
+  });
   const runtime = new SessionRuntime((sessionId) => {
     sessions.clearRunning(sessionId);
     leaseManager.release(sessionId);
     radarWatchers.stop(sessionId);
     const handle = mcpServers.get(sessionId);
     if (handle !== undefined) void closeMcpServer(sessionId, handle);
-  }, _shouldE2E ? _e2eEncryptChunk : undefined);
+  }, sealChunk);
   sessions.onKill = (id) => runtime.stop(id);
 
   // `start` awaits `leaseManager.acquire` before `runtime.start` registers the

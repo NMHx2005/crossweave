@@ -29,6 +29,53 @@ export class DaemonClient {
   private workspaceRoots = new Map<string, string>();
   setWorkspaceRoot(workspaceId: string, root: string): void { this.workspaceRoots.set(workspaceId, root); }
   setWorkspaceRoots(map: Record<string, string>): void { for (const [k,v] of Object.entries(map)) this.workspaceRoots.set(k, v); }
+  /** Sessions already told their output could not be decrypted — told once, not per chunk. */
+  private readonly undecryptable = new Set<string>();
+
+  /** Roots whose gateway token may have sealed a chunk, most specific first. */
+  private decryptRoots(workspaceId: unknown): string[] {
+    const roots: string[] = [];
+    const add = (r: string | undefined): void => { if (r !== undefined && !roots.includes(r)) roots.push(r); };
+    if (typeof workspaceId === 'string') add(this.workspaceRoots.get(workspaceId));
+    add(this.projectRootHint);
+    try { add(process.cwd()); } catch {}
+    return roots;
+  }
+
+  /**
+   * A session.data payload with its chunk opened, or undefined to drop it.
+   *
+   * A sealed chunk no root here can open becomes ONE visible notice for that
+   * session (flagged `decryptFailed`) and is otherwise dropped. Passing the blob on
+   * made every consumer — which only renders string chunks — lose the output with
+   * no sign anything was wrong.
+   */
+  private openSessionData(raw: unknown): unknown {
+    if (typeof raw !== 'object' || raw === null) return raw;
+    const rec = raw as Record<string, unknown>;
+    const c = rec.chunk as { nonce?: unknown; ct?: unknown; tag?: unknown } | undefined;
+    if (typeof c !== 'object' || c === null || typeof c.nonce !== 'string' || typeof c.ct !== 'string' || typeof c.tag !== 'string') {
+      return raw;
+    }
+    const sessionId = typeof rec.sessionId === 'string' ? rec.sessionId : '';
+    for (const root of this.decryptRoots(rec.workspaceId)) {
+      try {
+        const tok = readGatewayToken(root, 'control');
+        if (!tok) continue;
+        const plain = e2eDecrypt(c as { nonce: string; ct: string; tag: string }, deriveKey(tok, root), sessionId);
+        return { ...rec, chunk: plain };
+      } catch {
+        // Wrong root or tampered blob — try the next candidate.
+      }
+    }
+    if (this.undecryptable.has(sessionId)) return undefined;
+    this.undecryptable.add(sessionId);
+    return {
+      ...rec,
+      chunk: '\r\n[crossweave] could not decrypt this session\'s output — this client has no matching gateway token for its workspace\r\n',
+      decryptFailed: true,
+    };
+  }
 
   onClose(cb: () => void): void {
     if (this.gone) {
@@ -82,36 +129,8 @@ export class DaemonClient {
       if (typeof r.method === 'string') {
         let params: unknown = r.params;
         if (r.method === 'session.data') {
-          try {
-            const rec = r.params as { chunk?: unknown };
-            const c = rec?.chunk as { nonce?: string; ct?: string; tag?: string } | undefined;
-            if (c && typeof c.nonce === 'string' && typeof c.ct === 'string' && typeof c.tag === 'string') {
-              const roots: string[] = [];
-              if (this.projectRootHint) roots.push(this.projectRootHint);
-              try { const cwd = process.cwd(); if (!roots.includes(cwd)) roots.push(cwd); } catch {}
-              // workspaceId in notification is an id (ws_...), not a path — don't treat as root directly.
-              // Daemon now also sends the per-workspace derived key via workspaceId, so try the hint/root that matches it.
-              // If the client was told the workspace root via setProjectRoot/setWorkspaceRoots, that will be tried above.
-              // Keeping check harmless: only unshift if it looks like a filesystem path (contains /).
-              const wid = (rec as Record<string, unknown>)?.workspaceId as string | undefined;
-              if (typeof wid === 'string' && wid.includes('/') && !roots.includes(wid)) roots.unshift(wid);
-              // If wid is an id with a known root, try that root first
-              if (typeof wid === 'string' && this.workspaceRoots.has(wid)) {
-                const r2 = this.workspaceRoots.get(wid)!;
-                if (!roots.includes(r2)) roots.unshift(r2);
-              }
-              for (const root of roots) {
-                try {
-                  const tok = readGatewayToken(root, 'control') ?? readGatewayToken(root);
-                  if (!tok) continue;
-                  const key = deriveKey(tok, root);
-                  const plain = e2eDecrypt(c as never, key);
-                  params = { ...(rec as Record<string, unknown>), chunk: plain };
-                  break;
-                } catch {}
-              }
-            }
-          } catch {}
+          params = this.openSessionData(r.params);
+          if (params === undefined) return;
         }
         for (const h of this.notificationHandlers) h(r.method, params);
       }

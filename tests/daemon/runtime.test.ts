@@ -117,6 +117,38 @@ describe('SessionRuntime sandbox plumbing', () => {
   });
 });
 
+describe('SessionRuntime output sealing', () => {
+  // A chunk the sealer refuses must not go out at all: the old fallback sent it in
+  // plaintext, which is the one thing E2E exists to stop.
+  it('sends nothing for a chunk the sealer drops, live or replayed, and keeps the session running', async () => {
+    const runtime = new SessionRuntime(() => undefined, () => undefined);
+    const row = await sessions.create({ workspaceId, name: 'sealdrop', agent: 'claude', worktree: true });
+    runtime.start(row, new ClaudePtyAdapter('sh', ['-c', 'echo secret; sleep 2']));
+    const seen: string[] = [];
+    runtime.subscribe(row.id, row.name, { notify: (m) => seen.push(m), onClose: () => undefined });
+    await new Promise((r) => setTimeout(r, 300));
+    // A late subscriber gets the scrollback replay — which must be sealed too.
+    runtime.subscribe(row.id, row.name, { notify: (m) => seen.push(m), onClose: () => undefined });
+    expect(seen.filter((m) => m === 'session.data')).toEqual([]);
+    expect(runtime.isRunning(row.id)).toBe(true);
+    await runtime.stop(row.id, 200);
+  }, 15_000);
+
+  it('sends what the sealer returns in place of the chunk', async () => {
+    const runtime = new SessionRuntime(() => undefined, (chunk) => ({ sealed: chunk.length }));
+    const row = await sessions.create({ workspaceId, name: 'sealwrap', agent: 'claude', worktree: true });
+    runtime.start(row, new ClaudePtyAdapter('sh', ['-c', 'echo hi; sleep 2']));
+    const chunks: unknown[] = [];
+    runtime.subscribe(row.id, row.name, {
+      notify: (m, p) => { if (m === 'session.data') chunks.push((p as { chunk: unknown }).chunk); },
+      onClose: () => undefined,
+    });
+    await waitFor(() => chunks.length > 0);
+    expect(chunks[0]).toMatchObject({ sealed: expect.any(Number) });
+    await runtime.stop(row.id, 200);
+  }, 15_000);
+});
+
 describe('SessionRuntime subscriber isolation', () => {
   // Task 7 isolated the ADAPTER's fan-out; SessionRuntime has its own loops and had
   // to be fixed separately. The exit path mattered most: a throw there skipped

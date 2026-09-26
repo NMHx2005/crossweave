@@ -17,19 +17,26 @@ export interface E2EBlob {
   tag: string;   // base64 16B
 }
 
-export function encrypt(plaintext: string, key: Buffer): E2EBlob {
+/**
+ * `aad` binds the blob to what it belongs to (the session id). The key is only
+ * per-workspace, so without it a relay could move a chunk from one session to
+ * another in the same workspace and it would still authenticate.
+ */
+export function encrypt(plaintext: string, key: Buffer, aad: string): E2EBlob {
   const nonce = randomBytes(12);
   const cipher = createCipheriv('aes-256-gcm', key, nonce);
+  cipher.setAAD(Buffer.from(aad, 'utf8'));
   const ct = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
   const tag = cipher.getAuthTag();
   return { nonce: nonce.toString('base64'), ct: ct.toString('base64'), tag: tag.toString('base64') };
 }
 
-export function decrypt(blob: E2EBlob, key: Buffer): string {
+export function decrypt(blob: E2EBlob, key: Buffer, aad: string): string {
   const nonce = Buffer.from(blob.nonce, 'base64');
   const ct = Buffer.from(blob.ct, 'base64');
   const tag = Buffer.from(blob.tag, 'base64');
   const decipher = createDecipheriv('aes-256-gcm', key, nonce);
+  decipher.setAAD(Buffer.from(aad, 'utf8'));
   decipher.setAuthTag(tag);
   const pt = Buffer.concat([decipher.update(ct), decipher.final()]);
   return pt.toString('utf8');
