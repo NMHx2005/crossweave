@@ -4,6 +4,7 @@ import { cockpitApi, type AgentOption, type ListedSession, type TerminalInfo } f
 import { nextAttentionSession } from '../lib/attention-jump'
 import { QuickPicker, type NewSessionOptions } from './QuickPicker'
 import { LaunchLine } from './LaunchLine'
+import { ConfirmDialog, type ConfirmRequest } from './ConfirmDialog'
 import { launchLineFor, parseLaunchLine, rememberLine } from '../lib/launch-line'
 import { QuickOpen } from './QuickOpen'
 import { FilePane } from './FilePane'
@@ -96,6 +97,7 @@ export function App() {
   /** Each agent's launch command from Settings, for the launch line. */
   const [agentCommands, setAgentCommands] = useState<Record<string, string>>({})
   const [launchHistory, setLaunchHistory] = useState<Record<string, string[]>>(readLaunchHistory)
+  const [confirmState, setConfirmState] = useState<(ConfirmRequest & { resolve: (ok: boolean) => void }) | null>(null)
   const [branches, setBranches] = useState<string[]>([])
   /** Non-null while ⌘P is open: the session whose worktree it searches. */
   const [quickOpen, setQuickOpen] = useState<{ sessionId: string; name: string; files: string[] } | null>(null)
@@ -380,12 +382,21 @@ export function App() {
     if (target !== null) focusSession(target)
   }
 
-  async function handleStart(): Promise<void> {
-    if (!focused) return
-    const target = focused.id
+  /** Resolves to the user's answer; only one confirmation is ever open. */
+  function askConfirm(request: ConfirmRequest): Promise<boolean> {
+    return new Promise((resolve) => setConfirmState({ ...request, resolve }))
+  }
+
+  function sessionById(id: string | undefined): ListedSession | null {
+    return sessions.find((s) => s.id === (id ?? focusedId)) ?? null
+  }
+
+  async function handleStart(targetId?: string, args?: string[]): Promise<void> {
+    const target = sessionById(targetId)
+    if (!target) return
     // The pane re-attaches from load(): the session's move to `running` is detected
     // there, the same way as when the CLI or another window starts it.
-    await runAction(() => cockpitApi.resumeSession(target))
+    await runAction(() => cockpitApi.resumeSession(target.id, args))
   }
 
   /** A shell for `sessionId`, split beside `at` (or in a tab of its own). */
@@ -415,19 +426,20 @@ export function App() {
     else openSurface({ kind: 'file', sessionId, path }, path.split('/').pop() ?? path)
   }
 
-  async function handleOpenFile(): Promise<void> {
-    if (!focused) return
-    const target = focused
+  async function handleOpenFile(targetId?: string): Promise<void> {
+    const target = sessionById(targetId)
+    if (!target) return
     await runAction(async () => {
       const files = await cockpitApi.listFiles(target.id)
       setQuickOpen({ sessionId: target.id, name: target.name, files })
     })
   }
 
-  function handleOpenBrowser(): void {
+  function handleOpenBrowser(url?: string): void {
     // A running session's leased port is where its dev server listens by convention.
     const port = focused?.portBase
-    openSurface({ kind: 'browser', url: port === undefined ? '' : `http://localhost:${port}/` }, 'browser')
+    const initial = url ?? (port === undefined ? '' : `http://localhost:${port}/`)
+    openSurface({ kind: 'browser', url: initial }, 'browser')
   }
 
   async function handleOpenSettings(): Promise<void> {
@@ -450,9 +462,10 @@ export function App() {
     }
   }
 
-  async function handleTerminal(): Promise<void> {
-    if (!focused) return
-    await openShell(focused.id)
+  async function handleTerminal(targetId?: string): Promise<void> {
+    const target = sessionById(targetId)
+    if (!target) return
+    await openShell(target.id)
   }
 
   function handleClosePane(tabId: string, paneId: string, pane: PaneRef): void {
@@ -471,15 +484,25 @@ export function App() {
     }
   }
 
-  async function handleStop(): Promise<void> {
-    if (!focused) return
-    await runAction(() => cockpitApi.stopSession(focused.id))
+  async function handleStop(targetId?: string): Promise<void> {
+    const target = sessionById(targetId)
+    if (!target) return
+    await runAction(() => cockpitApi.stopSession(target.id))
   }
 
-  async function handleKill(): Promise<void> {
-    if (!focused) return
-    if (!window.confirm(`Kill session “${focused.name}”? This cannot be undone.`)) return
-    await runAction(() => cockpitApi.killSession(focused.id))
+  async function handleKill(targetId?: string, removeWorktree = false): Promise<void> {
+    const target = sessionById(targetId)
+    if (!target) return
+    const ok = await askConfirm({
+      title: `Kill ${target.name}?`,
+      body: removeWorktree
+        ? 'The agent ends and its worktree and branch are deleted. Unlanded work is lost.'
+        : 'The agent ends and cannot be started again. Its worktree stays, so its work can still be landed.',
+      confirmLabel: removeWorktree ? 'Kill and delete' : 'Kill',
+      danger: true,
+    })
+    if (!ok) return
+    await runAction(() => cockpitApi.killSession(target.id, removeWorktree))
   }
 
   function landDeps() {
@@ -490,30 +513,35 @@ export function App() {
     }
   }
 
-  async function handleLand(): Promise<void> {
-    if (!focused || landBusy || !canLandFocused) return
+  async function handleLand(targetId?: string): Promise<void> {
+    const target = sessionById(targetId)
+    if (!target || landBusy) return
     setLandBusy(true)
     try {
       const deps = landDeps()
-      let result = await landSelected({ ...deps, name: focused.name })
+      let result = await landSelected({ ...deps, name: target.name })
       if (result.status === 'needs_confirm_unknown') {
         const reason =
-          converge.unknown.find((entry) => entry.name === focused.name)?.reason ??
+          converge.unknown.find((entry) => entry.name === target.name)?.reason ??
           'incomplete evidence'
-        if (!window.confirm(`Land “${focused.name}” with incomplete evidence?\n${reason}`)) {
-          return
-        }
-        result = await landSelected({ ...deps, name: focused.name, forceUnknown: true })
+        const ok = await askConfirm({
+          title: `Land ${target.name} with incomplete evidence?`,
+          body: reason,
+          confirmLabel: 'Land anyway',
+        })
+        if (!ok) return
+        result = await landSelected({ ...deps, name: target.name, forceUnknown: true })
       }
       if (result.status === 'blocked') {
-        setLandMessage(focusedBlockedReason ? `blocked: ${focusedBlockedReason}` : `blocked: ${focused.name}`)
+        const reason = converge.blocked.find((entry) => entry.name === target.name)?.reason
+        setLandMessage(reason ? `blocked: ${reason}` : `blocked: ${target.name}`)
         return
       }
       if (result.status === 'failed') {
         setLandMessage(result.error)
         return
       }
-      setLandMessage(`landed ${focused.name}`)
+      setLandMessage(`landed ${target.name}`)
       await load()
     } catch (err) {
       setLandMessage(err instanceof Error ? err.message : String(err))
@@ -556,6 +584,13 @@ export function App() {
 
   return (
     <div class="cockpit-shell">
+      {confirmState !== null ? (
+        <ConfirmDialog
+          {...confirmState}
+          onConfirm={() => { confirmState.resolve(true); setConfirmState(null) }}
+          onCancel={() => { confirmState.resolve(false); setConfirmState(null) }}
+        />
+      ) : null}
       {pickerAgents !== null ? (
         <QuickPicker
           agents={pickerAgents}
