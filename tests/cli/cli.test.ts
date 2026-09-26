@@ -100,6 +100,19 @@ describe('cw CLI', () => {
     expect(existsSync(join(fx.root, '.crossweave', 'state.db'))).toBe(true);
   }, 30_000);
 
+  // Every other session verb takes the name positionally; `new` alone demanded
+  // `--name` and answered a bare name with a page of usage.
+  it('session new takes the name positionally, and says so in one line when it is missing', async () => {
+    await cw(['init']);
+    const created = await cw(['session', 'new', 'positional']);
+    expect(created.exitCode).toBe(0);
+    expect(created.stdout).toContain('positional');
+    const missing = await cw(['session', 'new']);
+    expect(missing.exitCode).not.toBe(0);
+    expect(missing.stderr.trim().split('\n')).toHaveLength(1);
+    expect(missing.stderr).toContain('cw session new <name>');
+  });
+
   it('runs the full session lifecycle', async () => {
     await cw(['init']);
 

@@ -84,7 +84,9 @@ export const sessionCommand = defineCommand({
       // citty derives `--no-worktree` automatically from a boolean named `worktree`,
       // so declaring a literal `no-worktree` flag would collide with that negation.
       args: {
-        name: { type: 'string', required: true, description: 'Session name' },
+        // Positional like every other session verb; `--name` still works.
+        sessionName: { type: 'positional', required: false, description: 'Session name' },
+        name: { type: 'string', description: 'Session name (same as the positional)' },
         agent: { type: 'string', default: 'claude', description: 'Agent kind: claude (T2), cursor (T1/ACP), cursor-print (T3)' },
         worktree: { type: 'boolean', default: true, description: 'Isolate in a git worktree' },
         'budget-tokens': { type: 'string', description: 'Warn once cumulative tokens spent exceeds this' },
@@ -92,6 +94,10 @@ export const sessionCommand = defineCommand({
       },
       async run({ args }) {
         try {
+          const name = args.sessionName ?? args.name;
+          if (name === undefined || name === '') {
+            throw new CrossweaveError('INVALID_ARGUMENTS', 'Missing session name: cw session new <name>');
+          }
           const budgetTokens = parseOptionalNumberArg('--budget-tokens', args['budget-tokens']);
           const budgetUsd = parseOptionalNumberArg('--budget-usd', args['budget-usd']);
           await withClient(async (client) => {
@@ -110,7 +116,7 @@ export const sessionCommand = defineCommand({
             // wherever that binary is absent (CI) — for a convenience the other two
             // verbs already provide.
             const created = await client.call<Session>('session.new', {
-              workspaceId, name: args.name, agent: args.agent, worktree, budgetTokens, budgetUsd,
+              workspaceId, name, agent: args.agent, worktree, budgetTokens, budgetUsd,
             });
             process.stdout.write(
               `${created.name}\t${created.status}\t${tierWithCoverage(created.enforcementTier)}\t${created.worktreePath ?? '-'}\n`,
