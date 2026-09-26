@@ -1,16 +1,12 @@
 import { defineCommand } from 'citty';
 import { CrossweaveError } from '../../core/errors.js';
 import { withClient, fail, currentWorkspaceId } from '../context.js';
-import { tierWithCoverage } from '../../adapters/coverage.js';
 import { attachCommand } from './attach.js';
 
 interface Session {
-  id: string; name: string; status: string; agentKind: string;
-  enforcementTier: string; worktreePath: string | null; branch: string | null;
-  tokenSpent: number; tokenBudget: number | null;
-  costSpentUsd: number; costBudgetUsd: number | null;
+  id: string; name: string; status: string;
+  worktreePath: string | null; branch: string | null;
   leases?: LeaseSummary;
-  sandbox?: { confined: boolean; reason?: string };
 }
 
 interface LeaseSummary {
@@ -19,58 +15,6 @@ interface LeaseSummary {
   cachePath: string | null;
   dbStrategy: 'none' | 'schema' | 'file-copy';
   dbValue: string | null;
-}
-
-/** The subset of Session's fields formatSpend needs — kept separate so the CLI unit
- * tests (tests/cli/session.test.ts) can pass a plain object without every field. */
-interface SpendFields {
-  tokenSpent: number; tokenBudget: number | null;
-  costSpentUsd: number; costBudgetUsd: number | null;
-}
-
-export function formatSandbox(s: { sandbox?: { confined: boolean; reason?: string }; worktreePath?: string | null }): string {
-  if (!s.worktreePath) return 'no-worktree';
-  if (s.sandbox === undefined) return 'unknown';
-  if (s.sandbox.confined) return 'sandbox';
-  return `no-sandbox:${s.sandbox.reason ?? 'no-provider'}`;
-}
-
-/** Exported for direct testing. citty has no numeric arg type (only string, boolean,
- * positional, enum) — flags declared `type: 'string'` are parsed here instead. */
-/**
- * The agent's own flags: everything after a bare `--` (`cw session start api --
- * --model opus`). Undefined without a `--`, which the daemon reads as "reuse the
- * session's remembered flags" — distinct from `--` with nothing after it, which
- * clears them.
- */
-export function launchArgsAfterDashes(rawArgs: readonly string[]): string[] | undefined {
-  const at = rawArgs.indexOf('--');
-  return at === -1 ? undefined : rawArgs.slice(at + 1);
-}
-
-export function parseOptionalNumberArg(flag: string, raw: string | undefined): number | undefined {
-  if (raw === undefined) return undefined;
-  const n = Number(raw);
-  if (!Number.isFinite(n)) {
-    throw new CrossweaveError('INVALID_ARGUMENTS', `${flag} must be a number, got: ${raw}`);
-  }
-  return n;
-}
-
-/**
- * Always shows current spend (design doc §1: "cw session list showing real, live
- * spend" is M6a's own success criterion, independent of whether a budget is set) and
- * appends a plain-text "OVER BUDGET" marker — no color/TTY-detection logic, matching
- * this CLI's tab-separated, script-parseable output convention — when spend exceeds a
- * budget that IS set. Exported for direct testing.
- */
-export function formatSpend(s: SpendFields): string {
-  const costPart = `$${s.costSpentUsd.toFixed(4)}`;
-  const tokenPart = `${(s.tokenSpent / 1000).toFixed(1)}k`;
-  const overCost = s.costBudgetUsd !== null && s.costSpentUsd > s.costBudgetUsd;
-  const overTokens = s.tokenBudget !== null && s.tokenSpent > s.tokenBudget;
-  const marker = overCost || overTokens ? ' OVER BUDGET' : '';
-  return `${costPart}/${tokenPart}${marker}`;
 }
 
 export function formatLeaseSummary(leases: LeaseSummary | undefined): string {
@@ -91,28 +35,22 @@ export const sessionCommand = defineCommand({
     attach: attachCommand,
 
     new: defineCommand({
-      meta: { name: 'new', description: 'Create a session (agent flags after --, e.g. -- --model opus)' },
+      meta: { name: 'new', description: 'Create a session: a worktree and a shell in it (start the shell with cw session start)' },
       // citty derives `--no-worktree` automatically from a boolean named `worktree`,
       // so declaring a literal `no-worktree` flag would collide with that negation.
       args: {
         // Positional like every other session verb; `--name` still works.
         sessionName: { type: 'positional', required: false, description: 'Session name' },
         name: { type: 'string', description: 'Session name (same as the positional)' },
-        agent: { type: 'string', default: 'claude', description: 'Agent kind: claude (T2), cursor (T1/ACP), cursor-print (T3)' },
         worktree: { type: 'boolean', default: true, description: 'Isolate in a git worktree' },
-        'budget-tokens': { type: 'string', description: 'Warn once cumulative tokens spent exceeds this' },
-        'budget-usd': { type: 'string', description: 'Warn once cumulative cost (USD) exceeds this' },
         base: { type: 'string', description: 'Branch or commit to start the worktree from (default: HEAD)' },
       },
-      async run({ args, rawArgs }) {
+      async run({ args }) {
         try {
           const name = args.sessionName ?? args.name;
-          const launchArgs = launchArgsAfterDashes(rawArgs);
           if (name === undefined || name === '') {
             throw new CrossweaveError('INVALID_ARGUMENTS', 'Missing session name: cw session new <name>');
           }
-          const budgetTokens = parseOptionalNumberArg('--budget-tokens', args['budget-tokens']);
-          const budgetUsd = parseOptionalNumberArg('--budget-usd', args['budget-usd']);
           await withClient(async (client) => {
             const workspaceId = await currentWorkspaceId(client);
             const worktree = args.worktree;
@@ -129,31 +67,26 @@ export const sessionCommand = defineCommand({
             // wherever that binary is absent (CI) — for a convenience the other two
             // verbs already provide.
             const created = await client.call<Session>('session.new', {
-              workspaceId, name, agent: args.agent, worktree, budgetTokens, budgetUsd,
+              workspaceId, name, worktree,
               ...(args.base === undefined ? {} : { base: args.base }),
-              ...(launchArgs === undefined ? {} : { args: launchArgs }),
             });
-            process.stdout.write(
-              `${created.name}\t${created.status}\t${tierWithCoverage(created.enforcementTier)}\t${created.worktreePath ?? '-'}\n`,
-            );
+            process.stdout.write(`${created.name}\t${created.status}\t${created.worktreePath ?? '-'}\n`);
           });
         } catch (err) { fail(err); }
       },
     }),
 
     list: defineCommand({
-      meta: { name: 'list', description: 'List sessions with spend and runtime leases' },
+      meta: { name: 'list', description: 'List sessions with their branch and runtime leases' },
       async run() {
         try {
           await withClient(async (client) => {
             const workspaceId = await currentWorkspaceId(client);
             const rows = await client.call<Session[]>('session.list', { workspaceId });
             if (rows.length === 0) { process.stdout.write('no sessions\n'); return; }
-            process.stdout.write('NAME\tSTATUS\tAGENT\tTIER\tBRANCH\tSPEND\tLEASES\n');
+            process.stdout.write('NAME\tSTATUS\tBRANCH\tLEASES\n');
             for (const s of rows) {
-              process.stdout.write(
-                `${s.name}\t${s.status}\t${s.agentKind}\t${tierWithCoverage(s.enforcementTier)}\t${s.branch ?? '-'}\t${formatSpend(s)}\t${formatSandbox(s)}\t${formatLeaseSummary(s.leases)}\n`,
-              );
+              process.stdout.write(`${s.name}\t${s.status}\t${s.branch ?? '-'}\t${formatLeaseSummary(s.leases)}\n`);
             }
           });
         } catch (err) { fail(err); }
@@ -209,33 +142,29 @@ export const sessionCommand = defineCommand({
     // that `kill` is terminal has no escape hatch a user can reach — SESSION_ENDED
     // would be advising a command that does not exist.
     start: defineCommand({
-      meta: { name: 'start', description: 'Start the agent for a session that is not running (idle or stopped); agent flags after -- replace the remembered ones' },
+      meta: { name: 'start', description: "Open the session's shell again (a stopped session); run your tools in it yourself" },
       // Optional + validated by hand for the same reason `stop` does it: citty's own
       // missing-positional error has no `CODE:` prefix, which would break the contract
       // that every CLI failure emits exactly one `CODE: message` line.
       args: { target: { type: 'positional', description: 'Session name or id', required: false } },
-      async run({ args, rawArgs }) {
+      async run({ args }) {
         try {
           if (args.target === undefined) {
             throw new CrossweaveError('INVALID_ARGUMENTS', 'Missing required argument: TARGET');
           }
-          const launchArgs = launchArgsAfterDashes(rawArgs);
           await withClient(async (client) => {
             const workspaceId = await currentWorkspaceId(client);
             const row = await client.call<Session>('session.resume', {
               workspaceId, idOrName: args.target, env: { ...process.env },
-              ...(launchArgs === undefined ? {} : { args: launchArgs }),
             });
-            process.stdout.write(
-              `${row.name}\t${row.status}\t${tierWithCoverage(row.enforcementTier)}\t${row.worktreePath ?? '-'}\n`,
-            );
+            process.stdout.write(`${row.name}\t${row.status}\t${row.worktreePath ?? '-'}\n`);
           });
         } catch (err) { fail(err); }
       },
     }),
 
     stop: defineCommand({
-      meta: { name: 'stop', description: 'Stop the agent but keep the session resumable' },
+      meta: { name: 'stop', description: "Close the session's shell (and whatever runs in it); the worktree stays" },
       // Declared optional, not required: citty's own missing-positional error has no
       // `CODE:` prefix (it prints usage + a bare message and calls process.exit(1)
       // itself, never rejecting runMain's promise), which breaks the contract that

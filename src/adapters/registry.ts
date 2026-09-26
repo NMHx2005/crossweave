@@ -1,35 +1,18 @@
-import { CrossweaveError } from '../core/errors.js';
-import { ClaudePtyAdapter } from './claude-pty.js';
-import { AcpAdapter, type AcpAdapterDeps } from './acp.js';
-import { CursorPrintAdapter } from './cursor-print.js';
+import { spawnShell } from './shell.js';
 import type { AgentAdapter } from './types.js';
-import { CliPtyAdapter } from './cli-pty.js';
-import { resolveAgent } from './catalog.js';
-import { loadSettings, type UserSettings } from '../core/settings.js';
+
+/** The kind every session has: a worktree and the user's shell in it. */
+export const SHELL_KIND = 'shell';
 
 /**
- * M5b registers Cursor via native ACP (T1). Claude Code stays on its M5a hook path
- * (T2). Task 3 adds `cursor-print` (T3) — current cursor-agent builds dropped ACP
- * support, so this is the fallback that still works, at the cost of permission
- * interception.
+ * A session's process is the user's login shell in its worktree; whatever they run
+ * there (`claude …`, a `cx` wrapper, `codex …`) is theirs to type. crossweave no
+ * longer picks, configures or launches agents.
  */
-export function createAdapter(kind: string, deps?: AcpAdapterDeps, settings?: UserSettings): AgentAdapter {
-  if (kind === 'cursor') {
-    if (deps === undefined) {
-      throw new CrossweaveError(
-        'ADAPTER_DEPS_MISSING',
-        'The cursor adapter requires daemon-internal dependencies (resolveWorkspaceId, decideBlocked) that were not provided.',
-      );
-    }
-    return new AcpAdapter(deps);
-  }
-  if (kind === 'cursor-print') return new CursorPrintAdapter();
-  // Everything else comes from the user's agent catalog, read on every call so a
-  // change in Settings applies to the next start without a daemon restart.
-  const { argv, profile } = resolveAgent(kind, settings ?? loadSettings());
-  if (kind === 'claude') {
-    const [command, ...args] = argv as [string, ...string[]];
-    return new ClaudePtyAdapter(command, args);
-  }
-  return new CliPtyAdapter(kind, argv, profile);
+export function createAdapter(shell: string = process.env.SHELL ?? '/bin/sh'): AgentAdapter {
+  return {
+    kind: SHELL_KIND,
+    enforcementTier: 'T3',
+    spawn: (opts) => spawnShell({ shell, cwd: opts.cwd, env: opts.env, cols: opts.cols, rows: opts.rows }),
+  };
 }

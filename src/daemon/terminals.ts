@@ -49,7 +49,6 @@ export class TerminalRegistry {
   private readonly open_ = new Map<string, OpenTerminal>();
 
   constructor(
-    /** `terminalId` gives each shell its own sandbox scratch (profile, temp dir). */
     private readonly spawnShell: (session: SessionRow, terminalId: string) => AgentProcess,
     private readonly seal?: ChunkSealer,
     /** Called whenever the set of terminals changes, so clients can redraw. */

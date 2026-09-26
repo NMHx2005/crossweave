@@ -11,7 +11,7 @@ import { ensureIntegrationWorktree, withIntegrationLease, withIntegrationWorktre
 import { runMergeTrial, resetIntegration } from '../convergence/trial.js';
 import { isTestCommandTrusted } from '../convergence/trust.js';
 import { notify, type NotifyDispatcherDeps } from '../notify/dispatcher.js';
-import { NotificationGate } from '../radar/noise.js';
+import { NotificationGate } from '../notify/gate.js';
 import { BroadcastRegistry } from './broadcast.js';
 import type { MergeTrialRow } from '../db/repositories/merge-trial.js';
 

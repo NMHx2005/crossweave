@@ -25,8 +25,7 @@ async function setup() {
   const fx = await makeGitFixture();
   const db = openDatabase(join(fx.root, '.crossweave', 'state.db'));
   const ws = new WorkspaceManager(db).init(fx.root);
-  const config = { ...DEFAULT_CONFIG, sandbox: { ...DEFAULT_CONFIG.sandbox, enabled: false } };
-  const methods = buildMethods(db, fx.root, undefined, config, { shell: '/bin/sh' });
+  const methods = buildMethods(db, fx.root, undefined, DEFAULT_CONFIG, { shell: '/bin/sh' });
   const seen: Array<[string, Record<string, unknown>]> = [];
   const ctx = { notify: (m: string, p: unknown) => { seen.push([m, p as Record<string, unknown>]); }, onClose: () => undefined };
   const call = async (m: string, p: Record<string, unknown> = {}): Promise<unknown> => methods[m]!({ workspaceId: ws.id, ...p }, ctx);

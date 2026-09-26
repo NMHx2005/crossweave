@@ -11,16 +11,14 @@ import { LeaseRepo } from '../../src/db/repositories/lease.js';
 import { reconcile } from '../../src/domain/reconciliation.js';
 import { buildMethods } from '../../src/daemon/methods.js';
 import { collectGarbage } from '../../src/domain/gc.js';
-import { ClaudePtyAdapter } from '../../src/adapters/claude-pty.js';
-import { CrossweaveError } from '../../src/core/errors.js';
+import { argvAdapter } from '../helpers/argv-adapter.js';
 import type { AgentAdapter } from '../../src/adapters/types.js';
 import type { MethodContext } from '../../src/daemon/server.js';
 import { makeGitFixture, type GitFixture } from '../helpers/git-fixture.js';
 
-/** Never spawns the real `claude` binary — see tests/daemon/runtime.test.ts's identical helper. */
-function echoFactory(kind: string): AgentAdapter {
-  if (kind !== 'claude') throw new CrossweaveError('UNKNOWN_AGENT', `Unsupported: ${kind}`);
-  return new ClaudePtyAdapter('sh', ['-c', 'while IFS= read -r l; do eval "echo echo:$l"; done']);
+/** Never spawns the user's shell — see tests/daemon/runtime.test.ts's identical helper. */
+function echoFactory(): AgentAdapter {
+  return argvAdapter(['sh', '-c', 'while IFS= read -r l; do eval "echo echo:$l"; done']);
 }
 
 const noopCtx: MethodContext = { notify: () => undefined, onClose: () => undefined };
@@ -44,7 +42,7 @@ afterEach(async () => {
 
 describe('reconcile', () => {
   it('marks a running session dead when its worktree is gone', async () => {
-    const session = await sessions.create({ workspaceId, name: 'a', agent: 'claude', worktree: true });
+    const session = await sessions.create({ workspaceId, name: 'a', worktree: true });
     new SessionRepo(db).updateStatus(session.id, 'running', 99999);
     if (session.worktreePath !== null) await rm(session.worktreePath, { recursive: true, force: true });
 
@@ -57,7 +55,7 @@ describe('reconcile', () => {
     // A daemon crash or an ordinary restart must not be indistinguishable from a
     // deliberate `cw session kill`: the worktree is still there, so the work is
     // still resumable, exactly like `cw session stop` already leaves it.
-    const session = await sessions.create({ workspaceId, name: 'a', agent: 'claude', worktree: true });
+    const session = await sessions.create({ workspaceId, name: 'a', worktree: true });
     // A pid this high is essentially guaranteed not to exist.
     new SessionRepo(db).updateStatus(session.id, 'running', 9_999_999);
 
@@ -69,13 +67,13 @@ describe('reconcile', () => {
   }, 30_000);
 
   it('leaves an idle session alone', async () => {
-    const session = await sessions.create({ workspaceId, name: 'a', agent: 'claude', worktree: true });
+    const session = await sessions.create({ workspaceId, name: 'a', worktree: true });
     reconcile(db, fx.root);
     expect(sessions.resolve(workspaceId, session.id).status).toBe('idle');
   }, 30_000);
 
   it('releases leases for a session it marks dead (worktree gone)', async () => {
-    const session = await sessions.create({ workspaceId, name: 'a', agent: 'claude', worktree: true });
+    const session = await sessions.create({ workspaceId, name: 'a', worktree: true });
     new SessionRepo(db).updateStatus(session.id, 'running', 99999);
     if (session.worktreePath !== null) await rm(session.worktreePath, { recursive: true, force: true });
     const leases = new LeaseRepo(db);
@@ -91,7 +89,7 @@ describe('reconcile', () => {
   }, 30_000);
 
   it('releases leases for a session it marks idle (pid gone, worktree intact)', async () => {
-    const session = await sessions.create({ workspaceId, name: 'a', agent: 'claude', worktree: true });
+    const session = await sessions.create({ workspaceId, name: 'a', worktree: true });
     new SessionRepo(db).updateStatus(session.id, 'running', 9_999_999);
     const leases = new LeaseRepo(db);
     leases.insert({
@@ -108,7 +106,7 @@ describe('reconcile', () => {
 
 describe('reconcile wired into daemon boot (regression: an ordinary restart must not destroy running work)', () => {
   it('a session that was `running` when the daemon died survives a restart: resumable, and untouched by gc', async () => {
-    const session = await sessions.create({ workspaceId, name: 'survivor', agent: 'claude', worktree: true });
+    const session = await sessions.create({ workspaceId, name: 'survivor', worktree: true });
     // Simulate the process that was supervising this session dying along with the
     // daemon — the row still says `running` with a pid nothing holds, but the
     // worktree (the actual work) is untouched, exactly like a host reboot or a

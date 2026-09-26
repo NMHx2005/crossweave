@@ -122,19 +122,4 @@ export class WorkspaceManager {
     }
     this.workspaces.delete(workspace.id);
   }
-
-  /**
-   * T1 became a real, acceptable tier in M5b — AcpAdapter (Cursor over native ACP) now
-   * provides it. The reject-T1 gate that lived here through M5a is gone; any string
-   * outside {T1, T2, T3} is still rejected.
-   */
-  setSafeMode(idOrName: string, tier: string): WorkspaceRow {
-    const workspace = this.resolve(idOrName);
-    // Narrows `tier` to 'T1' | 'T2' | 'T3' by control-flow analysis — no cast needed.
-    if (tier !== 'T1' && tier !== 'T2' && tier !== 'T3') {
-      throw new CrossweaveError('INVALID_PARAMS', `safeModeTier must be T1, T2 or T3, got: ${tier}`);
-    }
-    this.workspaces.updateSafeModeTier(workspace.id, tier);
-    return { ...workspace, safeModeTier: tier };
-  }
 }

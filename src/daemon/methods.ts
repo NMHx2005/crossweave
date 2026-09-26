@@ -13,15 +13,7 @@ import { LeaseManager } from '../isolation/leases/manager.js';
 import { loadConfig, type CrossweaveConfig } from '../core/config.js';
 import { collectGarbage, collectOrphans } from '../domain/gc.js';
 import { EventLedger } from '../domain/ledger.js';
-import { MessageBus } from '../domain/bus.js';
-import { ContextStore } from '../domain/context-store.js';
 import { reconcile } from '../domain/reconciliation.js';
-import { createMcpServer, type McpServerHandle } from '../mcp/server.js';
-import { buildTools } from '../mcp/tools.js';
-import { RadarWatcherRegistry } from './watcher.js';
-import { FileClaimRepo } from '../db/repositories/file-claim.js';
-import { decideBlocked } from '../radar/decision.js';
-import { ContractService, parseFqn } from '../radar/contracts.js';
 import { assertContained } from '../core/paths.js';
 import { ConvergenceScheduler } from './convergence-scheduler.js';
 import { MergeTrialRepo, isPairwiseTrial } from '../db/repositories/merge-trial.js';
@@ -33,26 +25,19 @@ import { buildConflictGraph, recommendOrder } from '../convergence/graph.js';
 import { classifyLandability } from '../convergence/evidence.js';
 import { landSession } from '../convergence/land.js';
 import { hashTestCommand, isTestCommandTrusted } from '../convergence/trust.js';
-import { createAdapter } from '../adapters/registry.js';
-import type { AcpAdapterDeps } from '../adapters/acp.js';
 import { emptyJournal, normalizeTabs, readJournal, writeJournal } from '../domain/journal.js';
-import { recordUsage } from '../domain/usage.js';
-import { aggregateUsage } from '../domain/usage-aggregate.js';
 import { createChunkSealer } from '../gateway/e2e-sealer.js';
 
-import { NotificationGate } from '../radar/noise.js';
+import { NotificationGate } from '../notify/gate.js';
 import { notify, type NotifyDispatcherDeps } from '../notify/dispatcher.js';
 import { platformSend } from '../notify/macos.js';
 import { BroadcastRegistry } from './broadcast.js';
 import { measureWorktrees } from '../isolation/disk-guard.js';
 import { LeaseRepo } from '../db/repositories/lease.js';
-import { decideSandbox } from '../isolation/sandbox.js';
 import { spawnShell } from '../adapters/shell.js';
-import { profileFor, resolveAgent, validateLaunchArgs } from '../adapters/catalog.js';
-import { findConversation, latestWords } from '../domain/agent-logs.js';
+import { latestWords } from '../domain/agent-logs.js';
 import { listWorktreeFiles, readWorktreeFile, writeWorktreeFile } from '../domain/worktree-files.js';
-import { loginShellPath, mergePaths } from '../core/login-path.js';
-import { loadSettings, saveSettings, splitCommand, type UserSettings } from '../core/settings.js';
+import { loadSettings, saveSettings, type UserSettings } from '../core/settings.js';
 import { TerminalRegistry } from './terminals.js';
 
 function str(params: Record<string, unknown>, key: string): string {
@@ -88,7 +73,7 @@ function optionalNum(params: Record<string, unknown>, key: string): number | und
 
 function optionalEventKind(params: Record<string, unknown>, key: string): NotifyEventKind | undefined {
   const v = params[key];
-  if (v === 'collision' || v === 'blocked' || v === 'land' || v === 'convergence') return v;
+  if (v === 'land' || v === 'convergence') return v;
   return undefined;
 }
 
@@ -158,41 +143,14 @@ export function buildMethods(
   // than their other uses later in this function costs nothing.
   const sessionsRepo = new SessionRepo(db);
   const leasesRepo = new LeaseRepo(db);
-  const fileClaims = new FileClaimRepo(db);
-  const cursorDeps: AcpAdapterDeps = {
-    resolveWorkspaceId: (sessionId) => {
-      const row = sessionsRepo.findById(sessionId);
-      if (!row) throw new CrossweaveError('SESSION_NOT_FOUND', `No such session: ${sessionId}`);
-      return row.workspaceId;
-    },
-    decideBlocked: (params) => decideBlocked({ fileClaims, workspaces, sessions }, params),
-    recordUsage: (params) => recordUsage({ sessions: sessionsRepo }, params),
-    // Also broadcasts `tui.event` — this is the ACP adapter's ONLY route to
-    // notifyDeps (it never calls notify(notifyDeps, ...) directly, see
-    // src/adapters/acp.ts's decideRequestPermission), so this closure is the
-    // choke point where a subscribed TUI reaches the ACP blocked path too.
-    notify: (event) => {
-      notify(notifyDeps, event);
-      broadcastRegistry.broadcast('tui.event', event);
-    },
-  };
-  // A caller-supplied adapterFactory (every existing test) is used AS-IS, unwrapped —
-  // it's a full override, not something this daemon's cursor deps should be spliced
-  // into. Only the real, no-override daemon path gets the deps-injected default.
-  const sessions = new SessionManager(db, adapterFactory ?? ((kind) => createAdapter(kind, cursorDeps)), config);
+  // A caller-supplied adapterFactory (every test) stands in for the session's shell.
+  const sessions = new SessionManager(db, adapterFactory, config);
   const leaseManager = new LeaseManager(db, projectRoot, config);
   // Nothing a previous daemon held can have survived its death, and a lease left
   // marked active would permanently shrink the pool.
   leaseManager.releaseAll();
 
-  const ledger = new EventLedger(db, projectRoot);
-  const bus = new MessageBus(db, sessions);
-  const contextStore = new ContextStore(db);
-  const contracts = new ContractService(db);
-  // Constructed here, once, and threaded into both collision-detection paths
-  // (RadarWatcherRegistry below, and radar.check's own handler further down) so a
-  // collision either path notices shares exactly one throttle budget — see
-  // src/radar/retro-notify.ts's own doc comment and design doc §3.1's correction.
+  const ledger = new EventLedger(db);
   const notifyGate = new NotificationGate();
   const configTrust = new ConfigTrustRepo(db);
   const notifyConfig = new NotifyConfigRepo(db);
@@ -205,7 +163,6 @@ export function buildMethods(
   // `tui.event`/`tui.invalidate` as they happen — see src/daemon/broadcast.ts's
   // own doc comment.
   const broadcastRegistry = new BroadcastRegistry();
-  const radarWatchers = new RadarWatcherRegistry(db, bus, contracts, notifyGate, notifyDeps, broadcastRegistry);
   const convergenceScheduler = new ConvergenceScheduler(db, projectRoot, config, leaseManager, configTrust, notifyDeps, broadcastRegistry);
   // Constructed always, started only by the real daemon. Every test that calls
   // buildMethods() to exercise one RPC in isolation goes straight to db.close()
@@ -247,50 +204,10 @@ export function buildMethods(
   const DISK_USAGE_CACHE_TTL_MS = 3000;
   const diskUsageCache = new Map<string, { value: { usedBytes: number; limitBytes: number }; computedAt: number }>();
 
-  /** The server that is a session's CURRENT one. Never holds a closing server. */
-  const mcpServers = new Map<string, McpServerHandle>();
-  /**
-   * Closes still in flight, tracked separately from `mcpServers` on purpose.
-   *
-   * Deleting the map entry only once `close()` resolves conflates two questions: a
-   * `session.start` for the same id landing during a close (a fast stop-then-resume;
-   * the daemon dispatches socket messages unserialized) would then have its brand-new
-   * server deleted by the old close's cleanup — running, unreachable and untracked,
-   * so neither `session.stop` nor `daemon.shutdown` would ever close it. The map
-   * therefore loses its entry synchronously, and `daemon.shutdown` awaits genuinely
-   * in-flight closes through this set instead.
-   */
-  const closingMcpServers = new Set<Promise<void>>();
-
-  /**
-   * Retires `handle` as `sessionId`'s server. The map entry is dropped ONLY if it
-   * still points at this exact handle — never at "whatever is currently registered
-   * for this id", which may already be a newer server.
-   */
-  function closeMcpServer(sessionId: string, handle: McpServerHandle): Promise<void> {
-    if (mcpServers.get(sessionId) === handle) mcpServers.delete(sessionId);
-    const pending: Promise<void> = handle.close().catch(() => undefined);
-    closingMcpServers.add(pending);
-    void pending.finally(() => closingMcpServers.delete(pending));
-    return pending;
-  }
-
   // E2E: session.data is sealed at source with the workspace's gateway key, so a
   // relay only ever forwards ciphertext. Resolved per session's workspace, not the
   // daemon's root, so a multi-workspace daemon uses each workspace's own key.
   const userHome = (): string => process.env.HOME || homedir();
-  /** `opencode session list` for resume; its binary is whatever the user configured. */
-  const listOpencodeSessions = (cwd: string): Promise<string> => new Promise((resolve, reject) => {
-    let command = 'opencode';
-    try {
-      command = resolveAgent('opencode', loadSettings()).argv[0] ?? command;
-    } catch {
-      // disabled or missing: the default name is as good a guess as any
-    }
-    execFile(command, ['session', 'list', '--format', 'json'], { cwd, timeout: 10_000, encoding: 'utf8' },
-      (err, stdout) => (err ? reject(err) : resolve(stdout)));
-  });
-
   // Roots are cached: this runs per output chunk and a workspace's root never moves.
   const sealRoots = new Map<string, string>();
   const sealChunk = createChunkSealer((workspaceId) => {
@@ -306,20 +223,13 @@ export function buildMethods(
   const runtime = new SessionRuntime((sessionId) => {
     sessions.clearRunning(sessionId);
     leaseManager.release(sessionId);
-    radarWatchers.stop(sessionId);
-    const handle = mcpServers.get(sessionId);
-    if (handle !== undefined) void closeMcpServer(sessionId, handle);
-    // An agent that exits on its own (a crash, `/exit`) is a status change no RPC
+    // A shell that exits on its own (`exit`, a crash) is a status change no RPC
     // announced; every client kept showing it `running` until something else redrew.
     broadcastRegistry.broadcast('tui.invalidate', {});
   }, sealChunk);
   sessions.onKill = (id) => runtime.stop(id);
 
-  // Shells in a session's worktree (the Terminal pane). NOT sandboxed, deliberately:
-  // the sandbox is a boundary around an AGENT, and this shell is a person typing. Run
-  // inside it, the user's own dotfiles broke — oh-my-zsh, fnm and zsh history could not
-  // write under ~, and zsh even aborted on a failed history lock. The pane says
-  // `not guarded`; a CLI the user starts by hand here runs as it would in any terminal.
+  // Extra shells in a session's worktree (split panes), beside the session's own.
   const terminals = new TerminalRegistry((row) => spawnShell({
     shell: opts.shell ?? process.env.SHELL ?? '/bin/sh',
     cwd: row.worktreePath as string,
@@ -378,13 +288,8 @@ export function buildMethods(
   }
 
   async function start(p: Record<string, unknown>): Promise<SessionRow> {
-    let row = sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName'));
+    const row = sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName'));
     assertResumable(row);
-    // Flags given with this start replace the remembered ones; absent means reuse.
-    if (p.args !== undefined) {
-      sessionsRepo.setLaunchArgs(row.id, validateLaunchArgs(row.agentKind, p.args));
-      row = sessions.resolve(row.workspaceId, row.id);
-    }
     // Synchronous check-and-mark, before the first `await` below: see the comment
     // on `starting` above for why this closes the concurrent-start race.
     if (starting.has(row.id)) {
@@ -394,52 +299,14 @@ export function buildMethods(
     try {
       // A lease must win over the client's shell, or a session's port would depend
       // on what the user happened to export.
-      const fromClient = clientEnv(p);
-      const env: Record<string, string> = { ...fromClient, ...(await leaseManager.acquire(row.id)) };
-      // The user's terminal PATH as well as the client's: a cockpit opened from the Dock
-      // has launchd's minimal PATH, where ~/.local/bin (claude, codex) does not exist.
-      const path = mergePaths(fromClient.PATH ?? process.env.PATH, await loginShellPath());
-      if (path !== undefined) env.PATH = path;
-      const sandbox = decideSandbox({
-        enabled: config.sandbox.enabled,
-        network: config.sandbox.network,
-        projectRoot,
-        worktreePath: row.worktreePath,
-        branch: row.branch,
-        sessionId: row.id,
-        // The dirs THIS agent writes its own state to (Codex: ~/.codex, …), not
-        // Claude Code's for every agent.
-        statePaths: profileFor(row.agentKind).statePaths,
-      });
-      // Silence here would be a lie of omission: a workspace that asked for a boundary
-      // and got none (no provider on this platform, a shared-checkout session) must be
-      // able to see that in the daemon log, not only infer it from coverage labels.
-      if (sandbox.spec === undefined && sandbox.skip !== 'disabled') {
-        process.stderr.write(
-          `crossweave: session ${row.name} runs WITHOUT an OS sandbox (${sandbox.skip}); ` +
-          'writes outside its worktree are not confined on this platform/session shape.\n',
-        );
-      }
-      // Continue this session's own conversation when the agent left one: found by the
-      // worktree path, which is unique per session. A shared (--no-worktree) session
-      // sits in the user's own checkout, where "the newest conversation" is theirs.
-      const resumeId = row.worktreePath !== null && row.worktreePath !== projectRoot
-        ? await findConversation(row.agentKind, {
-          home: userHome(),
-          cwd: row.worktreePath,
-          listOpencode: () => listOpencodeSessions(row.worktreePath as string),
-        })
-        : undefined;
+      const env: Record<string, string> = { ...clientEnv(p), ...(await leaseManager.acquire(row.id)) };
       let pid: number;
       try {
-        pid = runtime.start(row, sessions.adapterFor(row.agentKind), env, sandbox.spec, resumeId);
+        pid = runtime.start(row, sessions.adapterFor(row.agentKind), env);
       } catch (err) {
-        // A spawn can fail synchronously — Bun.spawn throws `Executable not found in
-        // $PATH` before any process exists — and the lease block was already acquired
-        // above. Releasing it here is the difference between "this session could not
-        // start" and a port block held for the daemon's lifetime by a session that
-        // never ran (measured: `session new` with no agent binary left port=43000
-        // held with the row sitting idle).
+        // A spawn can fail synchronously (a missing $SHELL), after the lease block was
+        // acquired above; without this release the block stays held for the daemon's
+        // lifetime by a session that never ran.
         leaseManager.release(row.id);
         throw err;
       }
@@ -448,48 +315,6 @@ export function buildMethods(
       // Every client redraws on this. Without it, a session started by ANOTHER client
       // (the CLI while the cockpit is open) stayed `stopped` on every other screen.
       broadcastRegistry.broadcast('tui.invalidate', {});
-
-      // Registered synchronously, in the same synchronous region as
-      // `runtime.start` above and before this function's next `await` —
-      // exactly like `mcpServers.set` below is NOT (it follows an await),
-      // which is precisely the gap this block must avoid: a `session.stop`/
-      // kill/crash landing before an awaited registration would find nothing
-      // to stop, then have the continuation install a watcher for a session
-      // that is no longer live. Only sessions with their own worktree have a
-      // fork point to diff against — a shared (`--no-worktree`) session is
-      // never watched.
-      if (row.worktreePath !== null && row.worktreePath !== projectRoot) {
-        const forkPoint = ledger.forkPointFor(row.id);
-        if (forkPoint !== undefined) {
-          radarWatchers.start({
-            id: row.id, workspaceId: row.workspaceId,
-            worktreePath: row.worktreePath, forkPoint,
-          });
-        }
-      }
-
-      // Best effort: messaging/context tools are a real feature but not the reason
-      // the session exists. A socket bind failure here (see mcpSocketPath's own
-      // length guard, and main.ts's top-level handler) degrades this one session
-      // to "no MCP tools available" rather than failing the whole start. Awaiting
-      // `ready()` (not just calling `createMcpServer` synchronously) is what makes
-      // `session.mcpInfo`'s `listening()` check deterministic the moment this RPC
-      // returns, instead of racing an in-flight async bind.
-      try {
-        // A server still registered for this id has been superseded — retire it
-        // explicitly rather than dropping the reference, or it would keep running
-        // with nothing left able to close it.
-        const superseded = mcpServers.get(row.id);
-        if (superseded !== undefined) void closeMcpServer(row.id, superseded);
-
-        const tools = buildTools(row.id, row.workspaceId, bus, contextStore, fileClaims, contracts);
-        const handle = createMcpServer(row.id, tools);
-        mcpServers.set(row.id, handle);
-        await handle.ready();
-      } catch (err) {
-        process.stderr.write(`crossweave: could not start MCP server for session ${row.name}: ${String(err)}\n`);
-      }
-
       return sessions.resolve(row.workspaceId, row.id);
     } finally {
       starting.delete(row.id);
@@ -564,47 +389,27 @@ export function buildMethods(
       broadcastRegistry.broadcast('tui.invalidate', {});
       return result;
     },
-    'workspace.setSafeMode': (p) => workspaces.setSafeMode(str(p, 'id'), str(p, 'tier')),
 
     'session.new': (p) => {
-      const launchArgs = p.args === undefined ? undefined : validateLaunchArgs(str(p, 'agent'), p.args);
       const row = sessions.create({
         workspaceId: str(p, 'workspaceId'),
         name: str(p, 'name'),
-        agent: str(p, 'agent'),
         worktree: bool(p, 'worktree', true),
         budgetTokens: optionalNum(p, 'budgetTokens'),
         budgetUsd: optionalNum(p, 'budgetUsd'),
         base: optionalStr(p, 'base'),
-        ...(launchArgs === undefined ? {} : { launchArgs }),
       });
       broadcastRegistry.broadcast('tui.invalidate', {});
       return row;
     },
     'session.list': (p) =>
       sessions.list(str(p, 'workspaceId')).map((session) => {
-        // Sandbox is a runtime decision (enabled/worktree/provider), not stored in the row.
-        // Surface it here so `cw session list` and the Cockpit rail can show it without
-        // a separate RPC — the log line alone is not enough (spec §4 "not yet surfaced").
-        const sbox = (() => {
-          const d = decideSandbox({
-            enabled: config.sandbox.enabled,
-            network: config.sandbox.network,
-            projectRoot,
-            worktreePath: session.worktreePath,
-            branch: session.branch,
-            sessionId: session.id,
-          });
-          if (d.spec !== undefined) return { confined: true };
-          if (d.skip === 'disabled') return { confined: false, reason: 'disabled' };
-          if (d.skip === 'no-worktree') return { confined: false, reason: 'no-worktree' };
-          return { confined: false, reason: d.skip ?? 'no-provider' };
-        })();
-        // The agent's last words for the rail, read from its own log (Claude, Codex).
+        // Whatever the user ran in this worktree last said, read from its own log
+        // (Claude Code, Codex), found by the worktree path, not by what launched it.
         const words = session.worktreePath !== null && session.worktreePath !== projectRoot
-          ? latestWords(session.agentKind, { home: userHome(), cwd: session.worktreePath })
+          ? latestWords({ home: userHome(), cwd: session.worktreePath })
           : undefined;
-        const withWords = { ...session, sandbox: sbox, ...(words === undefined ? {} : { latestWords: words }) };
+        const withWords = { ...session, ...(words === undefined ? {} : { latestWords: words }) };
         const active = leasesRepo
           .listBySession(session.id)
           .filter((lease) => lease.releasedAt === null);
@@ -655,20 +460,8 @@ export function buildMethods(
       return sessionDiff(projectRoot, row.branch, row.worktreePath);
     },
 
-    // The agent catalog for pickers: enabled or not, and whether its command resolves.
-    'agents.list': async () => {
-      const settings = loadSettings();
-      // Resolved on the same PATH a started agent gets (see start()).
-      const PATH = mergePaths(process.env.PATH, await loginShellPath()) ?? '';
-      return settings.agents.map((a) => {
-        let available = false;
-        try { available = Bun.which(splitCommand(a.command)[0]!, { PATH }) !== null; } catch { available = false; }
-        return { id: a.id, label: a.label, enabled: a.enabled, builtin: a.builtin, tier: profileFor(a.id).tier, available };
-      });
-    },
     'settings.get': () => loadSettings(),
-    // Local clients only: this sets commands the daemon will run, so it is never in the
-    // gateway's allowlist.
+    // Local clients only: it is the user's own file, never in the gateway's allowlist.
     'settings.set': (p) => {
       const next = p.settings as UserSettings | undefined;
       if (typeof next !== 'object' || next === null) {
@@ -746,145 +539,13 @@ export function buildMethods(
       return { ok: true };
     },
 
-    // No workspaceId in the params, deliberately: this is a high-frequency,
-    // best-effort call (Claude Code's statusLine fires after every assistant
-    // message, debounced 300ms) and the caller already knows the exact session
-    // id — resolving through `sessions.resolve` would add a workspace lookup with
-    // no purpose. An unknown sessionId is a silent no-op (recordUsage's own
-    // contract), matching this call's "never block the agent" bar.
-    'session.reportUsage': async (p) => {
-      recordUsage({ sessions: sessionsRepo }, {
-        sessionId: str(p, 'sessionId'),
-        tokensUsed: optionalNum(p, 'tokensUsed'),
-        costUsd: optionalNum(p, 'costUsd'),
-      });
-      return { ok: true };
-    },
-
     // Awaited, so a caller told the session stopped can trust that it actually is.
     'session.stop': async (p) => {
       const row = sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName'));
-      // Captured BEFORE the await, not after: this stop is responsible for the server
-      // that was this session's when it was asked to stop. A `session.resume` landing
-      // while `runtime.stop` is in flight installs a NEW one, and re-reading the map
-      // afterwards would close that instead — leaving the resumed session with a
-      // socket nothing can connect to.
-      const handle = mcpServers.get(row.id);
-      radarWatchers.stop(row.id);
       await runtime.stop(row.id);
       leaseManager.release(row.id);
-      if (handle !== undefined) await closeMcpServer(row.id, handle);
       broadcastRegistry.broadcast('tui.invalidate', {});
       return { ok: true };
-    },
-
-    blame: (p) => {
-      const result = ledger.blame(str(p, 'workspaceId'), str(p, 'file'), num(p, 'line'));
-      return result ?? null;
-    },
-
-    'radar.check': (p) => {
-      const workspaceId = str(p, 'workspaceId');
-      const sessionId = str(p, 'sessionId');
-      const path = str(p, 'path');
-      const symbol = optionalStr(p, 'symbol');
-      // Session NAMES are a display concern, added here where `sessions` is already in
-      // scope, for the one consumer that needs a human-readable name: the hook's
-      // advisory text. The blocking POLICY itself lives in decideBlocked, not here —
-      // see its own doc comment for why (M5b's ACP permission handler needs the
-      // identical decision, in-process, with no transport of its own).
-      const { collisions, blocked } = decideBlocked(
-        { fileClaims, workspaces, sessions },
-        { workspaceId, sessionId, path, symbol },
-      );
-      const querySessionName = sessions.resolve(workspaceId, sessionId).name;
-      // M6b: this is the LIVE-hook collision path — deliberately not
-      // radar-hook.ts, whose own gate is a fresh instance per subprocess and
-      // provides no real cross-call throttling (design doc §3.1's correction
-      // note). notifyGate is the SAME instance RadarWatcherRegistry's
-      // background path uses, injected above.
-      if (blocked) {
-        const event = { kind: 'blocked' as const, session: querySessionName, path, symbol: symbol ?? null, workspaceId };
-        notify(notifyDeps, event);
-        broadcastRegistry.broadcast('tui.event', event);
-      }
-      const collisionsWithNames = collisions.map((c) => ({
-        ...c,
-        sessionName: sessions.resolve(workspaceId, c.sessionId).name,
-      }));
-      // Gated explicitly here — collision's own gateKey() (dispatcher.ts) returns
-      // undefined by design, since the intent is that the CALLER already gated once.
-      // The background path (retro-notify.ts's notifyCollisions) does that; this
-      // live-hook path is the other caller and must do the same, against the
-      // SAME notifyGate instance and the SAME key shape (raw partner session id,
-      // not the resolved display name) so both paths dedup against one budget.
-      for (const c of collisionsWithNames) {
-        if (!notifyGate.shouldNotify(c.sessionId, c.path, c.symbol)) continue;
-        const event = {
-          kind: 'collision' as const, sessionA: querySessionName, sessionB: c.sessionName,
-          path: c.path, symbol: c.symbol, workspaceId,
-        };
-        notify(notifyDeps, event);
-        broadcastRegistry.broadcast('tui.event', event);
-      }
-      return { blocked, collisions: collisionsWithNames };
-    },
-
-    'radar.reindex': async (p) => {
-      // The PostToolUse hook's entry point (spec §3.4): a tool call just finished, so
-      // re-derive this session's claims NOW instead of leaving a sibling session to
-      // discover the change on the next 500ms debounce tick. `paths` is the tool call's
-      // own attribution, best-effort on the Bash side — it narrows which of this
-      // session's claims produce retroactive notices, not which claims exist.
-      //
-      // Deliberately takes only a session id: the watchers are keyed by it, and a
-      // workspaceId here would be a second, redundant identity for the same thing —
-      // `radar.check` needs one because it resolves names and policy, this does not.
-      const sessionId = str(p, 'sessionId');
-      const rawPaths = p['paths'];
-      const paths = Array.isArray(rawPaths)
-        ? rawPaths.filter((v): v is string => typeof v === 'string')
-        : undefined;
-      const reindexed = await radarWatchers.reindexNow(sessionId, paths);
-      return { ok: true, reindexed };
-    },
-
-    'contract.declare': (p) => {
-      const workspaceId = str(p, 'workspaceId');
-      const owner = sessions.resolve(workspaceId, str(p, 'sessionId'));
-      const symbolFqn = str(p, 'symbolFqn');
-      // Resolved from the OWNER's own worktree, never a client-supplied
-      // `source` — `checkAndNotify` later recomputes sig_hash from that same
-      // worktree, and a client-supplied source (e.g. the CLI's main-checkout
-      // read) can diverge from it, firing a spurious "Contract changed" on
-      // the very first watcher tick after declaring.
-      const { path } = parseFqn(symbolFqn);
-      const worktreePath = owner.worktreePath ?? projectRoot;
-      // `path` comes from a client-supplied symbolFqn — never trust it to
-      // stay inside the resolved worktree without checking.
-      const source = readFileSync(assertContained(worktreePath, join(worktreePath, path)), 'utf8');
-      const contract = contracts.declareFromSource(
-        {
-          workspaceId,
-          ownerSession: owner.id,
-          symbolFqn,
-          stableBy: optionalStr(p, 'stableBy'),
-        },
-        source,
-      );
-      return { id: contract.id, symbolFqn: contract.symbolFqn, sigHash: contract.sigHash };
-    },
-
-    'session.mcpInfo': (p) => {
-      const row = sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName'));
-      const handle = mcpServers.get(row.id);
-      // `handle` existing only means `createMcpServer` was called and didn't throw —
-      // it never throws on a bind failure (see src/mcp/server.ts), so `listening()`
-      // is the only thing that reflects whether the socket is actually reachable.
-      if (handle === undefined || !handle.listening()) {
-        throw new CrossweaveError('MCP_SERVER_NOT_RUNNING', `No MCP server is running for session ${row.name}`);
-      }
-      return { mcpSocketPath: handle.socketPath };
     },
 
     'converge.status': (p) => {
@@ -1055,8 +716,6 @@ export function buildMethods(
         trusted,
         notify: {
           enabled: n?.enabled ?? true,
-          collision: n?.collision ?? true,
-          blocked: n?.blocked ?? true,
           land: n?.land ?? true,
           convergence: n?.convergence ?? true,
         },
@@ -1072,7 +731,7 @@ export function buildMethods(
       } else {
         notifyConfig.setEvent(workspaceId, event, enabled);
       }
-      return notifyConfig.get(workspaceId) ?? { workspaceId, enabled: true, collision: true, blocked: true, land: true, convergence: true };
+      return notifyConfig.get(workspaceId) ?? { workspaceId, enabled: true, land: true, convergence: true };
     },
 
     'config.untrust': (p) => {
@@ -1111,34 +770,6 @@ export function buildMethods(
       return { openTabs };
     },
 
-    'usage.summary': (p) => {
-      const workspaceId = str(p, 'workspaceId');
-      const groupByRaw = typeof p.groupBy === 'string' ? p.groupBy : undefined;
-      const groupBy = groupByRaw === 'day' || groupByRaw === 'agent' || groupByRaw === 'day+agent' ? groupByRaw : undefined;
-      const rows = sessions.list(workspaceId);
-      const summaries = aggregateUsage(rows, groupBy ? { groupBy } : undefined);
-      return { summaries };
-    },
-
-    /** First real `waiting` writer: a hook/statusLine may call this when the agent wants input. */
-    'session.wait': (p) => {
-      const sessionId = str(p, 'sessionId');
-      // SessionManager keeps the repo private — reach via any, typed as repo shape.
-      const repo = (sessions as unknown as { sessions: { findById: (id: string) => { pid: number | null } | undefined; updateStatus: (id: string, s: string, pid: number | null) => void } }).sessions;
-      const row = repo.findById(sessionId);
-      if (!row) throw new CrossweaveError('NOT_FOUND', `Unknown session: ${sessionId}`);
-      repo.updateStatus(sessionId, 'waiting', row.pid);
-      return { ok: true, status: 'waiting' as const };
-    },
-    'session.unwait': (p) => {
-      const sessionId = str(p, 'sessionId');
-      const repo = (sessions as unknown as { sessions: { findById: (id: string) => { pid: number | null; status: string } | undefined; updateStatus: (id: string, s: string, pid: number | null) => void } }).sessions;
-      const row = repo.findById(sessionId);
-      if (!row) throw new CrossweaveError('NOT_FOUND', `Unknown session: ${sessionId}`);
-      if (row.status === 'waiting') repo.updateStatus(sessionId, 'running', row.pid);
-      return { ok: true, status: row.status === 'waiting' ? 'running' : row.status };
-    },
-
     // The TUI's live feed: no params, subscribes this connection to every future
     // `tui.event`/`tui.invalidate` broadcast until it closes (see
     // src/daemon/broadcast.ts's own doc comment for the two message kinds).
@@ -1151,13 +782,7 @@ export function buildMethods(
     'daemon.shutdown': async () => {
       convergenceScheduler.stop();
       await terminals.closeAll();
-      radarWatchers.stopAll();
       await runtime.stopAll();
-      // stopAll's exit callbacks have already begun closing most of these; anything
-      // still registered is closed here, and both sets of closes are awaited through
-      // `closingMcpServers` so a shutdown never races ahead of one in flight.
-      for (const [sessionId, handle] of [...mcpServers]) void closeMcpServer(sessionId, handle);
-      await Promise.all([...closingMcpServers]);
       setTimeout(() => process.exit(0), 10);
       return { ok: true };
     },

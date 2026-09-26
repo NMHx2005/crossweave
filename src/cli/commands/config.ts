@@ -4,10 +4,10 @@ import { withClient, fail, currentWorkspaceId } from '../context.js';
 import { loadGlobalConfig, saveGlobalConfig } from '../../update/global-config.js';
 
 interface TrustResult { trusted: boolean; testCommand: string }
-interface NotifyStatus { enabled: boolean; collision: boolean; blocked: boolean; land: boolean; convergence: boolean }
+interface NotifyStatus { enabled: boolean; land: boolean; convergence: boolean }
 interface StatusResult { testCommand: string | null; trusted: boolean; notify: NotifyStatus }
 
-const NOTIFY_EVENTS = ['collision', 'blocked', 'land', 'convergence'] as const;
+const NOTIFY_EVENTS = ['land', 'convergence'] as const;
 type NotifyEvent = (typeof NOTIFY_EVENTS)[number];
 
 function parseNotifyEvent(raw: string | undefined): NotifyEvent | undefined {
@@ -57,7 +57,6 @@ const statusCommand = defineCommand({
         const n = result.notify;
         process.stdout.write(
           `notify: ${n.enabled ? 'on' : 'off'}\t` +
-            `collision=${n.collision ? 'on' : 'off'}\tblocked=${n.blocked ? 'on' : 'off'}\t` +
             `land=${n.land ? 'on' : 'off'}\tconvergence=${n.convergence ? 'on' : 'off'}\n`,
         );
       });
@@ -70,7 +69,7 @@ const notifyCommand = defineCommand({
   subCommands: {
     on: defineCommand({
       meta: { name: 'on', description: 'Enable push notifications' },
-      args: { event: { type: 'string', description: 'collision|blocked|land|convergence — omit to set the master switch' } },
+      args: { event: { type: 'string', description: 'land|convergence — omit to set the master switch' } },
       async run({ args }) {
         try {
           const event = parseNotifyEvent(args.event);
@@ -84,7 +83,7 @@ const notifyCommand = defineCommand({
     }),
     off: defineCommand({
       meta: { name: 'off', description: 'Disable push notifications' },
-      args: { event: { type: 'string', description: 'collision|blocked|land|convergence — omit to set the master switch' } },
+      args: { event: { type: 'string', description: 'land|convergence — omit to set the master switch' } },
       async run({ args }) {
         try {
           const event = parseNotifyEvent(args.event);

@@ -16,7 +16,7 @@ import { gitFailureText, landSession, type LandResult } from '../../src/converge
 import { hashTestCommand } from '../../src/convergence/trust.js';
 import { buildMethods } from '../../src/daemon/methods.js';
 import { ConvergenceScheduler } from '../../src/daemon/convergence-scheduler.js';
-import { ClaudePtyAdapter } from '../../src/adapters/claude-pty.js';
+import { argvAdapter } from '../helpers/argv-adapter.js';
 import type { AgentAdapter } from '../../src/adapters/types.js';
 import { makeGitFixture, commitFile, type GitFixture } from '../helpers/git-fixture.js';
 
@@ -28,7 +28,7 @@ async function setup(fixture: GitFixture, config = DEFAULT_CONFIG) {
   });
   const sessions = new SessionRepo(db);
   const leaseManager = new LeaseManager(db, fixture.root, config);
-  const ledger = new EventLedger(db, fixture.root);
+  const ledger = new EventLedger(db);
   const configTrust = new ConfigTrustRepo(db);
   // Tests exercise the trust gate itself explicitly (see "LAND_TESTCOMMAND_UNTRUSTED"
   // below) — every OTHER test using a testCommand is testing something else and
@@ -450,7 +450,7 @@ describe('landSession', () => {
       const config = withTestCommand('exit 0');
       const sessions = new SessionRepo(db);
       const leaseManager = new LeaseManager(db, fixture.root, config);
-      const ledger = new EventLedger(db, fixture.root);
+      const ledger = new EventLedger(db);
       const configTrust = new ConfigTrustRepo(db);
       insertSession(sessions, { id: 's_a', worktreePath: fixture.root, branch: 'cw/a' });
 
@@ -593,7 +593,7 @@ describe('land.session RPC', () => {
   function stubbornAdapterFactory(): AgentAdapter {
     // Ignores SIGTERM so a naive "release the lease and move on" force-land would
     // leave a live, orphaned process behind — proving `force` really stops it.
-    return new ClaudePtyAdapter('sh', ['-c', 'sleep 999']);
+    return argvAdapter(['sh', '-c', 'sleep 999']);
   }
 
   test('force: true stops a running session\'s real agent process before landing it', async () => {

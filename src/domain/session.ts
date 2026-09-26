@@ -8,7 +8,7 @@ import { LeaseRepo } from '../db/repositories/lease.js';
 import { createWorktree, deleteBranch, removeWorktree } from '../isolation/worktree.js';
 import { assertDiskAvailable } from '../isolation/disk-guard.js';
 import { disposeLeasedPaths } from './gc.js';
-import { createAdapter as defaultCreateAdapter } from '../adapters/registry.js';
+import { SHELL_KIND, createAdapter } from '../adapters/registry.js';
 import type { AgentAdapter } from '../adapters/types.js';
 import { DEFAULT_CONFIG, type CrossweaveConfig } from '../core/config.js';
 
@@ -17,14 +17,11 @@ export type AdapterFactory = (kind: string) => AgentAdapter;
 export interface CreateSessionOptions {
   workspaceId: string;
   name: string;
-  agent: string;
   worktree: boolean;
   budgetTokens?: number;
   budgetUsd?: number;
   /** Branch or commit the worktree starts from; the project's HEAD when omitted. */
   base?: string;
-  /** Launch flags to remember for this session (already validated by the caller). */
-  launchArgs?: string[];
 }
 
 /**
@@ -70,7 +67,7 @@ export class SessionManager {
 
   constructor(
     private readonly db: Database,
-    private readonly adapterFactory: AdapterFactory = defaultCreateAdapter,
+    private readonly adapterFactory: AdapterFactory = () => createAdapter(),
     private readonly config: CrossweaveConfig = DEFAULT_CONFIG,
   ) {
     this.sessions = new SessionRepo(db);
@@ -96,7 +93,7 @@ export class SessionManager {
       throw new CrossweaveError('SESSION_NAME_TAKEN', `Session already exists: ${opts.name}`);
     }
 
-    const adapter = this.adapterFactory(opts.agent);
+    const adapter = this.adapterFactory(SHELL_KIND);
     const id = newId('s');
 
     let worktreePath = root;
@@ -125,7 +122,7 @@ export class SessionManager {
       tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: opts.budgetUsd ?? null,
       enforcementTier: adapter.enforcementTier,
       pid: null,
-      launchArgs: opts.launchArgs ?? null,
+      launchArgs: null,
     };
     try {
       this.sessions.insert(row);

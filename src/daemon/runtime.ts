@@ -1,7 +1,6 @@
 import { CrossweaveError } from '../core/errors.js';
 import type { AgentAdapter, AgentProcess } from '../adapters/types.js';
 import type { SessionRow } from '../db/repositories/session.js';
-import { sandboxTmpDir, type SandboxSpec } from '../isolation/sandbox.js';
 import type { MethodContext } from './server.js';
 import type { ChunkSealer } from '../gateway/e2e-sealer.js';
 
@@ -55,9 +54,6 @@ export class SessionRuntime {
     session: SessionRow,
     adapter: AgentAdapter,
     env: Record<string, string> = {},
-    sandbox?: SandboxSpec,
-    /** The agent conversation to reopen (adapters/catalog.ts), if any. */
-    resumeId?: string,
   ): number {
     if (this.running.has(session.id)) {
       throw new CrossweaveError('SESSION_ALREADY_RUNNING', `Session already running: ${session.name}`);
@@ -66,25 +62,13 @@ export class SessionRuntime {
       throw new CrossweaveError('SESSION_NO_WORKDIR', `Session has no working directory: ${session.name}`);
     }
 
-    // A sandboxed session's `TMPDIR` points at its private temp dir, which the profile
-    // grants write access to. Leaving it at the host's `/var/folders/...` would let a
-    // session's temp files land in a location shared with every other process — the
-    // one hole the per-session temp root exists to close. Set AFTER the caller's env
-    // so a forwarded `TMPDIR` cannot widen it back out.
-    const sandboxedEnv = sandbox === undefined
-      ? env
-      : { ...env, TMPDIR: sandboxTmpDir(sandbox.projectRoot, session.id) };
-
     const proc = adapter.spawn({
       cwd: session.worktreePath,
       // CW_SESSION_ID/CW_SESSION_NAME are set last deliberately: a lease must never
       // be able to overwrite the session's own identity.
-      env: { ...sandboxedEnv, CW_SESSION_ID: session.id, CW_SESSION_NAME: session.name },
+      env: { ...env, CW_SESSION_ID: session.id, CW_SESSION_NAME: session.name },
       cols: 80,
       rows: 24,
-      sandbox,
-      ...(resumeId === undefined ? {} : { resumeId }),
-      ...(session.launchArgs ? { extraArgs: session.launchArgs } : {}),
     });
 
     const entry: RunningSession = { proc, scrollback: '', subscribers: new Set(), session };

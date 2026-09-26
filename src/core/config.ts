@@ -14,7 +14,6 @@ export interface CrossweaveConfig {
     fullIntegrationIntervalMs: number;
     pairwiseSessionThreshold: number;
   };
-  sandbox: { enabled: boolean; network: boolean };
 }
 
 export const DEFAULT_CONFIG: CrossweaveConfig = {
@@ -31,16 +30,6 @@ export const DEFAULT_CONFIG: CrossweaveConfig = {
     fullIntegrationIntervalMs: 300_000,
     pairwiseSessionThreshold: 8,
   },
-  // On by default. The sandbox is the only mechanism here that does not depend on the
-  // agent's cooperation, so defaulting it off would leave most users with the tier
-  // gaps the tier-coverage spec documents and a setting they never knew to flip. A
-  // platform with no provider ignores this and says so at session start (see
-  // src/isolation/sandbox.ts).
-  // Network ON by default: with it off, no agent could reach its own model API —
-  // measured HTTP=000 to api.anthropic.com from a sandboxed session, so every
-  // default session failed on its first prompt. What the sandbox is for (writes
-  // outside the worktree) is unaffected; `network: false` is still available.
-  sandbox: { enabled: true, network: true },
 };
 
 const STRATEGIES = new Set(['none', 'schema', 'file-copy']);
@@ -102,7 +91,6 @@ export function loadConfig(projectRoot: string): CrossweaveConfig {
     db: { ...DEFAULT_CONFIG.db, ...input.db },
     cacheIsolation: input.cacheIsolation ?? DEFAULT_CONFIG.cacheIsolation,
     converge: { ...DEFAULT_CONFIG.converge, ...input.converge },
-    sandbox: { ...DEFAULT_CONFIG.sandbox, ...input.sandbox },
   };
 
   if (!Number.isInteger(config.ports.base) || config.ports.base < 1024) {
@@ -164,12 +152,6 @@ export function loadConfig(projectRoot: string): CrossweaveConfig {
   // A non-boolean here would be read as truthy/falsy by the spawn path and silently
   // decide whether the OS boundary exists — the one setting whose misreading changes
   // what the session can do, so it is checked rather than coerced.
-  if (typeof config.sandbox.enabled !== 'boolean') {
-    invalid(`sandbox.enabled must be a boolean, got ${JSON.stringify(config.sandbox.enabled)}`);
-  }
-  if (typeof config.sandbox.network !== 'boolean') {
-    invalid(`sandbox.network must be a boolean, got ${JSON.stringify(config.sandbox.network)}`);
-  }
 
   return config;
 }

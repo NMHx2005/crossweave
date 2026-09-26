@@ -33,8 +33,8 @@ afterEach(async () => {
 
 describe('collectGarbage', () => {
   it('reclaims dead sessions and leaves live ones alone', async () => {
-    const dead = await sessions.create({ workspaceId, name: 'dead', agent: 'claude', worktree: true });
-    const live = await sessions.create({ workspaceId, name: 'live', agent: 'claude', worktree: true });
+    const dead = await sessions.create({ workspaceId, name: 'dead', worktree: true });
+    const live = await sessions.create({ workspaceId, name: 'live', worktree: true });
     await sessions.kill(workspaceId, 'dead', { removeWorktree: false });
 
     const result = await collectGarbage(db, workspaceId);
@@ -50,7 +50,7 @@ describe('collectGarbage', () => {
   // still be landed; gc used to delete them regardless, work and all.
   describe('a dead session that still holds unlanded work', () => {
     async function deadWithCommit(name: string) {
-      const row = await sessions.create({ workspaceId, name, agent: 'claude', worktree: true });
+      const row = await sessions.create({ workspaceId, name, worktree: true });
       const { simpleGit } = await import('simple-git');
       await writeFile(join(row.worktreePath ?? '', 'feature.txt'), 'work\n');
       await simpleGit(row.worktreePath ?? '').add('feature.txt').commit('feature');
@@ -69,7 +69,7 @@ describe('collectGarbage', () => {
     }, 30_000);
 
     it('is kept when its worktree has uncommitted changes', async () => {
-      const row = await sessions.create({ workspaceId, name: 'dirty', agent: 'claude', worktree: true });
+      const row = await sessions.create({ workspaceId, name: 'dirty', worktree: true });
       await writeFile(join(row.worktreePath ?? '', 'scratch.txt'), 'not committed\n');
       await sessions.kill(workspaceId, 'dirty', { removeWorktree: false });
       const result = await collectGarbage(db, workspaceId);
@@ -95,25 +95,25 @@ describe('collectGarbage', () => {
   });
 
   it('is a no-op when nothing has ended', async () => {
-    await sessions.create({ workspaceId, name: 'live', agent: 'claude', worktree: true });
+    await sessions.create({ workspaceId, name: 'live', worktree: true });
     const result = await collectGarbage(db, workspaceId);
     expect(result.removed).toEqual([]);
     expect(result.reclaimedBytes).toBe(0);
   }, 30_000);
 
   it('deletes the dead session\'s branch too, freeing the name', async () => {
-    await sessions.create({ workspaceId, name: 'recycle', agent: 'claude', worktree: true });
+    await sessions.create({ workspaceId, name: 'recycle', worktree: true });
     await sessions.kill(workspaceId, 'recycle', { removeWorktree: false });
     await collectGarbage(db, workspaceId);
 
     const { simpleGit } = await import('simple-git');
     expect((await simpleGit(fx.root).branch()).all).not.toContain('cw/recycle');
-    const revived = await sessions.create({ workspaceId, name: 'recycle', agent: 'claude', worktree: true });
+    const revived = await sessions.create({ workspaceId, name: 'recycle', worktree: true });
     expect(revived.branch).toBe('cw/recycle');
   }, 30_000);
 
   it('reclaims worktrees no session row claims', async () => {
-    await sessions.create({ workspaceId, name: 'orphan', agent: 'claude', worktree: true });
+    await sessions.create({ workspaceId, name: 'orphan', worktree: true });
     // Simulate what `workspace delete --force` leaves: the row is gone, the disk is not.
     const row = sessions.resolve(workspaceId, 'orphan');
     new SessionRepo(db).delete(row.id);
@@ -136,7 +136,7 @@ describe('collectGarbage', () => {
   it('deletes the ended session\'s leased cache directory and copied database', async () => {
     await writeFile(join(fx.root, 'app.db'), 'sqlite');
     const session = await sessions.create({
-      workspaceId, name: 'leased', agent: 'claude', worktree: true,
+      workspaceId, name: 'leased', worktree: true,
     });
     const config = { ...DEFAULT_CONFIG, db: { strategy: 'file-copy' as const, url: 'app.db' } };
     const env = await new LeaseManager(db, fx.root, config).acquire(session.id);
@@ -155,7 +155,7 @@ describe('collectGarbage', () => {
   // The `schema` strategy's db lease holds a Postgres schema name, not a path.
   it('does not treat a schema-strategy db lease as a filesystem path', async () => {
     const session = await sessions.create({
-      workspaceId, name: 'schema', agent: 'claude', worktree: true,
+      workspaceId, name: 'schema', worktree: true,
     });
     const config = {
       ...DEFAULT_CONFIG,
@@ -171,7 +171,7 @@ describe('collectGarbage', () => {
   }, 30_000);
 
   it('does not reclaim a worktree that is still mid-creation', async () => {
-    await sessions.create({ workspaceId, name: 'brand-new', agent: 'claude', worktree: true });
+    await sessions.create({ workspaceId, name: 'brand-new', worktree: true });
     // Same shape as a genuine orphan — the row is gone, the disk is not — but the
     // directory's mtime is fresh, as it would be for a `create()` call caught between
     // `createWorktree` returning and `sessions.insert` committing.
@@ -193,7 +193,7 @@ describe('collectGarbage', () => {
 describe('collectOrphans', () => {
   it('leaves a killed session\'s worktree and branch alone', async () => {
     const killed = await sessions.create({
-      workspaceId, name: 'keepme', agent: 'claude', worktree: true,
+      workspaceId, name: 'keepme', worktree: true,
     });
     await sessions.kill(workspaceId, 'keepme', { removeWorktree: false });
 
@@ -212,7 +212,7 @@ describe('collectOrphans', () => {
   }, 30_000);
 
   it('still reclaims a worktree no session row claims', async () => {
-    await sessions.create({ workspaceId, name: 'orphan', agent: 'claude', worktree: true });
+    await sessions.create({ workspaceId, name: 'orphan', worktree: true });
     const row = sessions.resolve(workspaceId, 'orphan');
     new SessionRepo(db).delete(row.id);
     const old = new Date(Date.now() - 10_000);
@@ -251,7 +251,7 @@ describe('collectOrphans', () => {
 describe('boot-time gc', () => {
   it('does not destroy a killed session\'s worktree or branch on daemon restart', async () => {
     const killed = await sessions.create({
-      workspaceId, name: 'survivor', agent: 'claude', worktree: true,
+      workspaceId, name: 'survivor', worktree: true,
     });
     await sessions.kill(workspaceId, 'survivor', { removeWorktree: false });
     const old = new Date(Date.now() - 10_000);
@@ -269,7 +269,7 @@ describe('boot-time gc', () => {
   }, 30_000);
 
   it('still sweeps a genuine orphan on daemon restart', async () => {
-    await sessions.create({ workspaceId, name: 'stray', agent: 'claude', worktree: true });
+    await sessions.create({ workspaceId, name: 'stray', worktree: true });
     const row = sessions.resolve(workspaceId, 'stray');
     new SessionRepo(db).delete(row.id);
     const old = new Date(Date.now() - 10_000);

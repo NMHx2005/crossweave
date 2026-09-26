@@ -1,5 +1,4 @@
 import { defineCommand } from 'citty';
-import { tierWithCoverage } from '../../adapters/coverage.js';
 import {
   createCliRenderer,
   BoxRenderable,
@@ -25,7 +24,7 @@ import { humanBytes } from '../../isolation/disk-guard.js';
 import { format, type NotifyEvent } from '../../notify/dispatcher.js';
 
 interface WorkspaceInit { id: string; name: string }
-interface Workspace { id: string; name: string; rootPath: string; safeModeTier: string }
+interface Workspace { id: string; name: string; rootPath: string }
 interface DiskInfo { usedBytes: number; limitBytes: number }
 // `disk` is an RPC-layer enrichment (see 'workspace.info' in src/daemon/methods.ts) —
 // `WorkspaceManager.info()` itself still only returns `{workspace, sessions}`.
@@ -60,16 +59,15 @@ let latestFeedLines: string[] = [];
  * Pure data → string formatting, kept separate from the OpenTUI wiring below so it
  * is unit-testable without a real terminal (see tests/cli/tui-panes.test.ts).
  *
- * Dot mapping follows the same live/idle/terminal grouping already used elsewhere
- * in the domain layer (src/domain/bus.ts groups 'running'+'waiting' as live;
- * src/domain/gc.ts and src/domain/session.ts group 'dead'+'landed' as terminal),
- * not an invented one.
+ * Dot mapping follows the live/idle/terminal grouping used elsewhere in the domain
+ * layer (src/domain/gc.ts and src/domain/session.ts group 'dead'+'landed' as
+ * terminal), not an invented one.
  */
 export function formatSessionRow(row: SessionRow): { text: string; dot: '●' | '○' | '✕' } {
   const dot: '●' | '○' | '✕' =
     row.status === 'running' || row.status === 'waiting' ? '●' :
     row.status === 'dead' || row.status === 'landed' ? '✕' : '○';
-  const text = `${row.name}  ${row.status}  ${tierWithCoverage(row.enforcementTier)}  $${row.costSpentUsd.toFixed(2)}`;
+  const text = `${row.name}  ${row.status}  ${row.branch ?? 'shared checkout'}`;
   return { text, dot };
 }
 
@@ -83,11 +81,10 @@ export function formatStatusBar(
   sessions: SessionRow[],
   disk: { usedBytes: number; limitBytes: number },
 ): string {
-  const totalCost = sessions.reduce((sum, s) => sum + s.costSpentUsd, 0);
   const count = sessions.length;
   return (
     `${ws.name}  |  ${count} session${count === 1 ? '' : 's'}  |  ` +
-    `$${totalCost.toFixed(2)} spent  |  disk ${humanBytes(disk.usedBytes)}/${humanBytes(disk.limitBytes)}`
+    `disk ${humanBytes(disk.usedBytes)}/${humanBytes(disk.limitBytes)}`
   );
 }
 
@@ -393,7 +390,7 @@ export function waitForQuit(renderer: QuitAwareRenderer): Promise<void> {
 }
 
 export const tuiCommand = defineCommand({
-  meta: { name: 'tui', description: 'Live dashboard — sessions, radar, convergence, budget' },
+  meta: { name: 'tui', description: 'Live dashboard — sessions, convergence, activity' },
   async run() {
     // Deliberately NOT withClient (src/cli/context.ts) — that closes the connection
     // right after one call. This command holds one connection for its whole
@@ -546,22 +543,22 @@ export const tuiCommand = defineCommand({
       });
       convergenceBox.add(convergenceMatrixPane);
 
-      const radarFeedBox = new BoxRenderable(renderer, {
-        id: 'radar-feed-box',
+      const feedBox = new BoxRenderable(renderer, {
+        id: 'activity-feed-box',
         width: '100%',
         height: 8,
         borderStyle: 'single',
-        title: 'Radar feed',
+        title: 'Activity',
         titleAlignment: 'left',
       });
-      root.add(radarFeedBox);
+      root.add(feedBox);
       feedPane = new TextRenderable(renderer, {
-        id: 'radar-feed',
+        id: 'activity-feed',
         width: '100%',
         height: '100%',
         content: latestFeedLines.join('\n'),
       });
-      radarFeedBox.add(feedPane);
+      feedBox.add(feedPane);
       feedPane.scrollY = feedPane.maxScrollY;
 
       statusBarPane = new TextRenderable(renderer, {
@@ -687,7 +684,7 @@ export const tuiCommand = defineCommand({
           width: '100%',
           height: 'auto',
           borderStyle: 'single',
-          title: 'New session — name, Enter, agent, Enter (Esc to cancel)',
+          title: 'New session — name, Enter (Esc to cancel)',
           titleAlignment: 'left',
         });
         const nameInput = new InputRenderable(renderer, {
@@ -695,14 +692,7 @@ export const tuiCommand = defineCommand({
           width: '100%',
           placeholder: 'session name',
         });
-        const agentInput = new InputRenderable(renderer, {
-          id: 'new-session-agent',
-          width: '100%',
-          placeholder: 'agent',
-          value: 'claude',
-        });
         formBox.add(nameInput);
-        formBox.add(agentInput);
         root.add(formBox, root.getChildren().indexOf(actionStatusPane));
 
         const closeForm = (): void => {
@@ -715,27 +705,16 @@ export const tuiCommand = defineCommand({
           if (key.name === 'escape') closeForm();
         };
         nameInput.onKeyDown = onEscape;
-        agentInput.onKeyDown = onEscape;
 
-        nameInput.on(InputRenderableEvents.ENTER, (name: string) => {
-          if (!name.trim()) {
-            setActionStatus('session name is required');
-            return;
-          }
-          agentInput.focus();
-        });
-
-        agentInput.on(InputRenderableEvents.ENTER, (agent: string) => {
-          const name = nameInput.value.trim();
+        nameInput.on(InputRenderableEvents.ENTER, (raw: string) => {
+          const name = raw.trim();
           if (!name) {
             setActionStatus('session name is required');
-            nameInput.focus();
             return;
           }
-          const agentKind = agent.trim() || 'claude';
           closeForm();
           void conn
-            .call('session.new', { workspaceId: ws.id, name, agent: agentKind })
+            .call('session.new', { workspaceId: ws.id, name })
             .then(() => setActionStatus(`created session ${name}`))
             .catch((err: unknown) => setActionStatus(`create session failed: ${(err as Error).message}`));
         });
@@ -819,7 +798,7 @@ export const tuiCommand = defineCommand({
       }
 
       /**
-       * Start the selected session's agent. Same dead end the Cockpit's rail had:
+       * Open the selected session's shell again. Same dead end the Cockpit's rail had:
        * `n` only ever called `session.new`, so a session stopped with `x`→stop or a
        * never-started one could not be brought back from the dashboard at all, and
        * the only way forward was to quit and type `cw session attach`.
@@ -914,7 +893,7 @@ export const tuiCommand = defineCommand({
       //
       // Scoped to `sessionList`'s own focus (targetMode: 'focus'), not a global
       // layer: this is what keeps these 6 keys from firing while the new-session
-      // form has focus (letters typed into the name/agent fields must reach the
+      // form has focus (letters typed into the name field must reach the
       // `InputRenderable`s, not this layer) — the keymap re-checks the focused
       // target on every keypress, so moving focus off `sessionList` deactivates
       // the whole layer without any manual enable/disable bookkeeping. `q` is

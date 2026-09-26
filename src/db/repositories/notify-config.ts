@@ -1,12 +1,15 @@
 import type { Database } from 'bun:sqlite';
 
-export type NotifyEventKind = 'collision' | 'blocked' | 'land' | 'convergence';
+/**
+ * The events that still exist. The table keeps its `collision`/`blocked` columns
+ * (migrations are forward-only) but nothing reads or writes them since the Radar was
+ * removed.
+ */
+export type NotifyEventKind = 'land' | 'convergence';
 
 export interface NotifyConfigRow {
   workspaceId: string;
   enabled: boolean;
-  collision: boolean;
-  blocked: boolean;
   land: boolean;
   convergence: boolean;
 }
@@ -14,20 +17,16 @@ export interface NotifyConfigRow {
 interface NotifyConfigRecord {
   workspace_id: string;
   enabled: number;
-  collision: number;
-  blocked: number;
   land: number;
   convergence: number;
 }
 
-const COLUMNS = 'workspace_id, enabled, collision, blocked, land, convergence';
+const COLUMNS = 'workspace_id, enabled, land, convergence';
 
 function toRow(r: NotifyConfigRecord): NotifyConfigRow {
   return {
     workspaceId: r.workspace_id,
     enabled: r.enabled === 1,
-    collision: r.collision === 1,
-    blocked: r.blocked === 1,
     land: r.land === 1,
     convergence: r.convergence === 1,
   };
@@ -60,13 +59,13 @@ export class NotifyConfigRepo {
   }
 
   setEvent(workspaceId: string, event: NotifyEventKind, enabled: boolean): void {
-    // `event` is one of a fixed 4-member union, never client-supplied as a raw
+    // `event` is one of a fixed union, never client-supplied as a raw
     // string that reaches SQL — but the column name still can't be a bound
     // parameter (SQLite doesn't allow that), so it's validated against the
     // exact same union the type system already enforces before ever touching
     // string interpolation, closing the gap for a caller that bypasses the
     // type checker (e.g. a JS caller, or `as` cast).
-    if (event !== 'collision' && event !== 'blocked' && event !== 'land' && event !== 'convergence') {
+    if (event !== 'land' && event !== 'convergence') {
       throw new Error(`invalid notify event: ${String(event)}`);
     }
     this.db

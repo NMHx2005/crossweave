@@ -65,7 +65,4 @@ export class WorkspaceRepo {
     this.db.prepare('DELETE FROM workspace WHERE id = ?').run(id);
   }
 
-  updateSafeModeTier(id: string, tier: WorkspaceRow['safeModeTier']): void {
-    this.db.prepare('UPDATE workspace SET safe_mode_tier = ? WHERE id = ?').run(tier, id);
-  }
 }

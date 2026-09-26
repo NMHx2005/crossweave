@@ -8,15 +8,14 @@ import { buildMethods } from '../../src/daemon/methods.js';
 import { SessionRuntime } from '../../src/daemon/runtime.js';
 import { SessionManager } from '../../src/domain/session.js';
 import { DaemonClient } from '../../src/client/rpc-client.js';
-import { ClaudePtyAdapter } from '../../src/adapters/claude-pty.js';
-import { CrossweaveError } from '../../src/core/errors.js';
+import { argvAdapter } from '../helpers/argv-adapter.js';
 import type { AgentAdapter, AgentProcess } from '../../src/adapters/types.js';
 import { makeGitFixture, type GitFixture } from '../helpers/git-fixture.js';
 import { LeaseRepo } from '../../src/db/repositories/lease.js';
 import { DEFAULT_CONFIG } from '../../src/core/config.js';
 
 /**
- * Echoes each stdin line back, so tests never need the real `claude` binary.
+ * Echoes each stdin line back, so tests never run the user's real shell.
  *
  * `eval` (rather than a plain `echo "echo:$l"`) is deliberate: it gives the line a
  * second parse pass, so a line that is itself a shell command — like
@@ -24,9 +23,8 @@ import { DEFAULT_CONFIG } from '../../src/core/config.js';
  * environment, the same way a real agent's shell would. A plain literal like `ping`
  * still round-trips unchanged, since eval-ing `echo echo:ping` just prints it back.
  */
-function echoFactory(kind: string): AgentAdapter {
-  if (kind !== 'claude') throw new CrossweaveError('UNKNOWN_AGENT', `Unsupported: ${kind}`);
-  return new ClaudePtyAdapter('sh', ['-c', 'while IFS= read -r l; do eval "echo echo:$l"; done']);
+function echoFactory(): AgentAdapter {
+  return argvAdapter(['sh', '-c', 'while IFS= read -r l; do eval "echo echo:$l"; done']);
 }
 
 let fx: GitFixture;
@@ -82,48 +80,13 @@ describe('attach detach key', () => {
   });
 });
 
-describe('SessionRuntime sandbox plumbing', () => {
-  /** Captures the SpawnOptions it was handed, then exits immediately. */
-  class CapturingAdapter implements AgentAdapter {
-    readonly kind = 'claude';
-    readonly enforcementTier = 'T2' as const;
-    opts: import('../../src/adapters/types.js').SpawnOptions | undefined;
-    spawn(opts: import('../../src/adapters/types.js').SpawnOptions): AgentProcess {
-      this.opts = opts;
-      return { pid: 1, onData: () => undefined, onExit: (cb) => cb(0), write: () => undefined, resize: () => undefined, kill: () => undefined };
-    }
-  }
-
-  it('redirects TMPDIR into the session temp dir when a spec is passed', async () => {
-    const runtime = new SessionRuntime(() => undefined);
-    const row = await sessions.create({ workspaceId, name: 'sbx', agent: 'claude', worktree: true });
-    const adapter = new CapturingAdapter();
-    runtime.start(row, adapter, {}, {
-      worktreePath: row.worktreePath!, projectRoot: fx.root,
-      network: false, sessionId: row.id,
-    });
-    expect(adapter.opts?.sandbox?.sessionId).toBe(row.id);
-    // The session's own temp root, not the host's shared `/var/folders/...`.
-    expect(adapter.opts?.env['TMPDIR']).toBe(join(fx.root, '.crossweave', 'sandbox-tmp', row.id));
-  });
-
-  it('leaves TMPDIR alone when there is no spec', async () => {
-    const runtime = new SessionRuntime(() => undefined);
-    const row = await sessions.create({ workspaceId, name: 'nosbx', agent: 'claude', worktree: true });
-    const adapter = new CapturingAdapter();
-    runtime.start(row, adapter, { TMPDIR: '/kept' });
-    expect(adapter.opts?.sandbox).toBeUndefined();
-    expect(adapter.opts?.env['TMPDIR']).toBe('/kept');
-  });
-});
-
 describe('SessionRuntime output sealing', () => {
   // A chunk the sealer refuses must not go out at all: the old fallback sent it in
   // plaintext, which is the one thing E2E exists to stop.
   it('sends nothing for a chunk the sealer drops, live or replayed, and keeps the session running', async () => {
     const runtime = new SessionRuntime(() => undefined, () => undefined);
-    const row = await sessions.create({ workspaceId, name: 'sealdrop', agent: 'claude', worktree: true });
-    runtime.start(row, new ClaudePtyAdapter('sh', ['-c', 'echo secret; sleep 2']));
+    const row = await sessions.create({ workspaceId, name: 'sealdrop', worktree: true });
+    runtime.start(row, argvAdapter(['sh', '-c', 'echo secret; sleep 2']));
     const seen: string[] = [];
     runtime.subscribe(row.id, row.name, { notify: (m) => seen.push(m), onClose: () => undefined });
     await new Promise((r) => setTimeout(r, 300));
@@ -136,8 +99,8 @@ describe('SessionRuntime output sealing', () => {
 
   it('sends what the sealer returns in place of the chunk', async () => {
     const runtime = new SessionRuntime(() => undefined, (chunk) => ({ sealed: chunk.length }));
-    const row = await sessions.create({ workspaceId, name: 'sealwrap', agent: 'claude', worktree: true });
-    runtime.start(row, new ClaudePtyAdapter('sh', ['-c', 'echo hi; sleep 2']));
+    const row = await sessions.create({ workspaceId, name: 'sealwrap', worktree: true });
+    runtime.start(row, argvAdapter(['sh', '-c', 'echo hi; sleep 2']));
     const chunks: unknown[] = [];
     runtime.subscribe(row.id, row.name, {
       notify: (m, p) => { if (m === 'session.data') chunks.push((p as { chunk: unknown }).chunk); },
@@ -165,10 +128,10 @@ describe('SessionRuntime subscriber isolation', () => {
   it('a throwing DATA subscriber does not starve later data subscribers', async () => {
     const runtime = new SessionRuntime(() => undefined);
     const row = await sessions.create({
-      workspaceId, name: 'isodata', agent: 'claude', worktree: true,
+      workspaceId, name: 'isodata', worktree: true,
     });
     const seen: string[] = [];
-    runtime.start(row, new ClaudePtyAdapter('sh', ['-c', 'echo hi; sleep 2']));
+    runtime.start(row, argvAdapter(['sh', '-c', 'echo hi; sleep 2']));
 
     const onData = (tag: string) => (m: string): void => { if (m === 'session.data') seen.push(tag); };
     runtime.subscribe(row.id, row.name, fakeContext(onData('first')));
@@ -186,10 +149,10 @@ describe('SessionRuntime subscriber isolation', () => {
     const exits: string[] = [];
     const runtime = new SessionRuntime((id) => exits.push(id));
     const row = await sessions.create({
-      workspaceId, name: 'isoexit', agent: 'claude', worktree: true,
+      workspaceId, name: 'isoexit', worktree: true,
     });
     const seen: string[] = [];
-    runtime.start(row, new ClaudePtyAdapter('sh', ['-c', 'exit 0']));
+    runtime.start(row, argvAdapter(['sh', '-c', 'exit 0']));
 
     const onExit = (tag: string) => (m: string): void => { if (m === 'session.exit') seen.push(tag); };
     runtime.subscribe(row.id, row.name, fakeContext(onExit('first')));
@@ -207,7 +170,7 @@ describe('SessionRuntime subscriber isolation', () => {
 
 describe('session runtime', () => {
   it('starts an agent and marks the session running with a pid', async () => {
-    await client.call('session.new', { workspaceId, name: 'auth', agent: 'claude', worktree: true });
+    await client.call('session.new', { workspaceId, name: 'auth', worktree: true });
     const started = await client.call<{ status: string; pid: number }>('session.start', {
       workspaceId, idOrName: 'auth',
     });
@@ -216,7 +179,7 @@ describe('session runtime', () => {
   });
 
   it('streams agent output to a subscriber and accepts input', async () => {
-    await client.call('session.new', { workspaceId, name: 'auth', agent: 'claude', worktree: true });
+    await client.call('session.new', { workspaceId, name: 'auth', worktree: true });
     await client.call('session.start', { workspaceId, idOrName: 'auth' });
 
     let seen = '';
@@ -231,7 +194,7 @@ describe('session runtime', () => {
   });
 
   it('replays recent scrollback to a late subscriber', async () => {
-    await client.call('session.new', { workspaceId, name: 'auth', agent: 'claude', worktree: true });
+    await client.call('session.new', { workspaceId, name: 'auth', worktree: true });
     await client.call('session.start', { workspaceId, idOrName: 'auth' });
     await client.call('session.attach', { workspaceId, idOrName: 'auth' });
     await client.call('session.input', { workspaceId, idOrName: 'auth', data: 'early\n' });
@@ -249,7 +212,7 @@ describe('session runtime', () => {
   });
 
   it('refuses to start an already running session', async () => {
-    await client.call('session.new', { workspaceId, name: 'auth', agent: 'claude', worktree: true });
+    await client.call('session.new', { workspaceId, name: 'auth', worktree: true });
     await client.call('session.start', { workspaceId, idOrName: 'auth' });
     await expect(client.call('session.start', { workspaceId, idOrName: 'auth' })).rejects.toMatchObject(
       { code: 'SESSION_ALREADY_RUNNING' },
@@ -260,7 +223,7 @@ describe('session runtime', () => {
   // client that registers its handler afterwards silently receives nothing. That is
   // exactly how `cw session attach` came to show a blank screen on re-attach.
   it('delivers scrollback during the attach call, so handlers must be registered first', async () => {
-    await client.call('session.new', { workspaceId, name: 'order', agent: 'claude', worktree: true });
+    await client.call('session.new', { workspaceId, name: 'order', worktree: true });
     await client.call('session.start', { workspaceId, idOrName: 'order' });
     await client.call('session.attach', { workspaceId, idOrName: 'order' });
     await client.call('session.input', { workspaceId, idOrName: 'order', data: 'MARKER\n' });
@@ -290,7 +253,7 @@ describe('session runtime', () => {
     await expect(client.call('session.list', {})).rejects.toMatchObject({
       code: 'INVALID_PARAMS',
     });
-    await client.call('session.new', { workspaceId, name: 'params', agent: 'claude', worktree: true });
+    await client.call('session.new', { workspaceId, name: 'params', worktree: true });
     await client.call('session.start', { workspaceId, idOrName: 'params' });
     await expect(
       client.call('session.resize', { workspaceId, idOrName: 'params', rows: 24 }),
@@ -298,14 +261,14 @@ describe('session runtime', () => {
   });
 
   it('refuses to attach to a session that is not running', async () => {
-    await client.call('session.new', { workspaceId, name: 'auth', agent: 'claude', worktree: true });
+    await client.call('session.new', { workspaceId, name: 'auth', worktree: true });
     await expect(client.call('session.attach', { workspaceId, idOrName: 'auth' })).rejects.toMatchObject(
       { code: 'SESSION_NOT_RUNNING' },
     );
   });
 
   it('marks the session idle and clears the pid when the agent exits', async () => {
-    await client.call('session.new', { workspaceId, name: 'bye', agent: 'claude', worktree: true });
+    await client.call('session.new', { workspaceId, name: 'bye', worktree: true });
     await client.call('session.start', { workspaceId, idOrName: 'bye' });
     await client.call('session.stop', { workspaceId, idOrName: 'bye' });
 
@@ -327,7 +290,7 @@ describe('session runtime', () => {
   // could be resumed straight back to running — which would have made `dead` and
   // `idle` the same thing and the kill meaningless.
   it('refuses to start or resume a killed session', async () => {
-    await client.call('session.new', { workspaceId, name: 'gone', agent: 'claude', worktree: true });
+    await client.call('session.new', { workspaceId, name: 'gone', worktree: true });
     await client.call('session.start', { workspaceId, idOrName: 'gone' });
     await client.call('session.kill', { workspaceId, idOrName: 'gone', removeWorktree: false });
 
@@ -351,7 +314,7 @@ describe('session runtime', () => {
   // entire 133-test suite still passed, because the stale pre-exit row already said
   // "running". Asserting on status alone tested nothing.
   it('resume after stop starts a genuinely new process', async () => {
-    await client.call('session.new', { workspaceId, name: 'again', agent: 'claude', worktree: true });
+    await client.call('session.new', { workspaceId, name: 'again', worktree: true });
     const first = await client.call<{ pid: number }>('session.start', {
       workspaceId, idOrName: 'again',
     });
@@ -376,11 +339,11 @@ describe('session runtime', () => {
   it('escalates to SIGKILL when the agent ignores SIGTERM', async () => {
     const runtime = new SessionRuntime(() => undefined);
     const row = await sessions.create({
-      workspaceId, name: 'stubborn', agent: 'claude', worktree: true,
+      workspaceId, name: 'stubborn', worktree: true,
     });
     const pid = runtime.start(
       row,
-      new ClaudePtyAdapter('sh', ['-c', 'trap "" TERM; echo TRAPPED; while true; do sleep 0.05; done']),
+      argvAdapter(['sh', '-c', 'trap "" TERM; echo TRAPPED; while true; do sleep 0.05; done']),
     );
 
     let out = '';
@@ -409,7 +372,7 @@ describe('session runtime', () => {
   }, 15_000);
 
   it('resume starts a stopped session again', async () => {
-    await client.call('session.new', { workspaceId, name: 'auth', agent: 'claude', worktree: true });
+    await client.call('session.new', { workspaceId, name: 'auth', worktree: true });
     await client.call('session.start', { workspaceId, idOrName: 'auth' });
     await client.call('session.stop', { workspaceId, idOrName: 'auth' });
     const again = await client.call<{ status: string }>('session.resume', {
@@ -422,7 +385,7 @@ describe('session runtime', () => {
   // exit callback arrives later and used to overwrite it with 'idle'. A killed session
   // that reads back as idle is worse than useless — `cw session list` would lie.
   it('kill stops a running agent and the exit handler does not resurrect it', async () => {
-    await client.call('session.new', { workspaceId, name: 'auth', agent: 'claude', worktree: true });
+    await client.call('session.new', { workspaceId, name: 'auth', worktree: true });
     await client.call('session.start', { workspaceId, idOrName: 'auth' });
     await client.call('session.kill', { workspaceId, idOrName: 'auth', removeWorktree: false });
 
@@ -439,7 +402,7 @@ describe('session runtime', () => {
   });
 
   it('injects the session\'s leases into the agent environment', async () => {
-    await client.call('session.new', { workspaceId, name: 'leased', agent: 'claude', worktree: true });
+    await client.call('session.new', { workspaceId, name: 'leased', worktree: true });
     await client.call('session.start', { workspaceId, idOrName: 'leased' });
 
     let seen = '';
@@ -457,11 +420,11 @@ describe('session runtime', () => {
   }, 20_000);
 
   it('frees a session\'s leases when it stops, so the next session reuses them', async () => {
-    await client.call('session.new', { workspaceId, name: 'first', agent: 'claude', worktree: true });
+    await client.call('session.new', { workspaceId, name: 'first', worktree: true });
     await client.call('session.start', { workspaceId, idOrName: 'first' });
     await client.call('session.stop', { workspaceId, idOrName: 'first' });
 
-    await client.call('session.new', { workspaceId, name: 'second', agent: 'claude', worktree: true });
+    await client.call('session.new', { workspaceId, name: 'second', worktree: true });
     await client.call('session.start', { workspaceId, idOrName: 'second' });
 
     const leases = new LeaseRepo(db);
@@ -469,7 +432,7 @@ describe('session runtime', () => {
   }, 20_000);
 
   it('forwards the client environment to the agent', async () => {
-    await client.call('session.new', { workspaceId, name: 'envtest', agent: 'claude', worktree: true });
+    await client.call('session.new', { workspaceId, name: 'envtest', worktree: true });
     await client.call('session.start', {
       workspaceId, idOrName: 'envtest', env: { CW_E2E_MARKER: 'from-client' },
     });
@@ -493,7 +456,7 @@ describe('session runtime', () => {
   // acquire a full lease block before the second `runtime.start` finally noticed the
   // session was already running.
   it('rejects a concurrent second start for the same session before it can double-acquire leases', async () => {
-    await client.call('session.new', { workspaceId, name: 'racer', agent: 'claude', worktree: true });
+    await client.call('session.new', { workspaceId, name: 'racer', worktree: true });
 
     const results = await Promise.allSettled([
       client.call('session.start', { workspaceId, idOrName: 'racer' }),
@@ -519,7 +482,7 @@ describe('session runtime', () => {
   it('gives four sessions started at once four different port blocks', async () => {
     const names = ['p0', 'p1', 'p2', 'p3'];
     for (const name of names) {
-      await client.call('session.new', { workspaceId, name, agent: 'claude', worktree: true });
+      await client.call('session.new', { workspaceId, name, worktree: true });
     }
 
     const squatter = createServer();

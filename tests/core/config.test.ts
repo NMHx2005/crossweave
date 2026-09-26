@@ -130,43 +130,10 @@ describe('loadConfig', () => {
     });
   });
 
-  // The one setting whose misreading changes whether an OS boundary exists around a
-  // session process — so a non-boolean is refused rather than coerced to truthy.
-  describe('sandbox', () => {
-    // Network on: with it off no agent could reach its own model API (measured
-    // HTTP=000 to api.anthropic.com from a sandboxed session). The boundary that
-    // matters — writes outside the worktree — stays on.
-    it('defaults to enabled, network on', () => {
-      expect(DEFAULT_CONFIG.sandbox).toEqual({ enabled: true, network: true });
-      expect(loadConfig(dir).sandbox).toEqual({ enabled: true, network: true });
-    });
-
-    it('merges a partial sandbox section over the defaults', async () => {
-      await writeFile(
-        join(dir, 'crossweave.config.json'),
-        JSON.stringify({ sandbox: { network: true } }),
-      );
-      expect(loadConfig(dir).sandbox).toEqual({ enabled: true, network: true });
-    });
-
-    it('rejects a non-boolean enabled', async () => {
-      await writeFile(
-        join(dir, 'crossweave.config.json'),
-        JSON.stringify({ sandbox: { enabled: 'yes' } }),
-      );
-      expect(() => loadConfig(dir)).toThrowError(
-        expect.objectContaining({ code: 'CONFIG_INVALID' }) as unknown as Error,
-      );
-    });
-
-    it('rejects a non-boolean network', async () => {
-      await writeFile(
-        join(dir, 'crossweave.config.json'),
-        JSON.stringify({ sandbox: { network: 1 } }),
-      );
-      expect(() => loadConfig(dir)).toThrowError(
-        expect.objectContaining({ code: 'CONFIG_INVALID' }) as unknown as Error,
-      );
-    });
+  // crossweave no longer sandboxes anything; a config written for an older version
+  // still loads, its `sandbox` section simply ignored.
+  it('ignores a sandbox section left by an older version', async () => {
+    await writeFile(join(dir, 'crossweave.config.json'), JSON.stringify({ sandbox: { enabled: true } }));
+    expect(loadConfig(dir)).not.toHaveProperty('sandbox');
   });
 });

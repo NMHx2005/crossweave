@@ -70,43 +70,26 @@ class PtyProcess implements AgentProcess {
 }
 
 /**
- * Spawn `argv` in a fresh pty and wrap it as an AgentProcess. Shared by every
- * pty-driven adapter (the Claude agent, the Terminal pane's shell); `cleanup` is a
- * sandbox plan's teardown, if the caller wrapped `argv` in one.
+ * Spawn `argv` in a fresh pty and wrap it as an AgentProcess: a session's shell and
+ * every extra Terminal pane.
  */
 export function spawnInPty(
   argv: string[],
   opts: Pick<SpawnOptions, 'cwd' | 'env' | 'cols' | 'rows'>,
-  cleanup?: () => void,
 ): AgentProcess {
   let wrapper: PtyProcess | undefined;
-  let proc: BunPtyProcess;
-  try {
-    proc = Bun.spawn(argv, {
-      cwd: opts.cwd,
-      env: { ...process.env, ...opts.env, TERM: 'xterm-256color' },
-      terminal: {
-        cols: opts.cols,
-        rows: opts.rows,
-        data(_terminal: unknown, chunk: string | Uint8Array) {
-          const text = typeof chunk === 'string' ? chunk : new TextDecoder().decode(chunk);
-          wrapper?.emit(text);
-        },
+  const proc = Bun.spawn(argv, {
+    cwd: opts.cwd,
+    env: { ...process.env, ...opts.env, TERM: 'xterm-256color' },
+    terminal: {
+      cols: opts.cols,
+      rows: opts.rows,
+      data(_terminal: unknown, chunk: string | Uint8Array) {
+        const text = typeof chunk === 'string' ? chunk : new TextDecoder().decode(chunk);
+        wrapper?.emit(text);
       },
-    }) as unknown as BunPtyProcess;
-  } catch (err) {
-    // `Bun.spawn` throws synchronously (e.g. ENOENT) BEFORE any process exists, so
-    // the `exited` registration below would never run and a sandbox profile written
-    // for this spawn would be left behind. The caller rethrows; this only ensures the
-    // file does not outlive the attempt.
-    cleanup?.();
-    throw err;
-  }
-
-  // The generated profile is session-specific scratch; drop it once the process is
-  // gone. Registered on the raw exited promise (not PtyProcess's listener fan-out,
-  // where a throwing subscriber could starve this) so teardown cannot be skipped.
-  if (cleanup !== undefined) void proc.exited.then(() => cleanup());
+    },
+  }) as unknown as BunPtyProcess;
 
   wrapper = new PtyProcess(proc);
   return wrapper;

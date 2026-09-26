@@ -1,25 +1,10 @@
 import type { EnforcementTier } from '../db/repositories/session.js';
-import type { SandboxSpec } from '../isolation/sandbox.js';
 
 export interface SpawnOptions {
   cwd: string;
   env: Record<string, string>;
   cols: number;
   rows: number;
-  /**
-   * The OS boundary to wrap this session in, or `undefined` to spawn as before.
-   *
-   * A SPEC, not a built plan: each adapter knows its own argv (`--settings`, `--trust
-   * agent acp`, …), so the final `sandbox-exec -f … <command> <args>` line can only be
-   * assembled at the spawn site. The daemon decides WHETHER to sandbox (config +
-   * platform); the adapter decides HOW its own command is wrapped. Absent means no
-   * boundary — the daemon says so out loud and the session runs as it always did.
-   */
-  sandbox?: SandboxSpec;
-  /** Reopen this conversation instead of starting a new one (see adapters/catalog.ts). */
-  resumeId?: string;
-  /** The session's own launch flags (`--model opus`), after the configured command. */
-  extraArgs?: string[];
 }
 
 export interface AgentProcess {
@@ -31,8 +16,14 @@ export interface AgentProcess {
   kill(signal?: NodeJS.Signals): void;
 }
 
+/**
+ * What a session runs. Since crossweave stopped launching agents itself, the only
+ * real one is the user's shell (registry.ts); the seam stays because tests inject a
+ * process double through it rather than spawning a pty.
+ */
 export interface AgentAdapter {
   readonly kind: string;
+  /** Kept for the session row's legacy column: nothing is intercepted, so always T3. */
   readonly enforcementTier: EnforcementTier;
   spawn(opts: SpawnOptions): AgentProcess;
 }

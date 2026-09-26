@@ -26,11 +26,11 @@ describe('config.setNotify RPC', () => {
     const db = seed();
     const methods = buildMethods(db, '/tmp/w');
     const result = (await methods['config.setNotify']!(
-      { workspaceId: 'ws_1', event: 'collision', enabled: false }, ctx,
-    )) as { enabled: boolean; collision: boolean; blocked: boolean };
-    expect(result.collision).toBe(false);
+      { workspaceId: 'ws_1', event: 'land', enabled: false }, ctx,
+    )) as { enabled: boolean; land: boolean; convergence: boolean };
+    expect(result.land).toBe(false);
     expect(result.enabled).toBe(true);
-    expect(result.blocked).toBe(true);
+    expect(result.convergence).toBe(true);
   });
 });
 
@@ -39,9 +39,9 @@ describe('config.status RPC: notify section', () => {
     const db = seed();
     const methods = buildMethods(db, '/tmp/w');
     const result = (await methods['config.status']!({ workspaceId: 'ws_1' }, ctx)) as {
-      notify: { enabled: boolean; collision: boolean; blocked: boolean; land: boolean; convergence: boolean };
+      notify: { enabled: boolean; land: boolean; convergence: boolean };
     };
-    expect(result.notify).toEqual({ enabled: true, collision: true, blocked: true, land: true, convergence: true });
+    expect(result.notify).toEqual({ enabled: true, land: true, convergence: true });
   });
 
   test('reflects a prior config.setNotify call', async () => {

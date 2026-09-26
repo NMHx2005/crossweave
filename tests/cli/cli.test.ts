@@ -16,7 +16,8 @@ let testHome: string | undefined;
 interface CwResult { exitCode: number; stdout: string; stderr: string }
 
 async function run(cwd: string, args: string[], env?: Record<string, string>): Promise<CwResult> {
-  const envToPassed = env ? { ...process.env, ...env } : process.env;
+  // A session runs $SHELL; pinned so no developer's dotfiles run inside the suite.
+  const envToPassed = { ...process.env, SHELL: '/bin/sh', ...env };
   const proc = Bun.spawn([process.execPath, CLI, ...args], {
     cwd,
     env: envToPassed,
@@ -136,7 +137,7 @@ describe('cw CLI', () => {
   it('runs the full session lifecycle', async () => {
     await cw(['init']);
 
-    const created = await cw(['session', 'new', '--name', 'auth', '--agent', 'claude']);
+    const created = await cw(['session', 'new', '--name', 'auth']);
     expect(created.exitCode).toBe(0);
     expect(created.stdout).toContain('auth');
     expect(existsSync(join(fx.root, '.crossweave', 'worktrees'))).toBe(true);
@@ -144,7 +145,7 @@ describe('cw CLI', () => {
     const listed = await cw(['session', 'list']);
     expect(listed.stdout).toContain('auth');
     expect(listed.stdout).toContain('idle');
-    expect(listed.stdout).toContain('T2');
+    expect(listed.stdout).toContain('cw/auth');
 
     const renamed = await cw(['session', 'rename', 'auth', 'auth2']);
     expect(renamed.exitCode).toBe(0);
@@ -157,36 +158,11 @@ describe('cw CLI', () => {
     expect((await cw(['session', 'list'])).stdout).toContain('no sessions');
   }, 60_000);
 
-  it('session new accepts --budget-tokens/--budget-usd, and list shows live spend', async () => {
-    await cw(['init']);
-    const created = await cw([
-      'session', 'new', '--name', 'budgeted', '--agent', 'claude',
-      '--budget-tokens', '1000', '--budget-usd', '5',
-    ]);
-    expect(created.exitCode).toBe(0);
-
-    const listed = await cw(['session', 'list']);
-    expect(listed.stdout).toContain('SPEND');
-    expect(listed.stdout).toContain('budgeted');
-    // A freshly created session has spent nothing yet, and nothing exceeds a budget.
-    expect(listed.stdout).toContain('$0.0000/0.0k');
-    expect(listed.stdout).not.toContain('OVER BUDGET');
-  }, 60_000);
-
-  it('rejects a non-numeric --budget-usd on exactly one stderr line', async () => {
-    await cw(['init']);
-    const r = await cw(['session', 'new', '--name', 'bad-budget', '--agent', 'claude', '--budget-usd', 'not-a-number']);
-    expect(r.exitCode).toBe(1);
-    expect(r.stderr).toContain('INVALID_ARGUMENTS:');
-    const lines = r.stderr.trimEnd().split('\n');
-    expect(lines).toHaveLength(1);
-  }, 30_000);
-
   it('cw config notify on/off round-trips through config status, overall and per-event', async () => {
     await cw(['init']);
     const initialStatus = await cw(['config', 'status']);
     expect(initialStatus.stdout).toContain('notify: on');
-    expect(initialStatus.stdout).toContain('collision=on');
+    expect(initialStatus.stdout).toContain('land=on');
 
     const offAll = await cw(['config', 'notify', 'off']);
     expect(offAll.exitCode).toBe(0);
@@ -196,11 +172,11 @@ describe('cw CLI', () => {
     expect(onAll.exitCode).toBe(0);
     expect((await cw(['config', 'status'])).stdout).toContain('notify: on');
 
-    const offOneEvent = await cw(['config', 'notify', 'off', '--event', 'collision']);
+    const offOneEvent = await cw(['config', 'notify', 'off', '--event', 'land']);
     expect(offOneEvent.exitCode).toBe(0);
     const status = await cw(['config', 'status']);
-    expect(status.stdout).toContain('collision=off');
-    expect(status.stdout).toContain('blocked=on'); // untouched
+    expect(status.stdout).toContain('land=off');
+    expect(status.stdout).toContain('convergence=on'); // untouched
   }, 30_000);
 
   it('rejects an invalid --event value', async () => {
@@ -226,26 +202,6 @@ describe('cw CLI', () => {
     }
   });
 
-  it('workspace safe-mode shows and sets the tier, including T1', async () => {
-    await cw(['init']);
-    // The tier prints with what it covers, never bare — a lone `T2` reads as
-    // blanket protection, which no tier provides
-    // (docs/superpowers/specs/2026-09-17-tier-coverage-honesty-design.md §3.5).
-    expect((await cw(['workspace', 'safe-mode'])).stdout.trim()).toBe('T2 · Edit|Write');
-
-    const setT3 = await cw(['workspace', 'safe-mode', 'T3']);
-    expect(setT3.exitCode).toBe(0);
-    expect(setT3.stdout).toContain('T3 · nothing');
-
-    expect((await cw(['workspace', 'safe-mode'])).stdout.trim()).toBe('T3 · nothing');
-
-    const setT1 = await cw(['workspace', 'safe-mode', 'T1']);
-    expect(setT1.exitCode).toBe(0);
-    expect(setT1.stdout).toContain('T1 · named writes');
-
-    expect((await cw(['workspace', 'safe-mode'])).stdout.trim()).toBe('T1 · named writes');
-  }, 30_000);
-
   it('exits non-zero with the error code on a bad session name', async () => {
     await cw(['init']);
     const r = await cw(['session', 'kill', 'ghost', '--yes']);
@@ -255,7 +211,7 @@ describe('cw CLI', () => {
 
   it('refuses --rm-worktree without --yes, in the same CODE: format as every other error', async () => {
     await cw(['init']);
-    await cw(['session', 'new', '--name', 'guarded', '--agent', 'claude']);
+    await cw(['session', 'new', '--name', 'guarded']);
     const r = await cw(['session', 'kill', 'guarded', '--rm-worktree']);
     expect(r.exitCode).toBe(1);
     expect(r.stderr).toContain('CONFIRMATION_REQUIRED:');
@@ -265,7 +221,7 @@ describe('cw CLI', () => {
 
   it('rejects an invalid session name on exactly one stderr line', async () => {
     await cw(['init']);
-    const r = await cw(['session', 'new', '--name', 'bad name', '--agent', 'claude']);
+    const r = await cw(['session', 'new', '--name', 'bad name']);
     expect(r.exitCode).toBe(1);
     expect(r.stderr).toContain('INVALID_SESSION_NAME:');
     // The contract the TUI parses: every stderr line carries a CODE: prefix.
@@ -275,7 +231,7 @@ describe('cw CLI', () => {
 
   it('session rm frees the name, and refuses without --yes', async () => {
     await cw(['init']);
-    await cw(['session', 'new', '--name', 'gone', '--agent', 'claude']);
+    await cw(['session', 'new', '--name', 'gone']);
     await cw(['session', 'kill', 'gone', '--yes']);
 
     const refused = await cw(['session', 'rm', 'gone']);
@@ -287,7 +243,7 @@ describe('cw CLI', () => {
     expect(removed.exitCode).toBe(0);
     expect((await cw(['session', 'list'])).stdout).toContain('no sessions');
 
-    const recreated = await cw(['session', 'new', '--name', 'gone', '--agent', 'claude']);
+    const recreated = await cw(['session', 'new', '--name', 'gone']);
     expect(recreated.exitCode).toBe(0);
   }, 60_000);
 
@@ -309,15 +265,15 @@ describe('cw CLI', () => {
     const { tmpdir } = await import('node:os');
     const binDir = await mkdtemp(join(tmpdir(), 'cw-fakebin-'));
     try {
-      const fake = join(binDir, 'claude');
+      const fake = join(binDir, 'fake-shell');
       await writeFile(fake, '#!/bin/sh\necho MARKER_XYZ\nwhile IFS= read -r l; do echo "got:$l"; done\n');
       await chmod(fake, 0o755);
-      const env = { ...process.env, PATH: `${binDir}:${process.env.PATH ?? ''}` };
+      const env = { ...process.env, SHELL: fake };
 
       // The daemon is spawned lazily by whichever `cw` invocation needs it first, and
       // it inherits THAT process's env — not the env of whatever `cw` call happens to
-      // attach later. The fake `claude` has to be on PATH before the daemon starts, or
-      // the agent it spawns is the real one on the machine.
+      // attach later. SHELL has to name the stand-in before the daemon starts, or the
+      // session runs the machine's real shell.
       const cwFake = async (args: string[]): Promise<CwResult> => {
         const proc = Bun.spawn([process.execPath, CLI, ...args], {
           cwd: fx.root, env, stdout: 'pipe', stderr: 'pipe',
@@ -330,7 +286,7 @@ describe('cw CLI', () => {
       };
 
       await cwFake(['init']);
-      await cwFake(['session', 'new', '--name', 'replay', '--agent', 'claude']);
+      await cwFake(['session', 'new', '--name', 'replay']);
 
       const attachOnce = async (): Promise<string> => {
         let out = '';
@@ -399,8 +355,8 @@ describe('cw CLI', () => {
   // tests/cli/context.test.ts for the direct unit test that actually catches that.
   it('collapses a wrapped multi-line error into one clean line', async () => {
     await cw(['init']);
-    const created = await cw(['session', 'new', '--name', 'crlf', '--agent', 'claude']);
-    const worktreePath = created.stdout.trim().split('\t')[3]!;
+    const created = await cw(['session', 'new', '--name', 'crlf']);
+    const worktreePath = created.stdout.trim().split('\t').at(-1)!;
     await $`git worktree lock ${worktreePath} --reason locked-for-test`.cwd(fx.root).quiet();
 
     const r = await cw(['session', 'kill', 'crlf', '--rm-worktree', '--yes']);
@@ -417,7 +373,7 @@ describe('cw CLI', () => {
 
   it('session stop leaves the session idle and resumable', async () => {
     await cw(['init']);
-    await cw(['session', 'new', '--name', 'pausable', '--agent', 'claude']);
+    await cw(['session', 'new', '--name', 'pausable']);
 
     const help = await cw(['session', '--help']);
     expect(help.stdout).toContain('stop');
@@ -472,7 +428,7 @@ describe('cw CLI', () => {
     await cw(['init']);
     expect((await cw(['gc'])).stdout).toContain('nothing to reclaim');
 
-    await cw(['session', 'new', '--name', 'trash', '--agent', 'claude']);
+    await cw(['session', 'new', '--name', 'trash']);
     await cw(['session', 'kill', 'trash', '--yes']);
 
     const r = await cw(['gc']);
@@ -525,7 +481,7 @@ describe('cw CLI', () => {
         JSON.stringify({ ports: { base, blockSize: 500 } }),
       );
       await cw(['init']);
-      await cw(['session', 'new', '--name', 'portless', '--agent', 'claude']);
+      await cw(['session', 'new', '--name', 'portless']);
       // `session new` is create-only; `attach` starts the agent (its `start` option
       // defaults true). Stop the running session so its single block is free for the
       // squatter to take; the next `attach` is where the lease failure has to surface.
@@ -551,9 +507,9 @@ describe('cw CLI', () => {
       await cw(['init']);
       // The first session is created against an empty workspace, so nothing is over
       // budget yet; its worktree is what puts the next one over.
-      expect((await cw(['session', 'new', '--name', 'first', '--agent', 'claude'])).exitCode).toBe(0);
+      expect((await cw(['session', 'new', '--name', 'first'])).exitCode).toBe(0);
 
-      const r = await cw(['session', 'new', '--name', 'second', '--agent', 'claude']);
+      const r = await cw(['session', 'new', '--name', 'second']);
       expectOneCodeLine(r, 'DISK_LIMIT_EXCEEDED');
       expect(r.stderr).toContain('cw gc');
     }, 60_000);

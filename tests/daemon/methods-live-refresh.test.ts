@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { openDatabase } from '../../src/db/open.js';
 import { buildMethods } from '../../src/daemon/methods.js';
 import { WorkspaceManager } from '../../src/domain/workspace.js';
-import { ClaudePtyAdapter } from '../../src/adapters/claude-pty.js';
+import { argvAdapter } from '../helpers/argv-adapter.js';
 import { makeGitFixture } from '../helpers/git-fixture.js';
 
 /**
@@ -19,7 +19,7 @@ describe('session lifecycle changes reach every client', () => {
     try {
       const ws = new WorkspaceManager(db).init(fx.root);
       // Stays up briefly, then exits by itself — no stop/kill from anyone.
-      const methods = buildMethods(db, fx.root, () => new ClaudePtyAdapter('sh', ['-c', 'sleep 0.4']));
+      const methods = buildMethods(db, fx.root, () => argvAdapter(['sh', '-c', 'sleep 0.4']));
       const ctx = { notify: () => undefined, onClose: () => undefined };
       await methods['session.new']!({ workspaceId: ws.id, name: 'solo', agent: 'claude' }, ctx);
 

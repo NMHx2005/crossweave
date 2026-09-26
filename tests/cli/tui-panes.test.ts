@@ -3,12 +3,12 @@ import { formatConvergenceMatrix, formatFeedLine, formatSessionRow, formatStatus
 import { format, type NotifyEvent } from '../../src/notify/dispatcher.js';
 
 describe('formatSessionRow', () => {
-  test('running session shows a filled dot and its tier', () => {
-    const row = { name: 'alice', status: 'running', enforcementTier: 'T2', costSpentUsd: 0 } as any;
+  test('running session shows a filled dot, its name and its branch', () => {
+    const row = { name: 'alice', status: 'running', branch: 'cw/alice' } as any;
     const out = formatSessionRow(row);
     expect(out.dot).toBe('●');
     expect(out.text).toContain('alice');
-    expect(out.text).toContain('T2');
+    expect(out.text).toContain('cw/alice');
   });
   test('waiting session also shows a filled dot (still live, per domain/bus.ts grouping)', () => {
     const row = { name: 'dave', status: 'waiting', enforcementTier: 'T2', costSpentUsd: 0 } as any;
@@ -29,7 +29,7 @@ describe('formatSessionRow', () => {
 });
 
 describe('formatStatusBar', () => {
-  test('aggregates session count, total burn, and disk usage', () => {
+  test('aggregates session count and disk usage', () => {
     const sessions = [
       { costSpentUsd: 1.0 }, { costSpentUsd: 0.24 },
     ] as any;
@@ -44,7 +44,6 @@ describe('formatStatusBar', () => {
     );
     expect(out).toContain('w');
     expect(out).toContain('2 session');
-    expect(out).toContain('1.24');
     expect(out).toContain('3.9GB');
     expect(out).toContain('18.6GB');
   });
@@ -116,11 +115,9 @@ describe('formatConvergenceMatrix', () => {
   });
 });
 
-describe('radar feed line formatting', () => {
-  test('a collision tui.event produces the same text format() would give the desktop notification', () => {
-    const event: NotifyEvent = {
-      kind: 'collision', sessionA: 'alice', sessionB: 'bob', path: 'src/x.ts', symbol: 'foo', workspaceId: 'ws_1',
-    };
+describe('activity feed line formatting', () => {
+  test('a land tui.event produces the same text format() would give the desktop notification', () => {
+    const event: NotifyEvent = { kind: 'land', session: 'alice', ok: true, baseBranch: 'main', workspaceId: 'ws_1' };
     const formatted = format(event);
     const line = formatFeedLine(event);
     // Reuses format()'s own fields verbatim, not a parallel reimplementation of the
@@ -130,8 +127,8 @@ describe('radar feed line formatting', () => {
     expect(line).toContain(formatted.message);
   });
 
-  test('a blocked tui.event also reuses format() verbatim', () => {
-    const event: NotifyEvent = { kind: 'blocked', session: 'alice', path: 'src/y.ts', symbol: null, workspaceId: 'ws_1' };
+  test('a convergence tui.event also reuses format() verbatim', () => {
+    const event: NotifyEvent = { kind: 'convergence', sessionA: 'alice', sessionB: 'bob', from: 'clean', to: 'conflict', workspaceId: 'ws_1' };
     const formatted = format(event);
     const line = formatFeedLine(event);
     expect(line).toContain(formatted.title);

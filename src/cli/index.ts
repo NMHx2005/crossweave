@@ -9,10 +9,6 @@ import { CrossweaveError } from '../core/errors.js';
 import { checkForUpdate } from '../update/checker.js';
 import { initCommand, workspaceCommand, gcCommand } from './commands/workspace.js';
 import { sessionCommand } from './commands/session.js';
-import { blameCommand } from './commands/blame.js';
-import { radarHookCommand } from './commands/radar-hook.js';
-import { sessionUsageHookCommand } from './commands/session-usage-hook.js';
-import { contractCommand } from './commands/contract.js';
 import { convergeCommand } from './commands/converge.js';
 import { landCommand } from './commands/land.js';
 import { configCommand } from './commands/config.js';
@@ -82,10 +78,6 @@ const main = defineCommand({
     session: sessionCommand,
     daemon: daemonCommand,
     gc: gcCommand,
-    blame: blameCommand,
-    'radar-hook': radarHookCommand,
-    'session-usage-hook': sessionUsageHookCommand,
-    contract: contractCommand,
     converge: convergeCommand,
     land: landCommand,
     config: configCommand,
@@ -95,11 +87,10 @@ const main = defineCommand({
   },
 });
 
-// 'radar-hook'/'session-usage-hook' are internal plumbing, never user-facing invocations.
-// 'update' is skipped for a different reason: it just replaced the on-disk binary and reset
+// 'update' is skipped: it just replaced the on-disk binary and reset
 // the update-check cache, but this process's own `VERSION` constant is still the pre-update
 // value — running the check here would immediately nag about the version it just installed.
-const INTERNAL_COMMANDS = new Set(['radar-hook', 'session-usage-hook', 'update']);
+const INTERNAL_COMMANDS = new Set(['update']);
 
 // Mirrors citty's own `runMain` version-branch check exactly (node_modules/citty/dist/index.mjs:
 // `rawArgs.length === 1 && builtinFlags.version.includes(rawArgs[0])`, where `rawArgs` is

@@ -1,76 +1,52 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { mkdtempSync, rmSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, rmSync, statSync, writeFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { BUILTIN_AGENTS, loadSettings, saveSettings, splitCommand } from '../../src/core/settings.js';
+import { loadSettings, saveSettings } from '../../src/core/settings.js';
 
 let home: string;
 beforeEach(() => { home = mkdtempSync(join(tmpdir(), 'cw-settings-')); });
 afterEach(() => { rmSync(home, { recursive: true, force: true }); });
 
-describe('splitCommand', () => {
-  // The daemon runs these as argv, never through a shell: quoting is honoured, but
-  // `;`, `$(…)` and friends are just characters in an argument.
-  it('splits on whitespace and honours quotes and escapes', () => {
-    expect(splitCommand('codex -c tui.animations=false')).toEqual(['codex', '-c', 'tui.animations=false']);
-    expect(splitCommand(`agent --msg "hello world" --x 'a b' c\\ d`)).toEqual(['agent', '--msg', 'hello world', '--x', 'a b', 'c d']);
-    expect(splitCommand('echo $(whoami); rm x')).toEqual(['echo', '$(whoami);', 'rm', 'x']);
-  });
-
-  it('rejects an empty command and unbalanced quotes', () => {
-    expect(() => splitCommand('   ')).toThrow(/empty/i);
-    expect(() => splitCommand('agent "open')).toThrow(/quote/i);
-  });
-});
+const file = () => join(home, '.crossweave', 'settings.json');
 
 describe('loadSettings', () => {
-  it('lists the built-in agents, enabled, when nothing is saved', () => {
-    const s = loadSettings(home);
-    expect(s.agents.map((a) => a.id)).toEqual(BUILTIN_AGENTS.map((a) => a.id));
-    expect(s.agents.map((a) => a.id)).toEqual(['claude', 'codex', 'opencode', 'gemini', 'antigravity']);
-    expect(s.agents.every((a) => a.enabled && a.builtin)).toBe(true);
-    // Normal, asking mode: no bypass flags unless the user adds them.
-    expect(s.agents.find((a) => a.id === 'codex')?.command).toBe('codex');
-    expect(s.editor).toEqual({ kind: 'vscode' });
+  it('defaults to VS Code and no layouts when nothing is saved', () => {
+    expect(loadSettings(home)).toEqual({ editor: { kind: 'vscode' }, layouts: {} });
   });
 
-  it('applies saved overrides to built-ins and appends custom agents', () => {
-    saveSettings({
-      agents: [
-        { id: 'codex', label: 'Codex', command: 'codex --full-auto', enabled: false, builtin: true },
-        { id: 'my-agent', label: 'Mine', command: 'my-agent --flag', enabled: true, builtin: false },
-      ],
-      editor: { kind: 'zed' },
-      layouts: {},
-    }, home);
+  it('reads a saved editor and layouts', () => {
+    saveSettings({ editor: { kind: 'zed' }, layouts: { review: { tabs: [] } } }, home);
+    expect(loadSettings(home)).toEqual({ editor: { kind: 'zed' }, layouts: { review: { tabs: [] } } });
+  });
+
+  // crossweave no longer launches agents; an older file's agent list must not break
+  // loading, and is dropped on the next save.
+  it('ignores an agents list left by an older version', () => {
+    mkdirSync(join(home, '.crossweave'), { recursive: true });
+    writeFileSync(file(), JSON.stringify({ agents: [{ id: 'claude', command: 'claude' }], editor: { kind: 'cursor' } }));
     const s = loadSettings(home);
-    const codex = s.agents.find((a) => a.id === 'codex')!;
-    expect(codex).toMatchObject({ command: 'codex --full-auto', enabled: false, builtin: true });
-    expect(s.agents.find((a) => a.id === 'claude')?.enabled).toBe(true);
-    expect(s.agents.at(-1)).toMatchObject({ id: 'my-agent', builtin: false });
-    expect(s.editor.kind).toBe('zed');
+    expect(s).toEqual({ editor: { kind: 'cursor' }, layouts: {} });
+    saveSettings(s, home);
+    expect(JSON.parse(readFileSync(file(), 'utf8'))).not.toHaveProperty('agents');
   });
 
   it('falls back to defaults for a corrupt file rather than breaking every command', () => {
     mkdirSync(join(home, '.crossweave'), { recursive: true });
-    writeFileSync(join(home, '.crossweave', 'settings.json'), '{not json');
-    expect(loadSettings(home).agents.length).toBe(BUILTIN_AGENTS.length);
+    writeFileSync(file(), '{not json');
+    expect(loadSettings(home).editor).toEqual({ kind: 'vscode' });
   });
 });
 
 describe('saveSettings', () => {
-  it('refuses a bad agent id, a duplicate id, an unparseable command, a bad editor', () => {
-    const base = loadSettings(home);
-    const custom = (id: string, command = 'x') => ({ id, label: id, command, enabled: true, builtin: false });
-    expect(() => saveSettings({ ...base, agents: [...base.agents, custom('Bad Id')] }, home)).toThrow(/agent id/i);
-    expect(() => saveSettings({ ...base, agents: [...base.agents, custom('codex')] }, home)).toThrow(/duplicate/i);
-    expect(() => saveSettings({ ...base, agents: [...base.agents, custom('ok', 'x "')] }, home)).toThrow(/quote/i);
-    expect(() => saveSettings({ ...base, editor: { kind: 'emacs' as never } }, home)).toThrow(/editor/i);
-    expect(() => saveSettings({ ...base, editor: { kind: 'custom' } }, home)).toThrow(/editor/i);
+  it('refuses an unknown editor, and a custom editor without a usable command', () => {
+    expect(() => saveSettings({ editor: { kind: 'emacs' as never }, layouts: {} }, home)).toThrow(/editor/i);
+    expect(() => saveSettings({ editor: { kind: 'custom' }, layouts: {} }, home)).toThrow(/editor/i);
+    expect(() => saveSettings({ editor: { kind: 'custom', command: 'subl "{file}' }, layouts: {} }, home)).toThrow(/quote/i);
   });
 
   it('writes a file only the user can read', () => {
     saveSettings(loadSettings(home), home);
-    expect(statSync(join(home, '.crossweave', 'settings.json')).mode & 0o777).toBe(0o600);
+    expect(statSync(file()).mode & 0o777).toBe(0o600);
   });
 });

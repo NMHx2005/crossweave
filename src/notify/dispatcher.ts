@@ -1,10 +1,8 @@
-import type { NotificationGate } from '../radar/noise.js';
+import type { NotificationGate } from './gate.js';
 import type { MergeTrialResult } from '../db/repositories/merge-trial.js';
 import type { NotifyEventKind } from '../db/repositories/notify-config.js';
 
 export type NotifyEvent =
-  | { kind: 'collision'; sessionA: string; sessionB: string; path: string; symbol: string | null; workspaceId: string }
-  | { kind: 'blocked'; session: string; path: string; symbol: string | null; workspaceId: string }
   | { kind: 'land'; session: string; ok: true; baseBranch: string; workspaceId: string }
   | { kind: 'land'; session: string; ok: false; reason: string; workspaceId: string }
   | { kind: 'convergence'; sessionA: string; sessionB: string; from: MergeTrialResult; to: MergeTrialResult; workspaceId: string };
@@ -19,34 +17,18 @@ export interface NotifyDispatcherDeps {
 
 let loggedSendFailureOnce = false;
 
-function symbolSuffix(symbol: string | null): string {
-  return symbol !== null ? ` (${symbol})` : '';
-}
-
 /**
  * Formats one event into (title, message, clickCommand). A pure function of the
  * event alone — no gating, no I/O — kept separate from `notify` so the "what does
  * this event look like" question is easy to unit test independently of throttling.
  *
- * Exported so the TUI's radar feed pane (src/cli/commands/tui.ts) can reuse it
+ * Exported so the TUI's feed pane (src/cli/commands/tui.ts) can reuse it
  * verbatim for its feed lines — the feed's text and the desktop notification's
  * text must never drift apart (design doc §3.2), which only holds if both call
  * this same function.
  */
 export function format(event: NotifyEvent): { title: string; message: string; clickCommand: string[] } {
   switch (event.kind) {
-    case 'collision':
-      return {
-        title: 'crossweave',
-        message: `${event.sessionA} ↔ ${event.sessionB}: ${event.path}${symbolSuffix(event.symbol)}`,
-        clickCommand: ['cw', 'session', 'attach', event.sessionB],
-      };
-    case 'blocked':
-      return {
-        title: 'crossweave — blocked',
-        message: `${event.session} blocked writing ${event.path}${symbolSuffix(event.symbol)}`,
-        clickCommand: ['cw', 'session', 'attach', event.session],
-      };
     case 'land':
       return event.ok
         ? {
@@ -68,20 +50,9 @@ export function format(event: NotifyEvent): { title: string; message: string; cl
   }
 }
 
-/**
- * Gate key per event kind (design doc §3.1). `collision` deliberately does NOT gate
- * here — the caller (background watcher path) already consulted the SAME gate
- * instance once, to decide whether to send its own advisory message, before ever
- * calling `notify`; gating it again under a different key would silently halve that
- * existing budget. `undefined` means "always send, no throttle" — collision's only
- * case.
- */
-function gateKey(event: NotifyEvent): [string, string, string | null] | undefined {
+/** Gate key per event kind (design doc §3.1): one throttle budget per session or pair. */
+function gateKey(event: NotifyEvent): [string, string, string | null] {
   switch (event.kind) {
-    case 'collision':
-      return undefined;
-    case 'blocked':
-      return [event.session, event.path, event.symbol];
     case 'land':
       // '__land__' can never collide with a real file path.
       return [event.session, '__land__', null];
@@ -99,8 +70,7 @@ function gateKey(event: NotifyEvent): [string, string, string | null] | undefine
 export function notify(deps: NotifyDispatcherDeps, event: NotifyEvent): void {
   try {
     if (!deps.isEnabled(event.workspaceId, event.kind)) return;
-    const key = gateKey(event);
-    if (key !== undefined && !deps.gate.shouldNotify(...key)) return;
+    if (!deps.gate.shouldNotify(...gateKey(event))) return;
     const { title, message, clickCommand } = format(event);
     deps.send(title, message, clickCommand);
   } catch (err) {

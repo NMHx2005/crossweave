@@ -178,39 +178,3 @@ describe('WorkspaceManager identity and ambiguity', () => {
     expect(mgr.resolve(only.id).id).toBe(only.id);
   });
 });
-
-describe('WorkspaceManager.setSafeMode', () => {
-  it('sets T2 and persists it', () => {
-    const ws = mgr.init('/tmp/projects/app');
-    const updated = mgr.setSafeMode(ws.id, 'T2');
-    expect(updated.safeModeTier).toBe('T2');
-    expect(mgr.resolve(ws.id).safeModeTier).toBe('T2');
-  });
-
-  it('sets T3 and persists it', () => {
-    const ws = mgr.init('/tmp/projects/app');
-    const updated = mgr.setSafeMode(ws.id, 'T3');
-    expect(updated.safeModeTier).toBe('T3');
-    expect(mgr.resolve(ws.id).safeModeTier).toBe('T3');
-  });
-
-  it('accepts T1, now that AcpAdapter exists', () => {
-    const ws = mgr.init('/tmp/projects/app');
-    const updated = mgr.setSafeMode(ws.id, 'T1');
-    expect(updated.safeModeTier).toBe('T1');
-    expect(mgr.resolve(ws.id).safeModeTier).toBe('T1');
-  });
-
-  it('rejects garbage input with INVALID_PARAMS', () => {
-    const ws = mgr.init('/tmp/projects/app');
-    expect(() => mgr.setSafeMode(ws.id, 'nope')).toThrowError(
-      expect.objectContaining({ code: 'INVALID_PARAMS' }) as unknown as Error,
-    );
-  });
-
-  it('throws WORKSPACE_NOT_FOUND for an unknown workspace', () => {
-    expect(() => mgr.setSafeMode('ghost', 'T2')).toThrowError(
-      expect.objectContaining({ code: 'WORKSPACE_NOT_FOUND' }) as unknown as Error,
-    );
-  });
-});

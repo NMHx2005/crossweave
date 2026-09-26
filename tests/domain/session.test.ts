@@ -31,24 +31,24 @@ afterEach(async () => {
 
 describe('SessionManager.create', () => {
   it('creates a worktree and records the session as idle', async () => {
-    const s = await sessions.create({ workspaceId, name: 'auth', agent: 'claude', worktree: true });
+    const s = await sessions.create({ workspaceId, name: 'auth', worktree: true });
     expect(s.status).toBe('idle');
     expect(s.branch).toBe('cw/auth');
-    expect(s.adapter).toBe('claude');
-    expect(s.enforcementTier).toBe('T2');
+    // A session is a worktree and the user's shell; nothing else is chosen for it.
+    expect(s.agentKind).toBe('shell');
     expect(s.worktreePath).not.toBeNull();
     expect(existsSync(join(s.worktreePath!, 'README.md'))).toBe(true);
   });
 
   it('shares the project root when worktree is false', async () => {
-    const s = await sessions.create({ workspaceId, name: 'shared', agent: 'claude', worktree: false });
+    const s = await sessions.create({ workspaceId, name: 'shared', worktree: false });
     expect(s.worktreePath).toBe(fx.root);
     expect(s.branch).toBeNull();
   });
 
   it('threads budgetTokens/budgetUsd into the created row when provided', async () => {
     const s = await sessions.create({
-      workspaceId, name: 'budgeted', agent: 'claude', worktree: true,
+      workspaceId, name: 'budgeted', worktree: true,
       budgetTokens: 100000, budgetUsd: 5,
     });
     expect(s.tokenBudget).toBe(100000);
@@ -56,32 +56,25 @@ describe('SessionManager.create', () => {
   });
 
   it("leaves both budgets null when neither is provided (today's default, unchanged)", async () => {
-    const s = await sessions.create({ workspaceId, name: 'unbudgeted', agent: 'claude', worktree: true });
+    const s = await sessions.create({ workspaceId, name: 'unbudgeted', worktree: true });
     expect(s.tokenBudget).toBeNull();
     expect(s.costBudgetUsd).toBeNull();
   });
 
   it('rejects a duplicate session name', async () => {
-    await sessions.create({ workspaceId, name: 'dup', agent: 'claude', worktree: true });
+    await sessions.create({ workspaceId, name: 'dup', worktree: true });
     await expect(
-      sessions.create({ workspaceId, name: 'dup', agent: 'claude', worktree: true }),
+      sessions.create({ workspaceId, name: 'dup', worktree: true }),
     ).rejects.toMatchObject({ code: 'SESSION_NAME_TAKEN' });
   });
 
-  it('rejects an unknown agent before creating a worktree', async () => {
-    await expect(
-      sessions.create({ workspaceId, name: 'x', agent: 'bogus', worktree: true }),
-    ).rejects.toMatchObject({ code: 'UNKNOWN_AGENT' });
-    expect(sessions.list(workspaceId)).toHaveLength(0);
-  });
-
   it('leaves no orphan row when worktree creation fails', async () => {
-    await sessions.create({ workspaceId, name: 'first', agent: 'claude', worktree: true });
+    await sessions.create({ workspaceId, name: 'first', worktree: true });
     // cw/second is free, but pre-creating the branch forces BRANCH_EXISTS.
     const { simpleGit } = await import('simple-git');
     await simpleGit(fx.root).raw(['branch', 'cw/second']);
     await expect(
-      sessions.create({ workspaceId, name: 'second', agent: 'claude', worktree: true }),
+      sessions.create({ workspaceId, name: 'second', worktree: true }),
     ).rejects.toMatchObject({ code: 'BRANCH_EXISTS' });
     expect(sessions.list(workspaceId).map((s) => s.name)).toEqual(['first']);
   });
@@ -89,7 +82,7 @@ describe('SessionManager.create', () => {
 
 describe('SessionManager.resolve and rename', () => {
   it('resolves by name and by id', async () => {
-    const s = await sessions.create({ workspaceId, name: 'auth', agent: 'claude', worktree: true });
+    const s = await sessions.create({ workspaceId, name: 'auth', worktree: true });
     expect(sessions.resolve(workspaceId, 'auth').id).toBe(s.id);
     expect(sessions.resolve(workspaceId, s.id).id).toBe(s.id);
   });
@@ -128,8 +121,8 @@ describe('SessionManager.resolve and rename', () => {
   });
 
   it('renames and rejects a name collision', async () => {
-    await sessions.create({ workspaceId, name: 'a', agent: 'claude', worktree: true });
-    const b = await sessions.create({ workspaceId, name: 'b', agent: 'claude', worktree: true });
+    await sessions.create({ workspaceId, name: 'a', worktree: true });
+    const b = await sessions.create({ workspaceId, name: 'b', worktree: true });
     expect(sessions.rename(workspaceId, b.id, 'c').name).toBe('c');
     expect(() => sessions.rename(workspaceId, 'c', 'a')).toThrowError(
       expect.objectContaining({ code: 'SESSION_NAME_TAKEN' }) as unknown as Error,
@@ -137,7 +130,7 @@ describe('SessionManager.resolve and rename', () => {
   });
 
   it('lets a session keep the name it already has', async () => {
-    await sessions.create({ workspaceId, name: 'same', agent: 'claude', worktree: true });
+    await sessions.create({ workspaceId, name: 'same', worktree: true });
     expect(sessions.rename(workspaceId, 'same', 'same').name).toBe('same');
   });
 });
@@ -150,7 +143,7 @@ describe('SessionManager session name validation', () => {
   for (const name of rejected) {
     it(`rejects ${JSON.stringify(name)} before it reaches git`, async () => {
       await expect(
-        sessions.create({ workspaceId, name, agent: 'claude', worktree: true }),
+        sessions.create({ workspaceId, name, worktree: true }),
       ).rejects.toMatchObject({ code: 'INVALID_SESSION_NAME' });
       expect(sessions.list(workspaceId)).toHaveLength(0);
     });
@@ -158,13 +151,13 @@ describe('SessionManager session name validation', () => {
 
   it('accepts ordinary names', async () => {
     for (const name of ['auth', 'feature-1', 'API_v2', 'a']) {
-      const s = await sessions.create({ workspaceId, name, agent: 'claude', worktree: true });
+      const s = await sessions.create({ workspaceId, name, worktree: true });
       expect(s.name).toBe(name);
     }
   });
 
   it('validates on rename too', async () => {
-    await sessions.create({ workspaceId, name: 'ok', agent: 'claude', worktree: true });
+    await sessions.create({ workspaceId, name: 'ok', worktree: true });
     expect(() => sessions.rename(workspaceId, 'ok', 'not ok')).toThrowError(
       expect.objectContaining({ code: 'INVALID_SESSION_NAME' }) as unknown as Error,
     );
@@ -176,7 +169,7 @@ describe('SessionManager session name validation', () => {
     // so asserting on the code alone would pass even with the reservation check
     // deleted. The message content is what actually pins the reservation path.
     await expect(
-      sessions.create({ workspaceId, name: '__integration__', agent: 'claude', worktree: false }),
+      sessions.create({ workspaceId, name: '__integration__', worktree: false }),
     ).rejects.toMatchObject({
       code: 'INVALID_SESSION_NAME',
       message: expect.stringContaining('reserved') as unknown as string,
@@ -209,7 +202,7 @@ describe('SessionManager.create unwinds a half-created session', () => {
     };
     try {
       await expect(
-        sessions.create({ workspaceId, name: 'doomed', agent: 'claude', worktree: true }),
+        sessions.create({ workspaceId, name: 'doomed', worktree: true }),
       ).rejects.toThrow('simulated insert failure');
     } finally {
       SessionRepo.prototype.insert = original;
@@ -221,7 +214,7 @@ describe('SessionManager.create unwinds a half-created session', () => {
 
     // The real damage was that the name became permanently unusable. Prove it is not.
     const retry = await sessions.create({
-      workspaceId, name: 'doomed', agent: 'claude', worktree: true,
+      workspaceId, name: 'doomed', worktree: true,
     });
     expect(retry.branch).toBe('cw/doomed');
   });
@@ -229,21 +222,21 @@ describe('SessionManager.create unwinds a half-created session', () => {
 
 describe('SessionManager.kill', () => {
   it('marks the session dead and keeps the worktree by default', async () => {
-    const s = await sessions.create({ workspaceId, name: 'auth', agent: 'claude', worktree: true });
+    const s = await sessions.create({ workspaceId, name: 'auth', worktree: true });
     await sessions.kill(workspaceId, 'auth', { removeWorktree: false });
     expect(sessions.resolve(workspaceId, 'auth').status).toBe('dead');
     expect(existsSync(s.worktreePath!)).toBe(true);
   });
 
   it('removes the worktree and the row when asked', async () => {
-    const s = await sessions.create({ workspaceId, name: 'auth', agent: 'claude', worktree: true });
+    const s = await sessions.create({ workspaceId, name: 'auth', worktree: true });
     await sessions.kill(workspaceId, 'auth', { removeWorktree: true });
     expect(existsSync(s.worktreePath!)).toBe(false);
     expect(sessions.list(workspaceId)).toHaveLength(0);
   });
 
   it('removes leased cache paths when removing the worktree and row', async () => {
-    const s = await sessions.create({ workspaceId, name: 'leased', agent: 'claude', worktree: true });
+    const s = await sessions.create({ workspaceId, name: 'leased', worktree: true });
     const cache = join(fx.root, '.crossweave', 'cache', s.id);
     await mkdir(cache, { recursive: true });
     await writeFile(join(cache, 'blob'), 'cache data');
@@ -259,7 +252,7 @@ describe('SessionManager.kill', () => {
   });
 
   it('never removes the project root for a shared session', async () => {
-    await sessions.create({ workspaceId, name: 'shared', agent: 'claude', worktree: false });
+    await sessions.create({ workspaceId, name: 'shared', worktree: false });
     await sessions.kill(workspaceId, 'shared', { removeWorktree: true });
     expect(existsSync(fx.root)).toBe(true);
   });
@@ -267,30 +260,30 @@ describe('SessionManager.kill', () => {
 
 describe('SessionManager name reclamation', () => {
   it('frees the name when the worktree is removed with the session', async () => {
-    const first = await sessions.create({ workspaceId, name: 'auth', agent: 'claude', worktree: true });
+    const first = await sessions.create({ workspaceId, name: 'auth', worktree: true });
     await sessions.kill(workspaceId, 'auth', { removeWorktree: true });
 
     // The row is gone, not merely dead — nothing references the work any more.
     expect(sessions.list(workspaceId)).toHaveLength(0);
 
-    const second = await sessions.create({ workspaceId, name: 'auth', agent: 'claude', worktree: true });
+    const second = await sessions.create({ workspaceId, name: 'auth', worktree: true });
     expect(second.id).not.toBe(first.id);
     expect(second.branch).toBe('cw/auth');
   });
 
   it('keeps the name taken while the work still exists', async () => {
-    await sessions.create({ workspaceId, name: 'auth', agent: 'claude', worktree: true });
+    await sessions.create({ workspaceId, name: 'auth', worktree: true });
     await sessions.kill(workspaceId, 'auth', { removeWorktree: false });
 
     const row = sessions.resolve(workspaceId, 'auth');
     expect(row.status).toBe('dead');
     await expect(
-      sessions.create({ workspaceId, name: 'auth', agent: 'claude', worktree: true }),
+      sessions.create({ workspaceId, name: 'auth', worktree: true }),
     ).rejects.toMatchObject({ code: 'SESSION_NAME_TAKEN' });
   });
 
   it('remove purges a dead session and frees its name', async () => {
-    await sessions.create({ workspaceId, name: 'auth', agent: 'claude', worktree: true });
+    await sessions.create({ workspaceId, name: 'auth', worktree: true });
     await sessions.kill(workspaceId, 'auth', { removeWorktree: false });
 
     await sessions.remove(workspaceId, 'auth');
@@ -300,12 +293,12 @@ describe('SessionManager name reclamation', () => {
     expect((await simpleGit(fx.root).branch()).all).not.toContain('cw/auth');
     expect(await listWorktreePaths(fx.root)).toHaveLength(0);
 
-    const revived = await sessions.create({ workspaceId, name: 'auth', agent: 'claude', worktree: true });
+    const revived = await sessions.create({ workspaceId, name: 'auth', worktree: true });
     expect(revived.branch).toBe('cw/auth');
   });
 
   it('remove deletes leased cache paths before deleting the session row', async () => {
-    const s = await sessions.create({ workspaceId, name: 'leased', agent: 'claude', worktree: true });
+    const s = await sessions.create({ workspaceId, name: 'leased', worktree: true });
     const cache = join(fx.root, '.crossweave', 'cache', s.id);
     await mkdir(cache, { recursive: true });
     await writeFile(join(cache, 'blob'), 'cache data');
@@ -322,7 +315,7 @@ describe('SessionManager name reclamation', () => {
   });
 
   it('refuses to remove a session that is still live', async () => {
-    await sessions.create({ workspaceId, name: 'live', agent: 'claude', worktree: true });
+    await sessions.create({ workspaceId, name: 'live', worktree: true });
     await expect(sessions.remove(workspaceId, 'live')).rejects.toMatchObject({
       code: 'SESSION_STILL_LIVE',
     });

@@ -10,7 +10,7 @@ import { ConvergenceScheduler } from '../../src/daemon/convergence-scheduler.js'
 import { hashTestCommand } from '../../src/convergence/trust.js';
 import { DEFAULT_CONFIG } from '../../src/core/config.js';
 import { makeGitFixture, commitFile, type GitFixture } from '../helpers/git-fixture.js';
-import { NotificationGate } from '../../src/radar/noise.js';
+import { NotificationGate } from '../../src/notify/gate.js';
 import type { NotifyDispatcherDeps } from '../../src/notify/dispatcher.js';
 
 async function branchWithFile(root: string, branch: string, file: string, content: string): Promise<void> {

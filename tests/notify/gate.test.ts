@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { NotificationGate, references } from '../../src/radar/noise.js';
+import { NotificationGate, references } from '../../src/notify/gate.js';
 
 describe('NotificationGate', () => {
   test('allows the first notification for a given session/path/symbol', () => {
