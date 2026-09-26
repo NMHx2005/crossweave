@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { restoreColorEnv } from './plain-when-piped.js';
 import { join } from 'node:path';
 import { defineCommand, runMain } from 'citty';
 import { crossweaveDir, findProjectRoot } from '../core/paths.js';
@@ -21,6 +22,8 @@ import { gatewayCommand } from './commands/gateway.js';
 import { fail } from './context.js';
 import { openDefaultApp, shouldOpenApp } from './entry-mode.js';
 import { tryOpenCockpit } from './cockpit-launcher.js';
+
+restoreColorEnv();
 
 const daemonCommand = defineCommand({
   meta: { name: 'daemon', description: 'Manage the crossweave daemon' },

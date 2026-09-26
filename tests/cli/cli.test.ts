@@ -52,6 +52,19 @@ describe('bare invocation without a terminal', () => {
     // into a success.
     expect(r.exitCode).toBe(1);
   });
+
+  // citty colours from the environment alone, so the suite above passed on CI (CI=1)
+  // and failed on a developer's terminal. Stripped here so the result cannot depend
+  // on which of the two ran it.
+  it('writes no colour escapes into a pipe, whatever the terminal env says', async () => {
+    const env: Record<string, string | undefined> = { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' };
+    delete env.CI; delete env.TEST; delete env.NO_COLOR;
+    const proc = Bun.spawn([process.execPath, CLI], { cwd: fx.root, env, stdout: 'pipe', stderr: 'pipe' });
+    const stdout = await new Response(proc.stdout).text();
+    await proc.exited;
+    expect(stdout).toContain('USAGE cw');
+    expect(stdout).not.toContain('\u001b[');
+  });
 });
 
 /**
