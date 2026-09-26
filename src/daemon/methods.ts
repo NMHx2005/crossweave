@@ -273,6 +273,9 @@ export function buildMethods(
     radarWatchers.stop(sessionId);
     const handle = mcpServers.get(sessionId);
     if (handle !== undefined) void closeMcpServer(sessionId, handle);
+    // An agent that exits on its own (a crash, `/exit`) is a status change no RPC
+    // announced; every client kept showing it `running` until something else redrew.
+    broadcastRegistry.broadcast('tui.invalidate', {});
   }, sealChunk);
   sessions.onKill = (id) => runtime.stop(id);
 
@@ -356,6 +359,9 @@ export function buildMethods(
       }
       sessions.markStatus(row.id, 'running', pid);
       ledger.append({ sessionId: row.id, workspaceId: row.workspaceId, kind: 'session.started', payload: '{}' });
+      // Every client redraws on this. Without it, a session started by ANOTHER client
+      // (the CLI while the cockpit is open) stayed `stopped` on every other screen.
+      broadcastRegistry.broadcast('tui.invalidate', {});
 
       // Registered synchronously, in the same synchronous region as
       // `runtime.start` above and before this function's next `await` —
