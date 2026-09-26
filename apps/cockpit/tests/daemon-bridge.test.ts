@@ -410,3 +410,12 @@ describe('startup ordering', () => {
     expect(gate.connects()).toBe(1)
   })
 })
+
+describe('workspace.gc', () => {
+  test('always collects the attached workspace, whatever id the renderer sends', async () => {
+    const { bridge, fake } = makeBridge({ saved: '/tmp/demo' })
+    await bridge.handle('workspace.ensure', { projectRoot: '/tmp/demo' })
+    await bridge.handle('workspace.gc', { id: 'ws_other', force: true })
+    expect(fake.calls.at(-1)).toMatchObject({ method: 'workspace.gc', params: { id: 'ws_1', force: true } })
+  })
+})

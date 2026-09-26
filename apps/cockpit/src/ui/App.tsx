@@ -6,6 +6,8 @@ import { QuickPicker, type NewSessionOptions } from './QuickPicker'
 import { LaunchLine } from './LaunchLine'
 import { ConfirmDialog, type ConfirmRequest } from './ConfirmDialog'
 import { ChangesPane } from './ChangesPane'
+import { CommandBar } from './CommandBar'
+import type { Command } from '../lib/commands'
 import { launchLineFor, parseLaunchLine, rememberLine } from '../lib/launch-line'
 import { QuickOpen } from './QuickOpen'
 import { FilePane } from './FilePane'
@@ -66,7 +68,7 @@ import {
 } from '../lib/layout'
 import { AgentRail } from './AgentRail'
 import { Stage, type StageStatus } from './Stage'
-import { sessionsThatStartedRunning } from '../lib/sessions'
+import { sessionsThatStartedRunning, workspaceSummary } from '../lib/sessions'
 
 const EMPTY_CONVERGE: ConvergeStatus = { ready: [], unknown: [], blocked: [] }
 
@@ -102,7 +104,12 @@ export function App() {
   const [launchHistory, setLaunchHistory] = useState<Record<string, string[]>>(readLaunchHistory)
   /** Bumped on every successful load, so open Changes panes refetch after new work. */
   const [sessionsRevision, setSessionsRevision] = useState(0)
-  const [convergeDetail, setConvergeDetail] = useState<ConvergeDetail>({ pairwise: [], empty: [] })
+  const [convergeDetail, setConvergeDetail] = useState<ConvergeDetail>({ pairwise: [], empty: [], baseBranch: null })
+  const [commandBarOpen, setCommandBarOpen] = useState(false)
+  const [commandHistory, setCommandHistory] = useState<string[]>(() => readStringList(COMMAND_HISTORY_KEY))
+  /** Commands first: the rail's buttons are an opt-in (Settings, or `buttons on`). */
+  const [showButtons, setShowButtons] = useState<boolean>(() => readFlag(SHOW_BUTTONS_KEY))
+  const [enabledAgents, setEnabledAgents] = useState<string[]>([])
   const [confirmState, setConfirmState] = useState<(ConfirmRequest & { resolve: (ok: boolean) => void }) | null>(null)
   const [branches, setBranches] = useState<string[]>([])
   /** Non-null while ⌘P is open: the session whose worktree it searches. */
@@ -236,7 +243,8 @@ export function App() {
   // keeps the listener registered once while always calling the current handlers.
   const commandRef = useRef<(command: string) => void>(() => undefined)
   commandRef.current = (command: string) => {
-    if (command === 'new-agent') void handleNew()
+    if (command === 'command-bar') void openCommandBar()
+    else if (command === 'new-agent') void handleNew()
     else if (command === 'jump-attention') jumpToAttention()
     else if (command === 'open-terminal') void handleTerminal()
     else if (command === 'open-file') void handleOpenFile()
@@ -392,6 +400,100 @@ export function App() {
     const at = locatePane(stage, `changes:${target.id}`)
     if (at) setStage((s) => focusPane(s, at.tabId, at.paneId))
     else openSurface({ kind: 'changes', sessionId: target.id }, `${target.name} · changes`)
+  }
+
+  async function openCommandBar(): Promise<void> {
+    // Fetched on open, like the picker: an agent enabled a minute ago should complete.
+    const agents = await cockpitApi.listAgents().catch(() => [] as AgentOption[])
+    setEnabledAgents(agents.filter((a) => a.enabled).map((a) => a.id))
+    setCommandBarOpen(true)
+  }
+
+  function setButtons(on: boolean): void {
+    setShowButtons(on)
+    writeFlag(SHOW_BUTTONS_KEY, on)
+  }
+
+  /** One parsed command, run; resolves to an error sentence, or null. */
+  async function runCommand(command: Command, line: string): Promise<string | null> {
+    setCommandHistory((all) => {
+      const next = rememberLine(all, line)
+      writeStringList(COMMAND_HISTORY_KEY, next)
+      return next
+    })
+    try {
+      switch (command.kind) {
+        case 'new': {
+          const created = await cockpitApi.newSession({
+            name: command.name,
+            agent: command.agent,
+            worktree: !command.shared,
+            ...(command.base === undefined ? {} : { base: command.base }),
+            ...(command.args === undefined ? {} : { args: command.args }),
+          }) as { id?: string }
+          await load()
+          if (typeof created?.id === 'string') focusSession(created.id)
+          return null
+        }
+        case 'start':
+          await cockpitApi.resumeSession(command.session, command.args)
+          await load()
+          focusSession(command.session)
+          return null
+        case 'stop':
+          await cockpitApi.stopSession(command.session)
+          await load()
+          return null
+        case 'kill':
+          setCommandBarOpen(false)
+          await handleKill(command.session, command.removeWorktree)
+          return null
+        case 'land':
+          setCommandBarOpen(false)
+          await handleLand(command.session)
+          return null
+        case 'land-all':
+          setCommandBarOpen(false)
+          await handleLandAll()
+          return null
+        case 'diff':
+          openChanges(command.session)
+          return null
+        case 'terminal':
+          await openShell(command.session)
+          return null
+        case 'rename':
+          await cockpitApi.renameSession(command.session, command.to)
+          await load()
+          return null
+        case 'open':
+          setCommandBarOpen(false)
+          if (command.path !== undefined && focusedId !== null) openFilePane(focusedId, command.path)
+          else await handleOpenFile()
+          return null
+        case 'browser':
+          handleOpenBrowser(command.url)
+          return null
+        case 'attention':
+          jumpToAttention()
+          return null
+        case 'settings':
+          setCommandBarOpen(false)
+          await handleOpenSettings()
+          return null
+        case 'buttons':
+          setButtons(command.on)
+          return null
+        case 'gc':
+          await cockpitApi.collectGarbage(command.force)
+          await load()
+          return null
+        case 'help':
+          return null
+      }
+    } catch (err) {
+      return plainErrorMessage(err)
+    }
   }
 
   function jumpToAttention(): void {
@@ -601,6 +703,18 @@ export function App() {
 
   return (
     <div class="cockpit-shell">
+      {commandBarOpen ? (
+        <CommandBar
+          context={{
+            sessions: sessions.map((s) => ({ id: s.id, name: s.name, ...(s.status === undefined ? {} : { status: s.status }) })),
+            focusedName: focused?.name ?? null,
+            agents: enabledAgents,
+          }}
+          history={commandHistory}
+          onRun={runCommand}
+          onClose={() => setCommandBarOpen(false)}
+        />
+      ) : null}
       {confirmState !== null ? (
         <ConfirmDialog
           {...confirmState}
@@ -625,6 +739,9 @@ export function App() {
           agents={settingsOpen.agents}
           onSave={saveSettings}
           onClose={() => setSettingsOpen(null)}
+          showButtons={showButtons}
+          onShowButtons={setButtons}
+          usage={usageRows ?? []}
         />
       ) : null}
       {quickOpen !== null ? (
@@ -646,6 +763,10 @@ export function App() {
         activity={activity}
         onFocus={focusSession}
         onSelectActivity={selectActivity}
+        header={workspaceSummary(projectRootRef.current, convergeDetail.baseBranch, sessions)}
+        showButtons={showButtons}
+        onCommandBar={() => { void openCommandBar() }}
+        onChanges={() => openChanges()}
         onNew={() => {
           void handleNew()
         }}
@@ -738,24 +859,8 @@ export function App() {
           void saveLayouts(next)
         }}
       />
-      {usageRows !== null && usageRows.length > 0 ? (
-        <section class="cockpit-usage" aria-label="Usage summary">
-          <h3 class="cockpit-usage__title">Usage — estimate, not billing</h3>
-          <table class="cockpit-usage__table">
-            <thead>
-              <tr><th>date</th><th>agent</th><th>sessions</th><th>tokens</th><th>cost</th></tr>
-            </thead>
-            <tbody>
-              {usageRows.map((r) => (
-                <tr key={`${r.date}-${r.agentKind}`}>
-                  <td>{r.date}</td><td>{r.agentKind}</td><td>{r.sessions}</td><td>{r.tokens}</td><td>${r.costUsd.toFixed(4)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
-      ) : null}
       <footer class="cockpit-footer">
+        {showButtons ? (
         <div class="cockpit-footer__actions">
           <button
             type="button"
@@ -765,7 +870,7 @@ export function App() {
             disabled={!canLandFocused || landBusy}
             title={focusedBlockedReason}
           >
-            Land
+            {focused ? `Land ${focused.name}` : 'Land'}
           </button>
           <button
             type="button"
@@ -777,6 +882,7 @@ export function App() {
             Land all
           </button>
         </div>
+        ) : null}
         {error ? (
           <p class="cockpit-error" role="alert">
             {error}
@@ -829,5 +935,42 @@ function writeLaunchHistory(history: Record<string, string[]>): void {
     localStorage.setItem(LAUNCH_HISTORY_KEY, JSON.stringify(history))
   } catch {
     // storage unavailable: history is a convenience
+  }
+}
+
+const COMMAND_HISTORY_KEY = 'cw.command-history.v1'
+const SHOW_BUTTONS_KEY = 'cw.show-buttons.v1'
+
+/** Per-viewer conveniences only; every read and write survives unavailable storage. */
+function readStringList(key: string): string[] {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(key) ?? '[]')
+    return Array.isArray(parsed) ? parsed.filter((l): l is string => typeof l === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+function writeStringList(key: string, list: string[]): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(list))
+  } catch {
+    // storage unavailable
+  }
+}
+
+function readFlag(key: string): boolean {
+  try {
+    return localStorage.getItem(key) === '1'
+  } catch {
+    return false
+  }
+}
+
+function writeFlag(key: string, on: boolean): void {
+  try {
+    localStorage.setItem(key, on ? '1' : '0')
+  } catch {
+    // storage unavailable
   }
 }

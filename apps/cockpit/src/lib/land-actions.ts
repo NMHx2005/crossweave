@@ -68,6 +68,8 @@ export type ConvergeDetail = {
   pairwise: Array<{ a: string; b: string; result: string }>
   /** Sessions with no commits ahead of the base. */
   empty: string[]
+  /** The branch sessions land onto; null when detached or unknown. */
+  baseBranch: string | null
 }
 
 export function parseConvergeDetail(value: unknown): ConvergeDetail {
@@ -81,7 +83,11 @@ export function parseConvergeDetail(value: unknown): ConvergeDetail {
       }
     }
   }
-  return { pairwise, empty: stringList(record.empty) }
+  return {
+    pairwise,
+    empty: stringList(record.empty),
+    baseBranch: typeof record.baseBranch === 'string' && record.baseBranch !== '' ? record.baseBranch : null,
+  }
 }
 
 export type LandVerdict = {

@@ -141,6 +141,10 @@ body,
 .cockpit-footer__actions button:disabled {
   color: var(--cw-text-dim);
   cursor: default;
+  /* Enabled and disabled buttons shared one fill and differed only in label colour;
+     a disabled one is now an outline, so the difference reads at a glance. */
+  background: transparent;
+  border-color: var(--cw-border);
 }
 
 /* Recent activity sits between the actions and the session list: it is what tells you
@@ -743,6 +747,8 @@ body,
 }
 
 .cockpit-picker {
+  /* Dialogs sit above the stage; a flat panel on a dimmed backdrop read as part of it. */
+  box-shadow: 0 var(--cw-space-2) calc(var(--cw-space-3) * 3) color-mix(in srgb, var(--cw-surface) 85%, transparent);
   width: calc(var(--cw-row-h) * 16);
   display: flex;
   flex-direction: column;
@@ -1204,3 +1210,88 @@ body,
 .cockpit-diff-line.is-del { color: var(--cw-blocked); }
 .cockpit-diff-line.is-hunk { color: var(--cw-accent); }
 .cockpit-diff-line.is-meta { color: var(--cw-text-dim); }
+
+.cockpit-rail__target {
+  flex-basis: 100%;
+  color: var(--cw-text-dim);
+  font-size: var(--cw-fs-micro);
+  letter-spacing: var(--cw-tracking-label);
+  text-transform: uppercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cockpit-rail__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--cw-space-1);
+}
+
+/* Kill ends a session for good: red, and pushed away from its neighbours. */
+.cockpit-rail__actions button.is-danger:not(:disabled) {
+  margin-left: var(--cw-space-2);
+  background: var(--cw-blocked);
+  color: var(--cw-surface);
+}
+
+.cockpit-rail__command {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  margin: var(--cw-space-3) 0 var(--cw-space-2);
+  padding: var(--cw-control-pad-y) var(--cw-space-2);
+  min-height: var(--cw-row-h);
+  background: var(--cw-surface-input);
+  border: var(--cw-hairline) solid var(--cw-border-strong);
+  border-radius: var(--cw-radius-sm);
+  color: var(--cw-text);
+  font: inherit;
+  font-size: var(--cw-fs-sm);
+  cursor: pointer;
+}
+
+.cockpit-rail__command:hover { border-color: var(--cw-accent); }
+
+.cockpit-rail__command kbd,
+.cockpit-command code {
+  font-family: var(--cw-font-mono);
+  color: var(--cw-text-bright);
+}
+
+.cockpit-command {
+  width: calc(var(--cw-row-h) * 26);
+  max-width: 90%;
+}
+
+.cockpit-command__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: calc(var(--cw-row-h) * 12);
+  overflow: auto;
+}
+
+.cockpit-command__list button {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: var(--cw-control-pad-y) var(--cw-space-2);
+  background: transparent;
+  border: none;
+  border-radius: var(--cw-radius-sm);
+  color: var(--cw-text);
+  font: inherit;
+  font-size: var(--cw-fs-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.cockpit-command__list button:hover,
+.cockpit-command__list button.is-selected {
+  background: var(--cw-surface-active);
+}
+
+.cockpit-command__hint { margin: 0; font-size: var(--cw-fs-micro); }

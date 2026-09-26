@@ -124,6 +124,12 @@ export const cockpitApi = {
   setSettings(settings: unknown): Promise<unknown> {
     return cockpitInvoke('settings.set', { settings })
   },
+  renameSession(idOrName: string, newName: string): Promise<unknown> {
+    return cockpitInvoke('session.rename', { idOrName, newName })
+  },
+  collectGarbage(force: boolean): Promise<unknown> {
+    return cockpitInvoke('workspace.gc', { force })
+  },
   sessionDiff(idOrName: string): Promise<SessionDiff> {
     return cockpitInvoke('session.diff', { idOrName })
   },

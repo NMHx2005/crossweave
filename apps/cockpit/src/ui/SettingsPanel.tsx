@@ -18,12 +18,21 @@ const EDITORS: Array<{ kind: EditorSetting['kind']; label: string }> = [
  * opens. Saved per user by the daemon, which validates everything again — this form
  * only shows its answer. A command is split into arguments, never run through a shell.
  */
-export function SettingsPanel({ initial, agents, onSave, onClose }: {
+export type UsageRow = { date: string; agentKind: string; sessions: number; tokens: number; costUsd: number }
+
+/** The usage table shows recent days; older rows are what `cw usage` is for. */
+const USAGE_ROWS_SHOWN = 14
+
+export function SettingsPanel({ initial, agents, onSave, onClose, showButtons, onShowButtons, usage }: {
   initial: UserSettings
   /** Tier and availability, from agents.list. */
   agents: AgentOption[]
   onSave: (next: UserSettings) => Promise<string | null>
   onClose: () => void
+  /** A cockpit preference of this viewer's, applied at once (not part of Save). */
+  showButtons: boolean
+  onShowButtons: (on: boolean) => void
+  usage: UsageRow[]
 }) {
   const [draft, setDraft] = useState<UserSettings>(initial)
   const [error, setError] = useState<string | null>(null)
@@ -133,6 +142,31 @@ export function SettingsPanel({ initial, agents, onSave, onClose }: {
               onInput={(e) => setDraft({ ...draft, editor: { kind: 'custom', command: (e.target as HTMLInputElement).value } })}
             />
           </label>
+        ) : null}
+
+        <h3 class="cockpit-settings__heading">Cockpit</h3>
+        <label class="cockpit-settings__toggle">
+          <input type="checkbox" checked={showButtons}
+            onChange={(e) => onShowButtons((e.target as HTMLInputElement).checked)} />
+          <span>Show action buttons in the rail (⌘K runs every action as a command either way)</span>
+        </label>
+
+        {usage.length > 0 ? (
+          <>
+            <h3 class="cockpit-settings__heading">Usage — estimate, not billing</h3>
+            <table class="cockpit-usage__table">
+              <thead>
+                <tr><th>date</th><th>agent</th><th>sessions</th><th>tokens</th><th>cost</th></tr>
+              </thead>
+              <tbody>
+                {[...usage].sort((a, b) => b.date.localeCompare(a.date)).slice(0, USAGE_ROWS_SHOWN).map((r) => (
+                  <tr key={`${r.date}-${r.agentKind}`}>
+                    <td>{r.date}</td><td>{r.agentKind}</td><td>{r.sessions}</td><td>{r.tokens}</td><td>${r.costUsd.toFixed(4)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
         ) : null}
 
         {error ? <p class="cockpit-error" role="alert">{error}</p> : null}

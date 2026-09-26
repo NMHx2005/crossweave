@@ -176,6 +176,8 @@ describe('converge.status RPC', () => {
       const before = await status();
       expect(before.ready).toEqual([]);
       expect(before.empty).toEqual(['fresh']);
+      // The branch sessions land onto, for the cockpit's header.
+      expect((before as unknown as { baseBranch: string }).baseBranch).toBe('main');
 
       await $`git checkout -q cw/fresh`.cwd(root).quiet();
       await commitFile(root, 'work.txt', 'done\n', 'work');

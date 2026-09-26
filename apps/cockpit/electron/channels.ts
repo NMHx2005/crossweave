@@ -33,6 +33,9 @@ export const COCKPIT_CHANNELS = [
   'file.list',
   // What landing a session would bring in (the Changes pane).
   'session.diff',
+  // The command bar's rename and gc.
+  'session.rename',
+  'workspace.gc',
   'file.read',
   'file.write',
   'git.branches',

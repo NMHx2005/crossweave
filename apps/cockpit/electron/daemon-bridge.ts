@@ -176,7 +176,13 @@ export class DaemonBridge {
     if (!client || !workspace) {
       throw new Error('Workspace is not attached; invoke workspace.ensure first')
     }
-    const params = { ...asRecord(payload), workspaceId: workspace.id }
+    // workspace.gc names its workspace as `id`; it is always the attached one, never
+    // whatever the renderer passed.
+    const params = {
+      ...asRecord(payload),
+      workspaceId: workspace.id,
+      ...(channel === 'workspace.gc' ? { id: workspace.id } : {}),
+    }
     return client.call(channel, params)
   }
 

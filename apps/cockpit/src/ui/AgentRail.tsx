@@ -13,6 +13,12 @@ export type AgentRailProps = {
   activity: ActivityItem[]
   onFocus: (sessionId: string) => void
   onSelectActivity: (sessionName: string) => void
+  /** The workspace line at the top: name, base branch, what runs, spend. */
+  header: { title: string; meta: string }
+  /** Commands first: the action buttons show only when the user turned them on. */
+  showButtons: boolean
+  onCommandBar: () => void
+  onChanges: () => void
   onNew: () => void
   onStart: () => void
   onStop: () => void
@@ -32,6 +38,10 @@ export function AgentRail({
   focusedId,
   attentionById,
   activity,
+  header,
+  showButtons,
+  onCommandBar,
+  onChanges,
   onFocus,
   onSelectActivity,
   onNew,
@@ -44,43 +54,37 @@ export function AgentRail({
 }: AgentRailProps) {
   const [showAll, setShowAll] = useState(false)
   const [colorMenu, setColorMenu] = useState<{ sessionId: string; x: number; y: number } | null>(null)
-  const focusedRunning =
-    focusedId !== null && isSessionRunning(sessions.find((session) => session.id === focusedId) ?? {})
+  const focusedSession = focusedId === null ? undefined : sessions.find((session) => session.id === focusedId)
+  const focusedRunning = focusedSession !== undefined && isSessionRunning(focusedSession)
   const unread = activity.filter((item) => !item.read)
   const items = showAll ? activity : unread.slice(0, UNREAD_SHOWN)
   return (
     <aside class="cockpit-rail" aria-label="Agent rail">
       <header class="cockpit-rail__header">
-        <h1>Cockpit</h1>
-        <p class="cockpit-muted">Agent rail</p>
+        <h1 title={header.title}>{header.title}</h1>
+        <p class="cockpit-muted">{header.meta}</p>
       </header>
-      <div class="cockpit-rail__actions">
-        <button type="button" onClick={onNew}>
-          New
+      {showButtons ? (
+        <div class="cockpit-rail__actions" aria-label="Session actions">
+          <button type="button" onClick={onNew} title="New agent (⌘T)">New</button>
+          {/* Every button below acts on the focused session, and says which one. */}
+          <span class="cockpit-rail__target">{focusedSession ? focusedSession.name : 'no session selected'}</span>
+          <div class="cockpit-rail__row">
+            <button type="button" onClick={onStart} disabled={!focusedSession || focusedRunning}>Start</button>
+            <button type="button" onClick={onStop} disabled={!focusedSession || !focusedRunning}>Stop</button>
+            <button type="button" onClick={onTerminal} disabled={!focusedSession}
+              title={focusedSession ? `A shell in ${focusedSession.name}'s worktree (⌘⇧T)` : undefined}>Terminal</button>
+            <button type="button" onClick={onChanges} disabled={!focusedSession}
+              title={focusedSession ? `What landing ${focusedSession.name} would bring in` : undefined}>Changes</button>
+            <button type="button" class="is-danger" onClick={onKill} disabled={!focusedSession}>Kill</button>
+          </div>
+        </div>
+      ) : (
+        <button type="button" class="cockpit-rail__command" onClick={onCommandBar}>
+          <span>Run a command…</span>
+          <kbd>⌘K</kbd>
         </button>
-        <button
-          type="button"
-          onClick={onStart}
-          disabled={!focusedId || focusedRunning}
-          title={focusedId && !focusedRunning ? 'Start the agent for the focused session' : undefined}
-        >
-          Start
-        </button>
-        <button type="button" onClick={onStop} disabled={!focusedId || !focusedRunning}>
-          Stop
-        </button>
-        <button type="button" onClick={onKill} disabled={!focusedId}>
-          Kill
-        </button>
-        <button
-          type="button"
-          onClick={onTerminal}
-          disabled={!focusedId}
-          title={focusedId ? "Open a shell in this session's worktree" : undefined}
-        >
-          Terminal
-        </button>
-      </div>
+      )}
       {/* What happened while you were looking elsewhere. Selecting one is what clears it —
           the count and the panes cannot disagree, because both read the same focused id. */}
       <section class="cockpit-rail__activity" aria-label="Recent activity">

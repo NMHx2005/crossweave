@@ -103,3 +103,25 @@ export function sessionsThatStartedRunning(
     .filter((s) => before.has(s.id) && !LIVE.has(before.get(s.id)!) && LIVE.has(s.status ?? ''))
     .map((s) => s.id)
 }
+
+/**
+ * The rail header's one line of workspace state — the review found a header that said
+ * "Cockpit / Agent rail" and nothing about the workspace. Spend is an estimate from
+ * the agents' own reports, like the usage table's.
+ */
+export function workspaceSummary(
+  projectRoot: string,
+  baseBranch: string | null,
+  sessions: readonly ListedSession[],
+): { title: string; meta: string } {
+  const title = projectRoot.split('/').filter((p) => p !== '').pop() ?? 'crossweave'
+  // Waiting for the user is still a live agent.
+  const running = sessions.filter((s) => LIVE.has(s.status ?? '')).length
+  const spend = sessions.reduce((sum, s) => sum + (s.costSpentUsd ?? 0), 0)
+  const parts = [
+    baseBranch ?? 'detached HEAD',
+    `${running} of ${sessions.length} running`,
+    `≈$${spend.toFixed(2)}`,
+  ]
+  return { title, meta: parts.join(' · ') }
+}

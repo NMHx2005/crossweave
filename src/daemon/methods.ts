@@ -115,6 +115,18 @@ function readBaseHead(projectRoot: string): string | null {
   }
 }
 
+/** The branch sessions land onto (the project's checked-out branch); null when detached. */
+function readBaseBranch(projectRoot: string): string | null {
+  try {
+    const name = execFileSync('git', ['symbolic-ref', '--short', '-q', 'HEAD'], {
+      cwd: projectRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    return name === '' ? null : name;
+  } catch {
+    return null;
+  }
+}
+
 function clientEnv(p: Record<string, unknown>): Record<string, string> {
   const raw = p.env;
   if (typeof raw !== 'object' || raw === null) return {};
@@ -977,6 +989,7 @@ export function buildMethods(
         blocked,
         empty,
         degraded,
+        baseBranch: readBaseBranch(projectRoot),
       };
     },
 

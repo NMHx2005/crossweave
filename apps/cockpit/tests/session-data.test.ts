@@ -7,7 +7,7 @@ import type { SessionRow } from '../../../src/db/repositories/session.ts'
 import { SessionRuntime } from '../../../src/daemon/runtime.ts'
 import { encodeSessionData } from '../electron/daemon-bridge'
 import { decodeSessionData } from '../src/lib/session-data'
-import { formatRailMeta, isSessionRunning, parseSessionList } from '../src/lib/sessions'
+import { formatRailMeta, isSessionRunning, parseSessionList, workspaceSummary } from '../src/lib/sessions'
 
 /** Contrast helper only — XtermPane must never do this. */
 function stripCsi(input: string): string {
@@ -184,5 +184,18 @@ describe('parseSessionList launch flags', () => {
     expect(given?.launchArgs).toEqual(['--model', 'opus'])
     expect(never?.launchArgs).toBeNull()
     expect(bad?.launchArgs).toBeUndefined()
+  })
+})
+
+describe('workspaceSummary', () => {
+  test('names the workspace, its base branch, what runs, and the spend', () => {
+    const sessions = [
+      { id: 'a', name: 'a', status: 'running', costSpentUsd: 0.25 },
+      { id: 'b', name: 'b', status: 'idle', costSpentUsd: 0.125 },
+      { id: 'c', name: 'c', status: 'waiting' },
+    ]
+    expect(workspaceSummary('/Users/me/work/shop/', 'main', sessions))
+      .toEqual({ title: 'shop', meta: 'main · 2 of 3 running · ≈$0.38' })
+    expect(workspaceSummary('/r', null, []).meta).toBe('detached HEAD · 0 of 0 running · ≈$0.00')
   })
 })
