@@ -54,3 +54,7 @@
 - **An aborted test run in a restricted shell leaks daemons** (tests fail before their
   cleanup). The socket watchdog now bounds that to ~5 s once the fixture directory is
   deleted; before it, 53 such daemons were found alive from one sandboxed run.
+- **Base-conflict check needs git ≥ 2.38.** `converge.status` re-checks every `ready`
+  session against the base with `git merge-tree --write-tree`; on an older git it
+  cannot tell, and a lone session that conflicts with the base is still reported
+  `ready` (as before) until `cw land` refuses it.
