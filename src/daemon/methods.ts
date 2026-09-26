@@ -24,6 +24,7 @@ import { ContractService, parseFqn } from '../radar/contracts.js';
 import { assertContained } from '../core/paths.js';
 import { ConvergenceScheduler } from './convergence-scheduler.js';
 import { MergeTrialRepo, isPairwiseTrial } from '../db/repositories/merge-trial.js';
+import { baseConflictFiles } from '../convergence/trial.js';
 import { ConfigTrustRepo } from '../db/repositories/config-trust.js';
 import { NotifyConfigRepo, type NotifyEventKind } from '../db/repositories/notify-config.js';
 import { buildConflictGraph, recommendOrder } from '../convergence/graph.js';
@@ -758,13 +759,31 @@ export function buildMethods(
         hasTrustedTestCommand,
         latestFullIntegration: fullIntegration,
       });
+      // Pairwise trials merge each pair onto the base, so a conflict with the base
+      // shows up there — except for a session with no peer, which has no trial at
+      // all and was reported `ready` even right after its land had just failed with
+      // LAND_CONFLICT. Every `ready` verdict is checked against the base directly
+      // (merge-tree: no worktree, no lock, nothing stored to go stale). If git
+      // cannot tell, the verdict stands as before.
+      if (currentBaseHead !== null) {
+        for (const name of landability.ready) {
+          const branch = order.find((s) => s.name === name)?.branch;
+          if (branch === null || branch === undefined) continue;
+          const files = baseConflictFiles(projectRoot, currentBaseHead, branch);
+          if (files !== undefined && files.length > 0) {
+            landability.byName.set(name, {
+              name, landability: 'blocked', reason: `conflicts with the current base: ${files.join(', ')}`,
+            });
+          }
+        }
+      }
       const unknown = [...landability.byName.values()]
         .filter((result) => result.landability === 'unknown')
         .map(({ name, reason }) => ({ name, reason }));
       const blocked = [...landability.byName.values()]
         .filter((result) => result.landability === 'blocked')
         .map(({ name, reason }) => ({ name, reason }));
-      const ready = landability.ready;
+      const ready = landability.ready.filter((name) => landability.byName.get(name)?.landability === 'ready');
 
       return {
         pairwise,

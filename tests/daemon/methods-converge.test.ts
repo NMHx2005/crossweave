@@ -108,6 +108,49 @@ describe('converge.status RPC', () => {
 
   // Trial history outlives sessions. Listing it all kept showing
   // `cw/alpha <-> cw/beta conflict` after both sessions were landed and removed.
+  // A lone session has no peer, hence no trial, and was classified `ready` even
+  // while `cw land` refused it with LAND_CONFLICT.
+  test('a lone session that conflicts with the base is blocked, and ready again once resolved', async () => {
+    const fixture = await makeGitFixture();
+    const root = fixture.root;
+    try {
+      await commitFile(root, 'shared.txt', 'base\n', 'seed');
+      await $`git checkout -q -b cw/solo`.cwd(root).quiet();
+      await commitFile(root, 'shared.txt', 'from solo\n', 'solo edit');
+      await $`git checkout -q main`.cwd(root).quiet();
+      await commitFile(root, 'shared.txt', 'from main\n', 'main edit');
+
+      const db = openDatabase(':memory:');
+      new WorkspaceRepo(db).insert({
+        id: 'ws_1', name: 'w', rootPath: root, createdAt: 'now',
+        defaultIsolation: 'worktree', safeModeTier: 'T1',
+      });
+      new SessionRepo(db).insert({
+        id: 's_solo', workspaceId: 'ws_1', name: 'solo', agentKind: 'claude', adapter: 'claude',
+        status: 'idle', worktreePath: tmpdir(), branch: 'cw/solo', createdAt: 'now',
+        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+      });
+      const methods = buildMethods(db, root);
+      const status = async () => (await methods['converge.status']!(
+        { workspaceId: 'ws_1' }, { notify: () => undefined, onClose: () => undefined },
+      )) as { ready: string[]; blocked: { name: string; reason: string }[] };
+
+      const before = await status();
+      expect(before.ready).toEqual([]);
+      expect(before.blocked).toEqual([{ name: 'solo', reason: 'conflicts with the current base: shared.txt' }]);
+
+      // Resolve on the branch the way the LAND_CONFLICT message says to.
+      await $`git checkout -q cw/solo`.cwd(root).quiet();
+      await $`git merge -q -X ours main -m resolve`.cwd(root).quiet();
+      await $`git checkout -q main`.cwd(root).quiet();
+      const after = await status();
+      expect(after.blocked).toEqual([]);
+      expect(after.ready).toEqual(['solo']);
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
   test('the pairwise matrix only lists pairs whose sessions are both still active', async () => {
     const fixture = await makeGitFixture();
     const db = openDatabase(':memory:');

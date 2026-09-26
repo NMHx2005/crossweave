@@ -118,3 +118,31 @@ export function resetIntegration(integrationPath: string, baseHead: string): voi
   }
   execFileSync('git', ['reset', '--hard', baseHead], { cwd: integrationPath, stdio: 'ignore' });
 }
+
+/**
+ * The files `branch` conflicts on when merged into `baseHead`, `[]` when it merges
+ * cleanly, or undefined when git cannot say (an unknown ref, or a git older than
+ * 2.38 without `merge-tree --write-tree`).
+ *
+ * `merge-tree` computes the merge without a worktree or an index, so this is safe to
+ * call from a read-only status query — unlike `runMergeTrial`, which needs the
+ * integration worktree and its lock. It exists for the case pairwise trials cannot
+ * cover: a session with no peer to pair with has no trial at all, and was reported
+ * `ready` while conflicting with the base it would land on.
+ */
+export function baseConflictFiles(projectRoot: string, baseHead: string, branch: string): string[] | undefined {
+  try {
+    execFileSync('git', ['merge-tree', '--write-tree', '--name-only', '--no-messages', baseHead, branch], {
+      cwd: projectRoot, stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    return [];
+  } catch (err) {
+    const e = err as { status?: number; stdout?: Buffer | string };
+    // Exit 1 is "merged, with conflicts" — but also "not something we can merge" for
+    // an unknown ref. Only the former prints the resulting tree's OID first.
+    if (e.status !== 1 || e.stdout === undefined) return undefined;
+    const lines = e.stdout.toString().split('\n').filter((l) => l !== '');
+    if (!/^[0-9a-f]{40,64}$/.test(lines[0] ?? '')) return undefined;
+    return lines.slice(1);
+  }
+}
