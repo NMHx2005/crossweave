@@ -7,6 +7,36 @@ import { CrossweaveError } from '../core/errors.js';
 import { assertContained } from '../core/paths.js';
 import type { ClientTransport } from '../client/transport.js';
 import { createGatewayTransport, type GatewayOptions } from './gateway.js';
+import indexHtml from './web/index.htm' with { type: 'text' };
+// @ts-expect-error TS1192 — Bun's text import yields this file's SOURCE as a string
+// (embedded in the compiled binary); tsc can only see the module itself.
+import appSource from './web/app.js' with { type: 'text' };
+
+const SECURITY_HEADERS = {
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'no-referrer',
+  'Cache-Control': 'no-store',
+} as const;
+
+let appJs: string | undefined;
+
+/**
+ * The built-in web client, for a gateway started without `webRoot`: the page, its
+ * script (transpiled from src/gateway/web/app.ts on first request), and a 404 for
+ * everything else. The server used to have no request handler at all in that case,
+ * so every plain HTTP request — the browser loading the page included — hung.
+ */
+export function builtInWebResponse(url: string): { status: number; type: string; body: string } {
+  const path = url.split('?')[0] ?? '/';
+  if (path === '/' || path === '/index.html') {
+    return { status: 200, type: 'text/html; charset=utf-8', body: indexHtml };
+  }
+  if (path === '/app.js') {
+    appJs ??= new Bun.Transpiler({ loader: 'ts' }).transformSync(appSource as string);
+    return { status: 200, type: 'text/javascript; charset=utf-8', body: appJs };
+  }
+  return { status: 404, type: 'text/plain; charset=utf-8', body: 'not found' };
+}
 
 export interface GatewayServerOptions {
   socketPath: string;
@@ -135,20 +165,29 @@ export function createGatewayHttpServer(opts: GatewayServerOptions & { webRoot?:
     }
     server = createHttpServer();
   }
-  if (opts.webRoot) {
-    const webRoot = opts.webRoot;
-    server.on('request', (req, res) => {
-      if (!req.url || req.url.startsWith('/ws')) return;
-      const filePath = resolveWebPath(webRoot, req.url);
-      if (filePath === undefined) {
-        res.writeHead(404).end('not found');
-        return;
-      }
-      const body = readFileSync(filePath);
-      const ext = filePath.split('.').pop();
-      const ct = ext === 'html' ? 'text/html' : ext === 'js' ? 'application/javascript' : ext === 'css' ? 'text/css' : 'text/plain';
-      res.writeHead(200, { 'Content-Type': ct }).end(body);
-    });
-  }
+  const webRoot = opts.webRoot;
+  server.on('request', (req, res) => {
+    const url = req.url ?? '/';
+    // A WebSocket upgrade never reaches 'request'; a plain GET to /ws is a client
+    // that forgot to upgrade and deserves an answer, not a hung connection.
+    if (url === '/ws' || url.startsWith('/ws?')) {
+      res.writeHead(426, { ...SECURITY_HEADERS, 'Content-Type': 'text/plain', Upgrade: 'websocket' }).end('upgrade required');
+      return;
+    }
+    if (webRoot === undefined) {
+      const r = builtInWebResponse(url);
+      res.writeHead(r.status, { ...SECURITY_HEADERS, 'Content-Type': r.type }).end(r.body);
+      return;
+    }
+    const filePath = resolveWebPath(webRoot, url);
+    if (filePath === undefined) {
+      res.writeHead(404, SECURITY_HEADERS).end('not found');
+      return;
+    }
+    const body = readFileSync(filePath);
+    const ext = filePath.split('.').pop();
+    const ct = ext === 'html' ? 'text/html' : ext === 'js' ? 'application/javascript' : ext === 'css' ? 'text/css' : 'text/plain';
+    res.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': ct }).end(body);
+  });
   return server;
 }

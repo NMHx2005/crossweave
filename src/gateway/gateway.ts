@@ -12,7 +12,7 @@ import { READ_METHODS, appendAudit, constantTimeEqual, verifyToken, type TokenKi
  * Unknown methods are rejected here (allowlist shape), not forwarded.
  */
 export const ALLOWED_METHODS = new Set([
-  'workspace.ensure', 'workspace.info', 'workspace.gc',
+  'workspace.ensure', 'workspace.info', 'workspace.list', 'workspace.gc',
   'session.new', 'session.list', 'session.resume', 'session.stop', 'session.kill', 'session.rm',
   'session.input', 'session.resize', 'session.attach', 'session.data', 'session.exit',
   'session.rename', 'land.session', 'converge.status', 'tui.event', 'tui.invalidate',

@@ -77,7 +77,7 @@ export function verifyTokenBool(projectRoot: string, presented: string | undefin
 
 /** Read methods — safe to allow on a read-only token. */
 export const READ_METHODS = new Set([
-  'workspace.info', 'session.list', 'converge.status',
+  'workspace.info', 'workspace.list', 'session.list', 'converge.status',
   'tui.event', 'tui.invalidate', 'session.data', 'session.exit',
   'workspace.ensure',
   // The journal is a read for a viewer and a control action for a window that is

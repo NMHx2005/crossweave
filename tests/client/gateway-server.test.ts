@@ -133,3 +133,54 @@ describe('gateway WebSocket upgrade', () => {
     }
   });
 });
+
+describe('gateway HTTP without a webRoot', () => {
+  // With no request handler at all, every plain HTTP request hung until the client
+  // gave up — including the browser loading the page the gateway exists to serve.
+  async function listen() {
+    const server = createGatewayHttpServer({ socketPath: '/tmp/none.sock', port: 0 });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+    const port = (server.address() as AddressInfo).port;
+    return { port, close: () => new Promise<void>((r) => { server.closeAllConnections(); server.close(() => r()); }) };
+  }
+  const get = (port: number, path: string) =>
+    fetch(`http://127.0.0.1:${port}${path}`, { signal: AbortSignal.timeout(2000) });
+
+  it('serves the built-in page and its script', async () => {
+    const s = await listen();
+    try {
+      const page = await get(s.port, '/');
+      expect(page.status).toBe(200);
+      expect(page.headers.get('content-type')).toContain('text/html');
+      expect(await page.text()).toContain('./app.js');
+      const app = await get(s.port, '/app.js');
+      expect(app.status).toBe(200);
+      expect(app.headers.get('content-type')).toContain('javascript');
+      const js = await app.text();
+      expect(js).toContain('startWebApp');
+      expect(js).not.toContain(': string');
+      expect(app.headers.get('x-content-type-options')).toBe('nosniff');
+    } finally {
+      await s.close();
+    }
+  });
+
+  it('answers anything else with 404 instead of hanging', async () => {
+    const s = await listen();
+    try {
+      expect((await get(s.port, '/nope')).status).toBe(404);
+      expect((await get(s.port, '/../.crossweave/gateway.token')).status).toBe(404);
+    } finally {
+      await s.close();
+    }
+  });
+
+  it('answers a plain GET to /ws with 426 rather than hanging', async () => {
+    const s = await listen();
+    try {
+      expect((await get(s.port, '/ws')).status).toBe(426);
+    } finally {
+      await s.close();
+    }
+  });
+});
