@@ -1,8 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { execFileSync } from 'node:child_process'
-import { app, BrowserWindow, dialog, ipcMain, Menu } from 'electron'
+import { execFile, execFileSync } from 'node:child_process'
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
 import { connectOrStart } from '../../../src/client/rpc-client.js'
 import { COCKPIT_CHANNELS, isCockpitChannel, type CockpitEvent } from './channels'
 import { DaemonBridge } from './daemon-bridge'
@@ -12,6 +12,8 @@ import { switchCockpitWorkspace } from './workspace-switch'
 import { clearRecent, loadRecent, pushRecent } from './recent.js'
 import { recentMenuItems } from './recent-menu'
 import { appMenuTemplate } from './app-menu'
+import { editorLaunch, resolveLinkTarget } from './editor-open'
+import { loadSettings } from '../../../src/core/settings.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -71,6 +73,7 @@ function resolveBunCommand(): string {
 function buildMenu(): void {
   const template = appMenuTemplate({
     platform: process.platform,
+    command: (name) => sendToRenderers('cockpit.command', { command: name }),
     openFolder: () => {
       void pickFolder().then((picked) => {
         if (picked) void switchWorkspace(picked)
@@ -103,12 +106,39 @@ function createBridge(): DaemonBridge {
   })
 }
 
+/**
+ * Open a file a session's output linked to, in the user's editor. The worktree comes
+ * from the daemon's own session list — not from the renderer — and the target must be
+ * an existing file inside it (resolveLinkTarget).
+ */
+async function openInEditor(bridge: DaemonBridge, payload: unknown): Promise<{ ok: boolean }> {
+  const p = (payload ?? {}) as { sessionId?: unknown; path?: unknown; line?: unknown; col?: unknown }
+  if (typeof p.sessionId !== 'string' || typeof p.path !== 'string') return { ok: false }
+  const sessions = await bridge.handle('session.list') as Array<{ id: string; worktreePath?: string | null }>
+  const worktree = sessions.find((s) => s.id === p.sessionId)?.worktreePath
+  if (typeof worktree !== 'string') return { ok: false }
+  const file = resolveLinkTarget(worktree, p.path)
+  if (file === null) return { ok: false }
+  const line = typeof p.line === 'number' && p.line > 0 ? p.line : 1
+  const col = typeof p.col === 'number' && p.col > 0 ? p.col : 1
+  const launch = editorLaunch(loadSettings().editor, file, line, col)
+  if (launch.kind === 'url') {
+    await shell.openExternal(launch.url)
+  } else {
+    const [command, ...args] = launch.argv
+    if (command === undefined) return { ok: false }
+    execFile(command, args, () => undefined)
+  }
+  return { ok: true }
+}
+
 function registerHandlers(bridge: DaemonBridge): void {
   for (const channel of COCKPIT_CHANNELS) {
     ipcMain.handle(channel, async (_event, payload: unknown) => {
       if (!isCockpitChannel(channel)) {
         throw new Error(`Disallowed invoke channel: ${channel}`)
       }
+      if (channel === 'editor.open') return openInEditor(bridge, payload)
       return bridge.handle(channel, payload)
     })
   }

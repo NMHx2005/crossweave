@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { ActivityFeed, activityFromEvent, type ActivityItem } from '../../../../src/domain/activity.js'
-import { cockpitApi, type ListedSession, type TerminalInfo } from '../host/cockpit-api'
+import { cockpitApi, type AgentOption, type ListedSession, type TerminalInfo } from '../host/cockpit-api'
+import { nextAttentionSession } from '../lib/attention-jump'
+import { QuickPicker } from './QuickPicker'
 import {
   blockedSessionFromEvent,
   deriveAttention,
@@ -46,6 +48,8 @@ export function App() {
   const [landBusy, setLandBusy] = useState(false)
   const [landMessage, setLandMessage] = useState<string | null>(null)
   const [terminals, setTerminals] = useState<TerminalInfo[]>([])
+  /** Non-null while the ⌘T picker is open. */
+  const [pickerAgents, setPickerAgents] = useState<AgentOption[] | null>(null)
   const [focusedTerminalId, setFocusedTerminalId] = useState<string | null>(null)
   const [usageRows, setUsageRows] = useState<{ date: string; agentKind: string; sessions: number; tokens: number; costUsd: number }[] | null>(null)
   const [paneAttachEpoch, setPaneAttachEpoch] = useState(0)
@@ -146,6 +150,19 @@ export function App() {
     }
   }, [load])
 
+  // Menu accelerators (⌘T, ⌘⇧A, ⌘⇧T) arrive as commands from the main process. The ref
+  // keeps the listener registered once while always calling the current handlers.
+  const commandRef = useRef<(command: string) => void>(() => undefined)
+  commandRef.current = (command: string) => {
+    if (command === 'new-agent') void handleNew()
+    else if (command === 'jump-attention') jumpToAttention()
+    else if (command === 'open-terminal') void handleTerminal()
+  }
+  useEffect(() => cockpitApi.onCommand((payload) => {
+    const command = (payload as { command?: unknown } | null)?.command
+    if (typeof command === 'string') commandRef.current(command)
+  }), [])
+
   /** Journal order for the panes; the rail keeps the daemon's order so rows do not jump. */
   const orderedSessions = useMemo(
     () => orderSessionsByJournal(sessions, journalTabs),
@@ -221,11 +238,23 @@ export function App() {
   }
 
   async function handleNew(): Promise<void> {
-    const name = window.prompt('New session name')
-    if (!name?.trim()) return
-    const agent = window.prompt('Agent', 'claude')
-    if (!agent?.trim()) return
-    await runAction(() => createAndStartSession(cockpitApi, { name: name.trim(), agent: agent.trim() }))
+    // Fetched on open, not cached: an agent installed or enabled a minute ago should
+    // show up without a reload.
+    const agents = await cockpitApi.listAgents().catch(() => [] as AgentOption[])
+    setPickerAgents(agents)
+  }
+
+  async function handlePickerCreate(agentId: string, name: string): Promise<void> {
+    setPickerAgents(null)
+    await runAction(async () => {
+      const created = await createAndStartSession(cockpitApi, { name, agent: agentId }) as { id?: string }
+      if (typeof created?.id === 'string') focusSession(created.id)
+    })
+  }
+
+  function jumpToAttention(): void {
+    const target = nextAttentionSession(orderedSessions, attentionById, focusedTerminalId === null ? focusedId : null)
+    if (target !== null) focusSession(target)
   }
 
   async function handleStart(): Promise<void> {
@@ -335,6 +364,16 @@ export function App() {
 
   return (
     <div class="cockpit-shell">
+      {pickerAgents !== null ? (
+        <QuickPicker
+          agents={pickerAgents}
+          takenNames={sessions.map((s) => s.name)}
+          onCreate={(agentId, name) => {
+            void handlePickerCreate(agentId, name)
+          }}
+          onCancel={() => setPickerAgents(null)}
+        />
+      ) : null}
       <AgentRail
         sessions={sessions}
         focusedId={focusedId}

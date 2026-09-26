@@ -18,6 +18,8 @@ export type PaneSource = {
   exitMessage(code: number | undefined): string
   /** Shown once when input is refused because nothing is running behind the pane. */
   notRunningMessage: string
+  /** Cmd+click on a file path in the output: open it in the user's editor. */
+  openLink(path: string, line?: number, col?: number): void
 }
 
 const exitCode = (payload: unknown): number | undefined => {
@@ -43,10 +45,11 @@ export function sessionSource(sessionId: string): PaneSource {
     }),
     exitMessage: (code) => `[session exited${codeSuffix(code)} — press Start to bring it back]`,
     notRunningMessage: '[this session is not running — press Start in the rail to type here]',
+    openLink: (path, line, col) => { void cockpitApi.openInEditor(sessionId, path, line, col) },
   }
 }
 
-export function terminalSource(terminalId: string): PaneSource {
+export function terminalSource(terminalId: string, sessionId: string): PaneSource {
   return {
     key: `terminal:${terminalId}`,
     attach: () => cockpitApi.attachTerminal(terminalId),
@@ -64,5 +67,7 @@ export function terminalSource(terminalId: string): PaneSource {
     }),
     exitMessage: (code) => `[shell exited${codeSuffix(code)}]`,
     notRunningMessage: '[this shell has exited — close the pane or open a new Terminal]',
+    // A shell sits in its session's worktree, so its paths resolve there too.
+    openLink: (path, line, col) => { void cockpitApi.openInEditor(sessionId, path, line, col) },
   }
 }

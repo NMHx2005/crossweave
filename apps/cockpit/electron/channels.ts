@@ -25,6 +25,12 @@ export const COCKPIT_CHANNELS = [
   'terminal.input',
   'terminal.resize',
   'terminal.close',
+  // The agent catalog and per-user settings (daemon RPCs).
+  'agents.list',
+  'settings.get',
+  'settings.set',
+  // Handled in the main process, not forwarded: open a file in the user's editor.
+  'editor.open',
 ] as const
 
 export type CockpitChannel = (typeof COCKPIT_CHANNELS)[number]
@@ -42,6 +48,8 @@ export const COCKPIT_EVENTS = [
   'daemon.gone',
   'terminal.data',
   'terminal.exit',
+  // A menu accelerator fired (⌘T, ⌘⇧A): the renderer decides what it means.
+  'cockpit.command',
 ] as const
 
 export type CockpitEvent = (typeof COCKPIT_EVENTS)[number]

@@ -4,6 +4,7 @@ import { describeAttachFailure } from '../lib/attach-message'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import type { PaneSource } from '../lib/pane-source'
+import { findFileLinks } from '../lib/file-links'
 import { stripFocusReports, stripTerminalReports } from '../../../../src/client/terminal-reports.js'
 import { clipboardWriteFromOsc52 } from '../../../../src/client/osc52.js'
 import { XTERM_FONT_FAMILY, XTERM_FONT_SIZE, XTERM_THEME } from './tokens'
@@ -51,6 +52,22 @@ export function XtermPane({ source, focused }: XtermPaneProps) {
       const text = clipboardWriteFromOsc52(data)
       if (text !== undefined) void navigator.clipboard.writeText(text).catch(() => undefined)
       return true
+    })
+
+    // Cmd+click (Ctrl+click elsewhere) on `path[:line[:col]]` opens it in the user's
+    // editor. Plain clicks stay the terminal's (or the agent's, when it tracks the mouse).
+    const links = term.registerLinkProvider({
+      provideLinks(y, callback) {
+        const text = term.buffer.active.getLine(y - 1)?.translateToString(true) ?? ''
+        callback(findFileLinks(text).map((link) => ({
+          range: { start: { x: link.start + 1, y }, end: { x: link.end, y } },
+          text: text.slice(link.start, link.end),
+          decorations: { pointerCursor: true, underline: true },
+          activate(event: MouseEvent) {
+            if (event.metaKey || event.ctrlKey) source.openLink(link.path, link.line, link.col)
+          },
+        })))
+      },
     })
 
     let cancelled = false
@@ -129,6 +146,7 @@ export function XtermPane({ source, focused }: XtermPaneProps) {
 
     return () => {
       cancelled = true
+      links.dispose()
       osc52.dispose()
       unlisten()
       exitUnlisten()

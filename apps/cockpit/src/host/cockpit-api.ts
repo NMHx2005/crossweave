@@ -20,6 +20,16 @@ export type TerminalInfo = {
   sessionName: string
 }
 
+export type AgentOption = {
+  id: string
+  label: string
+  enabled: boolean
+  builtin: boolean
+  tier: string
+  /** Whether its command resolves on the daemon's PATH. */
+  available: boolean
+}
+
 export function cockpitInvoke<T = unknown>(channel: CockpitChannel, payload?: unknown): Promise<T> {
   return window.cockpit.invoke(channel, payload) as Promise<T>
 }
@@ -102,6 +112,21 @@ export const cockpitApi = {
   },
   onTerminalExit(cb: (payload: unknown) => void): () => void {
     return cockpitListen('terminal.exit', cb)
+  },
+  listAgents(): Promise<AgentOption[]> {
+    return cockpitInvoke('agents.list')
+  },
+  getSettings(): Promise<unknown> {
+    return cockpitInvoke('settings.get')
+  },
+  setSettings(settings: unknown): Promise<unknown> {
+    return cockpitInvoke('settings.set', { settings })
+  },
+  openInEditor(sessionId: string, path: string, line?: number, col?: number): Promise<{ ok: boolean }> {
+    return cockpitInvoke('editor.open', { sessionId, path, line, col })
+  },
+  onCommand(cb: (payload: unknown) => void): () => void {
+    return cockpitListen('cockpit.command', cb)
   },
   onSessionData(cb: (payload: unknown) => void): () => void {
     return cockpitListen('session.data', cb)

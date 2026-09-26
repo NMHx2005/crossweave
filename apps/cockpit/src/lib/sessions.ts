@@ -9,6 +9,8 @@ export type ListedSession = {
   tokenSpent?: number
   sandbox?: { confined: boolean; reason?: string }
   worktreePath?: string | null
+  /** The agent's last assistant text, when its log is readable (Claude, Codex). */
+  latestWords?: string
 }
 
 export function parseSessionList(value: unknown): ListedSession[] {
@@ -37,6 +39,7 @@ export function parseSessionList(value: unknown): ListedSession[] {
     if (costSpentUsd !== undefined) row.costSpentUsd = costSpentUsd
     if (tokenSpent !== undefined) row.tokenSpent = tokenSpent
     if (sandbox !== undefined) row.sandbox = sandbox
+    if (typeof record.latestWords === 'string' && record.latestWords !== '') row.latestWords = record.latestWords
     out.push(row)
   }
   return out

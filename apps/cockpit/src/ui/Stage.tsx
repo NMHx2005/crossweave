@@ -95,7 +95,7 @@ export function Stage({
                   </div>
                   <XtermPane
                     key={`terminal:${terminal.terminalId}:${paneAttachEpoch}`}
-                    source={terminalSource(terminal.terminalId)}
+                    source={terminalSource(terminal.terminalId, terminal.sessionId)}
                     focused={isFocused}
                   />
                 </div>

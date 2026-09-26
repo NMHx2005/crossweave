@@ -536,3 +536,126 @@ body,
 .cockpit-pane-bar__close:hover {
   color: var(--cw-text-bright);
 }
+
+/* The agent's latest words under its name: one line, the rest on hover. */
+.cockpit-rail__words {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--cw-text-dim);
+  font-size: var(--cw-fs-micro);
+  font-style: italic;
+}
+
+/* ⌘T agent picker. */
+.cockpit-picker__backdrop {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: calc(var(--cw-row-h) * 4);
+  background: color-mix(in srgb, var(--cw-surface) 70%, transparent);
+  z-index: 10;
+}
+
+.cockpit-picker {
+  width: calc(var(--cw-row-h) * 16);
+  display: flex;
+  flex-direction: column;
+  gap: var(--cw-space-2);
+  padding: var(--cw-space-3);
+  background: var(--cw-surface-input);
+  border: var(--cw-hairline) solid var(--cw-border-strong);
+  border-radius: var(--cw-radius-sm);
+  color: var(--cw-text);
+}
+
+.cockpit-picker__title {
+  margin: 0;
+  font-size: var(--cw-fs);
+  color: var(--cw-text-bright);
+}
+
+.cockpit-picker__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--cw-hairline);
+}
+
+.cockpit-picker__agent {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  padding: var(--cw-control-pad-y) var(--cw-space-2);
+  background: none;
+  border: var(--cw-hairline) solid transparent;
+  border-radius: var(--cw-radius-sm);
+  color: var(--cw-text);
+  font: inherit;
+  font-size: var(--cw-fs-sm);
+  cursor: pointer;
+}
+
+.cockpit-picker__agent:hover {
+  background: var(--cw-surface-hover);
+}
+
+.cockpit-picker__agent.is-selected {
+  background: var(--cw-surface-active);
+  border-color: var(--cw-accent);
+  color: var(--cw-text-bright);
+}
+
+.cockpit-picker__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cw-space-1);
+  font-size: var(--cw-fs-sm);
+}
+
+.cockpit-picker__field input {
+  padding: var(--cw-control-pad-y) var(--cw-space-2);
+  background: var(--cw-surface);
+  border: var(--cw-hairline) solid var(--cw-border-strong);
+  border-radius: var(--cw-radius-sm);
+  color: var(--cw-text-bright);
+  font-family: var(--cw-font-mono);
+  font-size: var(--cw-fs-sm);
+}
+
+.cockpit-picker__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--cw-space-2);
+}
+
+.cockpit-picker__actions button {
+  padding: var(--cw-control-pad-y) var(--cw-space-3);
+  background: var(--cw-surface-control);
+  border: none;
+  border-radius: var(--cw-radius-sm);
+  color: var(--cw-text-bright);
+  font: inherit;
+  font-size: var(--cw-fs-sm);
+  cursor: pointer;
+}
+
+.cockpit-picker__actions button.is-primary {
+  background: var(--cw-accent);
+  color: var(--cw-surface);
+}
+
+.cockpit-picker__actions button:disabled {
+  color: var(--cw-text-dim);
+  background: var(--cw-surface-control);
+  cursor: default;
+}

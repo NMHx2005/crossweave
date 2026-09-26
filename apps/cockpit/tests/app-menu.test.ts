@@ -3,7 +3,7 @@ import { appMenuTemplate } from '../electron/app-menu'
 
 const noop = () => undefined
 const build = (platform: NodeJS.Platform) =>
-  appMenuTemplate({ platform, openFolder: noop, recent: [{ label: 'No Recent Folders', enabled: false }] })
+  appMenuTemplate({ platform, openFolder: noop, recent: [{ label: 'No Recent Folders', enabled: false }], command: noop })
 
 describe('appMenuTemplate', () => {
   // Replacing Electron's default menu with File/View/Window dropped Edit, and with it
@@ -26,5 +26,16 @@ describe('appMenuTemplate', () => {
     const labels = (file?.submenu as Array<{ label?: string }>).map((i) => i.label)
     expect(labels).toContain('Open Folder…')
     expect(labels).toContain('Open Recent')
+  })
+})
+
+describe('agent shortcuts', () => {
+  test('⌘T opens the agent picker and ⌘⇧A jumps to attention, from the menu', () => {
+    const fired: string[] = []
+    const menu = appMenuTemplate({ platform: 'darwin', openFolder: noop, recent: [], command: (c) => fired.push(c) })
+    const agent = menu.find((m) => m.label === 'Agent')!.submenu as Array<{ label: string; accelerator?: string; click?: () => void }>
+    expect(agent.map((i) => i.accelerator)).toEqual(['CmdOrCtrl+T', 'CmdOrCtrl+Shift+A', 'CmdOrCtrl+Shift+T'])
+    for (const item of agent) item.click?.()
+    expect(fired).toEqual(['new-agent', 'jump-attention', 'open-terminal'])
   })
 })

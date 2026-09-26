@@ -1,10 +1,14 @@
 import type { MenuItemConstructorOptions } from 'electron'
 import type { RecentMenuItem } from './recent-menu'
 
+export type CockpitCommand = 'new-agent' | 'jump-attention' | 'open-terminal'
+
 export interface AppMenuDeps {
   platform: NodeJS.Platform
   openFolder(): void
   recent: RecentMenuItem[]
+  /** A menu accelerator fired; the renderer owns what it does. */
+  command(name: CockpitCommand): void
 }
 
 /**
@@ -29,6 +33,16 @@ export function appMenuTemplate(deps: AppMenuDeps): MenuItemConstructorOptions[]
       ],
     },
     { role: 'editMenu' },
+    {
+      // Accelerators live in the menu, not a keydown listener: a focused terminal pane
+      // swallows keystrokes, and the menu both wins over it and shows the shortcut.
+      label: 'Agent',
+      submenu: [
+        { label: 'New Agent…', accelerator: 'CmdOrCtrl+T', click: () => deps.command('new-agent') },
+        { label: 'Jump to Attention', accelerator: 'CmdOrCtrl+Shift+A', click: () => deps.command('jump-attention') },
+        { label: 'Open Terminal', accelerator: 'CmdOrCtrl+Shift+T', click: () => deps.command('open-terminal') },
+      ],
+    },
     {
       label: 'View',
       submenu: [
