@@ -24,12 +24,11 @@
 
 ## Gaps
 
-- **Remote E2E has no key path.** The session.data key is derived from the gateway
-  token file under `.crossweave/`; `DaemonClient` reads it from disk. A browser web
-  client (the case E2E exists for) cannot, so it sees the "could not decrypt" notice
-  instead of output once a token exists. Needs a key-distribution design (e.g. derive
-  from the token the client already presents plus the workspace root it can learn via
-  `workspace.info`) — an architectural decision, deliberately not taken here.
+- **Remote E2E: control token only.** Since the follow-up (branch `fix/smoke-ux`) the
+  browser client derives the session.data key with WebCrypto from the token it logged in
+  with, so a control-token viewer sees output. The key is derived from the CONTROL token,
+  so a read-token viewer still cannot decrypt (it is told so); giving read viewers output
+  needs a separate read key, which the daemon does not seal with today.
 - **bwrap parity is verified at the argv level only.** The real-bwrap integration suite
   needs Linux CI (`sandbox-linux` job). Remaining bwrap-only gaps: the branch's ref
   directory (`refs/heads/cw`) is shared with other sessions' `cw/*` refs, and file
@@ -47,7 +46,11 @@
   distinct `workspace:branch` names over a daemon's life (keys are overwritten per
   branch, so recycled names do not grow it). Bounded in practice; pruning is only
   observable through private state, so it was left out.
-- **The web UI takes its token from `?token=`**, so it lands in browser history.
+- **Web client:** the token is read from `#token=` first (a fragment never reaches the
+  server), but a pasted URL still lands in browser history. xterm.js is loaded from
+  jsDelivr, so the viewer needs internet access. The session list is polled every 3 s
+  (the change feed is not exposed through the gateway). The file explorer, tabs and
+  Monaco stubs of the old page were dropped — they had never run.
 - **An aborted test run in a restricted shell leaks daemons** (tests fail before their
   cleanup). The socket watchdog now bounds that to ~5 s once the fixture directory is
   deleted; before it, 53 such daemons were found alive from one sandboxed run.

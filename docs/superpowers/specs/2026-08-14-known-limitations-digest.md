@@ -139,4 +139,4 @@ work closed these previously recorded gaps:
 - `2026-08-13-m5b-known-limitations.md`
 - `2026-08-13-m6a-known-limitations.md`
 - `2026-08-14-m6b-known-limitations.md`
-- `2026-09-26-audit-fixes-known-limitations.md` — gateway fail-closed, E2E fail-closed/AAD, gc keeps unlanded work, daemon socket watchdog; remote E2E key distribution still undesigned
+- `2026-09-26-audit-fixes-known-limitations.md` — gateway fail-closed, E2E fail-closed/AAD, gc keeps unlanded work, daemon socket watchdog; working browser client (control-token viewers decrypt in-browser; read-token viewers cannot)
