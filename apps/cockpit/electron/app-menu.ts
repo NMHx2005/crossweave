@@ -1,7 +1,7 @@
 import type { MenuItemConstructorOptions } from 'electron'
 import type { RecentMenuItem } from './recent-menu'
 
-export type CockpitCommand = 'new-agent' | 'jump-attention' | 'open-terminal'
+export type CockpitCommand = 'new-agent' | 'jump-attention' | 'open-terminal' | 'open-file' | 'open-browser' | 'open-settings'
 
 export interface AppMenuDeps {
   platform: NodeJS.Platform
@@ -27,6 +27,8 @@ export function appMenuTemplate(deps: AppMenuDeps): MenuItemConstructorOptions[]
       label: 'File',
       submenu: [
         { label: 'Open Folder…', accelerator: 'CmdOrCtrl+O', click: () => deps.openFolder() },
+        { label: 'Open File in Session…', accelerator: 'CmdOrCtrl+P', click: () => deps.command('open-file') },
+        { label: 'Open Browser Pane', accelerator: 'CmdOrCtrl+Shift+B', click: () => deps.command('open-browser') },
         { label: 'Open Recent', submenu: deps.recent },
         { type: 'separator' },
         { role: 'close' },

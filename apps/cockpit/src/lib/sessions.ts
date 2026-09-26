@@ -11,6 +11,8 @@ export type ListedSession = {
   worktreePath?: string | null
   /** The agent's last assistant text, when its log is readable (Claude, Codex). */
   latestWords?: string
+  /** Base of the session's leased port block while it runs (its dev server's port). */
+  portBase?: number
 }
 
 export function parseSessionList(value: unknown): ListedSession[] {
@@ -40,6 +42,8 @@ export function parseSessionList(value: unknown): ListedSession[] {
     if (tokenSpent !== undefined) row.tokenSpent = tokenSpent
     if (sandbox !== undefined) row.sandbox = sandbox
     if (typeof record.latestWords === 'string' && record.latestWords !== '') row.latestWords = record.latestWords
+    const portBase = (record.leases as { portBase?: unknown } | undefined)?.portBase
+    if (typeof portBase === 'number') row.portBase = portBase
     out.push(row)
   }
   return out

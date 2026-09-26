@@ -6,7 +6,7 @@ export type CockpitHostApi = {
   listSessions: () => Promise<ListedSession[]>
   convergeStatus: () => Promise<unknown>
   journalGet: () => Promise<unknown>
-  newSession: (payload: { name: string; agent: string; worktree?: boolean }) => Promise<unknown>
+  newSession: (payload: { name: string; agent: string; worktree?: boolean; base?: string }) => Promise<unknown>
   resumeSession: (idOrName: string) => Promise<unknown>
   onTuiInvalidate: (cb: (payload: unknown) => void) => () => void
   onTuiEvent: (cb: (payload: unknown) => void) => () => void
@@ -92,7 +92,7 @@ function recordOf(value: unknown): Record<string, unknown> {
  */
 export async function createAndStartSession(
   api: Pick<CockpitHostApi, 'newSession' | 'resumeSession'>,
-  payload: { name: string; agent: string; worktree?: boolean },
+  payload: { name: string; agent: string; worktree?: boolean; base?: string },
 ): Promise<unknown> {
   const created = await api.newSession(payload)
   const record = recordOf(created)

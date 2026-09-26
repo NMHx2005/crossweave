@@ -46,7 +46,7 @@ export const cockpitApi = {
   listSessions(): Promise<ListedSession[]> {
     return cockpitInvoke('session.list').then(parseSessionList)
   },
-  newSession(payload: { name: string; agent: string; worktree?: boolean }): Promise<unknown> {
+  newSession(payload: { name: string; agent: string; worktree?: boolean; base?: string }): Promise<unknown> {
     return cockpitInvoke('session.new', payload)
   },
   startSession(idOrName: string): Promise<unknown> {
@@ -122,7 +122,19 @@ export const cockpitApi = {
   setSettings(settings: unknown): Promise<unknown> {
     return cockpitInvoke('settings.set', { settings })
   },
-  openInEditor(sessionId: string, path: string, line?: number, col?: number): Promise<{ ok: boolean }> {
+  listFiles(idOrName: string): Promise<string[]> {
+    return cockpitInvoke('file.list', { idOrName })
+  },
+  readFile(idOrName: string, path: string): Promise<{ content: string; mtimeMs: number }> {
+    return cockpitInvoke('file.read', { idOrName, path })
+  },
+  writeFile(idOrName: string, path: string, content: string, expectedMtimeMs?: number): Promise<{ mtimeMs: number }> {
+    return cockpitInvoke('file.write', { idOrName, path, content, expectedMtimeMs })
+  },
+  listBranches(): Promise<string[]> {
+    return cockpitInvoke('git.branches')
+  },
+  openInEditor(sessionId: string, path: string, line?: number, col?: number): Promise<{ ok: boolean; inApp?: boolean; path?: string; line?: number }> {
     return cockpitInvoke('editor.open', { sessionId, path, line, col })
   },
   onCommand(cb: (payload: unknown) => void): () => void {

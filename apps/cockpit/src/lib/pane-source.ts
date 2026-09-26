@@ -29,7 +29,18 @@ const exitCode = (payload: unknown): number | undefined => {
 
 const codeSuffix = (code: number | undefined): string => (code === undefined ? '' : ` (code ${code})`)
 
-export function sessionSource(sessionId: string): PaneSource {
+/** Opens a file in the cockpit's own editor pane (editor setting `cockpit`). */
+export type InAppOpener = (sessionId: string, path: string, line?: number) => void
+
+function linkOpener(sessionId: string, inApp?: InAppOpener) {
+  return (path: string, line?: number, col?: number): void => {
+    void cockpitApi.openInEditor(sessionId, path, line, col).then((r) => {
+      if (r.inApp && typeof r.path === 'string') inApp?.(sessionId, r.path, r.line)
+    })
+  }
+}
+
+export function sessionSource(sessionId: string, inApp?: InAppOpener): PaneSource {
   return {
     key: `session:${sessionId}`,
     attach: () => cockpitApi.attachSession(sessionId),
@@ -45,11 +56,11 @@ export function sessionSource(sessionId: string): PaneSource {
     }),
     exitMessage: (code) => `[session exited${codeSuffix(code)} — press Start to bring it back]`,
     notRunningMessage: '[this session is not running — press Start in the rail to type here]',
-    openLink: (path, line, col) => { void cockpitApi.openInEditor(sessionId, path, line, col) },
+    openLink: linkOpener(sessionId, inApp),
   }
 }
 
-export function terminalSource(terminalId: string, sessionId: string): PaneSource {
+export function terminalSource(terminalId: string, sessionId: string, inApp?: InAppOpener): PaneSource {
   return {
     key: `terminal:${terminalId}`,
     attach: () => cockpitApi.attachTerminal(terminalId),
@@ -68,6 +79,6 @@ export function terminalSource(terminalId: string, sessionId: string): PaneSourc
     exitMessage: (code) => `[shell exited${codeSuffix(code)}]`,
     notRunningMessage: '[this shell has exited — close the pane or open a new Terminal]',
     // A shell sits in its session's worktree, so its paths resolve there too.
-    openLink: (path, line, col) => { void cockpitApi.openInEditor(sessionId, path, line, col) },
+    openLink: linkOpener(sessionId, inApp),
   }
 }

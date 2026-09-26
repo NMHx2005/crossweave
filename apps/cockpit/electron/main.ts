@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFile, execFileSync } from 'node:child_process'
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
@@ -111,7 +111,7 @@ function createBridge(): DaemonBridge {
  * from the daemon's own session list — not from the renderer — and the target must be
  * an existing file inside it (resolveLinkTarget).
  */
-async function openInEditor(bridge: DaemonBridge, payload: unknown): Promise<{ ok: boolean }> {
+async function openInEditor(bridge: DaemonBridge, payload: unknown): Promise<{ ok: boolean; inApp?: boolean; path?: string; line?: number; col?: number }> {
   const p = (payload ?? {}) as { sessionId?: unknown; path?: unknown; line?: unknown; col?: unknown }
   if (typeof p.sessionId !== 'string' || typeof p.path !== 'string') return { ok: false }
   const sessions = await bridge.handle('session.list') as Array<{ id: string; worktreePath?: string | null }>
@@ -121,7 +121,10 @@ async function openInEditor(bridge: DaemonBridge, payload: unknown): Promise<{ o
   if (file === null) return { ok: false }
   const line = typeof p.line === 'number' && p.line > 0 ? p.line : 1
   const col = typeof p.col === 'number' && p.col > 0 ? p.col : 1
-  const launch = editorLaunch(loadSettings().editor, file, line, col)
+  const editor = loadSettings().editor
+  // In-app: the renderer opens a file pane; hand back the path relative to the worktree.
+  if (editor.kind === 'cockpit') return { ok: true, inApp: true, path: relative(worktree, file), line, col }
+  const launch = editorLaunch(editor, file, line, col)
   if (launch.kind === 'url') {
     await shell.openExternal(launch.url)
   } else {
@@ -156,6 +159,8 @@ function createWindow(): BrowserWindow {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      // The browser pane. Every <webview> is locked down in hardenWebviews() below.
+      webviewTag: true,
     },
   })
 
@@ -165,6 +170,37 @@ function createWindow(): BrowserWindow {
     void win.loadFile(join(__dirname, '../dist/index.html'))
   }
   return win
+}
+
+/**
+ * The browser pane loads arbitrary web pages next to the app, so each <webview> gets
+ * none of the app's powers: no preload, no Node, its own sandboxed process and
+ * session partition, http(s) only. A page opening a window goes to the user's
+ * browser instead of a new Electron window with defaults nobody reviewed.
+ */
+function hardenWebviews(): void {
+  app.on('web-contents-created', (_event, contents) => {
+    contents.on('will-attach-webview', (event, prefs, params) => {
+      delete (prefs as { preload?: string }).preload
+      prefs.nodeIntegration = false
+      prefs.nodeIntegrationInSubFrames = false
+      prefs.contextIsolation = true
+      prefs.sandbox = true
+      prefs.webSecurity = true
+      // http(s), or the blank page an empty browser pane starts on.
+      const src = params.src ?? ''
+      if (src !== 'about:blank' && !/^https?:\/\//i.test(src)) event.preventDefault()
+    })
+    if (contents.getType() === 'webview') {
+      contents.setWindowOpenHandler(({ url }) => {
+        if (/^https?:\/\//i.test(url)) void shell.openExternal(url)
+        return { action: 'deny' }
+      })
+      contents.on('will-navigate', (event, url) => {
+        if (!/^https?:\/\//i.test(url)) event.preventDefault()
+      })
+    }
+  })
 }
 
 let bridge: DaemonBridge | undefined
@@ -204,6 +240,7 @@ if (!hasSingleInstanceLock) {
   })
 
   app.whenReady().then(async () => {
+    hardenWebviews()
     buildMenu()
     bridge = createBridge()
     registerHandlers(bridge)

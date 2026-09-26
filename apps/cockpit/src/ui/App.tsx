@@ -2,7 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { ActivityFeed, activityFromEvent, type ActivityItem } from '../../../../src/domain/activity.js'
 import { cockpitApi, type AgentOption, type ListedSession, type TerminalInfo } from '../host/cockpit-api'
 import { nextAttentionSession } from '../lib/attention-jump'
-import { QuickPicker } from './QuickPicker'
+import { QuickPicker, type NewSessionOptions } from './QuickPicker'
+import { QuickOpen } from './QuickOpen'
+import { FilePane } from './FilePane'
+import { BrowserPane } from './BrowserPane'
+import { readColors, writeColors, type SessionColor } from '../lib/colors'
 import {
   blockedSessionFromEvent,
   deriveAttention,
@@ -41,6 +45,8 @@ import {
   openInNewTab,
   paneKeys,
   parseStoredStage,
+  placeBeside,
+  replacePane,
   resizeSplit,
   setPinned,
   splitPane,
@@ -84,6 +90,10 @@ export function App() {
   /** Non-null while the ⌘T picker is open. */
   const [pickerAgents, setPickerAgents] = useState<AgentOption[] | null>(null)
   const [layouts, setLayouts] = useState<Record<string, SavedLayout>>({})
+  const [branches, setBranches] = useState<string[]>([])
+  /** Non-null while ⌘P is open: the session whose worktree it searches. */
+  const [quickOpen, setQuickOpen] = useState<{ sessionId: string; name: string; files: string[] } | null>(null)
+  const [colors, setColors] = useState<Record<string, SessionColor>>({})
   const [usageRows, setUsageRows] = useState<{ date: string; agentKind: string; sessions: number; tokens: number; costUsd: number }[] | null>(null)
   const [paneAttachEpoch, setPaneAttachEpoch] = useState(0)
   const [paneAttachBumps, setPaneAttachBumps] = useState<Record<string, number>>({})
@@ -124,6 +134,7 @@ export function App() {
       const firstLoad = knownRef.current === null
       const known = knownRef.current
       projectRootRef.current = loaded.projectRoot
+      if (firstLoad) setColors(readColors(loaded.projectRoot))
       setStage((prev) => {
         // The first load restores this workspace's tabs from the last window, if any.
         const base = firstLoad ? (readStoredStage(loaded.projectRoot) ?? prev) : prev
@@ -205,6 +216,8 @@ export function App() {
     if (command === 'new-agent') void handleNew()
     else if (command === 'jump-attention') jumpToAttention()
     else if (command === 'open-terminal') void handleTerminal()
+    else if (command === 'open-file') void handleOpenFile()
+    else if (command === 'open-browser') handleOpenBrowser()
   }
   useEffect(() => cockpitApi.onCommand((payload) => {
     const command = (payload as { command?: unknown } | null)?.command
@@ -288,14 +301,18 @@ export function App() {
   async function handleNew(): Promise<void> {
     // Fetched on open, not cached: an agent installed or enabled a minute ago should
     // show up without a reload.
-    const agents = await cockpitApi.listAgents().catch(() => [] as AgentOption[])
+    const [agents, branchList] = await Promise.all([
+      cockpitApi.listAgents().catch(() => [] as AgentOption[]),
+      cockpitApi.listBranches().catch(() => [] as string[]),
+    ])
+    setBranches(branchList)
     setPickerAgents(agents)
   }
 
-  async function handlePickerCreate(agentId: string, name: string): Promise<void> {
+  async function handlePickerCreate(agentId: string, name: string, options: NewSessionOptions): Promise<void> {
     setPickerAgents(null)
     await runAction(async () => {
-      const created = await createAndStartSession(cockpitApi, { name, agent: agentId }) as { id?: string }
+      const created = await createAndStartSession(cockpitApi, { name, agent: agentId, ...options }) as { id?: string }
       if (typeof created?.id === 'string') focusSession(created.id)
     })
   }
@@ -322,11 +339,37 @@ export function App() {
         // A load that raced this call may have opened it already.
         const existing = locatePane(s, `terminal:${opened.terminalId}`)
         if (existing) return focusPane(s, existing.tabId, existing.paneId)
-        const tab = at ? s.tabs.find((t) => t.id === at.tabId) : s.tabs.find((t) => t.id === s.activeTabId)
-        if (!tab) return openInNewTab(s, pane, `${opened.sessionName} · shell`)
-        return splitPane(s, tab.id, at?.paneId ?? tab.focusedPaneId, at?.dir ?? 'row', pane)
+        // The pane bar's split buttons say exactly where; a shortcut uses placeBeside.
+        if (at) return splitPane(s, at.tabId, at.paneId, at.dir, pane)
+        return placeBeside(s, pane, `${opened.sessionName} · shell`)
       })
     })
+  }
+
+  /** A file or browser pane: beside the focused pane, or in a tab of its own. */
+  function openSurface(pane: PaneRef, title: string): void {
+    setStage((s) => placeBeside(s, pane, title))
+  }
+
+  function openFilePane(sessionId: string, path: string): void {
+    const at = locatePane(stage, `file:${sessionId}:${path}`)
+    if (at) setStage((s) => focusPane(s, at.tabId, at.paneId))
+    else openSurface({ kind: 'file', sessionId, path }, path.split('/').pop() ?? path)
+  }
+
+  async function handleOpenFile(): Promise<void> {
+    if (!focused) return
+    const target = focused
+    await runAction(async () => {
+      const files = await cockpitApi.listFiles(target.id)
+      setQuickOpen({ sessionId: target.id, name: target.name, files })
+    })
+  }
+
+  function handleOpenBrowser(): void {
+    // A running session's leased port is where its dev server listens by convention.
+    const port = focused?.portBase
+    openSurface({ kind: 'browser', url: port === undefined ? '' : `http://localhost:${port}/` }, 'browser')
   }
 
   async function handleTerminal(): Promise<void> {
@@ -439,10 +482,23 @@ export function App() {
         <QuickPicker
           agents={pickerAgents}
           takenNames={sessions.map((s) => s.name)}
-          onCreate={(agentId, name) => {
-            void handlePickerCreate(agentId, name)
+          branches={branches}
+          onCreate={(agentId, name, options) => {
+            void handlePickerCreate(agentId, name, options)
           }}
           onCancel={() => setPickerAgents(null)}
+        />
+      ) : null}
+      {quickOpen !== null ? (
+        <QuickOpen
+          sessionName={quickOpen.name}
+          files={quickOpen.files}
+          onOpen={(path) => {
+            const { sessionId } = quickOpen
+            setQuickOpen(null)
+            openFilePane(sessionId, path)
+          }}
+          onCancel={() => setQuickOpen(null)}
         />
       ) : null}
       <AgentRail
@@ -467,6 +523,14 @@ export function App() {
         onTerminal={() => {
           void handleTerminal()
         }}
+        colorById={colors}
+        onSetColor={(sessionId, color) => {
+          const next = { ...colors }
+          if (color === null) delete next[sessionId]
+          else next[sessionId] = color
+          setColors(next)
+          writeColors(projectRootRef.current, next)
+        }}
       />
       <Stage
         stage={stage}
@@ -487,6 +551,20 @@ export function App() {
         onCloseTab={(tabId) => setStage((s) => closeTab(s, tabId))}
         onCloseOthers={(tabId) => setStage((s) => closeOthers(s, tabId))}
         onCloseToRight={(tabId) => setStage((s) => closeToRight(s, tabId))}
+        colorById={colors}
+        inApp={(sessionId, path) => openFilePane(sessionId, path)}
+        renderSurface={(pane, paneFocused, at) => {
+          if (pane.kind === 'file') return <FilePane sessionId={pane.sessionId} path={pane.path} focused={paneFocused} />
+          if (pane.kind === 'browser') {
+            return (
+              <BrowserPane
+                url={pane.url}
+                onNavigate={(url) => setStage((s) => replacePane(s, at.tabId, at.paneId, { kind: 'browser', url }))}
+              />
+            )
+          }
+          return null
+        }}
         layouts={Object.keys(layouts).sort()}
         onSaveLayout={(name) => {
           const saved = toSavedLayout(stage, new Map(sessions.map((s) => [s.id, s.name])))

@@ -29,6 +29,11 @@ export const COCKPIT_CHANNELS = [
   'agents.list',
   'settings.get',
   'settings.set',
+  // Files in a session's worktree (the in-app editor) and branches to start from.
+  'file.list',
+  'file.read',
+  'file.write',
+  'git.branches',
   // Handled in the main process, not forwarded: open a file in the user's editor.
   'editor.open',
 ] as const

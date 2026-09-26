@@ -166,3 +166,29 @@ describe('syncStage', () => {
     expect(parseStoredStage('nope')).toBeNull()
   })
 })
+
+describe('replacePane', () => {
+  test('changes what a pane shows without moving it', async () => {
+    const { replacePane } = await import('../src/lib/layout')
+    let s = emptyStage()
+    s = openInNewTab(s, { kind: 'browser', url: 'http://localhost:3000/' }, 'web')
+    s = replacePane(s, s.tabs[0]!.id, s.tabs[0]!.focusedPaneId, { kind: 'browser', url: 'http://localhost:3000/docs' })
+    expect(paneKeys(s)).toEqual(['browser:http://localhost:3000/docs'])
+  })
+})
+
+describe('placeBeside', () => {
+  // Opening things by shortcut used to split the focused pane every time, until one
+  // tab held four slivers.
+  test('splits a tab with one pane, and opens a new tab beside a split one', async () => {
+    const { placeBeside } = await import('../src/lib/layout')
+    let s = stageOf('a')
+    s = placeBeside(s, { kind: 'browser', url: 'http://x/' }, 'web')
+    expect(s.tabs.length).toBe(1)
+    expect(paneKeys(s)).toEqual(['session:a', 'browser:http://x/'])
+    s = placeBeside(s, { kind: 'file', sessionId: 'a', path: 'f.ts' }, 'f.ts')
+    expect(s.tabs.length).toBe(2)
+    expect(s.activeTabId).toBe(s.tabs[1]!.id)
+    expect(placeBeside(emptyStage(), { kind: 'browser', url: 'http://y/' }, 'web').tabs.length).toBe(1)
+  })
+})

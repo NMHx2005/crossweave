@@ -1,7 +1,8 @@
 import { useRef, useState } from 'preact/hooks'
 import type { ListedSession } from '../host/cockpit-api'
 import type { LayoutNode, PaneRef, SplitDir, StageState, Tab } from '../lib/layout'
-import { sessionSource, terminalSource } from '../lib/pane-source'
+import { sessionSource, terminalSource, type InAppOpener } from '../lib/pane-source'
+import type { SessionColor } from '../lib/colors'
 import { XtermPane } from './XtermPane'
 
 export type StageStatus = 'loading' | 'ready' | 'empty' | 'error'
@@ -29,8 +30,12 @@ export type StageProps = {
   onSaveLayout: (name: string) => void
   onApplyLayout: (name: string) => void
   onDeleteLayout: (name: string) => void
-  /** Rendered for the pane kinds added by later phases (file, browser). */
-  renderSurface?: (pane: PaneRef, focused: boolean) => preact.ComponentChildren
+  /** File and browser panes, rendered by the app (they need its handlers). */
+  renderSurface?: (pane: PaneRef, focused: boolean, at: { tabId: string; paneId: string }) => preact.ComponentChildren
+  /** Cmd+click with the in-app editor chosen: open the file in a pane. */
+  inApp?: InAppOpener
+  /** Session colors (colors.ts), shown as a dot on the tabs they lead. */
+  colorById?: Record<string, SessionColor>
 }
 
 function paneLabel(pane: PaneRef, names: ReadonlyMap<string, string>): string {
@@ -114,17 +119,17 @@ export function Stage(props: StageProps) {
         {pane.kind === 'session' ? (
           <XtermPane
             key={`${pane.sessionId}:${paneAttachEpoch}:${paneAttachBumps[pane.sessionId] ?? 0}`}
-            source={sessionSource(pane.sessionId)}
+            source={sessionSource(pane.sessionId, props.inApp)}
             focused={focused}
           />
         ) : pane.kind === 'terminal' ? (
           <XtermPane
             key={`terminal:${pane.terminalId}:${paneAttachEpoch}`}
-            source={terminalSource(pane.terminalId, pane.sessionId)}
+            source={terminalSource(pane.terminalId, pane.sessionId, props.inApp)}
             focused={focused}
           />
         ) : (
-          props.renderSurface?.(pane, focused) ?? null
+          props.renderSurface?.(pane, focused, { tabId: tab.id, paneId: node.id }) ?? null
         )}
       </div>
     )
@@ -166,6 +171,11 @@ export function Stage(props: StageProps) {
             }}
           >
             {tab.pinned ? <span class="cockpit-tab__pin" aria-label="Pinned">📌</span> : null}
+            {(() => {
+              const lead = firstPane(tab.root)
+              const color = lead.kind !== 'browser' ? props.colorById?.[lead.sessionId] : undefined
+              return color ? <span class="cockpit-dot" style={{ background: `var(--cw-${color})` }} aria-hidden="true" /> : null
+            })()}
             <span class="cockpit-tab__title">{tabLabel(tab)}</span>
             {!tab.pinned ? (
               <button type="button" class="cockpit-tab__close" aria-label={`Close tab ${tabLabel(tab)}`}

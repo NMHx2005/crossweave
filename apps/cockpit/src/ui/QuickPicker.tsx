@@ -2,10 +2,19 @@ import { useEffect, useRef, useState } from 'preact/hooks'
 import type { AgentOption } from '../host/cockpit-api'
 import { sessionNameError, suggestSessionName } from '../lib/quick-picker'
 
+export type NewSessionOptions = {
+  /** Branch to start the worktree from; HEAD when undefined. */
+  base?: string
+  /** False: share the main checkout instead of an isolated worktree. */
+  worktree: boolean
+}
+
 export type QuickPickerProps = {
   agents: AgentOption[]
   takenNames: string[]
-  onCreate: (agentId: string, name: string) => void
+  /** Branches a worktree can start from, most recent first. */
+  branches: string[]
+  onCreate: (agentId: string, name: string, options: NewSessionOptions) => void
   onCancel: () => void
 }
 
@@ -19,13 +28,15 @@ function tierNote(tier: string): string {
  * turned off in Settings are left out; ones whose command is not installed are shown
  * but cannot be picked, so a missing CLI is visible rather than a failed start.
  */
-export function QuickPicker({ agents, takenNames, onCreate, onCancel }: QuickPickerProps) {
+export function QuickPicker({ agents, takenNames, branches, onCreate, onCancel }: QuickPickerProps) {
   const usable = agents.filter((a) => a.enabled)
   const firstAvailable = Math.max(usable.findIndex((a) => a.available), 0)
   const [index, setIndex] = useState(firstAvailable)
   const selected = usable[index]
   const [name, setName] = useState(selected ? suggestSessionName(selected.id, takenNames) : '')
   const [nameTouched, setNameTouched] = useState(false)
+  const [base, setBase] = useState('')
+  const [isolated, setIsolated] = useState(true)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -45,7 +56,9 @@ export function QuickPicker({ agents, takenNames, onCreate, onCancel }: QuickPic
       : sessionNameError(name) ?? (takenNames.includes(name) ? 'A session with this name exists' : null)
 
   const submit = (): void => {
-    if (error === null && selected) onCreate(selected.id, name)
+    if (error === null && selected) {
+      onCreate(selected.id, name, { worktree: isolated, ...(isolated && base !== '' ? { base } : {}) })
+    }
   }
 
   const onKeyDown = (e: KeyboardEvent): void => {
@@ -104,6 +117,17 @@ export function QuickPicker({ agents, takenNames, onCreate, onCancel }: QuickPic
             }}
             spellcheck={false}
           />
+        </label>
+        <label class="cockpit-picker__field">
+          <span class="cockpit-muted">Start from</span>
+          <select value={base} disabled={!isolated} onChange={(e) => setBase((e.target as HTMLSelectElement).value)}>
+            <option value="">current HEAD</option>
+            {branches.map((b) => <option key={b} value={b}>{b}</option>)}
+          </select>
+        </label>
+        <label class="cockpit-picker__check">
+          <input type="checkbox" checked={isolated} onChange={(e) => setIsolated((e.target as HTMLInputElement).checked)} />
+          <span>Own worktree (isolated). Off: works in the main checkout, shared with you.</span>
         </label>
         {error ? <p class="cockpit-error" role="alert">{error}</p> : null}
         <div class="cockpit-picker__actions">

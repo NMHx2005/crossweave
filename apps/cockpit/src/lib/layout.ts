@@ -144,6 +144,14 @@ function mapNode(node: LayoutNode, paneId: string, replace: (n: LayoutNode) => L
   return { ...node, children: node.children.map((c) => mapNode(c, paneId, replace)) }
 }
 
+/** Swap what a pane shows (a browser pane's current URL), keeping its place. */
+export function replacePane(state: StageState, tabId: string, paneId: string, pane: PaneRef): StageState {
+  return withTab(state, tabId, (tab) => ({
+    ...tab,
+    root: mapNode(tab.root, paneId, (old) => (old.type === 'pane' ? { ...old, pane } : old)),
+  }))
+}
+
 /** Put `pane` beside `paneId` (row: to its right, column: below) and focus it. */
 export function splitPane(state: StageState, tabId: string, paneId: string, dir: SplitDir, pane: PaneRef): StageState {
   const newId = uid('p')
@@ -346,4 +354,15 @@ export function parseStoredStage(text: string): StageState | null {
   } catch {
     return null
   }
+}
+
+/**
+ * Where a pane opened by shortcut goes: beside the focused pane while the active tab
+ * has just one, otherwise in a tab of its own — so repeated opens do not carve one tab
+ * into slivers. (The pane bar's split buttons always split: that is an explicit ask.)
+ */
+export function placeBeside(state: StageState, pane: PaneRef, title: string): StageState {
+  const tab = state.tabs.find((t) => t.id === state.activeTabId)
+  if (tab && tab.root.type === 'pane') return splitPane(state, tab.id, tab.focusedPaneId, 'row', pane)
+  return openInNewTab(state, pane, title)
 }

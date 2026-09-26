@@ -837,3 +837,136 @@ body,
   background: var(--cw-surface-control);
   cursor: default;
 }
+
+/* Session color dot (rail, tabs) and its picker. */
+.cockpit-dot {
+  display: inline-block;
+  width: var(--cw-space-2);
+  height: var(--cw-space-2);
+  margin-right: var(--cw-space-1);
+  border-radius: 50%;
+  vertical-align: middle;
+}
+
+.cockpit-swatches {
+  display: flex;
+  gap: var(--cw-space-1);
+  padding: var(--cw-space-1);
+}
+
+.cockpit-menu .cockpit-swatch {
+  width: calc(var(--cw-space-3) + var(--cw-space-1));
+  height: calc(var(--cw-space-3) + var(--cw-space-1));
+  padding: 0;
+  border-radius: 50%;
+  border: var(--cw-hairline) solid var(--cw-border-strong);
+}
+
+.cockpit-picker__field select {
+  padding: var(--cw-control-pad-y) var(--cw-space-2);
+  background: var(--cw-surface);
+  border: var(--cw-hairline) solid var(--cw-border-strong);
+  border-radius: var(--cw-radius-sm);
+  color: var(--cw-text-bright);
+  font: inherit;
+  font-size: var(--cw-fs-sm);
+}
+
+.cockpit-picker__check {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--cw-space-2);
+  font-size: var(--cw-fs-sm);
+  color: var(--cw-text);
+}
+
+.cockpit-quickopen__list {
+  max-height: calc(var(--cw-row-h) * 12);
+  overflow: auto;
+}
+
+/* In-app file editor. */
+.cockpit-file {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.cockpit-file__status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--cw-space-2);
+  padding: var(--cw-space-1) var(--cw-space-2);
+  font-size: var(--cw-fs-micro);
+  color: var(--cw-text);
+}
+
+.cockpit-file__path {
+  font-family: var(--cw-font-mono);
+}
+
+.cockpit-file__conflict {
+  display: flex;
+  gap: var(--cw-space-2);
+  align-items: center;
+  color: var(--cw-needs-you);
+}
+
+.cockpit-file__conflict button,
+.cockpit-browser__bar button {
+  padding: 0 var(--cw-space-2);
+  background: var(--cw-surface-control);
+  border: none;
+  border-radius: var(--cw-radius-sm);
+  color: var(--cw-text-bright);
+  font: inherit;
+  cursor: pointer;
+}
+
+.cockpit-browser__bar button:disabled {
+  color: var(--cw-text-dim);
+  cursor: default;
+}
+
+.cockpit-file__editor {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Browser pane. */
+.cockpit-browser {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.cockpit-browser__bar {
+  display: flex;
+  gap: var(--cw-space-1);
+  padding: var(--cw-space-1) var(--cw-space-2);
+}
+
+.cockpit-browser__bar input {
+  flex: 1;
+  padding: var(--cw-control-pad-y) var(--cw-space-2);
+  background: var(--cw-surface-input);
+  border: var(--cw-hairline) solid var(--cw-border-strong);
+  border-radius: var(--cw-radius-sm);
+  color: var(--cw-text-bright);
+  font-family: var(--cw-font-mono);
+  font-size: var(--cw-fs-sm);
+}
+
+.cockpit-browser__error {
+  padding: 0 var(--cw-space-2);
+}
+
+.cockpit-browser__view {
+  flex: 1;
+  min-height: 0;
+  border: none;
+}

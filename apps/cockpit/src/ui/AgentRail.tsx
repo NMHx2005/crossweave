@@ -4,6 +4,7 @@ import type { ListedSession } from '../host/cockpit-api'
 import { formatRailMeta, isSessionRunning } from '../lib/sessions'
 import { attentionLabel, type AttentionKind } from '../lib/attention'
 import { ACTIVITY_BADGE, ACTIVITY_LABEL } from '../lib/activity'
+import { SESSION_COLORS, type SessionColor } from '../lib/colors'
 
 export type AgentRailProps = {
   sessions: ListedSession[]
@@ -18,6 +19,9 @@ export type AgentRailProps = {
   onKill: () => void
   /** Open a shell in the focused session's worktree. */
   onTerminal: () => void
+  colorById?: Record<string, SessionColor>
+  /** Right-click → a color for the session, or null for none. */
+  onSetColor?: (sessionId: string, color: SessionColor | null) => void
 }
 
 /** Deck's "Recent activity" shows the latest five unread; "View all" is the history. */
@@ -35,8 +39,11 @@ export function AgentRail({
   onStop,
   onKill,
   onTerminal,
+  colorById = {},
+  onSetColor,
 }: AgentRailProps) {
   const [showAll, setShowAll] = useState(false)
+  const [colorMenu, setColorMenu] = useState<{ sessionId: string; x: number; y: number } | null>(null)
   const focusedRunning =
     focusedId !== null && isSessionRunning(sessions.find((session) => session.id === focusedId) ?? {})
   const unread = activity.filter((item) => !item.read)
@@ -134,9 +141,19 @@ export function AgentRail({
                   class={focused ? 'cockpit-rail__item is-focused' : 'cockpit-rail__item'}
                   aria-current={focused ? 'true' : undefined}
                   onClick={() => onFocus(session.id)}
+                  onContextMenu={(e) => {
+                    if (!onSetColor) return
+                    e.preventDefault()
+                    setColorMenu({ sessionId: session.id, x: e.clientX, y: e.clientY })
+                  }}
                 >
                   <span class="cockpit-rail__meta">
-                    <span class="cockpit-rail__name">{session.name}</span>
+                    <span class="cockpit-rail__name">
+                      {colorById[session.id] ? (
+                        <span class="cockpit-dot" style={{ background: `var(--cw-${colorById[session.id]})` }} aria-hidden="true" />
+                      ) : null}
+                      {session.name}
+                    </span>
                     {session.agentKind ? (
                       <span class="cockpit-muted">{session.agentKind}</span>
                     ) : null}
@@ -158,6 +175,19 @@ export function AgentRail({
           })}
         </ul>
       )}
+      {colorMenu !== null && onSetColor ? (
+        <div class="cockpit-menu" role="menu" aria-label="Session color" style={{ left: `${colorMenu.x}px`, top: `${colorMenu.y}px` }}
+          onMouseLeave={() => setColorMenu(null)}>
+          <div class="cockpit-swatches">
+            {SESSION_COLORS.map((c) => (
+              <button type="button" key={c} role="menuitem" aria-label={`Color ${c}`} class="cockpit-swatch"
+                style={{ background: `var(--cw-${c})` }}
+                onClick={() => { onSetColor(colorMenu.sessionId, c); setColorMenu(null) }} />
+            ))}
+          </div>
+          <button type="button" role="menuitem" onClick={() => { onSetColor(colorMenu.sessionId, null); setColorMenu(null) }}>Default</button>
+        </div>
+      ) : null}
     </aside>
   )
 }
