@@ -10,8 +10,8 @@ session's worktree, next to the agent pane.
 
 - **The daemon owns the shell**, like every other process: `TerminalRegistry`
   (`src/daemon/terminals.ts`) spawns `$SHELL -l` in a pty in the session's worktree,
-  wrapped in the **same OS sandbox spec** the session's agent gets (`decideSandbox`).
-  `HISTFILE` points into the session's sandbox temp dir, since `~` is not writable there.
+  (first wrapped in the agent's OS sandbox; later run unsandboxed, since the user's
+  dotfiles broke inside it — see the known-limitations file).
 - Terminals are **ephemeral**: not in the database. They end when the shell exits, on
   `terminal.close`, when their session is killed/removed/landed/gc'd (its worktree is
   going away), and on daemon shutdown.

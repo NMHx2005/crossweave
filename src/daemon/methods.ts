@@ -45,7 +45,7 @@ import { platformSend } from '../notify/macos.js';
 import { BroadcastRegistry } from './broadcast.js';
 import { measureWorktrees } from '../isolation/disk-guard.js';
 import { LeaseRepo } from '../db/repositories/lease.js';
-import { decideSandbox, sandboxTmpDir } from '../isolation/sandbox.js';
+import { decideSandbox } from '../isolation/sandbox.js';
 import { spawnShell } from '../adapters/shell.js';
 import { profileFor, resolveAgent } from '../adapters/catalog.js';
 import { findConversation, latestWords } from '../domain/agent-logs.js';
@@ -301,35 +301,16 @@ export function buildMethods(
   }, sealChunk);
   sessions.onKill = (id) => runtime.stop(id);
 
-  // Shells in a session's worktree (the Terminal pane). Same OS sandbox as the agent,
-  // but under their own sandbox id: the agent's profile and TMPDIR are cleaned up when
-  // ITS process exits, and a shell sharing them would delete the agent's temp dir on
-  // its way out.
-  const terminals = new TerminalRegistry((row, terminalId) => {
-    const sandbox = decideSandbox({
-      enabled: config.sandbox.enabled,
-      network: config.sandbox.network,
-      projectRoot,
-      worktreePath: row.worktreePath,
-      branch: row.branch,
-      sessionId: `${row.id}-${terminalId}`,
-      // So the session's own agent CLI can be run by hand in its shell.
-      statePaths: profileFor(row.agentKind).statePaths,
-    });
-    const env: Record<string, string> = { CW_SESSION_ID: row.id, CW_SESSION_NAME: row.name };
-    if (sandbox.spec !== undefined) {
-      // `~` is not writable inside the sandbox: history goes where the shell may write.
-      const tmp = sandboxTmpDir(projectRoot, sandbox.spec.sessionId);
-      env.TMPDIR = tmp;
-      env.HISTFILE = join(tmp, '.shell_history');
-    }
-    return spawnShell({
-      shell: opts.shell ?? process.env.SHELL ?? '/bin/sh',
-      cwd: row.worktreePath as string,
-      env,
-      sandbox: sandbox.spec,
-    });
-  }, sealChunk, () => broadcastRegistry.broadcast('tui.invalidate', {}));
+  // Shells in a session's worktree (the Terminal pane). NOT sandboxed, deliberately:
+  // the sandbox is a boundary around an AGENT, and this shell is a person typing. Run
+  // inside it, the user's own dotfiles broke — oh-my-zsh, fnm and zsh history could not
+  // write under ~, and zsh even aborted on a failed history lock. The pane says
+  // `not guarded`; a CLI the user starts by hand here runs as it would in any terminal.
+  const terminals = new TerminalRegistry((row) => spawnShell({
+    shell: opts.shell ?? process.env.SHELL ?? '/bin/sh',
+    cwd: row.worktreePath as string,
+    env: { CW_SESSION_ID: row.id, CW_SESSION_NAME: row.name },
+  }), sealChunk, () => broadcastRegistry.broadcast('tui.invalidate', {}));
 
   /** Close the shells of every session that no longer exists (its worktree is gone). */
   async function closeOrphanTerminals(workspaceId: string): Promise<void> {

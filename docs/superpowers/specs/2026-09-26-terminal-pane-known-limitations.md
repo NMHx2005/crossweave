@@ -6,11 +6,17 @@
 ## What is built
 
 A cockpit **Terminal** button opens `$SHELL -l` in the focused session's worktree
-(daemon-owned, `terminal.*` RPCs), inside the same OS sandbox as the agent under its own
-sandbox id. Panes share the 4-pane grid (at most 2 terminals shown), are labelled
-`shell · not guarded`, close with ×, and are restored from `terminal.list` after a reload.
+(daemon-owned, `terminal.*` RPCs). Terminal panes now live in the tab/split layout
+(Deck-parity phase C), are labelled `shell · not guarded`, close with ×, and are
+restored from `terminal.list` after a reload.
 
 ## Gaps
+
+- **Not sandboxed (changed 2026-09-26).** The first version wrapped the shell in the
+  agent's OS sandbox; the user's own dotfiles then broke (oh-my-zsh, fnm and zsh history
+  could not write under `~`, zsh aborted on a history lock). The sandbox is a boundary
+  around an agent; this shell is a person typing, so it runs as any terminal does. An
+  agent CLI started by hand in it is therefore unconfined.
 
 - **Not guarded.** A shell has no hook, so Collision Radar cannot stop a write typed in
   it; the fs watcher still indexes changes while the session's agent is running. The pane
