@@ -123,6 +123,16 @@ describe('cw CLI', () => {
     expect(unconfirmed.stderr).toContain('cw land session real --yes');
   });
 
+  it('session path prints the worktree for a name, and errors cleanly for an unknown one', async () => {
+    await cw(['init']);
+    await cw(['session', 'new', 'findme']);
+    const found = await cw(['session', 'path', 'findme']);
+    expect(found.exitCode).toBe(0);
+    expect(existsSync(join(found.stdout.trim(), '.git'))).toBe(true);
+    const missing = await cw(['session', 'path', 'nope']);
+    expect(missing.stderr).toContain('SESSION_NOT_FOUND');
+  });
+
   it('runs the full session lifecycle', async () => {
     await cw(['init']);
 

@@ -164,6 +164,32 @@ export const sessionCommand = defineCommand({
       },
     }),
 
+    // Worktree directories are named by session id, deliberately: the id survives
+    // `rename` and never collides when a name is reused after `rm`. This is how a
+    // person gets from the name they know to the directory: `cd $(cw session path x)`.
+    path: defineCommand({
+      meta: { name: 'path', description: "Print a session's worktree path (cd $(cw session path <name>))" },
+      args: { target: { type: 'positional', description: 'Session name or id', required: false } },
+      async run({ args }) {
+        try {
+          if (args.target === undefined) {
+            throw new CrossweaveError('INVALID_ARGUMENTS', 'Missing session name: cw session path <name>');
+          }
+          const target = args.target;
+          await withClient(async (client) => {
+            const workspaceId = await currentWorkspaceId(client);
+            const sessions = await client.call<Session[]>('session.list', { workspaceId });
+            const row = sessions.find((s) => s.name === target || s.id === target);
+            if (row === undefined) throw new CrossweaveError('SESSION_NOT_FOUND', `No such session: ${target}`);
+            if (row.worktreePath === null) {
+              throw new CrossweaveError('SESSION_NO_WORKDIR', `Session has no working directory: ${row.name}`);
+            }
+            process.stdout.write(`${row.worktreePath}\n`);
+          });
+        } catch (err) { fail(err); }
+      },
+    }),
+
     // Without this the stop/kill distinction exists only over RPC, and the decision
     // that `kill` is terminal has no escape hatch a user can reach — SESSION_ENDED
     // would be advising a command that does not exist.
