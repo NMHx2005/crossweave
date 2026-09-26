@@ -6,6 +6,7 @@ import { crossweaveDir } from '../core/paths.js';
 import { decrypt as e2eDecrypt, deriveKey } from '../gateway/e2e.js';
 import { readGatewayToken } from '../gateway/auth.js';
 import { createFrameDecoder, encodeFrame } from '../daemon/rpc.js';
+import { connectablePath } from './socket-path.js';
 import { unixSocketTransport, type ClientTransport } from './transport.js';
 
 interface Pending {
@@ -178,7 +179,7 @@ export class DaemonClient {
 
   /** Connect over the local unix socket — the only transport shipped today. */
   static async connect(socketPath: string): Promise<DaemonClient> {
-    return new DaemonClient(await unixSocketTransport(socketPath));
+    return new DaemonClient(await unixSocketTransport(connectablePath(socketPath)));
   }
 
   /**
@@ -237,6 +238,9 @@ export async function connectOrStart(
   entry = resolveDaemonEntry(),
 ): Promise<DaemonClient> {
   const socketPath = join(crossweaveDir(projectRoot), 'daemon.sock');
+  // Outside the try: a path that cannot be made connectable is an error to report,
+  // not "nothing listening" — which would spawn a daemon per attempt.
+  connectablePath(socketPath);
 
   try {
     return await DaemonClient.connect(socketPath);
