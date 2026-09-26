@@ -970,3 +970,73 @@ body,
   min-height: 0;
   border: none;
 }
+
+/* Settings (⌘,). */
+.cockpit-settings {
+  width: calc(var(--cw-row-h) * 26);
+  max-height: calc(100vh - var(--cw-row-h) * 6);
+  overflow: auto;
+}
+
+.cockpit-settings__heading {
+  margin: var(--cw-space-2) 0 0;
+  font-size: var(--cw-fs-sm);
+  color: var(--cw-text-bright);
+}
+
+.cockpit-settings__agents {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cw-space-1);
+}
+
+.cockpit-settings__agent {
+  display: grid;
+  grid-template-columns: calc(var(--cw-row-h) * 6) calc(var(--cw-row-h) * 3) 1fr auto;
+  align-items: center;
+  gap: var(--cw-space-2);
+  font-size: var(--cw-fs-sm);
+}
+
+.cockpit-settings__agent input,
+.cockpit-settings .cockpit-picker__field input {
+  padding: var(--cw-control-pad-y) var(--cw-space-2);
+  background: var(--cw-surface);
+  border: var(--cw-hairline) solid var(--cw-border-strong);
+  border-radius: var(--cw-radius-sm);
+  color: var(--cw-text-bright);
+  font: inherit;
+  font-size: var(--cw-fs-sm);
+}
+
+.cockpit-settings__agent input[type='checkbox'] {
+  padding: 0;
+}
+
+.cockpit-settings__command {
+  font-family: var(--cw-font-mono);
+}
+
+.cockpit-settings__agent button {
+  padding: var(--cw-control-pad-y) var(--cw-space-2);
+  background: var(--cw-surface-control);
+  border: none;
+  border-radius: var(--cw-radius-sm);
+  color: var(--cw-text-bright);
+  font: inherit;
+  cursor: pointer;
+}
+
+.cockpit-settings__toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--cw-space-1);
+  color: var(--cw-text);
+}
+
+.cockpit-settings__editors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--cw-space-3);
+  font-size: var(--cw-fs-sm);
+}

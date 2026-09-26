@@ -6,6 +6,7 @@ import { QuickPicker, type NewSessionOptions } from './QuickPicker'
 import { QuickOpen } from './QuickOpen'
 import { FilePane } from './FilePane'
 import { BrowserPane } from './BrowserPane'
+import { SettingsPanel, type UserSettings } from './SettingsPanel'
 import { readColors, writeColors, type SessionColor } from '../lib/colors'
 import {
   blockedSessionFromEvent,
@@ -94,6 +95,8 @@ export function App() {
   /** Non-null while ⌘P is open: the session whose worktree it searches. */
   const [quickOpen, setQuickOpen] = useState<{ sessionId: string; name: string; files: string[] } | null>(null)
   const [colors, setColors] = useState<Record<string, SessionColor>>({})
+  /** Non-null while Settings is open. */
+  const [settingsOpen, setSettingsOpen] = useState<{ settings: UserSettings; agents: AgentOption[] } | null>(null)
   const [usageRows, setUsageRows] = useState<{ date: string; agentKind: string; sessions: number; tokens: number; costUsd: number }[] | null>(null)
   const [paneAttachEpoch, setPaneAttachEpoch] = useState(0)
   const [paneAttachBumps, setPaneAttachBumps] = useState<Record<string, number>>({})
@@ -218,6 +221,7 @@ export function App() {
     else if (command === 'open-terminal') void handleTerminal()
     else if (command === 'open-file') void handleOpenFile()
     else if (command === 'open-browser') handleOpenBrowser()
+    else if (command === 'open-settings') void handleOpenSettings()
   }
   useEffect(() => cockpitApi.onCommand((payload) => {
     const command = (payload as { command?: unknown } | null)?.command
@@ -372,6 +376,27 @@ export function App() {
     openSurface({ kind: 'browser', url: port === undefined ? '' : `http://localhost:${port}/` }, 'browser')
   }
 
+  async function handleOpenSettings(): Promise<void> {
+    await runAction(async () => {
+      const [settings, agents] = await Promise.all([cockpitApi.getSettings(), cockpitApi.listAgents()])
+      setSettingsOpen({ settings: settings as UserSettings, agents })
+    })
+  }
+
+  /** Save through the daemon, which validates; its refusal is shown in the form. */
+  async function saveSettings(next: UserSettings): Promise<string | null> {
+    try {
+      const saved = await cockpitApi.setSettings(next) as UserSettings
+      setLayouts((saved.layouts ?? {}) as Record<string, SavedLayout>)
+      return null
+    } catch (err) {
+      // Only the daemon's sentence: not the IPC wrapper or the error class in front of it.
+      return err instanceof Error
+        ? err.message.replace(/^Error invoking remote method '[^']+': /, '').replace(/^\w*Error: /, '')
+        : String(err)
+    }
+  }
+
   async function handleTerminal(): Promise<void> {
     if (!focused) return
     await openShell(focused.id)
@@ -487,6 +512,14 @@ export function App() {
             void handlePickerCreate(agentId, name, options)
           }}
           onCancel={() => setPickerAgents(null)}
+        />
+      ) : null}
+      {settingsOpen !== null ? (
+        <SettingsPanel
+          initial={settingsOpen.settings}
+          agents={settingsOpen.agents}
+          onSave={saveSettings}
+          onClose={() => setSettingsOpen(null)}
         />
       ) : null}
       {quickOpen !== null ? (

@@ -29,6 +29,8 @@ export function appMenuTemplate(deps: AppMenuDeps): MenuItemConstructorOptions[]
         { label: 'Open Folder…', accelerator: 'CmdOrCtrl+O', click: () => deps.openFolder() },
         { label: 'Open File in Session…', accelerator: 'CmdOrCtrl+P', click: () => deps.command('open-file') },
         { label: 'Open Browser Pane', accelerator: 'CmdOrCtrl+Shift+B', click: () => deps.command('open-browser') },
+        { type: 'separator' },
+        { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: () => deps.command('open-settings') },
         { label: 'Open Recent', submenu: deps.recent },
         { type: 'separator' },
         { role: 'close' },
