@@ -133,9 +133,12 @@ describe('loadConfig', () => {
   // The one setting whose misreading changes whether an OS boundary exists around a
   // session process — so a non-boolean is refused rather than coerced to truthy.
   describe('sandbox', () => {
-    it('defaults to enabled, network off', () => {
-      expect(DEFAULT_CONFIG.sandbox).toEqual({ enabled: true, network: false });
-      expect(loadConfig(dir).sandbox).toEqual({ enabled: true, network: false });
+    // Network on: with it off no agent could reach its own model API (measured
+    // HTTP=000 to api.anthropic.com from a sandboxed session). The boundary that
+    // matters — writes outside the worktree — stays on.
+    it('defaults to enabled, network on', () => {
+      expect(DEFAULT_CONFIG.sandbox).toEqual({ enabled: true, network: true });
+      expect(loadConfig(dir).sandbox).toEqual({ enabled: true, network: true });
     });
 
     it('merges a partial sandbox section over the defaults', async () => {

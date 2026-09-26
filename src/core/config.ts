@@ -31,12 +31,16 @@ export const DEFAULT_CONFIG: CrossweaveConfig = {
     fullIntegrationIntervalMs: 300_000,
     pairwiseSessionThreshold: 8,
   },
-  // On by default, network off by default. The sandbox is the only mechanism here
-  // that does not depend on the agent's cooperation, so defaulting it off would
-  // leave most users with the tier gaps the tier-coverage spec documents and a
-  // setting they never knew to flip. A platform with no provider ignores this and
-  // says so at session start (see src/isolation/sandbox.ts).
-  sandbox: { enabled: true, network: false },
+  // On by default. The sandbox is the only mechanism here that does not depend on the
+  // agent's cooperation, so defaulting it off would leave most users with the tier
+  // gaps the tier-coverage spec documents and a setting they never knew to flip. A
+  // platform with no provider ignores this and says so at session start (see
+  // src/isolation/sandbox.ts).
+  // Network ON by default: with it off, no agent could reach its own model API —
+  // measured HTTP=000 to api.anthropic.com from a sandboxed session, so every
+  // default session failed on its first prompt. What the sandbox is for (writes
+  // outside the worktree) is unaffected; `network: false` is still available.
+  sandbox: { enabled: true, network: true },
 };
 
 const STRATEGIES = new Set(['none', 'schema', 'file-copy']);
