@@ -25,8 +25,8 @@ Runtime constraints that shape every decision:
 
 | What | Command |
 |---|---|
-| Tests (repo root) | `bun test` |
-| Typecheck | `bun run typecheck` (`tsc --noEmit`) |
+| Tests (repo root) | `bun test` (low load: `bun test --max-concurrency=1` — Bun has no `--concurrency` flag; it would be read as a file filter and run nothing) |
+| Typecheck | `bun run typecheck` (`tsc --noEmit`; covers `src/` + `tests/` only — the cockpit typechecks in its own `bun run build`) |
 | Build binaries | `bun run build` → `dist/cw`, `dist/cwd` |
 | Cockpit dev | `cd apps/cockpit && bun install && bun run dev` |
 | Cockpit tests | `cd apps/cockpit && bun test` |
@@ -117,7 +117,7 @@ instead of fighting it.
 - **Bảo mật**: validate/sanitize ở biên, parameterized queries, không `eval`/nối chuỗi shell, fail closed không lộ stack.
 
 ### Quy trình làm việc
-- **Gate bắt buộc trước khi báo done**: `bun run typecheck` · `bun test --concurrency 1` · `bun run build` (và `apps/cockpit` build + screenshot/CDP nếu đụng UI). Báo rõ kết quả từng gate, không báo xanh ảo. Nếu gate không chạy được do môi trường → ghi rõ "unfinished" + lý do.
+- **Gate bắt buộc trước khi báo done**: `bun run typecheck` · `bun test --max-concurrency=1` · `bun run build` (và `apps/cockpit` build + screenshot/CDP nếu đụng UI). Báo rõ kết quả từng gate, không báo xanh ảo. Nếu gate không chạy được do môi trường → ghi rõ "unfinished" + lý do.
 - **Commit nhỏ có nghĩa**: 1 logical change / commit, Conventional Commits, message ghi *what + why*. Không gộp 10 việc vào 1 commit. `main` linear, push sau khi gate xanh.
 - **Tài liệu nợ**: mọi gap phát hiện → ghi vào `docs/superpowers/specs/*-known-limitations.md` + 1 dòng trong `docs/superpowers/specs/2026-08-14-known-limitations-digest.md`.
 - **Tiến độ**: báo theo giai đoạn (đã xong gì, đang làm gì, tiếp theo gì), kèm file đã đụng và gate đã chạy. Xong 1 giai đoạn lớn → báo bạn trước khi sang giai đoạn lớn tiếp theo.
@@ -129,12 +129,12 @@ Vẫn giữ `Resource budget — RAM & CPU` bên dưới: tận tâm trong chấ
 Máy dev là tài nguyên chung — mọi lệnh test/build phải giữ mức tiêu thụ thấp. Quy tắc bắt buộc khi chạy bất kỳ check nào:
 
 - **Chạy tuần tự, không song song vô tội vạ.** Không chạy `bun test` + `typecheck` + `build` + `apps/cockpit` build cùng lúc. Mỗi lượt chỉ một gate nặng; xong mới chạy gate tiếp theo.
-- **Giới hạn concurrency của test.** Ưu tiên `bun test --concurrency 1` (hoặc `GATE_BUDGET` thấp) khi máy đang tải; chỉ tăng concurrency khi đã đo và thấy còn dư RAM/CPU. Không spawn subagent/daemon/pty hàng loạt trong test — dùng in-memory/fake double nếu có thể.
+- **Giới hạn concurrency của test.** Ưu tiên `bun test --max-concurrency=1` (hoặc `GATE_BUDGET` thấp) khi máy đang tải; chỉ tăng concurrency khi đã đo và thấy còn dư RAM/CPU. Không spawn subagent/daemon/pty hàng loạt trong test — dùng in-memory/fake double nếu có thể.
 - **Tránh watch/build lặp vô hạn.** Không để `tsc --watch`, `bun --watch`, `vite dev`, `electron dev` chạy nền sau khi xong việc. Kill process watch ngay khi không cần.
 - **Dọn sau mỗi lần chạy.** Đóng daemon/socket/tmp worktree mà test đã tạo (`afterEach`/`afterAll` phải cleanup). Không để `cwd` hay `cw` orphan chiếm RAM.
 - **Build có chọn lọc.** `bun run build` chỉ khi đụng `src/`; `apps/cockpit` build chỉ khi đụng `apps/cockpit/`. Không build toàn repo "cho chắc".
 - **Khi nghi ngờ, đo trước.** Chạy `ps aux | head` / `top -l 1` / `memory_pressure` (macOS) hoặc `free -m` (Linux) trước và sau gate nặng; nếu RAM > 80% hoặc CPU pinned > 30s, dừng lại, giảm concurrency và báo trong report.
-- **Report phải ghi chú.** Mỗi summary sau task ghi 1 dòng về gate đã chạy và mức concurrency đã dùng (vd: `bun test --concurrency 1 — pass`).
+- **Report phải ghi chú.** Mỗi summary sau task ghi 1 dòng về gate đã chạy và mức concurrency đã dùng (vd: `bun test --max-concurrency=1 — pass`).
 
 Vi phạm = phải dừng và giảm tải, không đổ lỗi cho môi trường.
 

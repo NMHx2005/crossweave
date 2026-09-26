@@ -3,6 +3,7 @@
 **Source:** project audit of 2026-09-26 (four area reviews + gate run).
 **Tier:** Large — gateway auth contract change, E2E wire change (AAD), gc semantics, >10 files.
 **Branch:** `fix/audit-2026-09-26`, one commit per task; merge to `main` only on an explicit OK.
+**Status:** done (2026-09-26) except task 10 — not done: growth is bounded by distinct branch names and pruning is only observable through private state; recorded in `2026-09-26-audit-fixes-known-limitations.md`.
 
 ## Tasks
 

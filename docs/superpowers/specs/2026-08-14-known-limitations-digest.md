@@ -17,9 +17,11 @@ agents*, not a sandbox against an adversarial one. (M5a)
 **Safe Mode fails open on infrastructure trouble, inconsistently.** T1
 (ACP — Cursor) fails *closed* on an internal daemon error; T2 (the Claude
 Code hook) fails *open*, deliberately, so a broken daemon or a slow hook
-doesn't hang the agent — but that means a dead daemon silently downgrades
-every T2 block to an allow. If you're depending on Safe Mode to actually
-stop a write, check which tier you're on. (M5a, M5b)
+doesn't hang the agent — but that means a dead daemon downgrades every T2
+block to an allow. Since 2026-09-26 that is no longer silent: the agent is
+told the edit was NOT checked (at most once per worktree per 10 minutes).
+If you're depending on Safe Mode to actually stop a write, check which tier
+you're on. (M5a, M5b, 2026-09-26-audit-fixes-known-limitations.md)
 
 **Only `Edit`/`Write` tool calls are blocked.** A write made through the `Bash`
 tool — `sed -i`, `> file`, `git checkout -- file`, or a script the agent
@@ -137,3 +139,4 @@ work closed these previously recorded gaps:
 - `2026-08-13-m5b-known-limitations.md`
 - `2026-08-13-m6a-known-limitations.md`
 - `2026-08-14-m6b-known-limitations.md`
+- `2026-09-26-audit-fixes-known-limitations.md` — gateway fail-closed, E2E fail-closed/AAD, gc keeps unlanded work, daemon socket watchdog; remote E2E key distribution still undesigned
