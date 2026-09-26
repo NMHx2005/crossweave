@@ -23,9 +23,10 @@ export function describeAttachFailure(message: string): string {
   if (notRunning !== null) {
     const name = notRunning[1]?.trim()
     const subject = name !== undefined && name.length > 0 ? `${name} is not running` : 'This session is not running'
-    // `cw session start` is the CLI's verb for exactly this state; the rail's own
-    // Start button appears for the same reason, one pane away.
-    return `${subject} — start it (Start in the rail, or cw session start ${name ?? '<name>'}) to attach.`
+    // How to start it is the launch line's job, docked right under this pane (or
+    // `cw session start`); repeating it here pointed at a Start button that is now
+    // off by default.
+    return `${subject}.`
   }
   return unwrapped
 }

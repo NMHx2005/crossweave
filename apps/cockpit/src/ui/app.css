@@ -402,7 +402,15 @@ body,
 }
 
 .cockpit-tab__pin {
+  color: var(--cw-text-dim);
   font-size: var(--cw-fs-micro);
+  letter-spacing: var(--cw-tracking-label);
+  text-transform: uppercase;
+}
+
+.cockpit-tab:focus-visible {
+  outline: var(--cw-hairline) solid var(--cw-accent);
+  outline-offset: calc(var(--cw-hairline) * -1);
 }
 
 .cockpit-tab__close {
@@ -577,6 +585,7 @@ body,
 }
 
 .cockpit-pane-bar__btn {
+  font-size: var(--cw-fs-micro);
   padding: 0 var(--cw-space-1);
   background: none;
   border: none;

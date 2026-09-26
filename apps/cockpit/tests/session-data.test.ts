@@ -100,7 +100,8 @@ describe('parseSessionList', () => {
     // docs/superpowers/specs/2026-09-17-tier-coverage-honesty-design.md §3.5.
     expect(
       formatRailMeta({ id: 's1', name: 'alpha', enforcementTier: 'T2', costSpentUsd: 1.5 }),
-    ).toBe('T2 · Edit|Write · $1.50')
+    ).toBe('guarded · edits only · $1.50')
+    expect(formatRailMeta({ id: 's2', name: 'b', enforcementTier: 'T3' })).toBe('advisory')
   })
 
   test('empty or non-array is empty', () => {
@@ -193,6 +194,7 @@ describe('workspaceSummary', () => {
       { id: 'a', name: 'a', status: 'running', costSpentUsd: 0.25 },
       { id: 'b', name: 'b', status: 'idle', costSpentUsd: 0.125 },
       { id: 'c', name: 'c', status: 'waiting' },
+      { id: 'd', name: 'd', status: 'dead' },
     ]
     expect(workspaceSummary('/Users/me/work/shop/', 'main', sessions))
       .toEqual({ title: 'shop', meta: 'main · 2 of 3 running · ≈$0.38' })

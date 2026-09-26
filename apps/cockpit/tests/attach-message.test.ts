@@ -5,7 +5,7 @@ describe('describeAttachFailure', () => {
   test('a session that is not running says so, and how to fix it — without the IPC plumbing', () => {
     const raw = "Error invoking remote method 'session.attach': CrossweaveError: Session is not running: alice"
     const described = describeAttachFailure(raw)
-    expect(described).toBe('alice is not running — start it (Start in the rail, or cw session start alice) to attach.')
+    expect(described).toBe('alice is not running.')
     expect(described).not.toContain('invoking remote method')
     expect(described).not.toContain('CrossweaveError')
   })

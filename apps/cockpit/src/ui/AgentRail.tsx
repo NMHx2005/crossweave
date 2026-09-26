@@ -1,6 +1,8 @@
-import { useState } from 'preact/hooks'
+import { useCallback, useRef, useState } from 'preact/hooks'
+import { useDismiss } from './useDismiss'
 import type { ActivityItem } from '../../../../src/domain/activity.js'
 import type { ListedSession } from '../host/cockpit-api'
+import { tierCoverageSentence } from '../../../../src/adapters/coverage.js'
 import { formatRailMeta, isSessionRunning } from '../lib/sessions'
 import { attentionLabel, type AttentionKind } from '../lib/attention'
 import { ACTIVITY_BADGE, ACTIVITY_LABEL } from '../lib/activity'
@@ -54,6 +56,9 @@ export function AgentRail({
 }: AgentRailProps) {
   const [showAll, setShowAll] = useState(false)
   const [colorMenu, setColorMenu] = useState<{ sessionId: string; x: number; y: number } | null>(null)
+  const colorMenuRef = useRef<HTMLDivElement>(null)
+  const closeColorMenu = useCallback(() => setColorMenu(null), [])
+  useDismiss(colorMenu !== null, closeColorMenu, colorMenuRef)
   const focusedSession = focusedId === null ? undefined : sessions.find((session) => session.id === focusedId)
   const focusedRunning = focusedSession !== undefined && isSessionRunning(focusedSession)
   const unread = activity.filter((item) => !item.read)
@@ -161,7 +166,9 @@ export function AgentRail({
                     {session.agentKind ? (
                       <span class="cockpit-muted">{session.agentKind}</span>
                     ) : null}
-                    {meta ? <span class="cockpit-muted">{meta}</span> : null}
+                    {meta ? (
+                      <span class="cockpit-muted" title={tierCoverageSentence(session.enforcementTier ?? '')}>{meta}</span>
+                    ) : null}
                     {session.latestWords ? (
                       // What the agent last said: tells you whether it needs you without
                       // opening its pane.
@@ -181,7 +188,7 @@ export function AgentRail({
       )}
       {colorMenu !== null && onSetColor ? (
         <div class="cockpit-menu" role="menu" aria-label="Session color" style={{ left: `${colorMenu.x}px`, top: `${colorMenu.y}px` }}
-          onMouseLeave={() => setColorMenu(null)}>
+          ref={colorMenuRef}>
           <div class="cockpit-swatches">
             {SESSION_COLORS.map((c) => (
               <button type="button" key={c} role="menuitem" aria-label={`Color ${c}`} class="cockpit-swatch"

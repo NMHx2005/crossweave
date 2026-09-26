@@ -145,17 +145,24 @@ describe('syncStage', () => {
     terminals: terminals.map(([terminalId, sessionId]) => ({ terminalId, sessionId, sessionName: sessionId })),
   })
 
-  test('first load with nothing open: one tab per session', async () => {
+  // Was: one tab per session on first load, and a tab for every session that appeared
+  // later. With ten agents that is ten tabs nobody asked for; the rail is where
+  // sessions are listed, and a tab is opened by choosing one (or creating it here).
+  test('first load with nothing open: one tab, the newest session that has not ended', async () => {
     const { syncStage } = await import('../src/lib/layout')
-    expect(paneKeys(syncStage(emptyStage(), live(['a', 'b']), null))).toEqual(['session:a', 'session:b'])
+    const sessions = { sessions: [
+      { id: 'a', name: 'a', status: 'idle' }, { id: 'b', name: 'b', status: 'running' }, { id: 'c', name: 'c', status: 'dead' },
+    ], terminals: [] }
+    expect(paneKeys(syncStage(emptyStage(), sessions, null))).toEqual(['session:b'])
+    const ended = { sessions: [{ id: 'c', name: 'c', status: 'landed' }], terminals: [] }
+    expect(paneKeys(syncStage(emptyStage(), ended, null))).toEqual([])
   })
 
-  test('a session or terminal that appears later gets its own tab; known ones do not reopen', async () => {
+  test('a session that appears later is listed in the rail, not opened; a new shell still opens', async () => {
     const { syncStage } = await import('../src/lib/layout')
     let s = syncStage(emptyStage(), live(['a']), null)
-    s = closeTab(s, s.tabs[0]!.id) // the user closed a's tab on purpose
     s = syncStage(s, live(['a', 'b'], [['t1', 'a']]), { sessionIds: new Set(['a']), terminalIds: new Set() })
-    expect(paneKeys(s)).toEqual(['session:b', 'terminal:t1'])
+    expect(paneKeys(s)).toEqual(['session:a', 'terminal:t1'])
   })
 
   test('parseStoredStage accepts only a well-formed stage', async () => {

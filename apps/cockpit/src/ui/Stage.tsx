@@ -1,4 +1,5 @@
-import { useRef, useState } from 'preact/hooks'
+import { useCallback, useRef, useState } from 'preact/hooks'
+import { useDismiss } from './useDismiss'
 import type { ListedSession } from '../host/cockpit-api'
 import type { LayoutNode, PaneRef, SplitDir, StageState, Tab } from '../lib/layout'
 import { sessionSource, terminalSource, type InAppOpener } from '../lib/pane-source'
@@ -114,9 +115,9 @@ export function Stage(props: StageProps) {
           {hasSession ? (
             <>
               <button type="button" class="cockpit-pane-bar__btn" title="Split right: a shell in this worktree"
-                onClick={() => props.onSplit(tab.id, node.id, 'row', pane)}>⇥</button>
+                onClick={() => props.onSplit(tab.id, node.id, 'row', pane)}>Split right</button>
               <button type="button" class="cockpit-pane-bar__btn" title="Split down: a shell in this worktree"
-                onClick={() => props.onSplit(tab.id, node.id, 'column', pane)}>⤓</button>
+                onClick={() => props.onSplit(tab.id, node.id, 'column', pane)}>Split down</button>
             </>
           ) : null}
           <button type="button" class="cockpit-pane-bar__close" aria-label={`Close ${paneLabel(pane, names)}`}
@@ -148,6 +149,43 @@ export function Stage(props: StageProps) {
     )
   }
 
+  const layoutsRef = useRef<HTMLDivElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const closeLayouts = useCallback(() => setLayoutsOpen(false), [])
+  const closeMenu = useCallback(() => setMenu(null), [])
+  useDismiss(layoutsOpen, closeLayouts, layoutsRef)
+  useDismiss(menu !== null, closeMenu, menuRef)
+
+  /** Roving focus over the tab strip: ←/→ move and activate, Home/End jump. */
+  const onTabKey = (e: KeyboardEvent, index: number): void => {
+    const last = stage.tabs.length - 1
+    const to = e.key === 'ArrowRight' ? Math.min(index + 1, last)
+      : e.key === 'ArrowLeft' ? Math.max(index - 1, 0)
+      : e.key === 'Home' ? 0
+      : e.key === 'End' ? last
+      : -1
+    if (to !== -1) {
+      e.preventDefault()
+      const target = stage.tabs[to]
+      if (target) {
+        props.onActivateTab(target.id)
+        const strip = (e.currentTarget as HTMLElement).parentElement
+        ;(strip?.querySelectorAll<HTMLElement>('[role="tab"]')[to])?.focus()
+      }
+      return
+    }
+    const tab = stage.tabs[index]
+    if (!tab) return
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      props.onActivateTab(tab.id)
+    } else if (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)) {
+      e.preventDefault()
+      const box = (e.currentTarget as HTMLElement).getBoundingClientRect()
+      setMenu({ tabId: tab.id, x: box.left, y: box.bottom })
+    }
+  }
+
   const tabMenuItems = (tabId: string) => {
     const tab = stage.tabs.find((t) => t.id === tabId)
     if (!tab) return []
@@ -167,6 +205,8 @@ export function Stage(props: StageProps) {
             key={tab.id}
             role="tab"
             aria-selected={tab.id === stage.activeTabId}
+            tabIndex={tab.id === stage.activeTabId ? 0 : -1}
+            onKeyDown={(e) => onTabKey(e, index)}
             class={`cockpit-tab${tab.id === stage.activeTabId ? ' is-active' : ''}${tab.pinned ? ' is-pinned' : ''}`}
             draggable
             onDragStart={() => { dragTab.current = tab.id }}
@@ -183,7 +223,7 @@ export function Stage(props: StageProps) {
               setMenu({ tabId: tab.id, x: e.clientX, y: e.clientY })
             }}
           >
-            {tab.pinned ? <span class="cockpit-tab__pin" aria-label="Pinned">📌</span> : null}
+            {tab.pinned ? <span class="cockpit-tab__pin" title="Pinned: stays first, and Close Others leaves it">pinned</span> : null}
             {(() => {
               const lead = firstPane(tab.root)
               const color = lead.kind !== 'browser' ? props.colorById?.[lead.sessionId] : undefined
@@ -197,7 +237,7 @@ export function Stage(props: StageProps) {
           </div>
         ))}
         <div class="cockpit-tabs__spacer" />
-        <div class="cockpit-layouts">
+        <div class="cockpit-layouts" ref={layoutsRef}>
           <button type="button" class="cockpit-layouts__toggle" onClick={(e) => { e.stopPropagation(); setLayoutsOpen(!layoutsOpen) }}>
             Layouts ▾
           </button>
@@ -228,7 +268,7 @@ export function Stage(props: StageProps) {
         </div>
       </div>
       {menu !== null ? (
-        <div class="cockpit-menu" role="menu" style={{ left: `${menu.x}px`, top: `${menu.y}px` }}>
+        <div class="cockpit-menu" role="menu" ref={menuRef} style={{ left: `${menu.x}px`, top: `${menu.y}px` }}>
           {tabMenuItems(menu.tabId).map((item) => (
             <button type="button" role="menuitem" key={item.label}
               onClick={(e) => { e.stopPropagation(); setMenu(null); item.run() }}>{item.label}</button>

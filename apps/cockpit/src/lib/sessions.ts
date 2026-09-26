@@ -67,9 +67,24 @@ export function formatSandboxLabel(session: ListedSession): string | undefined {
   return `no sandbox (${session.sandbox.reason ?? 'no-provider'})`
 }
 
+/**
+ * The tier in words for the rail. "T2 · Edit|Write" was accurate but read as internal
+ * jargon; these say the same coverage (spec 2026-09-17-tier-coverage-honesty) plainly —
+ * a guarded tier still names what it guards, so it never reads as "contained".
+ */
+const RAIL_TIER: Record<string, string> = {
+  T1: 'guarded · named writes',
+  T2: 'guarded · edits only',
+  T3: 'advisory',
+}
+
+export function railTierLabel(tier: string): string {
+  return RAIL_TIER[tier] ?? tierWithCoverage(tier)
+}
+
 export function formatRailMeta(session: ListedSession): string | undefined {
   const parts: string[] = []
-  if (session.enforcementTier) parts.push(tierWithCoverage(session.enforcementTier))
+  if (session.enforcementTier) parts.push(railTierLabel(session.enforcementTier))
   if (typeof session.costSpentUsd === 'number') parts.push(`$${session.costSpentUsd.toFixed(2)}`)
   const sbox = formatSandboxLabel(session)
   if (sbox) parts.push(sbox)
@@ -115,12 +130,13 @@ export function workspaceSummary(
   sessions: readonly ListedSession[],
 ): { title: string; meta: string } {
   const title = projectRoot.split('/').filter((p) => p !== '').pop() ?? 'crossweave'
-  // Waiting for the user is still a live agent.
+  // Waiting for the user is still a live agent; ended sessions are not counted at all.
   const running = sessions.filter((s) => LIVE.has(s.status ?? '')).length
+  const open = sessions.filter((s) => s.status !== 'dead' && s.status !== 'landed').length
   const spend = sessions.reduce((sum, s) => sum + (s.costSpentUsd ?? 0), 0)
   const parts = [
     baseBranch ?? 'detached HEAD',
-    `${running} of ${sessions.length} running`,
+    `${running} of ${open} running`,
     `≈$${spend.toFixed(2)}`,
   ]
   return { title, meta: parts.join(' · ') }

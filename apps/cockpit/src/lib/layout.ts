@@ -300,15 +300,16 @@ export function fromSavedLayout(saved: SavedLayout, idsByName: ReadonlyMap<strin
 type LiveSets = { sessionIds: ReadonlySet<string>; terminalIds: ReadonlySet<string> }
 
 /**
- * Bring the stage in line with what exists: panes of vanished sessions/terminals go,
- * and anything that APPEARED since `known` (started from the CLI, another window, the
- * picker) opens in a tab of its own. `known` null means this window's first load:
- * with nothing restored, every session gets a tab. Something the user closed on
- * purpose is in `known`, so it does not pop back.
+ * Bring the stage in line with what exists: panes of vanished sessions/terminals go.
+ * `known` null means this window's first load: with nothing restored, the newest
+ * session that has not ended gets a tab — one, not one per session (ten agents made
+ * ten tabs). A session that appears later is not opened: the rail lists it, and this
+ * window opens tabs for what it creates itself. A shell that appears later (a split
+ * this window asked for) does open.
  */
 export function syncStage(
   state: StageState,
-  live: { sessions: Array<{ id: string; name: string }>; terminals: Array<{ terminalId: string; sessionId: string; sessionName: string }> },
+  live: { sessions: Array<{ id: string; name: string; status?: string }>; terminals: Array<{ terminalId: string; sessionId: string; sessionName: string }> },
   known: LiveSets | null,
 ): StageState {
   let next = reconcile(state, {
@@ -317,14 +318,10 @@ export function syncStage(
   })
   if (known === null) {
     if (next.tabs.length === 0) {
-      for (const s of live.sessions) next = openInNewTab(next, { kind: 'session', sessionId: s.id }, s.name)
+      const newest = [...live.sessions].reverse().find((s) => s.status !== 'dead' && s.status !== 'landed')
+      if (newest) next = openInNewTab(next, { kind: 'session', sessionId: newest.id }, newest.name)
     }
     return next
-  }
-  for (const s of live.sessions) {
-    if (!known.sessionIds.has(s.id) && !locatePane(next, `session:${s.id}`)) {
-      next = openInNewTab(next, { kind: 'session', sessionId: s.id }, s.name)
-    }
   }
   for (const t of live.terminals) {
     if (!known.terminalIds.has(t.terminalId) && !locatePane(next, `terminal:${t.terminalId}`)) {
