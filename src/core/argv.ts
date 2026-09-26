@@ -2,8 +2,8 @@ import { CrossweaveError } from './errors.js';
 
 /*
  * Command lines as argv, never through a shell. Kept apart from settings.ts (which
- * touches the filesystem) so the cockpit's renderer can use the same splitting the
- * daemon does: what the user sees in a launch line is exactly what is spawned.
+ * touches the filesystem) so Electron's main process can split a custom editor
+ * command exactly the way the daemon validated it.
  */
 
 /** Shell-style word splitting — quotes and backslash escapes — without a shell. */
@@ -33,17 +33,4 @@ export function splitCommand(command: string): string[] {
   if (inWord) out.push(cur);
   if (out.length === 0) throw new CrossweaveError('INVALID_COMMAND', 'Command is empty');
   return out;
-}
-
-const PLAIN = /^[A-Za-z0-9_@%+=:,./-]+$/;
-
-/** One argument, quoted only when splitCommand would otherwise read it differently. */
-export function quoteArg(arg: string): string {
-  if (arg !== '' && PLAIN.test(arg)) return arg;
-  return `'${arg.replace(/'/g, `'\\''`)}'`;
-}
-
-/** The inverse of splitCommand: `splitCommand(joinArgs(a))` equals `a`. */
-export function joinArgs(args: readonly string[]): string {
-  return args.map(quoteArg).join(' ');
 }

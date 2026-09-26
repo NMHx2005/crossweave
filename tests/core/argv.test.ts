@@ -1,22 +1,17 @@
 import { describe, it, expect } from 'bun:test';
-import { joinArgs, quoteArg, splitCommand } from '../../src/core/argv.js';
+import { splitCommand } from '../../src/core/argv.js';
 
-describe('joinArgs', () => {
-  it('leaves plain flags bare and quotes the rest', () => {
-    expect(joinArgs(['claude', '--model', 'opus', '--dangerously-skip-permissions'])).toBe('claude --model opus --dangerously-skip-permissions');
-    expect(quoteArg('hello world')).toBe("'hello world'");
-    expect(quoteArg('')).toBe("''");
+describe('splitCommand', () => {
+  // Run as argv, never through a shell: quoting is honoured, but `;`, `$(…)` and
+  // friends are just characters in an argument.
+  it('splits on whitespace and honours quotes and escapes', () => {
+    expect(splitCommand('subl "{file}:{line}"')).toEqual(['subl', '{file}:{line}']);
+    expect(splitCommand(`ed --msg "hello world" --x 'a b' c\\ d`)).toEqual(['ed', '--msg', 'hello world', '--x', 'a b', 'c d']);
+    expect(splitCommand('echo $(whoami); rm x')).toEqual(['echo', '$(whoami);', 'rm', 'x']);
   });
 
-  // A launch line is shown with joinArgs and read back with splitCommand: whatever
-  // was stored must come back unchanged, or a restart would run something else.
-  it('round-trips through splitCommand, quotes and all', () => {
-    for (const args of [
-      ['claude', '--append-system-prompt', "it's \"quoted\" $(not run); rm x"],
-      ['codex', '-c', 'a=b c', 'tab\there', ''],
-      ['x', 'back\\slash', "'"],
-    ]) {
-      expect(splitCommand(joinArgs(args))).toEqual(args);
-    }
+  it('rejects an empty command and unbalanced quotes', () => {
+    expect(() => splitCommand('   ')).toThrow(/empty/i);
+    expect(() => splitCommand('ed "open')).toThrow(/quote/i);
   });
 });
