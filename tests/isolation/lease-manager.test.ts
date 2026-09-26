@@ -125,6 +125,21 @@ describe('LeaseManager', () => {
     expect(new LeaseRepo(db).listBySession(sessionA).map((l) => l.kind)).not.toContain('db');
   });
 
+  // A step failing after the port and docker leases were recorded used to leave both
+  // held: no agent was ever spawned, so no exit ever released them, and repeated
+  // failed starts ate one port block each until NO_PORTS_AVAILABLE.
+  it('releases what it already recorded when a later step fails', async () => {
+    const bad = new LeaseManager(db, dir, {
+      ...DEFAULT_CONFIG, db: { strategy: 'file-copy' as const, url: '../outside.db' },
+    });
+    await expect(bad.acquire(sessionA)).rejects.toThrow();
+    expect(new LeaseRepo(db).listActive('port').filter((l) => l.sessionId === sessionA)).toEqual([]);
+    expect(new LeaseRepo(db).listActive('docker').filter((l) => l.sessionId === sessionA)).toEqual([]);
+    expect(existsSync(join(dir, '.crossweave', 'cache', sessionA))).toBe(false);
+    const a = await manager.acquire(sessionB);
+    expect(new LeaseRepo(db).listActive('port').map((l) => l.value)).toEqual([a.CW_PORT_BASE!]);
+  });
+
   /**
    * The milestone's headline claim. `allocatePortBlock` snapshots the leased set once
    * and then yields at `await isPortFree`, and the winning candidate's lease row is

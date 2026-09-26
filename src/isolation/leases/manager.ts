@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Database } from 'bun:sqlite';
 import { newId } from '../../core/ids.js';
@@ -39,6 +39,19 @@ export class LeaseManager {
   }
 
   async acquire(sessionId: string): Promise<Record<string, string>> {
+    try {
+      return await this.acquireAll(sessionId);
+    } catch (err) {
+      // All or nothing. A step failing after the port and docker rows were written
+      // left them held with no agent to ever exit and release them, so each failed
+      // start burned a port block until NO_PORTS_AVAILABLE.
+      this.leases.release(sessionId);
+      rmSync(join(crossweaveDir(this.projectRoot), 'cache', sessionId), { recursive: true, force: true });
+      throw err;
+    }
+  }
+
+  private async acquireAll(sessionId: string): Promise<Record<string, string>> {
     const env: Record<string, string> = {};
 
     const base = await allocatePortBlock(this.leases, this.config);
