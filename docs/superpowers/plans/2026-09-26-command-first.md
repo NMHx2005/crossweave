@@ -7,7 +7,7 @@ buttons hidden by default (can be turned on); (3) fix everything in the external
 review (phases A–D below).
 **Tier:** Large — a schema migration, RPC params, the gateway boundary, cockpit layout.
 **Branch:** `feat/command-first`, one commit per task, reported per phase.
-**Status:** in progress.
+**Status:** done (2026-09-26), phases A–D. Gaps: `2026-09-26-command-first-known-limitations.md`.
 
 ## Decisions (asked, answered)
 

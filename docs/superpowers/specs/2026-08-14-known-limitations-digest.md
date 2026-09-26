@@ -142,3 +142,4 @@ work closed these previously recorded gaps:
 - `2026-09-26-audit-fixes-known-limitations.md` — gateway fail-closed, E2E fail-closed/AAD, gc keeps unlanded work, daemon socket watchdog; working browser client (control-token viewers decrypt in-browser; read-token viewers cannot)
 - `2026-09-26-terminal-pane-known-limitations.md` — cockpit Terminal pane: a shell in a session's worktree, sandboxed but not guarded by Radar; cockpit-only, ephemeral
 - `2026-09-26-deck-parity-known-limitations.md` — agent catalog (only Claude guarded), resume/latest words from agents' private logs, sandbox network on by default, tabs/splits/file/browser panes, Settings
+- `2026-09-26-command-first-known-limitations.md` — create ≠ start (launch line, per-session flags, local-only), ⌘K command bar, Changes pane (commits only, 512 KB), review fixes; Telex duplication unconfirmed; TUI key hints and web palette open
