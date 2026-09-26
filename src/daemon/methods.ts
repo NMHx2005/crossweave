@@ -724,8 +724,13 @@ export function buildMethods(
       // as the pair's latest pairwise result.
       const pairwise: { a: string; b: string; result: string }[] = [];
       const seen = new Set<string>();
+      // Only pairs of sessions that still exist: trial history outlives its
+      // sessions, and listing all of it kept showing a landed-and-removed pair's
+      // old conflict as if it were current.
+      const activeBranches = new Set(active.map((s) => s.branch as string));
       for (const trial of [...trials].reverse()) {
         if (!isPairwiseTrial(trial) || trial.branches.length !== 2) continue;
+        if (!trial.branches.every((b) => activeBranches.has(b))) continue;
         const key = [...trial.branches].sort().join('|');
         if (seen.has(key)) continue;
         seen.add(key);

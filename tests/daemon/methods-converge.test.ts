@@ -106,6 +106,42 @@ describe('converge.status RPC', () => {
     await fixture.cleanup();
   });
 
+  // Trial history outlives sessions. Listing it all kept showing
+  // `cw/alpha <-> cw/beta conflict` after both sessions were landed and removed.
+  test('the pairwise matrix only lists pairs whose sessions are both still active', async () => {
+    const fixture = await makeGitFixture();
+    const db = openDatabase(':memory:');
+    new WorkspaceRepo(db).insert({
+      id: 'ws_1', name: 'w', rootPath: fixture.root, createdAt: 'now',
+      defaultIsolation: 'worktree', safeModeTier: 'T1',
+    });
+    const sessions = new SessionRepo(db);
+    for (const [id, name] of [['s_a', 'a'], ['s_b', 'b']] as const) {
+      sessions.insert({
+        id, workspaceId: 'ws_1', name, agentKind: 'claude', adapter: 'claude',
+        status: 'running', worktreePath: tmpdir(), branch: `cw/${name}`, createdAt: 'now',
+        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null,
+      });
+    }
+    const trials = new MergeTrialRepo(db);
+    const trial = (id: string, branches: string[]) => trials.insert({
+      id, workspaceId: 'ws_1', ts: 'now', branches, result: 'conflict', detail: null, baseHead: 'x', pairwise: true,
+    });
+    trial('mt_1', ['cw/a', 'cw/b']);
+    trial('mt_2', ['cw/a', 'cw/gone']);
+    trial('mt_3', ['cw/old1', 'cw/old2']);
+    try {
+      const methods = buildMethods(db, fixture.root);
+      const result = (await methods['converge.status']!(
+        { workspaceId: 'ws_1' },
+        { notify: () => undefined, onClose: () => undefined },
+      )) as { pairwise: { a: string; b: string }[] };
+      expect(result.pairwise.map((p) => [p.a, p.b].sort().join('|'))).toEqual(['cw/a|cw/b']);
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
   test('reports the pairwise matrix and recommended order from seeded trial data', async () => {
     const fixture = await makeGitFixture();
     const db = openDatabase(':memory:');
