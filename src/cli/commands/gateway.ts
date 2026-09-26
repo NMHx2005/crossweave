@@ -17,16 +17,20 @@ export const gatewayCommand = defineCommand({
       },
       async run({ args }) {
         try {
-          const { findProjectRoot } = await import('../../core/paths.js');
           const { join } = await import('node:path');
           const { crossweaveDir } = await import('../../core/paths.js');
+          const { createGatewayHttpServer, attachGatewayWs } = await import('../../gateway/server.js');
           const root = findProjectRoot(process.cwd());
-          const { createGatewayHttpServer } = await import('../../gateway/server.js');
-          const { readFileSync } = await import('node:fs');
+          const socketPath = join(crossweaveDir(root), 'daemon.sock');
+          // The gateway refuses every client until a token exists, so serving without
+          // one would be a gateway nobody can use — issue it here rather than fail.
+          if (readGatewayToken(root, 'control') === undefined) {
+            issueGatewayToken(root, 'control');
+            process.stdout.write('issued a gateway control token — show it with `cw gateway token`\n');
+          }
           const port = Number(args.port);
-          const server = createGatewayHttpServer({ socketPath: join(crossweaveDir(root), 'daemon.sock'), port, host: args.host, cert: args.cert, key: args.key, allowInsecure: args['allow-insecure'] });
-          const { attachGatewayWs } = await import('../../gateway/server.js');
-          await attachGatewayWs(server as unknown as ReturnType<typeof import('node:http').createServer>, { socketPath: join(crossweaveDir(root), 'daemon.sock'), port, host: args.host });
+          const server = createGatewayHttpServer({ socketPath, port, host: args.host, cert: args.cert, key: args.key, allowInsecure: args['allow-insecure'] });
+          await attachGatewayWs(server, { socketPath, port, host: args.host, projectRoot: root });
           server.listen(port, args.host, () => process.stdout.write(`gateway listening on ${args.host}:${port}\n`));
         } catch (err) { fail(err); }
       },

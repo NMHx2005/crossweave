@@ -1,7 +1,12 @@
 import { createServer as createHttpServer } from 'node:http';
 import { createServer as createHttpsServer } from 'node:https';
-import { readFileSync } from 'node:fs';
+import type { IncomingMessage } from 'node:http';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { CrossweaveError } from '../core/errors.js';
+import { assertContained } from '../core/paths.js';
+import type { ClientTransport } from '../client/transport.js';
+import { createGatewayTransport, type GatewayOptions } from './gateway.js';
 
 export interface GatewayServerOptions {
   socketPath: string;
@@ -23,27 +28,95 @@ export function validateGatewayServerOptions(opts: GatewayServerOptions): void {
   }
 }
 
-export async function attachGatewayWs(server: ReturnType<typeof createHttpServer>, opts: GatewayServerOptions) {
-  // Lazy import ws to avoid hard dep when not serving
-  let WebSocketServer: unknown;
-  try { WebSocketServer = (await import('ws' as unknown as string)).WebSocketServer; } catch { return; }
-  const wss = new (WebSocketServer as unknown as { new(opts: { server: unknown; path: string }): { on: (ev: string, cb: (ws: unknown) => void) => void } })({ server, path: '/ws' });
-  const { createGatewayTransport } = await import('./gateway.js');
-  const { readGatewayToken } = await import('./auth.js');
-  wss.on('connection', async (ws: unknown) => {
-    const sock = ws as { on: (ev: string, cb: (data: unknown) => void) => void; send: (d: string) => void; close: () => void; readyState: number };
-    // Build a ClientTransport over this WS
+/**
+ * Whether a WebSocket upgrade may proceed, judged by its Origin.
+ *
+ * WebSocket is exempt from the same-origin policy, so without this any page the
+ * user's browser has open could dial ws://127.0.0.1:<port>/ws (or reach it through
+ * DNS rebinding) and start guessing at the token. A browser always sends Origin; the
+ * only page allowed is one served by this gateway itself. No Origin at all means a
+ * non-browser client (the CLI, a script), which the token alone governs.
+ */
+export function isAllowedOrigin(origin: string | undefined, host: string | undefined): boolean {
+  if (origin === undefined || origin === '') return true;
+  if (host === undefined || host === '') return false;
+  try {
+    return new URL(origin).host === host;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The file under `webRoot` a request URL names, or undefined when it is missing,
+ * a directory, or outside `webRoot`. `join` alone resolved `/../../.crossweave/
+ * gateway.token` to the token file itself, which is a control credential.
+ */
+export function resolveWebPath(webRoot: string, reqUrl: string): string | undefined {
+  let urlPath: string;
+  try {
+    urlPath = decodeURIComponent(reqUrl.split('?')[0] ?? '/');
+  } catch {
+    return undefined;
+  }
+  const rel = urlPath === '/' ? 'index.html' : urlPath.replace(/^\/+/, '');
+  if (rel.includes('\0')) return undefined;
+  let filePath: string;
+  try {
+    filePath = assertContained(webRoot, rel);
+  } catch {
+    return undefined;
+  }
+  if (!existsSync(filePath) || statSync(filePath).isDirectory()) return undefined;
+  return filePath;
+}
+
+interface WsSocket {
+  on(ev: 'message', cb: (data: unknown) => void): void;
+  on(ev: 'close', cb: () => void): void;
+  on(ev: 'error', cb: (err: Error) => void): void;
+  send(d: string): void;
+  close(code?: number, reason?: string): void;
+  readyState: number;
+}
+
+export async function attachGatewayWs(
+  server: ReturnType<typeof createHttpServer>,
+  opts: GatewayServerOptions & { projectRoot?: string; connectDaemon?: GatewayOptions['connectDaemon'] },
+): Promise<void> {
+  // Bun ships `ws` built in, so there is no dependency (and no @types/ws) to import
+  // it by name; the non-literal specifier keeps tsc from demanding declarations.
+  const { WebSocketServer }: {
+    WebSocketServer: new (o: { server: unknown; path: string }) => {
+      on(ev: 'connection', cb: (ws: unknown, req: IncomingMessage) => void): void;
+    };
+  } = await import('ws' as string);
+  const wss = new WebSocketServer({ server, path: '/ws' });
+  // Tokens are read from disk per connection (via verifyToken), so `cw gateway
+  // token --rotate` and `revoke` take effect for the next client without a restart.
+  const projectRoot = opts.projectRoot ?? dirname(dirname(opts.socketPath));
+  wss.on('connection', (ws: unknown, req: IncomingMessage) => {
+    const sock = ws as WsSocket;
+    if (!isAllowedOrigin(req.headers.origin, req.headers.host)) {
+      sock.close(1008, 'Origin not allowed');
+      return;
+    }
     const dataSubs: Array<(c: Buffer | string) => void> = [];
-    const transport = {
+    const transport: ClientTransport = {
       write(f: string) { try { sock.send(f); } catch {} },
-      onData(cb: (c: Buffer | string) => void) { dataSubs.push(cb); },
-      onEnd(cb: () => void) {}, onError(cb: (e: Error) => void) {}, onClose(cb: () => void) { sock.on('close', () => cb()); },
-      isWritable() { return true; }, close() { try { sock.close(); } catch {} },
+      onData(cb) { dataSubs.push(cb); },
+      onEnd(cb) { sock.on('close', cb); },
+      onError(cb) { sock.on('error', cb); },
+      onClose(cb) { sock.on('close', cb); },
+      isWritable() { return sock.readyState === 1; },
+      close() { try { sock.close(); } catch {} },
     };
     sock.on('message', (data: unknown) => { const text = String(data); for (const cb of dataSubs) cb(text); });
-    const base = opts.socketPath.replace('/.crossweave/daemon.sock','');
-  const token = readGatewayToken(base, 'control') ?? readGatewayToken(base);
-    await createGatewayTransport(transport as unknown as import('../client/transport.js').ClientTransport, { socketPath: opts.socketPath, requireToken: token ?? undefined, projectRoot: base });
+    createGatewayTransport(transport, {
+      socketPath: opts.socketPath,
+      projectRoot,
+      ...(opts.connectDaemon ? { connectDaemon: opts.connectDaemon } : {}),
+    }).catch(() => sock.close(1011, 'Daemon unreachable'));
   });
 }
 
@@ -63,17 +136,15 @@ export function createGatewayHttpServer(opts: GatewayServerOptions & { webRoot?:
     server = createHttpServer();
   }
   if (opts.webRoot) {
-    const { existsSync, readFileSync: rf, statSync } = require('node:fs');
-    const { join } = require('node:path');
+    const webRoot = opts.webRoot;
     server.on('request', (req, res) => {
       if (!req.url || req.url.startsWith('/ws')) return;
-      const urlPath = req.url.split('?')[0] ?? '/';
-      const filePath = join(opts.webRoot!, urlPath === '/' ? 'index.html' : urlPath.replace(/^\//, ''));
-      if (!existsSync(filePath) || statSync(filePath).isDirectory()) {
+      const filePath = resolveWebPath(webRoot, req.url);
+      if (filePath === undefined) {
         res.writeHead(404).end('not found');
         return;
       }
-      const body = rf(filePath);
+      const body = readFileSync(filePath);
       const ext = filePath.split('.').pop();
       const ct = ext === 'html' ? 'text/html' : ext === 'js' ? 'application/javascript' : ext === 'css' ? 'text/css' : 'text/plain';
       res.writeHead(200, { 'Content-Type': ct }).end(body);
