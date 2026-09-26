@@ -74,7 +74,7 @@ function makeBridge(overrides?: {
 }
 
 describe('notification filter', () => {
-  test('forwards session.data, session.exit, tui.event, tui.invalidate only', () => {
+  test('forwards session, terminal and tui notifications only', () => {
     expect(isForwardedNotification('session.data')).toBe(true)
     expect(isForwardedNotification('session.exit')).toBe(true)
     expect(isForwardedNotification('tui.event')).toBe(true)
@@ -351,5 +351,15 @@ describe('DaemonBridge', () => {
     expect(result).toMatchObject({ workspace: { id: 'ws_1' } })
     expect(second.calls.map((c) => c.method)).toEqual(['workspace.init', 'daemon.subscribe'])
     await expect(bridge.handle('session.list')).resolves.toEqual([{ id: 's1', name: 'alpha' }])
+  })
+})
+
+describe('terminal notifications', () => {
+  test('forwards terminal.data with its terminal id and the chunk encoded like session.data', async () => {
+    const { encodeTerminalData, isForwardedNotification } = await import('../electron/daemon-bridge')
+    expect(isForwardedNotification('terminal.data')).toBe(true)
+    expect(isForwardedNotification('terminal.exit')).toBe(true)
+    expect(encodeTerminalData({ terminalId: 't_1', sessionId: 's_1', chunk: '$ ls\r\n' }))
+      .toEqual({ terminalId: 't_1', sessionId: 's_1', chunk: '$ ls\r\n' })
   })
 })

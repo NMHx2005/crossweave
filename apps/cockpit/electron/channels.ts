@@ -18,6 +18,13 @@ export const COCKPIT_CHANNELS = [
   'usage.summary', 'workspace.openFile', 'workspace.listFiles',
   'session.wait',
   'session.unwait',
+  // The Terminal pane: a shell the daemon runs in a session's worktree.
+  'terminal.open',
+  'terminal.list',
+  'terminal.attach',
+  'terminal.input',
+  'terminal.resize',
+  'terminal.close',
 ] as const
 
 export type CockpitChannel = (typeof COCKPIT_CHANNELS)[number]
@@ -33,6 +40,8 @@ export const COCKPIT_EVENTS = [
   'tui.event',
   'tui.invalidate',
   'daemon.gone',
+  'terminal.data',
+  'terminal.exit',
 ] as const
 
 export type CockpitEvent = (typeof COCKPIT_EVENTS)[number]

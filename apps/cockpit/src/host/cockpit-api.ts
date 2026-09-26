@@ -14,6 +14,12 @@ export type SessionAttachResult = {
   name: string
 }
 
+export type TerminalInfo = {
+  terminalId: string
+  sessionId: string
+  sessionName: string
+}
+
 export function cockpitInvoke<T = unknown>(channel: CockpitChannel, payload?: unknown): Promise<T> {
   return window.cockpit.invoke(channel, payload) as Promise<T>
 }
@@ -72,6 +78,30 @@ export const cockpitApi = {
   },
   usageSummary(payload?: { groupBy?: string }): Promise<unknown> {
     return cockpitInvoke('usage.summary', payload)
+  },
+  openTerminal(idOrName: string): Promise<TerminalInfo> {
+    return cockpitInvoke('terminal.open', { idOrName })
+  },
+  listTerminals(): Promise<TerminalInfo[]> {
+    return cockpitInvoke('terminal.list')
+  },
+  attachTerminal(terminalId: string): Promise<unknown> {
+    return cockpitInvoke('terminal.attach', { terminalId })
+  },
+  terminalInput(terminalId: string, data: string): Promise<unknown> {
+    return cockpitInvoke('terminal.input', { terminalId, data })
+  },
+  resizeTerminal(terminalId: string, cols: number, rows: number): Promise<unknown> {
+    return cockpitInvoke('terminal.resize', { terminalId, cols, rows })
+  },
+  closeTerminal(terminalId: string): Promise<unknown> {
+    return cockpitInvoke('terminal.close', { terminalId })
+  },
+  onTerminalData(cb: (payload: unknown) => void): () => void {
+    return cockpitListen('terminal.data', cb)
+  },
+  onTerminalExit(cb: (payload: unknown) => void): () => void {
+    return cockpitListen('terminal.exit', cb)
   },
   onSessionData(cb: (payload: unknown) => void): () => void {
     return cockpitListen('session.data', cb)

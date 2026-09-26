@@ -23,7 +23,7 @@ export type DaemonBridgeDeps = {
   exists?: (path: string) => boolean
 }
 
-const FORWARDED = new Set<string>(['session.data', 'session.exit', 'tui.event', 'tui.invalidate'])
+const FORWARDED = new Set<string>(['session.data', 'session.exit', 'tui.event', 'tui.invalidate', 'terminal.data', 'terminal.exit'])
 
 export function isForwardedNotification(method: string): method is Exclude<CockpitEvent, 'daemon.gone'> {
   return FORWARDED.has(method)
@@ -40,6 +40,13 @@ export function encodeSessionData(params: unknown): { sessionId: string; chunk: 
     return { sessionId, chunk: Buffer.from(chunk).toString('base64'), encoding: 'base64' }
   }
   return { sessionId, chunk: '' }
+}
+
+/** terminal.data is session.data plus the terminal's own id, which panes filter on. */
+export function encodeTerminalData(params: unknown): { terminalId: string; sessionId: string; chunk: string; encoding?: 'base64' } {
+  const record = asRecord(params)
+  const terminalId = typeof record.terminalId === 'string' ? record.terminalId : ''
+  return { terminalId, ...encodeSessionData(params) }
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -161,7 +168,9 @@ export class DaemonBridge {
 
   private forward(method: string, params: unknown): void {
     if (!isForwardedNotification(method)) return
-    const payload = method === 'session.data' ? encodeSessionData(params) : (params ?? {})
+    const payload = method === 'session.data'
+      ? encodeSessionData(params)
+      : method === 'terminal.data' ? encodeTerminalData(params) : (params ?? {})
     this.deps.send(method, payload)
   }
 }

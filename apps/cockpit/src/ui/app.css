@@ -501,3 +501,38 @@ body,
     animation-duration: 0.01ms !important;
   }
 }
+
+/* Terminal pane: the shell's header says whose worktree it is, and that its writes are
+   not guarded — a shell has no hook for Collision Radar to stop. */
+.cockpit-pane-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--cw-space-2);
+  padding: var(--cw-space-1) var(--cw-space-2);
+  border-bottom: var(--cw-hairline) solid var(--cw-border);
+  background: var(--cw-surface);
+  color: var(--cw-text);
+  font-size: var(--cw-fs-sm);
+}
+
+.cockpit-pane-bar__note {
+  padding: 0 var(--cw-space-1);
+  border-radius: var(--cw-radius-sm);
+  background: var(--cw-surface-badge);
+  color: var(--cw-text-dim);
+  font-size: var(--cw-fs-micro);
+}
+
+.cockpit-pane-bar__close {
+  margin-left: auto;
+  padding: 0 var(--cw-space-2);
+  background: none;
+  border: none;
+  color: var(--cw-text-dim);
+  font-size: var(--cw-fs);
+  cursor: pointer;
+}
+
+.cockpit-pane-bar__close:hover {
+  color: var(--cw-text-bright);
+}

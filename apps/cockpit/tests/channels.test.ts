@@ -41,3 +41,17 @@ describe('the session.exit event', () => {
     expect(isForwardedNotification('session.something-else')).toBe(false)
   })
 })
+
+describe('terminal channels', () => {
+  // The Terminal pane's shell lives in the daemon; the renderer only reaches it
+  // through these named channels and events.
+  test('allows the terminal RPCs and events, and nothing broader', async () => {
+    const { isCockpitChannel, isCockpitEvent } = await import('../electron/channels')
+    for (const ch of ['terminal.open', 'terminal.list', 'terminal.attach', 'terminal.input', 'terminal.resize', 'terminal.close']) {
+      expect(isCockpitChannel(ch)).toBe(true)
+    }
+    expect(isCockpitEvent('terminal.data')).toBe(true)
+    expect(isCockpitEvent('terminal.exit')).toBe(true)
+    expect(isCockpitChannel('terminal.exec')).toBe(false)
+  })
+})

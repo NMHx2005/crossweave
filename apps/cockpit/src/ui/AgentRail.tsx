@@ -16,6 +16,8 @@ export type AgentRailProps = {
   onStart: () => void
   onStop: () => void
   onKill: () => void
+  /** Open a shell in the focused session's worktree. */
+  onTerminal: () => void
 }
 
 /** Deck's "Recent activity" shows the latest five unread; "View all" is the history. */
@@ -32,6 +34,7 @@ export function AgentRail({
   onStart,
   onStop,
   onKill,
+  onTerminal,
 }: AgentRailProps) {
   const [showAll, setShowAll] = useState(false)
   const focusedRunning =
@@ -61,6 +64,14 @@ export function AgentRail({
         </button>
         <button type="button" onClick={onKill} disabled={!focusedId}>
           Kill
+        </button>
+        <button
+          type="button"
+          onClick={onTerminal}
+          disabled={!focusedId}
+          title={focusedId ? "Open a shell in this session's worktree" : undefined}
+        >
+          Terminal
         </button>
       </div>
       {/* What happened while you were looking elsewhere. Selecting one is what clears it —

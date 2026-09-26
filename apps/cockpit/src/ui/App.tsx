@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { ActivityFeed, activityFromEvent, type ActivityItem } from '../../../../src/domain/activity.js'
-import { cockpitApi, type ListedSession } from '../host/cockpit-api'
+import { cockpitApi, type ListedSession, type TerminalInfo } from '../host/cockpit-api'
 import {
   blockedSessionFromEvent,
   deriveAttention,
@@ -27,7 +27,8 @@ import {
   type LandResult,
 } from '../lib/land-actions'
 import { AgentRail } from './AgentRail'
-import { pickPaneSessions, Stage, type StageStatus } from './Stage'
+import { Stage, type StageStatus } from './Stage'
+import { pickPaneSessions } from '../lib/panes'
 import { sessionsThatStartedRunning } from '../lib/sessions'
 
 const EMPTY_CONVERGE: ConvergeStatus = { ready: [], unknown: [], blocked: [] }
@@ -44,6 +45,8 @@ export function App() {
   const [blockedNames, setBlockedNames] = useState<ReadonlySet<string>>(() => new Set())
   const [landBusy, setLandBusy] = useState(false)
   const [landMessage, setLandMessage] = useState<string | null>(null)
+  const [terminals, setTerminals] = useState<TerminalInfo[]>([])
+  const [focusedTerminalId, setFocusedTerminalId] = useState<string | null>(null)
   const [usageRows, setUsageRows] = useState<{ date: string; agentKind: string; sessions: number; tokens: number; costUsd: number }[] | null>(null)
   const [paneAttachEpoch, setPaneAttachEpoch] = useState(0)
   const [paneAttachBumps, setPaneAttachBumps] = useState<Record<string, number>>({})
@@ -76,6 +79,12 @@ export function App() {
         })
       }
       setSessions(loaded.sessions)
+      // Listed from the daemon, not kept only in this window: a reload must find the
+      // shells it had open rather than leave them running with no pane.
+      const openTerminals = await cockpitApi.listTerminals().catch(() => [] as TerminalInfo[])
+      if (cancelledRef.current) return
+      setTerminals(openTerminals)
+      setFocusedTerminalId((current) => (current && openTerminals.some((t) => t.terminalId === current) ? current : null))
       setConverge(loaded.converge)
       setLandabilityByName(parseLandabilityByName(loaded.converge))
       setJournalTabs(loaded.journalTabs)
@@ -184,6 +193,7 @@ export function App() {
    */
   function focusSession(sessionId: string): void {
     setFocusedId(sessionId)
+    setFocusedTerminalId(null)
     const session = sessions.find((s) => s.id === sessionId)
     if (!session) return
     feedRef.current.ack(session.name)
@@ -225,6 +235,19 @@ export function App() {
     // there, the same way as when the CLI or another window starts it. Bumping here
     // as well would remount the pane twice.
     await runAction(() => cockpitApi.resumeSession(target))
+  }
+
+  async function handleTerminal(): Promise<void> {
+    if (!focused) return
+    const target = focused.id
+    await runAction(async () => {
+      const opened = await cockpitApi.openTerminal(target)
+      setFocusedTerminalId(opened.terminalId)
+    })
+  }
+
+  async function handleCloseTerminal(terminalId: string): Promise<void> {
+    await runAction(() => cockpitApi.closeTerminal(terminalId))
   }
 
   async function handleStop(): Promise<void> {
@@ -331,6 +354,9 @@ export function App() {
         onKill={() => {
           void handleKill()
         }}
+        onTerminal={() => {
+          void handleTerminal()
+        }}
       />
       <Stage
         sessions={orderedSessions}
@@ -340,6 +366,12 @@ export function App() {
         paneAttachEpoch={paneAttachEpoch}
         paneAttachBumps={paneAttachBumps}
         onFocus={focusSession}
+        terminals={terminals}
+        focusedTerminalId={focusedTerminalId}
+        onFocusTerminal={setFocusedTerminalId}
+        onCloseTerminal={(terminalId) => {
+          void handleCloseTerminal(terminalId)
+        }}
       />
       {usageRows !== null && usageRows.length > 0 ? (
         <section class="cockpit-usage" aria-label="Usage summary">

@@ -1,5 +1,7 @@
-import type { ListedSession } from '../host/cockpit-api'
+import type { ListedSession, TerminalInfo } from '../host/cockpit-api'
+import { sessionSource, terminalSource } from '../lib/pane-source'
 import { XtermPane } from './XtermPane'
+import { pickPanes } from '../lib/panes'
 
 export type StageStatus = 'loading' | 'ready' | 'empty' | 'error'
 
@@ -14,20 +16,11 @@ export type StageProps = {
   /** Per-session re-attach counters, so a Start re-keys only the pane that asked. */
   paneAttachBumps?: Record<string, number>
   onFocus?: (sessionId: string) => void
-}
-
-const MAX_PANES = 4
-
-export function pickPaneSessions(
-  sessions: ListedSession[],
-  focusedId: string | null,
-  max = MAX_PANES,
-): ListedSession[] {
-  if (sessions.length <= max) return sessions
-  const focused = focusedId ? sessions.find((session) => session.id === focusedId) : undefined
-  const rest = sessions.filter((session) => session.id !== focusedId)
-  if (focused) return [focused, ...rest.slice(0, max - 1)]
-  return rest.slice(0, max)
+  /** Open Terminal panes (shells in a session's worktree). */
+  terminals?: TerminalInfo[]
+  focusedTerminalId?: string | null
+  onFocusTerminal?: (terminalId: string) => void
+  onCloseTerminal?: (terminalId: string) => void
 }
 
 export function Stage({
@@ -38,8 +31,12 @@ export function Stage({
   paneAttachEpoch = 0,
   paneAttachBumps = {},
   onFocus,
+  terminals = [],
+  focusedTerminalId = null,
+  onFocusTerminal,
+  onCloseTerminal,
 }: StageProps) {
-  const panes = pickPaneSessions(sessions, focusedId)
+  const panes = pickPanes(sessions, terminals, focusedId)
   const focused = sessions.find((session) => session.id === focusedId) ?? null
   const showPanes = status === 'ready' || (status === 'error' && panes.length > 0)
 
@@ -70,23 +67,59 @@ export function Stage({
       )}
       {showPanes && panes.length > 0 && (
         <div class="cockpit-stage__grid" data-count={String(panes.length)}>
-          {panes.map((session) => (
-            <div
-              key={session.id}
-              class={
-                session.id === focusedId
-                  ? 'cockpit-stage__pane is-focused'
-                  : 'cockpit-stage__pane'
-              }
-              onClick={() => onFocus?.(session.id)}
-            >
-              <XtermPane
-                key={`${session.id}:${paneAttachEpoch}:${paneAttachBumps[session.id] ?? 0}`}
-                sessionId={session.id}
-                focused={session.id === focusedId}
-              />
-            </div>
-          ))}
+          {panes.map((pane) => {
+            if (pane.kind === 'terminal') {
+              const { terminal } = pane
+              const isFocused = terminal.terminalId === focusedTerminalId
+              return (
+                <div
+                  key={`terminal:${terminal.terminalId}`}
+                  class={isFocused ? 'cockpit-stage__pane cockpit-stage__pane--terminal is-focused' : 'cockpit-stage__pane cockpit-stage__pane--terminal'}
+                  onClick={() => onFocusTerminal?.(terminal.terminalId)}
+                >
+                  <div class="cockpit-pane-bar">
+                    {/* Honest about coverage: a shell has no hook, so Radar cannot stop its writes. */}
+                    <span>{terminal.sessionName} · shell</span>
+                    <span class="cockpit-pane-bar__note" title="Writes typed here are not checked by Collision Radar">not guarded</span>
+                    <button
+                      type="button"
+                      class="cockpit-pane-bar__close"
+                      aria-label={`Close ${terminal.sessionName} shell`}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onCloseTerminal?.(terminal.terminalId)
+                      }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <XtermPane
+                    key={`terminal:${terminal.terminalId}:${paneAttachEpoch}`}
+                    source={terminalSource(terminal.terminalId)}
+                    focused={isFocused}
+                  />
+                </div>
+              )
+            }
+            const { session } = pane
+            return (
+              <div
+                key={session.id}
+                class={
+                  session.id === focusedId && focusedTerminalId === null
+                    ? 'cockpit-stage__pane is-focused'
+                    : 'cockpit-stage__pane'
+                }
+                onClick={() => onFocus?.(session.id)}
+              >
+                <XtermPane
+                  key={`${session.id}:${paneAttachEpoch}:${paneAttachBumps[session.id] ?? 0}`}
+                  source={sessionSource(session.id)}
+                  focused={session.id === focusedId && focusedTerminalId === null}
+                />
+              </div>
+            )
+          })}
         </div>
       )}
     </main>
