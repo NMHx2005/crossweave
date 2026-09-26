@@ -20,7 +20,8 @@ export interface AgentDef {
   builtin: boolean;
 }
 
-export type EditorKind = 'vscode' | 'cursor' | 'zed' | 'custom';
+/** `cockpit`: Cmd+click opens the file in the cockpit's own editor pane. */
+export type EditorKind = 'vscode' | 'cursor' | 'zed' | 'custom' | 'cockpit';
 
 export interface EditorSetting {
   kind: EditorKind;
@@ -47,7 +48,7 @@ export const BUILTIN_AGENTS: readonly AgentDef[] = [
   { id: 'antigravity', label: 'Antigravity', command: 'agy', enabled: true, builtin: true },
 ];
 
-const EDITORS: ReadonlySet<string> = new Set(['vscode', 'cursor', 'zed', 'custom']);
+const EDITORS: ReadonlySet<string> = new Set(['vscode', 'cursor', 'zed', 'custom', 'cockpit']);
 const AGENT_ID = /^[a-z0-9][a-z0-9-]{0,31}$/;
 
 /** Shell-style word splitting — quotes and backslash escapes — without a shell. */

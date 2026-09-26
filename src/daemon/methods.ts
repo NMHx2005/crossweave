@@ -660,7 +660,10 @@ export function buildMethods(
     'git.branches': () => new Promise<string[]>((resolve) => {
       execFile('git', ['for-each-ref', '--format=%(refname:short)', '--sort=-committerdate', 'refs/heads/'],
         { cwd: projectRoot, encoding: 'utf8' },
-        (err, stdout) => resolve(err ? [] : String(stdout).split('\n').filter((b) => b !== '')));
+        // cw/integration and cw/trial are crossweave's own scratch branches, reset on
+        // every trial — nothing a session should start from.
+        (err, stdout) => resolve(err ? [] : String(stdout).split('\n')
+          .filter((b) => b !== '' && b !== 'cw/integration' && b !== 'cw/trial')));
     }),
 
     'terminal.open': (p) => {

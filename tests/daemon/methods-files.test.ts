@@ -49,7 +49,10 @@ describe('file RPCs', () => {
       await $`git commit -q --allow-empty -m release-only`.cwd(t.fx.root).quiet();
       const tip = (await $`git rev-parse release`.cwd(t.fx.root).quiet().text()).trim();
       await $`git checkout -q main`.cwd(t.fx.root).quiet();
-      expect(await t.call('git.branches')).toContain('release');
+      await $`git branch cw/trial`.cwd(t.fx.root).quiet();
+      const branches = await t.call('git.branches') as string[];
+      expect(branches).toContain('release');
+      expect(branches).not.toContain('cw/trial');
       const row = await t.call('session.new', { name: 'rel', agent: 'claude', base: 'release' }) as { worktreePath: string };
       expect((await $`git rev-parse HEAD`.cwd(row.worktreePath).quiet().text()).trim()).toBe(tip);
     } finally {
