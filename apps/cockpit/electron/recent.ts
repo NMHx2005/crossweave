@@ -1,12 +1,12 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { app } from 'electron';
 
 function recentPath(): string {
   return join(app.getPath('userData'), 'recent.json');
 }
 
-function loadRecent(): string[] {
+export function loadRecent(): string[] {
   try {
     const raw = readFileSync(recentPath(), 'utf8');
     const v = JSON.parse(raw) as { recents?: unknown };
@@ -23,20 +23,13 @@ function saveRecent(list: string[]): void {
 }
 
 export function pushRecent(root: string): void {
-  const cur = loadRecent().filter((x) => x !== root);
-  cur.unshift(root);
+  // Normalised, so `/repo/` and `/repo` (or a `//` from a joined $TMPDIR) are one entry.
+  const normal = resolve(root);
+  const cur = loadRecent().filter((x) => x !== normal);
+  cur.unshift(normal);
   saveRecent(cur.slice(0, 10));
 }
 
 export function clearRecent(): void {
   saveRecent([]);
-}
-
-export function buildRecentSubmenu(open: (root: string) => void): Electron.MenuItemConstructorOptions[] {
-  const recents = loadRecent();
-  if (recents.length === 0) return [{ label: 'No Recent Folders', enabled: false }];
-  return recents.map((root) => ({
-    label: root,
-    click: () => open(root),
-  }));
 }

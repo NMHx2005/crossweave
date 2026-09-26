@@ -9,7 +9,8 @@ import { DaemonBridge } from './daemon-bridge'
 import { findCrossweaveRoot, resolveCockpitDaemonEntry } from './daemon-entry'
 import { projectRootFromAdditionalData, projectRootFromArgv, resolveLaunchProjectRoot } from './project-root'
 import { switchCockpitWorkspace } from './workspace-switch'
-import { pushRecent } from './recent.js'
+import { clearRecent, loadRecent, pushRecent } from './recent.js'
+import { recentMenuItems } from './recent-menu'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -30,7 +31,12 @@ function saveRoot(root: string): void {
   const file = savedRootPath()
   mkdirSync(dirname(file), { recursive: true })
   writeFileSync(file, `${JSON.stringify({ projectRoot: root })}\n`)
-  try { pushRecent(root); } catch {}
+  // Rebuilt here, after the push, so Open Recent lists the folder just opened. It
+  // used to be rebuilt before the switch had persisted anything, one switch behind.
+  try {
+    pushRecent(root)
+    buildMenu()
+  } catch {}
 }
 
 function sendToRenderers(event: CockpitEvent, payload: unknown): void {
@@ -76,14 +82,15 @@ function buildMenu(): void {
         },
         {
           label: 'Open Recent',
-          submenu: [
-            {
-              label: 'Clear Recent',
-              click: () => {
-                try { const { clearRecent } = require('./recent.js'); clearRecent(); } catch {}
-              },
+          submenu: recentMenuItems(loadRecent(), {
+            exists: existsSync,
+            home: app.getPath('home'),
+            open: (root) => { void switchWorkspace(root) },
+            clear: () => {
+              clearRecent()
+              buildMenu()
             },
-          ],
+          }),
         },
         { type: 'separator' as const },
         { role: 'close' as const },
@@ -106,19 +113,7 @@ function buildMenu(): void {
       ],
     },
   ];
-  // Keep File->Open Recent dynamic via recent.ts if available; fallback hides it
-  try {
-    const { buildRecentSubmenu } = require('./recent.js');
-    const recent = buildRecentSubmenu((root: string) => switchWorkspace(root));
-    if (recent && recent.length > 0) {
-      const file = template[0] as { submenu?: unknown[] };
-      const submenu = file.submenu as unknown[];
-      // Replace placeholder Open Recent submenu
-      const idx = submenu.findIndex((x: unknown) => (x as { label?: string }).label === 'Open Recent');
-      if (idx !== -1) submenu[idx] = { label: 'Open Recent', submenu: recent };
-    }
-  } catch {}
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template as never));
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
 
 function createBridge(): DaemonBridge {
@@ -179,8 +174,6 @@ async function switchWorkspace(projectRoot: string): Promise<void> {
   }
 
   try {
-    // Rebuild File->Open Recent so it shows immediately after switching
-    try { buildMenu(); } catch {}
     await switchCockpitWorkspace(projectRoot, {
       ensure: async (root) => {
         await bridge?.handle('workspace.ensure', { projectRoot: root })
