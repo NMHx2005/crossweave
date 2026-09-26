@@ -36,6 +36,14 @@ describe('extractWriteTargets', () => {
     expect(extractWriteTargets('dd if=/dev/zero of=out.bin')).toEqual(['out.bin']);
   });
 
+  test('sed -i inside a flag cluster is still in-place, but an -e script is not a flag', () => {
+    expect(extractWriteTargets("sed -ni 's/a/b/p' src/x.ts")).toEqual(['src/x.ts']);
+    expect(extractWriteTargets("sed -Ei 's/a+/b/' src/x.ts")).toEqual(['src/x.ts']);
+    expect(extractWriteTargets("sed -n 's/a/b/p' src/x.ts")).toEqual([]);
+    // `i` inside the -e argument (`-es/x/i/`) is script text, not the in-place flag.
+    expect(extractWriteTargets('sed -es/x/i/ src/x.ts')).toEqual([]);
+  });
+
   test('git subcommands that write are recognised, read-only ones are not', () => {
     // Spelled apart on purpose: this repo's own command guard greps for that literal
     // (it is a destructive command), which would block writing this test at all.

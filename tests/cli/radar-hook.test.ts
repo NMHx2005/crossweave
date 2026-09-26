@@ -239,6 +239,29 @@ describe('runRadarReindexHook (PostToolUse)', () => {
   });
 });
 
+describe('runRadarHook: Radar unreachable', () => {
+  const UNREACHABLE: RadarCheckFn = async () => { throw new Error('ECONNREFUSED'); };
+
+  // Fail-open is by design (a crashed hook must not block the agent), but it used to
+  // be silent: "no collision" and "could not check" produced identical output, so a
+  // T2 session whose daemon died looked enforced when nothing was being checked.
+  test('still allows, and says the edit was not checked', async () => {
+    const out = JSON.parse(await runRadarHook(stdinFor('Edit', join(cwd, 'src', 'x.ts')), UNREACHABLE, {
+      reportUnreachable: () => true,
+    }));
+    expect(out.hookSpecificOutput.permissionDecision).toBe('allow');
+    expect(out.hookSpecificOutput.additionalContext).toContain('NOT checked');
+  });
+
+  test('stays quiet when the notice was already given recently', async () => {
+    const out = JSON.parse(await runRadarHook(stdinFor('Write', join(cwd, 'src', 'x.ts')), UNREACHABLE, {
+      reportUnreachable: () => false,
+    }));
+    expect(out.hookSpecificOutput.permissionDecision).toBe('allow');
+    expect(out.hookSpecificOutput.additionalContext).toBeUndefined();
+  });
+});
+
 describe('runRadarHook: cwd reached through a symlink', () => {
   let realDir: string;
   let symlinkedCwd: string;

@@ -1,7 +1,9 @@
 import { defineCommand } from 'citty';
 import { execFileSync } from 'node:child_process';
-import { realpathSync } from 'node:fs';
-import { basename, dirname, relative } from 'node:path';
+import { createHash } from 'node:crypto';
+import { realpathSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { basename, dirname, join, relative } from 'node:path';
 import { currentWorkspaceId } from '../context.js';
 import { connectOrStart } from '../../client/rpc-client.js';
 import { loadConfig } from '../../core/config.js';
@@ -177,8 +179,46 @@ async function runShellAdvisory(
   );
 }
 
+const RADAR_UNREACHABLE =
+  'crossweave Radar could not reach its daemon, so this edit was NOT checked for collisions ' +
+  'with other sessions. Safe Mode is not enforcing anything until the daemon is back ' +
+  '(`cw daemon start`).';
+
+/** How long one "Radar unreachable" notice covers a worktree before it is repeated. */
+const UNREACHABLE_NOTICE_MS = 10 * 60_000;
+
+/**
+ * True when this worktree has not been told "Radar unreachable" in the last
+ * UNREACHABLE_NOTICE_MS. Each hook call is a fresh process, so the in-memory noise
+ * gate cannot rate-limit across calls; a marker file's mtime can. Any failure answers
+ * true — an extra notice is cheaper than a silent degradation.
+ */
+function unreachableNoticeDue(cwd: string): boolean {
+  const marker = join(tmpdir(), `cw-radar-unreachable-${createHash('sha1').update(cwd).digest('hex').slice(0, 16)}`);
+  try {
+    if (Date.now() - statSync(marker).mtimeMs < UNREACHABLE_NOTICE_MS) return false;
+  } catch {
+    // no marker yet
+  }
+  try {
+    writeFileSync(marker, '');
+  } catch {
+    // unwritable tmp: notice every time rather than never
+  }
+  return true;
+}
+
+export interface RadarHookOptions {
+  /** Whether to tell the agent Radar was unreachable; defaults to a rate-limited marker file. */
+  reportUnreachable?: (cwd: string) => boolean;
+}
+
 /** Exported for direct testing — see tests/cli/radar-hook.test.ts. Never throws: a hook that crashes must not block the agent. */
-export async function runRadarHook(stdin: string, check: RadarCheckFn): Promise<string> {
+export async function runRadarHook(
+  stdin: string,
+  check: RadarCheckFn,
+  opts: RadarHookOptions = {},
+): Promise<string> {
   let input: PreToolUseInput;
   try {
     input = JSON.parse(stdin) as PreToolUseInput;
@@ -232,7 +272,11 @@ export async function runRadarHook(stdin: string, check: RadarCheckFn): Promise<
 
     return allow(collisionMessage(notifiable, repoRelative, false));
   } catch {
-    return allow(); // daemon unreachable, RPC failed, etc. — degrade silently, never block
+    // Daemon unreachable, RPC failed, etc. Never a block — a hook that fails must not
+    // stop the agent — but not silent either: identical output for "no collision" and
+    // "could not check" let a T2 session look enforced while nothing was checked.
+    const report = opts.reportUnreachable ?? unreachableNoticeDue;
+    return allow(report(cwd) ? RADAR_UNREACHABLE : undefined);
   }
 }
 

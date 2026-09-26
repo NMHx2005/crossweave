@@ -180,12 +180,27 @@ function collectSegment(tokens: string[], out: string[]): void {
   }
 
   const command = basename(tokens[0] ?? '');
-  if (command === 'sed' && !tokens.some((t) => t.startsWith('-i') || t.startsWith('--in-place'))) {
+  if (command === 'sed' && !tokens.some(isSedInPlaceFlag)) {
     return; // a read-only sed invocation (including `-i` with a backup suffix, `-i.bak`)
   }
   for (const operand of operandsOf(tokens)) {
     if (operand !== '--') out.push(operand); // an argument separator, not a path
   }
+}
+
+/**
+ * Whether one sed argument turns on in-place editing: `--in-place`, or an `i`/`I`
+ * anywhere in a short-flag cluster (`-i`, `-ni`, `-Ei`) before a flag that takes the
+ * rest of the token as its argument — `-es/x/i/` is a script, not `-i`.
+ */
+function isSedInPlaceFlag(token: string): boolean {
+  if (token.startsWith('--')) return token.startsWith('--in-place');
+  if (!token.startsWith('-')) return false;
+  for (const flag of token.slice(1)) {
+    if (flag === 'i' || flag === 'I') return true;
+    if (flag === 'e' || flag === 'f' || flag === 'l') return false;
+  }
+  return false;
 }
 
 /** Deduplicated, capped, best-effort — see this module's header for what that means. */
