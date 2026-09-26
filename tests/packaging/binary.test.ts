@@ -1,10 +1,25 @@
 import { describe, it, expect, beforeAll } from 'bun:test';
-import { existsSync } from 'node:fs';
+import { existsSync, readlinkSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { makeGitFixture } from '../helpers/git-fixture.js';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
+
+/** Pids of compiled daemons whose working directory is `projectRoot`. */
+function daemonsServing(projectRoot: string): number[] {
+  const want = realpathSync(projectRoot);
+  const pids = Bun.spawnSync(['pgrep', '-f', cwdBin]).stdout.toString().split('\n').filter(Boolean).map(Number);
+  return pids.filter((pid) => {
+    try {
+      if (process.platform === 'linux') return readlinkSync(`/proc/${pid}/cwd`) === want;
+      const out = Bun.spawnSync(['lsof', '-a', '-p', String(pid), '-d', 'cwd', '-Fn']).stdout.toString();
+      return out.split('\n').some((l) => l === `n${want}`);
+    } catch {
+      return false; // exited between pgrep and the check
+    }
+  });
+}
 const cwBin = join(root, 'dist', 'cw');
 const cwdBin = join(root, 'dist', 'cwd');
 
@@ -29,6 +44,9 @@ describe('compiled binaries', () => {
 
   it('runs a real workspace lifecycle from the binary alone', async () => {
     const fx = await makeGitFixture();
+    const stop = (): Promise<number> => Bun.spawn([cwBin, 'daemon', 'stop'], {
+      cwd: fx.root, stdout: 'ignore', stderr: 'ignore',
+    }).exited;
     try {
       const init = Bun.spawn([cwBin, 'init'], { cwd: fx.root, stdout: 'pipe', stderr: 'pipe' });
       expect(await init.exited).toBe(0);
@@ -40,15 +58,17 @@ describe('compiled binaries', () => {
 
       // Awaited, not fire-and-forget: racing fx.cleanup() left a detached `cwd`
       // process alive on every run of this test.
-      await Bun.spawn([cwBin, 'daemon', 'stop'], {
-        cwd: fx.root, stdout: 'ignore', stderr: 'ignore',
-      }).exited;
+      await stop();
 
       // And ASSERTED, because the await alone guarded nothing: reverting it to
-      // fire-and-forget still passed 3/3 while daemons accumulated 1, 2, 3.
-      const survivors = Bun.spawnSync(['pgrep', '-f', cwdBin]);
-      expect(survivors.stdout.toString().trim()).toBe('');
+      // fire-and-forget still passed 3/3 while daemons accumulated 1, 2, 3. Scoped to
+      // daemons serving THIS fixture — a machine-wide pgrep failed whenever any other
+      // `dist/cwd` was running, including a real one the developer was using.
+      expect(daemonsServing(fx.root)).toEqual([]);
     } finally {
+      // Also on failure: an assertion above throwing used to skip the stop entirely,
+      // leaking a daemon per failed run.
+      await stop().catch(() => undefined);
       await fx.cleanup();
     }
   }, 120_000);
