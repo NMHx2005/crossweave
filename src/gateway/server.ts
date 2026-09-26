@@ -11,9 +11,22 @@ import indexHtml from './web/index.htm' with { type: 'text' };
 // @ts-expect-error TS1192 — Bun's text import yields this file's SOURCE as a string
 // (embedded in the compiled binary); tsc can only see the module itself.
 import appSource from './web/app.js' with { type: 'text' };
+// Served from the gateway itself, never a CDN: a third-party origin could change the
+// code that renders every session's output. Embedded like the page, so the compiled
+// binary carries them too.
+// @ts-expect-error TS1192 — a text import of a package file (see appSource above)
+import xtermJs from '@xterm/xterm/lib/xterm.mjs' with { type: 'text' };
+// @ts-expect-error TS1192 — as above
+import fitJs from '@xterm/addon-fit/lib/addon-fit.mjs' with { type: 'text' };
+// @ts-expect-error TS2307 — tsc has no module for a stylesheet; Bun reads it as text
+import xtermCss from '@xterm/xterm/css/xterm.css' with { type: 'text' };
 
 const SECURITY_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
+  // Same origin only. The page's one inline module script and xterm's inline styles
+  // need 'unsafe-inline'; no other origin may supply script, style or a connection.
+  'Content-Security-Policy':
+    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:",
   'Referrer-Policy': 'no-referrer',
   'Cache-Control': 'no-store',
 } as const;
@@ -31,6 +44,9 @@ export function builtInWebResponse(url: string): { status: number; type: string;
   if (path === '/' || path === '/index.html') {
     return { status: 200, type: 'text/html; charset=utf-8', body: indexHtml };
   }
+  if (path === '/vendor/xterm.mjs') return { status: 200, type: 'text/javascript; charset=utf-8', body: xtermJs as string };
+  if (path === '/vendor/addon-fit.mjs') return { status: 200, type: 'text/javascript; charset=utf-8', body: fitJs as string };
+  if (path === '/vendor/xterm.css') return { status: 200, type: 'text/css; charset=utf-8', body: xtermCss as string };
   if (path === '/app.js') {
     appJs ??= new Bun.Transpiler({ loader: 'ts' }).transformSync(appSource as string);
     return { status: 200, type: 'text/javascript; charset=utf-8', body: appJs };

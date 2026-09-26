@@ -165,6 +165,26 @@ describe('gateway HTTP without a webRoot', () => {
     }
   });
 
+  // The page loaded xterm from a CDN: a third party able to change the code that
+  // renders (and could read) every session's output. It is served from here now.
+  it('serves xterm itself, and the page loads nothing from another origin', async () => {
+    const s = await listen();
+    try {
+      const page = await (await get(s.port, '/')).text();
+      expect(page).not.toMatch(/(?:src|href|from)\s*=?\s*["']https?:/);
+      for (const [path, type] of [['/vendor/xterm.mjs', 'javascript'], ['/vendor/addon-fit.mjs', 'javascript'], ['/vendor/xterm.css', 'text/css']] as const) {
+        const res = await get(s.port, path);
+        expect(res.status).toBe(200);
+        expect(res.headers.get('content-type')).toContain(type);
+      }
+      const csp = (await get(s.port, '/')).headers.get('content-security-policy') ?? '';
+      expect(csp).toContain("default-src 'self'");
+      expect(csp).not.toContain('https:');
+    } finally {
+      await s.close();
+    }
+  });
+
   it('answers anything else with 404 instead of hanging', async () => {
     const s = await listen();
     try {

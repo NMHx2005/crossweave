@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>crossweave — remote</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css" />
+<link rel="stylesheet" href="./vendor/xterm.css" />
 <style>
   :root {
     color-scheme: dark;
@@ -63,8 +63,8 @@
   <footer><span id="status">Connecting…</span></footer>
 </div>
 <script type="module">
-import { Terminal } from 'https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/+esm';
-import { FitAddon } from 'https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/+esm';
+import { Terminal } from './vendor/xterm.mjs';
+import { FitAddon } from './vendor/addon-fit.mjs';
 import { startWebApp } from './app.js';
 
 startWebApp({
