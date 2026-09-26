@@ -171,13 +171,24 @@ function sessionSocketPaths(projectRoot: string, sessionId: string): string[] {
 }
 
 /**
+ * `path` as a literal inside a seatbelt `(regex "…")`. Every regex metacharacter is
+ * escaped with TWO backslashes of profile text: SBPL's string reader consumes one,
+ * and a single one left `.` matching any character (probed against sandbox-exec) —
+ * so `…/.git/objects/` also matched `…/xgit/objects/`, and a repo under a directory
+ * named with `+` or `(` produced a pattern that meant something else entirely.
+ */
+export function seatbeltRegexLiteral(path: string): string {
+  return path.replace(/[.^$*+?()[\]{}|\\]/g, (c) => `\\\\${c}`);
+}
+
+/**
  * Anything under the object store that git must be able to create. Built from
  * hyphen-free character classes and explicit repetition: macOS `sandbox-exec` refuses
  * a `-` inside a class, which is what made the first version of this file fail to
  * parse at all.
  */
 function objectStoreRules(gitDir: string): string[] {
-  const objects = `${gitDir}/objects/`;
+  const objects = `${seatbeltRegexLiteral(gitDir)}/objects/`;
   const H2 = '[0-9a-f][0-9a-f]';
   const H38 = '[0-9a-f]'.repeat(38);
   return [
@@ -199,11 +210,12 @@ function objectStoreRules(gitDir: string): string[] {
  * is derived from the gitdir rather than reconstructed from the worktree's basename,
  * because the two do not always match.
  */
-function sharedGitRules(gitDir: string, branch: string): string[] {
+function sharedGitRules(gitDir: string, branch: string, adminDir: string | undefined): string[] {
   const rules = objectStoreRules(gitDir);
-  const worktreesDir = `${gitDir}/worktrees`;
-  if (existsSync(worktreesDir)) {
-    rules.push(`(allow file-write-create file-write-data file-write-unlink (subpath "${worktreesDir}"))`);
+  // This worktree's own bookkeeping (HEAD, index, its reflog) — not `worktrees/`
+  // wholesale, which let one session rewrite another session's HEAD or index.
+  if (adminDir !== undefined) {
+    rules.push(`(allow file-write-create file-write-data file-write-unlink (subpath "${adminDir}"))`);
   }
   // This session's own branch ref, and only it. create+data+unlink is what git's
   // create-.lock-then-rename dance needs; without unlink, `git commit` cannot finish.
@@ -280,26 +292,36 @@ export function buildBwrapArgs(spec: SandboxSpec, home: string, tmpRoot: string)
   // Ordering warning: bwrap processes binds sequentially — later --bind shadows earlier --ro-bind.
   // Do NOT add a --ro-bind that re-covers /tmp or the worktree after the --bind above, or the private TMPDIR/worktree rw is lost.
   if (gitDir !== undefined) {
-    const objects = `${gitDir}/objects`;
-    // Fanout dirs and tmp_obj are the only object paths git creates; binding the
-    // whole objects dir rw would let a session plant arbitrary files there.
-    // For bwrap we bind the gitDir's subpaths that need rw individually — simpler
-    // than trying to ro-bind the parent and then punch holes (bwrap has no overlay).
-    // Keep the whole gitDir ro would break commit; so bind the specific writable
-    // subpaths rw and leave the rest unbound (hence not visible) — but the session
-    // still needs to READ the git dir, so we ro-bind the gitDir itself.
+    // bwrap has no pattern binds, so parity with the seatbelt rules is built from the
+    // narrowest DIRECTORIES git writes into. The whole gitDir is bound ro first; the
+    // rw binds below then shadow just those directories (bwrap applies binds in order).
     args.push('--ro-bind', gitDir, gitDir);
-    // Then make the writable subpaths rw via an additional bind over the ro-bind.
-    // This is safe because bwrap applies binds in order — later binds shadow earlier.
-    args.push('--bind', `${gitDir}/objects`, `${gitDir}/objects`);
-    // Worktrees bookkeeping for this worktree.
-    try {
-      const wtDir = `${gitDir}/worktrees`;
-      if (existsSync(wtDir)) args.push('--bind', wtDir, wtDir);
-    } catch {}
-    if (branch !== '') {
-      args.push('--bind', `${gitDir}/refs/heads`, `${gitDir}/refs/heads`);
+    // Objects: each fanout dir, pack and info — never the objects root, so nothing can
+    // be planted beside them. The fanout dirs are created up front because a bind
+    // needs an existing source; git makes them lazily and an empty one is harmless.
+    const objects = `${gitDir}/objects`;
+    for (let i = 0; i < 256; i++) {
+      const fan = `${objects}/${i.toString(16).padStart(2, '0')}`;
+      mkdirSync(fan, { recursive: true });
+      args.push('--bind', fan, fan);
     }
+    for (const sub of ['pack', 'info']) {
+      mkdirSync(`${objects}/${sub}`, { recursive: true });
+      args.push('--bind', `${objects}/${sub}`, `${objects}/${sub}`);
+    }
+    // This worktree's own bookkeeping, not every worktree's.
+    const adminDir = resolveWorktreeAdminDir(spec.worktreePath);
+    if (adminDir !== undefined) args.push('--bind', adminDir, adminDir);
+    // The directory holding this session's branch ref (`refs/heads/cw` for
+    // `cw/<name>`). git's lock-then-rename needs the directory, so this is as narrow
+    // as a bind can go: the user's own branches and main stay read-only, though other
+    // sessions' `cw/*` refs share the directory (see known limitations).
+    if (branch !== '' && branch.includes('/')) {
+      const refDir = dirname(`${gitDir}/refs/heads/${branch}`);
+      mkdirSync(refDir, { recursive: true });
+      args.push('--bind', refDir, refDir);
+    }
+    mkdirSync(`${gitDir}/logs`, { recursive: true });
     args.push('--bind', `${gitDir}/logs`, `${gitDir}/logs`);
   }
 
@@ -405,7 +427,7 @@ export function buildSeatbeltProfile(spec: SandboxSpec, home: string, tmpRoot: s
     '(allow sysctl-read)',
     '(allow file-read*)',
     ...writeRules,
-    ...(gitDir === undefined ? [] : sharedGitRules(gitDir, branch)),
+    ...(gitDir === undefined ? [] : sharedGitRules(gitDir, branch, resolveWorktreeAdminDir(spec.worktreePath))),
     ...socketRules,
     // The login keychain. Without these, a sandboxed `claude` reports "Not logged in":
     // its login state lives in the keychain rather than a file (measured), and a
@@ -432,6 +454,22 @@ export function resolveGitDir(worktreePath: string): string | undefined {
       { cwd: worktreePath, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
     ).trim();
     return out === '' ? undefined : out;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * A linked worktree's own admin directory (`<common>/worktrees/<id>`), or undefined
+ * for the main checkout (whose admin dir IS the common dir) or an unresolvable path.
+ */
+export function resolveWorktreeAdminDir(worktreePath: string): string | undefined {
+  try {
+    const own = execFileSync(
+      'git', ['rev-parse', '--path-format=absolute', '--git-dir'],
+      { cwd: worktreePath, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
+    ).trim();
+    return own === '' || own === resolveGitDir(worktreePath) ? undefined : own;
   } catch {
     return undefined;
   }

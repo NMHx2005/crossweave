@@ -8,7 +8,8 @@ import { makeGitFixture, type GitFixture } from '../helpers/git-fixture.js';
 import { createWorktree } from '../../src/isolation/worktree.js';
 import {
   SANDBOX_EXEC, buildSeatbeltProfile, decideSandbox, isSandboxAvailable, planSandbox,
-  resolveGitDir, sandboxTmpDir, type SandboxSpec,
+  resolveGitDir, resolveWorktreeAdminDir, sandboxTmpDir, seatbeltRegexLiteral, buildBwrapArgs,
+  type SandboxSpec,
 } from '../../src/isolation/sandbox.js';
 
 let fx: GitFixture;
@@ -116,7 +117,9 @@ describe('buildSeatbeltProfile', () => {
     const gitDir = resolveGitDir(spec.worktreePath);
     expect(gitDir).toBe(join(fx.root, '.git'));
     const p = profile();
-    expect(p).toContain(`(regex "^${gitDir}/objects/[0-9a-f][0-9a-f]/`);
+    // Escaped: an unescaped path is itself a regex, so `.git` matched `xgit` and a
+    // repo under a directory with `+` or `(` in its name broke the pattern.
+    expect(p).toContain(`(regex "^${seatbeltRegexLiteral(gitDir!)}/objects/[0-9a-f][0-9a-f]/`);
     // tmp_obj_* is created then unlinked; a loose object is create+data only.
     expect(p).toContain('tmp_obj_[A-Za-z0-9]+$');
     const loose = /\(allow file-write-create file-write-data \(regex "\^[^"]*objects\/\[0-9a-f\]\[0-9a-f\]\//.exec(p);
@@ -129,6 +132,21 @@ describe('buildSeatbeltProfile', () => {
     const p = profile();
     expect(p).toContain(`(literal "${gitDir}/refs/heads/cw/one")`);
     expect(p).not.toContain(`(subpath "${gitDir}/refs/heads")`);
+  });
+
+  it('opens this worktree\'s own bookkeeping dir, not every worktree\'s', () => {
+    const gitDir = resolveGitDir(spec.worktreePath)!;
+    const admin = resolveWorktreeAdminDir(spec.worktreePath)!;
+    expect(admin.startsWith(`${gitDir}/worktrees/`)).toBe(true);
+    const p = profile();
+    expect(p).toContain(`(subpath "${admin}")`);
+    expect(p).not.toContain(`(subpath "${gitDir}/worktrees")`);
+  });
+
+  it('quotes regex metacharacters in a path', () => {
+    // Two backslashes in the profile TEXT: SBPL's string reader eats one, and a lone
+    // `\\.` reaching the regex engine still matched any character (probed).
+    expect(seatbeltRegexLiteral('/r/a.b+c(d)/.git')).toBe('/r/a\\\\.b\\\\+c\\\\(d\\\\)/\\\\.git');
   });
 
   it('does not open the whole .git directory', () => {
@@ -264,6 +282,26 @@ describe('bwrap (pure, no binary needed)', () => {
     expect(argsOnline.join(' ')).not.toContain('--unshare-net');
   });
 
+  // Every pair of `--bind src dst` in the argv, as the rw set the session gets.
+  const rwBinds = (args: string[]): string[] =>
+    args.flatMap((a, i) => (a === '--bind' ? [args[i + 1]!] : []));
+
+  it('binds git state rw only where this session must write, like the seatbelt profile', () => {
+    const gitDir = resolveGitDir(spec.worktreePath)!;
+    const admin = resolveWorktreeAdminDir(spec.worktreePath)!;
+    const rw = rwBinds(buildBwrapArgs({ ...spec, platform: 'linux' } as SandboxSpec, home, '/tmp/cw-tmp-one'));
+    // Other sessions' worktree bookkeeping, main's ref, and the object store root stay ro.
+    expect(rw).not.toContain(`${gitDir}/worktrees`);
+    expect(rw).not.toContain(`${gitDir}/refs/heads`);
+    expect(rw).not.toContain(`${gitDir}/objects`);
+    expect(rw).toContain(admin);
+    expect(rw).toContain(`${gitDir}/refs/heads/cw`);
+    expect(rw).toContain(`${gitDir}/objects/00`);
+    expect(rw).toContain(`${gitDir}/objects/ff`);
+    expect(rw).toContain(`${gitDir}/objects/pack`);
+    expect(existsSync(`${gitDir}/objects/ab`)).toBe(true);
+  });
+
   it('planSandbox on linux produces a bwrap argv and is gated on hasBwrap', () => {
     const linuxSpec = { ...spec, platform: 'linux' as const, hasBwrap: true };
     const plan = planSandbox(linuxSpec as any, 'claude', ['--help']);
@@ -345,6 +383,14 @@ describe.skipIf(!canRunSeatbelt)('seatbelt integration (real sandbox-exec)', () 
   it('refuses touching the git config and planting a hook', () => {
     expect(run(`echo no >> "${fx.root}/.git/config"`).code).not.toBe(0);
     expect(run(`echo no > "${fx.root}/.git/hooks/pre-commit"`).code).not.toBe(0);
+  });
+
+  it('refuses rewriting another session\'s worktree HEAD', async () => {
+    const other = await createWorktree(fx.root, 's_two', 'cw/two');
+    const otherAdmin = resolveWorktreeAdminDir(other.path)!;
+    const before = readFileSync(join(otherAdmin, 'HEAD'), 'utf8');
+    expect(run(`echo 'ref: refs/heads/main' > "${otherAdmin}/HEAD"`).code).not.toBe(0);
+    expect(readFileSync(join(otherAdmin, 'HEAD'), 'utf8')).toBe(before);
   });
 
   it('refuses junk at the object store root, but lets a commit land', async () => {
