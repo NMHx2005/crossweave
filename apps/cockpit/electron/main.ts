@@ -11,6 +11,7 @@ import { projectRootFromAdditionalData, projectRootFromArgv, resolveLaunchProjec
 import { switchCockpitWorkspace } from './workspace-switch'
 import { clearRecent, loadRecent, pushRecent } from './recent.js'
 import { recentMenuItems } from './recent-menu'
+import { appMenuTemplate } from './app-menu'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -68,51 +69,23 @@ function resolveBunCommand(): string {
 }
 
 function buildMenu(): void {
-  const template: Electron.MenuItemConstructorOptions[] = [
-    {
-      label: 'File',
-      submenu: [
-        {
-          label: 'Open Folder…',
-          accelerator: 'CmdOrCtrl+O',
-          click: async () => {
-            const picked = await pickFolder();
-            if (picked) await switchWorkspace(picked);
-          },
-        },
-        {
-          label: 'Open Recent',
-          submenu: recentMenuItems(loadRecent(), {
-            exists: existsSync,
-            home: app.getPath('home'),
-            open: (root) => { void switchWorkspace(root) },
-            clear: () => {
-              clearRecent()
-              buildMenu()
-            },
-          }),
-        },
-        { type: 'separator' as const },
-        { role: 'close' as const },
-      ],
+  const template = appMenuTemplate({
+    platform: process.platform,
+    openFolder: () => {
+      void pickFolder().then((picked) => {
+        if (picked) void switchWorkspace(picked)
+      })
     },
-    {
-      label: 'View',
-      submenu: [
-        { role: 'reload' as const },
-        { role: 'toggleDevTools' as const },
-        { type: 'separator' as const },
-        { role: 'togglefullscreen' as const },
-      ],
-    },
-    {
-      label: 'Window',
-      submenu: [
-        { role: 'minimize' as const },
-        { role: 'close' as const },
-      ],
-    },
-  ];
+    recent: recentMenuItems(loadRecent(), {
+      exists: existsSync,
+      home: app.getPath('home'),
+      open: (root) => { void switchWorkspace(root) },
+      clear: () => {
+        clearRecent()
+        buildMenu()
+      },
+    }),
+  })
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
 
