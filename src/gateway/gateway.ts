@@ -1,10 +1,10 @@
 import type { ClientTransport } from '../client/transport.js';
 import { unixSocketTransport } from '../client/transport.js';
-import { READ_METHODS, appendAudit } from './auth.js';
+import { READ_METHODS, appendAudit, constantTimeEqual, verifyToken, type TokenKind } from './auth.js';
 
 /**
- * Stage 0 gateway: one WebSocket connection ↔ one unix-socket connection.
- * No auth yet — Stage 1 adds it. Binds to loopback only.
+ * Gateway: one WebSocket connection ↔ one unix-socket connection. The first frame
+ * must present a control or read token; nothing reaches the daemon before that.
  *
  * For Stage 0 the process shape is: for each WS client, open a unix transport
  * to the daemon and shuttle frames both ways. Backpressure is implicit — WS
@@ -21,11 +21,30 @@ export const ALLOWED_METHODS = new Set([
 
 export interface GatewayOptions {
   socketPath: string;
+  /** File-backed credentials: the control and read tokens under `.crossweave/`. */
   projectRoot?: string;
-  /** When set, the first RPC must present this token (as param `token` or `_token`). */
+  /** An explicit control token; takes precedence over `projectRoot`'s files. */
   requireToken?: string;
   /** Factory for tests — defaults to unixSocketTransport */
   connectDaemon?: (path: string) => Promise<ClientTransport>;
+}
+
+type Rejection = { code: number; message: string };
+
+/**
+ * The kind of access a presented token grants, or undefined.
+ *
+ * No configured credential grants nothing. The Stage 0 shape — "no token file yet,
+ * so every client is control" — meant `cw gateway serve` before `cw gateway token`
+ * exposed session.input to anything that could open the socket.
+ */
+function authenticate(opts: GatewayOptions, presented: unknown): TokenKind | undefined {
+  if (typeof presented !== 'string' || presented === '') return undefined;
+  if (opts.requireToken !== undefined) {
+    return constantTimeEqual(presented, opts.requireToken) ? 'control' : undefined;
+  }
+  if (opts.projectRoot !== undefined) return verifyToken(opts.projectRoot, presented);
+  return undefined;
 }
 
 export async function createGatewayTransport(
@@ -33,63 +52,57 @@ export async function createGatewayTransport(
   opts: GatewayOptions,
 ): Promise<{ close: () => void }> {
   const daemon = await (opts.connectDaemon ?? unixSocketTransport)(opts.socketPath);
-  let authed = opts.requireToken === undefined;
-  // When requireToken was set, the presented token's kind decides what may be forwarded
-  // For file-backed verify, we also support opts.projectRoot + verifyToken()
-  let authedKind: 'read' | 'control' | undefined = authed ? 'control' : undefined;
+  let authedKind: TokenKind | undefined;
+
+  const reject = (id: unknown, r: Rejection): void => {
+    if (typeof id === 'number') {
+      clientTransport.write(JSON.stringify({ jsonrpc: '2.0', id, error: r }) + '\n');
+    }
+  };
+
+  /** The line to forward for one client frame, or undefined to drop it. */
+  const admit = (line: string): string | undefined => {
+    let parsed: unknown;
+    try { parsed = JSON.parse(line); } catch { return undefined; }
+    // Only a single JSON-RPC object is ever forwarded: a batch array or a bare
+    // scalar would reach the daemon without passing the method allowlist below.
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return undefined;
+    const msg = parsed as { method?: unknown; id?: unknown; params?: unknown };
+    const params = typeof msg.params === 'object' && msg.params !== null
+      ? msg.params as Record<string, unknown>
+      : undefined;
+
+    if (authedKind === undefined) {
+      const kind = authenticate(opts, params?.token ?? params?._token);
+      if (kind === undefined) {
+        reject(msg.id, { code: -32000, message: 'Unauthorized: gateway token required' });
+        return undefined;
+      }
+      authedKind = kind;
+    }
+    // Stripped on every frame, not only the first, so the daemon never sees a token.
+    if (params) { delete params.token; delete params._token; }
+
+    if (typeof msg.method !== 'string' || !ALLOWED_METHODS.has(msg.method)) {
+      reject(msg.id, { code: -32601, message: `Method not found: ${String(msg.method)}` });
+      return undefined;
+    }
+    if (authedKind === 'read' && !READ_METHODS.has(msg.method)) {
+      reject(msg.id, { code: -32000, message: `Forbidden: ${msg.method} requires a control token` });
+      return undefined;
+    }
+    if (opts.projectRoot) appendAudit(opts.projectRoot, { method: msg.method, kind: authedKind });
+    return JSON.stringify(msg);
+  };
 
   const onClientData = (chunk: Buffer | string) => {
-    const text = chunk.toString();
-    const lines = text.split('\n');
     let forwarded = '';
-    for (const line of lines) {
-      if (!line.trim()) { forwarded += '\n'; continue; }
-      let blocked = false;
-      try {
-        const msg = JSON.parse(line) as { method?: string; id?: number; params?: Record<string, unknown> };
-        // Auth gate: first RPC must present the token when requireToken is set
-        if (!authed) {
-          const tok = (msg.params as Record<string, unknown> | undefined)?.token
-            ?? (msg.params as Record<string, unknown> | undefined)?._token;
-          if (tok === opts.requireToken) {
-            authed = true;
-            authedKind = 'control';
-            // Strip token before forwarding so the daemon never sees it
-            if (msg.params) { delete (msg.params as Record<string, unknown>).token; delete (msg.params as Record<string, unknown>)._token; }
-            // Rewrite line without token
-            const cleaned = JSON.stringify(msg);
-            forwarded += cleaned + '\n';
-            continue;
-          }
-          if (typeof msg.id === 'number') {
-            clientTransport.write(JSON.stringify({ jsonrpc: '2.0', id: msg.id, error: { code: -32000, message: 'Unauthorized: gateway token required' } }) + '\n');
-          }
-          blocked = true;
-        } else if (msg.method && authedKind === 'read' && !READ_METHODS.has(msg.method)) {
-          if (typeof msg.id === 'number') {
-            clientTransport.write(JSON.stringify({ jsonrpc: '2.0', id: msg.id, error: { code: -32000, message: `Forbidden: ${msg.method} requires a control token` } }) + '\n');
-          }
-          blocked = true;
-        } else if (msg.method && !ALLOWED_METHODS.has(msg.method)) {
-          if (typeof msg.id === 'number') {
-            clientTransport.write(JSON.stringify({ jsonrpc: '2.0', id: msg.id, error: { code: -32601, message: `Method not found: ${msg.method}` } }) + '\n');
-          }
-          blocked = true;
-        }
-      } catch {}
-      if (!blocked) forwarded += line + '\n';
+    for (const line of chunk.toString().split('\n')) {
+      if (!line.trim()) continue;
+      const out = admit(line);
+      if (out !== undefined) forwarded += out + '\n';
     }
-    if (forwarded.trim()) {
-      // Audit every forwarded method
-      try {
-        for (const line of forwarded.split('\n')) {
-          if (!line.trim()) continue;
-          const m = JSON.parse(line) as { method?: string };
-          if (m.method && opts.projectRoot) appendAudit(opts.projectRoot, { method: m.method, kind: authedKind });
-        }
-      } catch {}
-      daemon.write(forwarded);
-    }
+    if (forwarded) daemon.write(forwarded);
   };
   const onDaemonData = (chunk: Buffer | string) => clientTransport.write(chunk.toString());
 

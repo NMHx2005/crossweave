@@ -78,3 +78,66 @@ describe('gateway auth gate', () => {
     expect(READ_METHODS.has('journal.set')).toBe(false);
   });
 });
+
+// One gateway with a scripted daemon behind it. `daemonSent` is every line the gateway
+// forwarded; the fake daemon answers each call with `[]` so an allowed call resolves.
+async function gatewayUnder(opts: { requireToken?: string; projectRoot?: string }) {
+  const clientSide = memoryTransport(); const gwClient = memoryTransport(); const gwDaemon = memoryTransport(); const daemonSide = memoryTransport();
+  (clientSide as unknown as { _peer: unknown })._peer = gwClient; (gwClient as unknown as { _peer: unknown })._peer = clientSide;
+  (gwDaemon as unknown as { _peer: unknown })._peer = daemonSide; (daemonSide as unknown as { _peer: unknown })._peer = gwDaemon;
+  daemonSide.onData((chunk) => {
+    for (const line of chunk.toString().split('\n')) {
+      if (!line.trim()) continue;
+      const msg = JSON.parse(line) as { id?: number };
+      if (typeof msg.id === 'number') daemonSide.write(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: [] }) + '\n');
+    }
+  });
+  await createGatewayTransport(gwClient as unknown as ClientTransport, { socketPath: '/tmp/fake.sock', ...opts, connectDaemon: async () => gwDaemon as unknown as ClientTransport });
+  return { client: DaemonClient.attach(clientSide as unknown as ClientTransport), gwClient, daemonSent: gwDaemon.sent };
+}
+
+describe('gateway fails closed', () => {
+  it('refuses every call when no token is configured at all, rather than treating the client as control', async () => {
+    const { client, daemonSent } = await gatewayUnder({});
+    await expect(client.call('session.input', { sessionId: 's1', data: 'echo pwned\n', token: 'anything' }))
+      .rejects.toMatchObject({ message: expect.stringContaining('Unauthorized') });
+    expect(daemonSent.length).toBe(0);
+  });
+
+  it('never forwards an unparseable or non-object line from an unauthenticated client', async () => {
+    const { gwClient, daemonSent } = await gatewayUnder({ requireToken: 'secret123' });
+    const inject = (gwClient as unknown as { _inject: (c: string) => void })._inject;
+    inject('not json\n');
+    inject('null\n');
+    inject('[{"jsonrpc":"2.0","id":1,"method":"session.kill"}]\n');
+    expect(daemonSent.length).toBe(0);
+  });
+
+  it('honours the file-backed read token: reads pass, control methods are forbidden', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cw-auth-read-'));
+    try {
+      issueGatewayToken(root, 'control');
+      const readTok = issueGatewayToken(root, 'read');
+      const { client, daemonSent } = await gatewayUnder({ projectRoot: root });
+      expect(await client.call<unknown[]>('session.list', { token: readTok })).toEqual([]);
+      await expect(client.call('session.input', { sessionId: 's1', data: 'x' }))
+        .rejects.toMatchObject({ message: expect.stringContaining('Forbidden') });
+      expect(daemonSent.length).toBe(1);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a wrong file-backed token', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cw-auth-bad-'));
+    try {
+      issueGatewayToken(root, 'control');
+      const { client, daemonSent } = await gatewayUnder({ projectRoot: root });
+      await expect(client.call('session.list', { token: 'f'.repeat(64) }))
+        .rejects.toMatchObject({ message: expect.stringContaining('Unauthorized') });
+      expect(daemonSent.length).toBe(0);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});

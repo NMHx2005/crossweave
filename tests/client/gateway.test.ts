@@ -19,7 +19,9 @@ function memoryTransport(): ClientTransport & { deliver: (msg: unknown) => void;
   return t;
 }
 
-describe('gateway Stage 0', () => {
+// Every call carries the token: since the gateway fails closed, an open gateway is
+// no longer a mode that exists to test.
+describe('gateway transport', () => {
   it('shuttles a call through the gateway to the daemon and back', async () => {
     const clientSide = memoryTransport();
     const gatewayClientSide = memoryTransport();
@@ -37,10 +39,11 @@ describe('gateway Stage 0', () => {
     });
     await createGatewayTransport(gatewayClientSide as unknown as ClientTransport, {
       socketPath: '/tmp/fake.sock',
+      requireToken: 'tok',
       connectDaemon: async () => gatewayDaemonSide as unknown as ClientTransport,
     });
     const client = DaemonClient.attach(clientSide as unknown as ClientTransport);
-    const result = await client.call('session.list', { workspaceId: 'w1' });
+    const result = await client.call('session.list', { workspaceId: 'w1', token: 'tok' });
     expect(result).toEqual([{ id: '1', name: 'alice' }]);
   });
 
@@ -56,10 +59,11 @@ describe('gateway Stage 0', () => {
     gatewayDaemonSide.write = (f: string) => { daemonSent.push(f); origWrite(f); };
     await createGatewayTransport(gatewayClientSide as unknown as ClientTransport, {
       socketPath: '/tmp/fake.sock',
+      requireToken: 'tok',
       connectDaemon: async () => gatewayDaemonSide as unknown as ClientTransport,
     });
     const client = DaemonClient.attach(clientSide as unknown as ClientTransport);
-    const pending = client.call('evil.method', {});
+    const pending = client.call('evil.method', { token: 'tok' });
     await expect(pending).rejects.toMatchObject({ message: expect.stringContaining('Method not found') });
     expect(daemonSent.length).toBe(0);
   });
