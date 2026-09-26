@@ -151,6 +151,43 @@ describe('converge.status RPC', () => {
     }
   });
 
+  // A session created a moment ago has no commits: landing it is a no-op, and
+  // calling it "ready to land" put a green badge on a session that had done nothing.
+  test('a session with no commits ahead of the base has nothing to land, not "ready"', async () => {
+    const fixture = await makeGitFixture();
+    const root = fixture.root;
+    try {
+      await $`git branch cw/fresh`.cwd(root).quiet();
+      const db = openDatabase(':memory:');
+      new WorkspaceRepo(db).insert({
+        id: 'ws_1', name: 'w', rootPath: root, createdAt: 'now',
+        defaultIsolation: 'worktree', safeModeTier: 'T1',
+      });
+      new SessionRepo(db).insert({
+        id: 's_fresh', workspaceId: 'ws_1', name: 'fresh', agentKind: 'claude', adapter: 'claude',
+        status: 'idle', worktreePath: tmpdir(), branch: 'cw/fresh', createdAt: 'now',
+        lastActiveAt: 'now', tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null, launchArgs: null,
+      });
+      const methods = buildMethods(db, root);
+      const status = async () => (await methods['converge.status']!(
+        { workspaceId: 'ws_1' }, { notify: () => undefined, onClose: () => undefined },
+      )) as { ready: string[]; empty: string[] };
+
+      const before = await status();
+      expect(before.ready).toEqual([]);
+      expect(before.empty).toEqual(['fresh']);
+
+      await $`git checkout -q cw/fresh`.cwd(root).quiet();
+      await commitFile(root, 'work.txt', 'done\n', 'work');
+      await $`git checkout -q main`.cwd(root).quiet();
+      const after = await status();
+      expect(after.empty).toEqual([]);
+      expect(after.ready).toEqual(['fresh']);
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
   test('the pairwise matrix only lists pairs whose sessions are both still active', async () => {
     const fixture = await makeGitFixture();
     const db = openDatabase(':memory:');

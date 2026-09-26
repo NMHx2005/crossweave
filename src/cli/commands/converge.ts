@@ -8,6 +8,8 @@ interface ConvergeStatus {
   ready: string[];
   unknown: { name: string; reason: string }[];
   blocked: { name: string; reason: string }[];
+  /** No commits ahead of the base yet (absent from older daemons). */
+  empty?: string[];
   degraded: boolean;
 }
 
@@ -44,6 +46,9 @@ const statusCommand = defineCommand({
         }
         for (const item of status.blocked) {
           process.stdout.write(`blocked: ${item.name} (${item.reason})\n`);
+        }
+        if (status.empty !== undefined && status.empty.length > 0) {
+          process.stdout.write(`nothing to land yet: ${status.empty.join(', ')}\n`);
         }
       });
     } catch (err) { fail(err); }

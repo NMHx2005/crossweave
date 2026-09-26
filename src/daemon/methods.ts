@@ -25,7 +25,7 @@ import { ContractService, parseFqn } from '../radar/contracts.js';
 import { assertContained } from '../core/paths.js';
 import { ConvergenceScheduler } from './convergence-scheduler.js';
 import { MergeTrialRepo, isPairwiseTrial } from '../db/repositories/merge-trial.js';
-import { baseConflictFiles } from '../convergence/trial.js';
+import { baseConflictFiles, commitsAhead } from '../convergence/trial.js';
 import { ConfigTrustRepo } from '../db/repositories/config-trust.js';
 import { NotifyConfigRepo, type NotifyEventKind } from '../db/repositories/notify-config.js';
 import { buildConflictGraph, recommendOrder } from '../convergence/graph.js';
@@ -938,7 +938,16 @@ export function buildMethods(
       const blocked = [...landability.byName.values()]
         .filter((result) => result.landability === 'blocked')
         .map(({ name, reason }) => ({ name, reason }));
-      const ready = landability.ready.filter((name) => landability.byName.get(name)?.landability === 'ready');
+      // Nothing to land is its own answer, not "ready": landing an empty branch is a
+      // no-op, and a green badge on a session that has done nothing is a false signal.
+      const empty: string[] = [];
+      if (currentBaseHead !== null) {
+        for (const session of order) {
+          if (commitsAhead(projectRoot, currentBaseHead, session.branch as string) === 0) empty.push(session.name);
+        }
+      }
+      const ready = landability.ready
+        .filter((name) => landability.byName.get(name)?.landability === 'ready' && !empty.includes(name));
 
       return {
         pairwise,
@@ -955,6 +964,7 @@ export function buildMethods(
         ready,
         unknown,
         blocked,
+        empty,
         degraded,
       };
     },

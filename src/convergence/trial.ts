@@ -146,3 +146,20 @@ export function baseConflictFiles(projectRoot: string, baseHead: string, branch:
     return lines.slice(1);
   }
 }
+
+/**
+ * How many commits `branch` has that `baseHead` does not, or undefined when git
+ * cannot say (an unknown ref). Landing lands commits, so zero means there is nothing
+ * to land yet — a session created a moment ago, which must not read as "ready".
+ */
+export function commitsAhead(projectRoot: string, baseHead: string, branch: string): number | undefined {
+  try {
+    const out = execFileSync('git', ['rev-list', '--count', `${baseHead}..refs/heads/${branch}`], {
+      cwd: projectRoot, stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const n = Number(out.toString().trim());
+    return Number.isInteger(n) ? n : undefined;
+  } catch {
+    return undefined;
+  }
+}
