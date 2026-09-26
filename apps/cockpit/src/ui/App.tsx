@@ -3,6 +3,8 @@ import { ActivityFeed, activityFromEvent, type ActivityItem } from '../../../../
 import { cockpitApi, type AgentOption, type ListedSession, type TerminalInfo } from '../host/cockpit-api'
 import { nextAttentionSession } from '../lib/attention-jump'
 import { QuickPicker, type NewSessionOptions } from './QuickPicker'
+import { LaunchLine } from './LaunchLine'
+import { launchLineFor, parseLaunchLine, rememberLine } from '../lib/launch-line'
 import { QuickOpen } from './QuickOpen'
 import { FilePane } from './FilePane'
 import { BrowserPane } from './BrowserPane'
@@ -17,7 +19,6 @@ import {
   type Landability,
 } from '../lib/attention'
 import {
-  createAndStartSession,
   loadWorkspace,
   plainErrorMessage,
   runCockpitAction,
@@ -92,6 +93,9 @@ export function App() {
   /** Non-null while the ⌘T picker is open. */
   const [pickerAgents, setPickerAgents] = useState<AgentOption[] | null>(null)
   const [layouts, setLayouts] = useState<Record<string, SavedLayout>>({})
+  /** Each agent's launch command from Settings, for the launch line. */
+  const [agentCommands, setAgentCommands] = useState<Record<string, string>>({})
+  const [launchHistory, setLaunchHistory] = useState<Record<string, string[]>>(readLaunchHistory)
   const [branches, setBranches] = useState<string[]>([])
   /** Non-null while ⌘P is open: the session whose worktree it searches. */
   const [quickOpen, setQuickOpen] = useState<{ sessionId: string; name: string; files: string[] } | null>(null)
@@ -145,6 +149,7 @@ export function App() {
         void cockpitApi.getSettings().then((s) => {
           const saved = (s as { layouts?: unknown } | null)?.layouts
           if (saved && typeof saved === 'object') setLayouts(saved as Record<string, SavedLayout>)
+          setAgentCommands(commandsOf(s))
         }).catch(() => undefined)
       }
       setStage((prev) => {
@@ -321,9 +326,53 @@ export function App() {
   async function handlePickerCreate(agentId: string, name: string, options: NewSessionOptions): Promise<void> {
     setPickerAgents(null)
     await runAction(async () => {
-      const created = await createAndStartSession(cockpitApi, { name, agent: agentId, ...options }) as { id?: string }
+      // Created, not started: the pane opens on its launch line, where the user adds
+      // their own flags (--model, a bypass mode) before anything runs.
+      const created = await cockpitApi.newSession({ name, agent: agentId, ...options }) as { id?: string }
       if (typeof created?.id === 'string') focusSession(created.id)
     })
+  }
+
+  /** Start `session` from a launch line; resolves to an error sentence, or null. */
+  async function launch(session: ListedSession, line: string): Promise<string | null> {
+    const command = agentCommands[session.agentKind ?? '']
+    let args: string[] | undefined
+    if (command !== undefined) {
+      const parsed = parseLaunchLine(line, command)
+      if (!parsed.ok) return parsed.error
+      args = parsed.args
+    }
+    try {
+      await cockpitApi.resumeSession(session.id, args)
+    } catch (err) {
+      return plainErrorMessage(err)
+    }
+    const kind = session.agentKind ?? ''
+    setLaunchHistory((all) => {
+      const next = { ...all, [kind]: rememberLine(all[kind] ?? [], line) }
+      writeLaunchHistory(next)
+      return next
+    })
+    await load()
+    return null
+  }
+
+  function launchFor(sessionId: string, focused: boolean): preact.JSX.Element | null {
+    const session = sessions.find((s) => s.id === sessionId)
+    if (!session || session.status !== 'idle') return null
+    const command = agentCommands[session.agentKind ?? '']
+    // An agent Settings does not list (cursor's adapters) has no command to edit.
+    const initial = command === undefined ? '' : safeLaunchLine(command, session.launchArgs)
+    return (
+      <LaunchLine
+        key={session.id}
+        sessionName={session.name}
+        initial={initial}
+        history={launchHistory[session.agentKind ?? ''] ?? []}
+        focused={focused}
+        onLaunch={(line) => launch(session, line)}
+      />
+    )
   }
 
   function jumpToAttention(): void {
@@ -393,6 +442,7 @@ export function App() {
     try {
       const saved = await cockpitApi.setSettings(next) as UserSettings
       setLayouts((saved.layouts ?? {}) as Record<string, SavedLayout>)
+      setAgentCommands(commandsOf(saved))
       return null
     } catch (err) {
       // Only the daemon's sentence: not the IPC wrapper or the error class in front of it.
@@ -573,6 +623,7 @@ export function App() {
         sessions={sessions}
         status={status}
         error={error}
+        launchFor={launchFor}
         onRetry={() => {
           setStatus('loading')
           void load()
@@ -669,4 +720,47 @@ export function App() {
       </footer>
     </div>
   )
+}
+
+function commandsOf(settings: unknown): Record<string, string> {
+  const agents = (settings as { agents?: unknown } | null)?.agents
+  const out: Record<string, string> = {}
+  if (!Array.isArray(agents)) return out
+  for (const a of agents as Array<{ id?: unknown; command?: unknown }>) {
+    if (typeof a.id === 'string' && typeof a.command === 'string') out[a.id] = a.command
+  }
+  return out
+}
+
+function safeLaunchLine(command: string, args: string[] | null | undefined): string {
+  try {
+    return launchLineFor(command, args)
+  } catch {
+    return command
+  }
+}
+
+const LAUNCH_HISTORY_KEY = 'cw.launch-history.v1'
+
+/** Per-viewer convenience only: losing it costs the ↑ recall, nothing else. */
+function readLaunchHistory(): Record<string, string[]> {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(LAUNCH_HISTORY_KEY) ?? '{}')
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    const out: Record<string, string[]> = {}
+    for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+      if (Array.isArray(v)) out[k] = v.filter((l): l is string => typeof l === 'string')
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+function writeLaunchHistory(history: Record<string, string[]>): void {
+  try {
+    localStorage.setItem(LAUNCH_HISTORY_KEY, JSON.stringify(history))
+  } catch {
+    // storage unavailable: history is a convenience
+  }
 }

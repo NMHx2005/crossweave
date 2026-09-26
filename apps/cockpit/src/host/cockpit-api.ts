@@ -46,14 +46,15 @@ export const cockpitApi = {
   listSessions(): Promise<ListedSession[]> {
     return cockpitInvoke('session.list').then(parseSessionList)
   },
-  newSession(payload: { name: string; agent: string; worktree?: boolean; base?: string }): Promise<unknown> {
+  newSession(payload: { name: string; agent: string; worktree?: boolean; base?: string; args?: string[] }): Promise<unknown> {
     return cockpitInvoke('session.new', payload)
   },
   startSession(idOrName: string): Promise<unknown> {
     return cockpitInvoke('session.start', { idOrName })
   },
-  resumeSession(idOrName: string): Promise<unknown> {
-    return cockpitInvoke('session.resume', { idOrName })
+  /** `args` replaces the session's remembered launch flags; omitted reuses them. */
+  resumeSession(idOrName: string, args?: string[]): Promise<unknown> {
+    return cockpitInvoke('session.resume', { idOrName, ...(args === undefined ? {} : { args }) })
   },
   attachSession(idOrName: string): Promise<SessionAttachResult> {
     return cockpitInvoke('session.attach', { idOrName })

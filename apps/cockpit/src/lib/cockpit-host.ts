@@ -6,8 +6,8 @@ export type CockpitHostApi = {
   listSessions: () => Promise<ListedSession[]>
   convergeStatus: () => Promise<unknown>
   journalGet: () => Promise<unknown>
-  newSession: (payload: { name: string; agent: string; worktree?: boolean; base?: string }) => Promise<unknown>
-  resumeSession: (idOrName: string) => Promise<unknown>
+  newSession: (payload: { name: string; agent: string; worktree?: boolean; base?: string; args?: string[] }) => Promise<unknown>
+  resumeSession: (idOrName: string, args?: string[]) => Promise<unknown>
   onTuiInvalidate: (cb: (payload: unknown) => void) => () => void
   onTuiEvent: (cb: (payload: unknown) => void) => () => void
   onDaemonGone: (cb: (payload: unknown) => void) => () => void
@@ -77,31 +77,6 @@ export function subscribeCockpitHost(
     unsubEvent()
     unsubGone()
   }
-}
-
-function recordOf(value: unknown): Record<string, unknown> {
-  if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-    return value as Record<string, unknown>
-  }
-  return {}
-}
-
-/**
- * Match CLI `cw attach --start` (default true): create the row, then resume so
- * a pane can session.attach to a running PTY.
- */
-export async function createAndStartSession(
-  api: Pick<CockpitHostApi, 'newSession' | 'resumeSession'>,
-  payload: { name: string; agent: string; worktree?: boolean; base?: string },
-): Promise<unknown> {
-  const created = await api.newSession(payload)
-  const record = recordOf(created)
-  const idOrName =
-    (typeof record.id === 'string' && record.id.length > 0 && record.id) ||
-    (typeof record.name === 'string' && record.name.length > 0 && record.name) ||
-    payload.name
-  await api.resumeSession(idOrName)
-  return created
 }
 
 /** Action / transient errors must not flip the stage to `error` while panes exist. */

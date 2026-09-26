@@ -1040,3 +1040,58 @@ body,
   gap: var(--cw-space-3);
   font-size: var(--cw-fs-sm);
 }
+
+/* A stopped session's launch line, docked under its terminal. */
+.cockpit-launch {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--cw-space-1);
+  padding: var(--cw-space-2) var(--cw-space-3);
+  border-top: var(--cw-hairline) solid var(--cw-border);
+  background: var(--cw-surface-input);
+  font-size: var(--cw-fs-sm);
+}
+
+.cockpit-launch__head {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--cw-space-2);
+  color: var(--cw-text);
+}
+
+.cockpit-launch__line {
+  display: flex;
+  align-items: center;
+  gap: var(--cw-space-2);
+  padding: var(--cw-control-pad-y) var(--cw-space-2);
+  background: var(--cw-surface);
+  border: var(--cw-hairline) solid var(--cw-border-strong);
+  border-radius: var(--cw-radius-sm);
+}
+
+.cockpit-launch__line:focus-within {
+  border-color: var(--cw-accent);
+}
+
+.cockpit-launch__prompt {
+  color: var(--cw-accent);
+  font-family: var(--cw-font-mono);
+}
+
+.cockpit-launch__line input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--cw-text-bright);
+  font-family: var(--cw-font-mono);
+  font-size: var(--cw-fs-sm);
+}
+
+.cockpit-launch__error {
+  margin: 0;
+  color: var(--cw-blocked);
+}

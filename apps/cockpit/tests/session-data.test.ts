@@ -173,3 +173,16 @@ describe('fidelity attach path', () => {
     }
   })
 })
+
+describe('parseSessionList launch flags', () => {
+  test('keeps a flags list, keeps null (never given), drops anything malformed', () => {
+    const [given, never, bad] = parseSessionList([
+      { id: 's1', name: 'a', launchArgs: ['--model', 'opus'] },
+      { id: 's2', name: 'b', launchArgs: null },
+      { id: 's3', name: 'c', launchArgs: ['--x', 3] },
+    ])
+    expect(given?.launchArgs).toEqual(['--model', 'opus'])
+    expect(never?.launchArgs).toBeNull()
+    expect(bad?.launchArgs).toBeUndefined()
+  })
+})

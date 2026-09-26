@@ -14,6 +14,8 @@ export type StageProps = {
   error: string | null
   /** Try attaching the workspace again after a failure. */
   onRetry: () => void
+  /** What a session pane shows under its terminal while the agent is not running. */
+  launchFor?: (sessionId: string, focused: boolean) => preact.JSX.Element | null
   /** Global re-attach epoch — daemon.gone replaces every pane's connection. */
   paneAttachEpoch?: number
   /** Per-session re-attach counters: a session that started re-keys only its panes. */
@@ -118,13 +120,20 @@ export function Stage(props: StageProps) {
           <button type="button" class="cockpit-pane-bar__close" aria-label={`Close ${paneLabel(pane, names)}`}
             onClick={(e) => { e.stopPropagation(); props.onClosePane(tab.id, node.id, pane) }}>×</button>
         </div>
-        {pane.kind === 'session' ? (
-          <XtermPane
-            key={`${pane.sessionId}:${paneAttachEpoch}:${paneAttachBumps[pane.sessionId] ?? 0}`}
-            source={sessionSource(pane.sessionId, props.inApp)}
-            focused={focused}
-          />
-        ) : pane.kind === 'terminal' ? (
+        {pane.kind === 'session' ? (() => {
+          const launch = props.launchFor?.(pane.sessionId, focused) ?? null
+          return (
+            <>
+              <XtermPane
+                key={`${pane.sessionId}:${paneAttachEpoch}:${paneAttachBumps[pane.sessionId] ?? 0}`}
+                source={sessionSource(pane.sessionId, props.inApp)}
+                // The launch line takes the keyboard while there is no agent to type to.
+                focused={focused && launch === null}
+              />
+              {launch}
+            </>
+          )
+        })() : pane.kind === 'terminal' ? (
           <XtermPane
             key={`terminal:${pane.terminalId}:${paneAttachEpoch}`}
             source={terminalSource(pane.terminalId, pane.sessionId, props.inApp)}

@@ -62,6 +62,8 @@ export function QuickPicker({ agents, takenNames, branches, onCreate, onCancel }
   }
 
   const onKeyDown = (e: KeyboardEvent): void => {
+    // A composing IME (Vietnamese Telex, …) owns Enter and the arrows until it commits.
+    if (e.isComposing) return
     const pressed = e.key
     if (pressed === 'Escape') {
       e.preventDefault()
@@ -133,7 +135,7 @@ export function QuickPicker({ agents, takenNames, branches, onCreate, onCancel }
         <div class="cockpit-picker__actions">
           <button type="button" onClick={onCancel}>Cancel</button>
           <button type="button" class="is-primary" disabled={error !== null} onClick={submit}>
-            Create and start
+            Create
           </button>
         </div>
       </div>

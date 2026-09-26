@@ -55,7 +55,7 @@ export function sessionSource(sessionId: string, inApp?: InAppOpener): PaneSourc
       if ((payload as { sessionId?: unknown } | null)?.sessionId === sessionId) cb(exitCode(payload))
     }),
     exitMessage: (code) => `[session exited${codeSuffix(code)} — press Start to bring it back]`,
-    notRunningMessage: '[this session is not running — press Start in the rail to type here]',
+    notRunningMessage: '[not running]',
     openLink: linkOpener(sessionId, inApp),
   }
 }

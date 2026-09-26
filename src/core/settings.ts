@@ -1,5 +1,6 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { splitCommand } from './argv.js';
 import { CrossweaveError } from './errors.js';
 import { globalCrossweaveDir } from './paths.js';
 
@@ -48,37 +49,11 @@ export const BUILTIN_AGENTS: readonly AgentDef[] = [
   { id: 'antigravity', label: 'Antigravity', command: 'agy', enabled: true, builtin: true },
 ];
 
+export { splitCommand };
+
 const EDITORS: ReadonlySet<string> = new Set(['vscode', 'cursor', 'zed', 'custom', 'cockpit']);
 const AGENT_ID = /^[a-z0-9][a-z0-9-]{0,31}$/;
 
-/** Shell-style word splitting — quotes and backslash escapes — without a shell. */
-export function splitCommand(command: string): string[] {
-  const out: string[] = [];
-  let cur = '';
-  let inWord = false;
-  let quote: '"' | "'" | null = null;
-  for (let i = 0; i < command.length; i++) {
-    const c = command[i]!;
-    if (quote !== null) {
-      if (c === quote) quote = null;
-      else if (c === '\\' && quote === '"' && i + 1 < command.length) cur += command[++i];
-      else cur += c;
-      continue;
-    }
-    if (c === '"' || c === "'") { quote = c; inWord = true; continue; }
-    if (c === '\\' && i + 1 < command.length) { cur += command[++i]; inWord = true; continue; }
-    if (/\s/.test(c)) {
-      if (inWord) { out.push(cur); cur = ''; inWord = false; }
-      continue;
-    }
-    cur += c;
-    inWord = true;
-  }
-  if (quote !== null) throw new CrossweaveError('INVALID_COMMAND', `Unbalanced quote in command: ${command}`);
-  if (inWord) out.push(cur);
-  if (out.length === 0) throw new CrossweaveError('INVALID_COMMAND', 'Command is empty');
-  return out;
-}
 
 /**
  * `$HOME` first, as POSIX tools do. Bun's `os.homedir()` ignores a changed `HOME`, so

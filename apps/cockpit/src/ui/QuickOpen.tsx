@@ -19,6 +19,8 @@ export function QuickOpen({ sessionName, files, onOpen, onCancel }: {
   useEffect(() => { setIndex(0) }, [query])
 
   const onKeyDown = (e: KeyboardEvent): void => {
+    // A composing IME (Vietnamese Telex, …) owns Enter and the arrows until it commits.
+    if (e.isComposing) return
     const pressed = e.key
     if (pressed === 'Escape') { e.preventDefault(); onCancel() }
     else if (pressed === 'ArrowDown') { e.preventDefault(); setIndex(Math.min(index + 1, matches.length - 1)) }

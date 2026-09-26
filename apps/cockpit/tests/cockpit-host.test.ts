@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { blockedSessionFromEvent } from '../src/lib/attention'
 import {
-  createAndStartSession,
   loadWorkspace,
   parseJournalTabs,
   plainErrorMessage,
@@ -113,7 +112,10 @@ describe('runCockpitAction', () => {
     }
     const refreshCalls: string[] = []
     const error = await runCockpitAction(
-      () => createAndStartSession(api, { name: 'delta', agent: 'claude' }),
+      async () => {
+        await api.newSession({ name: 'delta', agent: 'claude' })
+        await api.resumeSession('s9')
+      },
       async (partialFailure) => {
         refreshCalls.push(partialFailure ? 'partial' : 'full')
         if (partialFailure) await loadWorkspace(api)
@@ -165,25 +167,6 @@ describe('journal restore', () => {
     const { api } = fakeApi({ journalTabs: ['s1'] })
     const loaded = await loadWorkspace(api)
     expect(loaded.journalTabs).toEqual(['s1'])
-  })
-})
-
-describe('createAndStartSession', () => {
-  test('session.new is followed by session.resume so the pane can attach', async () => {
-    const { api, calls } = fakeApi()
-    const created = await createAndStartSession(api, { name: 'beta', agent: 'claude' })
-    expect(calls).toEqual(['new:beta:claude', 'resume:s9'])
-    expect(created).toEqual({ id: 's9', name: 'beta', status: 'idle' })
-  })
-
-  test('falls back to the prompted name when new returns no id', async () => {
-    const { api, calls } = fakeApi()
-    api.newSession = async (payload) => {
-      calls.push(`new:${payload.name}:${payload.agent}`)
-      return { name: payload.name }
-    }
-    await createAndStartSession(api, { name: 'gamma', agent: 'cursor' })
-    expect(calls).toEqual(['new:gamma:cursor', 'resume:gamma'])
   })
 })
 
