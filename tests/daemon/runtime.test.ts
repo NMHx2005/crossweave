@@ -336,14 +336,33 @@ describe('session runtime', () => {
   // signalled immediately and the agent died from the raw SIGTERM before its trap
   // existed — so it passed in 0.14s without ever reaching the SIGKILL branch it
   // claimed to cover. Asserting on elapsed time is what keeps it honest.
-  it('escalates to SIGKILL when the agent ignores SIGTERM', async () => {
+  // An interactive shell ignores SIGTERM; closing its terminal (SIGHUP) is what ends
+  // it and, through it, whatever the user ran there. Stopping a session with SIGTERM
+  // therefore always sat out the whole grace period before SIGKILL (measured ~3s).
+  it('stops a shell that ignores SIGTERM at once, with a hangup', async () => {
+    const runtime = new SessionRuntime(() => undefined);
+    const row = await sessions.create({ workspaceId, name: 'hup', worktree: true });
+    runtime.start(row, argvAdapter(['sh', '-c', 'trap "" TERM; trap "exit 0" HUP; echo READY; while true; do sleep 0.05; done']));
+    let out = '';
+    runtime.subscribe(row.id, row.name, {
+      notify: (_m, p) => { out += (p as { chunk?: string }).chunk ?? ''; },
+      onClose: () => undefined,
+    });
+    await waitFor(() => out.includes('READY'));
+    const startedAt = Date.now();
+    await runtime.stop(row.id, 3000);
+    expect(runtime.isRunning(row.id)).toBe(false);
+    expect(Date.now() - startedAt).toBeLessThan(1000);
+  });
+
+  it('escalates to SIGKILL when the shell ignores the hangup', async () => {
     const runtime = new SessionRuntime(() => undefined);
     const row = await sessions.create({
       workspaceId, name: 'stubborn', worktree: true,
     });
     const pid = runtime.start(
       row,
-      argvAdapter(['sh', '-c', 'trap "" TERM; echo TRAPPED; while true; do sleep 0.05; done']),
+      argvAdapter(['sh', '-c', 'trap "" TERM HUP; echo TRAPPED; while true; do sleep 0.05; done']),
     );
 
     let out = '';

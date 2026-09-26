@@ -6,7 +6,7 @@ import type { ChunkSealer } from '../gateway/e2e-sealer.js';
 
 const SCROLLBACK_LIMIT = 64 * 1024;
 
-/** How long an agent gets to honour SIGTERM before SIGKILL. */
+/** How long a session's shell gets to honour SIGHUP before SIGKILL. */
 const STOP_GRACE_MS = 3000;
 
 /**
@@ -126,8 +126,10 @@ export class SessionRuntime {
   }
 
   /**
-   * Signal the agent and wait until it is actually gone, escalating if it ignores
-   * SIGTERM.
+   * Hang up the session's shell and wait until it is actually gone, escalating if it
+   * ignores the hangup. SIGHUP, not SIGTERM: an interactive shell ignores SIGTERM, so
+   * every stop sat out the whole grace period; a hangup is what closing a terminal
+   * sends, and the shell passes it on to whatever the user ran in it.
    *
    * Returning before the process has died is what let `resume` immediately after
    * `stop` see a still-live pty, short-circuit on `isRunning`, and report success
@@ -145,7 +147,7 @@ export class SessionRuntime {
       entry.proc.onExit(() => resolve());
     });
 
-    entry.proc.kill('SIGTERM');
+    entry.proc.kill('SIGHUP');
     const escalate = setTimeout(() => entry.proc.kill('SIGKILL'), graceMs);
     try {
       await exited;
