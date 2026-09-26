@@ -140,3 +140,4 @@ work closed these previously recorded gaps:
 - `2026-08-13-m6a-known-limitations.md`
 - `2026-08-14-m6b-known-limitations.md`
 - `2026-09-26-audit-fixes-known-limitations.md` — gateway fail-closed, E2E fail-closed/AAD, gc keeps unlanded work, daemon socket watchdog; working browser client (control-token viewers decrypt in-browser; read-token viewers cannot)
+- `2026-09-26-terminal-pane-known-limitations.md` — cockpit Terminal pane: a shell in a session's worktree, sandboxed but not guarded by Radar; cockpit-only, ephemeral
