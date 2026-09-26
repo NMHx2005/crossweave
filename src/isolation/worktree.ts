@@ -46,11 +46,19 @@ export function isCrossweaveWorktree(projectRoot: string, worktreePath: string):
   }
 }
 
+/** A ref name safe to hand git: no leading dash (an option), no spaces or oddities. */
+const BASE_REF = /^[A-Za-z0-9][A-Za-z0-9._\/-]*$/;
+
 export async function createWorktree(
   projectRoot: string,
   sessionId: string,
   branch: string,
+  /** Branch or commit to start from; HEAD when omitted. */
+  base?: string,
 ): Promise<WorktreeHandle> {
+  if (base !== undefined && !BASE_REF.test(base)) {
+    throw new CrossweaveError('INVALID_BASE', `Not a branch or commit name: ${base}`);
+  }
   const path = join(worktreeRoot(projectRoot), sessionId);
   const git = simpleGit(projectRoot);
 
@@ -65,11 +73,13 @@ export async function createWorktree(
   // branch check so BRANCH_EXISTS still wins on a normal repo.
   let forkPoint: string;
   try {
-    forkPoint = (await git.raw(['rev-parse', '--verify', 'HEAD'])).trim();
+    forkPoint = (await git.raw(['rev-parse', '--verify', `${base ?? 'HEAD'}^{commit}`])).trim();
   } catch (cause) {
     throw new CrossweaveError(
       'WORKTREE_FAILED',
-      `repository has no commits, cannot create worktree for ${branch}: ${(cause as Error).message}`,
+      base === undefined
+        ? `repository has no commits, cannot create worktree for ${branch}: ${(cause as Error).message}`
+        : `cannot branch ${branch} from ${base}: ${(cause as Error).message}`,
     );
   }
 

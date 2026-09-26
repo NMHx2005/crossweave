@@ -54,6 +54,28 @@ describe('createWorktree', () => {
   });
 });
 
+describe('createWorktree from a chosen base', () => {
+  let fx: GitFixture;
+  beforeEach(async () => { fx = await makeGitFixture(); });
+  afterEach(async () => { await fx.cleanup(); });
+
+  it('branches from the named branch instead of HEAD', async () => {
+    await $`git checkout -q -b feature`.cwd(fx.root).quiet();
+    await $`git commit -q --allow-empty -m feature-work`.cwd(fx.root).quiet();
+    const tip = (await $`git rev-parse feature`.cwd(fx.root).quiet().text()).trim();
+    await $`git checkout -q main`.cwd(fx.root).quiet();
+    const wt = await createWorktree(fx.root, 's_base', 'cw/based', 'feature');
+    expect(wt.forkPoint).toBe(tip);
+    expect((await $`git rev-parse HEAD`.cwd(wt.path).quiet().text()).trim()).toBe(tip);
+  });
+
+  // The base reaches git's argv: something that parses as an option must not.
+  it('refuses a base that is not a plain ref name, and one that does not exist', async () => {
+    await expect(createWorktree(fx.root, 's_x', 'cw/x', '--upload-pack=touch')).rejects.toMatchObject({ code: 'INVALID_BASE' });
+    await expect(createWorktree(fx.root, 's_y', 'cw/y', 'no-such-branch')).rejects.toMatchObject({ code: 'WORKTREE_FAILED' });
+  });
+});
+
 describe('removeWorktree and listWorktreePaths', () => {
   it('lists then removes a worktree', async () => {
     const h = await createWorktree(fx.root, 's_one', 'cw/one');

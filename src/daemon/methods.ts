@@ -49,6 +49,7 @@ import { decideSandbox } from '../isolation/sandbox.js';
 import { spawnShell } from '../adapters/shell.js';
 import { profileFor, resolveAgent } from '../adapters/catalog.js';
 import { findConversation, latestWords } from '../domain/agent-logs.js';
+import { listWorktreeFiles, readWorktreeFile, writeWorktreeFile } from '../domain/worktree-files.js';
 import { loginShellPath, mergePaths } from '../core/login-path.js';
 import { loadSettings, saveSettings, splitCommand, type UserSettings } from '../core/settings.js';
 import { TerminalRegistry } from './terminals.js';
@@ -312,6 +313,15 @@ export function buildMethods(
     env: { CW_SESSION_ID: row.id, CW_SESSION_NAME: row.name },
   }), sealChunk, () => broadcastRegistry.broadcast('tui.invalidate', {}));
 
+  /** The worktree of the session a file RPC names; it must still be on disk. */
+  function sessionWorktree(p: Record<string, unknown>): string {
+    const row = sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName'));
+    if (row.worktreePath === null || !existsSync(row.worktreePath)) {
+      throw new CrossweaveError('SESSION_NO_WORKDIR', `Session has no working directory: ${row.name}`);
+    }
+    return row.worktreePath;
+  }
+
   /** Close the shells of every session that no longer exists (its worktree is gone). */
   async function closeOrphanTerminals(workspaceId: string): Promise<void> {
     const live = new Set(sessions.list(workspaceId).map((s) => s.id));
@@ -546,6 +556,7 @@ export function buildMethods(
         worktree: bool(p, 'worktree', true),
         budgetTokens: optionalNum(p, 'budgetTokens'),
         budgetUsd: optionalNum(p, 'budgetUsd'),
+        base: optionalStr(p, 'base'),
       });
       broadcastRegistry.broadcast('tui.invalidate', {});
       return row;
@@ -637,6 +648,20 @@ export function buildMethods(
       broadcastRegistry.broadcast('tui.invalidate', {});
       return loadSettings();
     },
+
+    // The in-app editor: files in ONE session's worktree, contained to it (see
+    // domain/worktree-files.ts). Local clients only — never in the gateway allowlist.
+    'file.list': (p) => listWorktreeFiles(sessionWorktree(p)),
+    'file.read': (p) => readWorktreeFile(sessionWorktree(p), str(p, 'path')),
+    'file.write': (p) => writeWorktreeFile(
+      sessionWorktree(p), str(p, 'path'), str(p, 'content'), optionalNum(p, 'expectedMtimeMs'),
+    ),
+    // Branches a new session can start from.
+    'git.branches': () => new Promise<string[]>((resolve) => {
+      execFile('git', ['for-each-ref', '--format=%(refname:short)', '--sort=-committerdate', 'refs/heads/'],
+        { cwd: projectRoot, encoding: 'utf8' },
+        (err, stdout) => resolve(err ? [] : String(stdout).split('\n').filter((b) => b !== '')));
+    }),
 
     'terminal.open': (p) => {
       const row = sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName'));

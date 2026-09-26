@@ -91,6 +91,7 @@ export const sessionCommand = defineCommand({
         worktree: { type: 'boolean', default: true, description: 'Isolate in a git worktree' },
         'budget-tokens': { type: 'string', description: 'Warn once cumulative tokens spent exceeds this' },
         'budget-usd': { type: 'string', description: 'Warn once cumulative cost (USD) exceeds this' },
+        base: { type: 'string', description: 'Branch or commit to start the worktree from (default: HEAD)' },
       },
       async run({ args }) {
         try {
@@ -117,6 +118,7 @@ export const sessionCommand = defineCommand({
             // verbs already provide.
             const created = await client.call<Session>('session.new', {
               workspaceId, name, agent: args.agent, worktree, budgetTokens, budgetUsd,
+              ...(args.base === undefined ? {} : { base: args.base }),
             });
             process.stdout.write(
               `${created.name}\t${created.status}\t${tierWithCoverage(created.enforcementTier)}\t${created.worktreePath ?? '-'}\n`,

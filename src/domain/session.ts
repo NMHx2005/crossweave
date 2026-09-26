@@ -21,6 +21,8 @@ export interface CreateSessionOptions {
   worktree: boolean;
   budgetTokens?: number;
   budgetUsd?: number;
+  /** Branch or commit the worktree starts from; the project's HEAD when omitted. */
+  base?: string;
 }
 
 /**
@@ -99,7 +101,7 @@ export class SessionManager {
     let branch: string | null = null;
     let forkPoint: string | null = null;
     if (opts.worktree) {
-      const handle = await createWorktree(root, id, `cw/${opts.name}`);
+      const handle = await createWorktree(root, id, `cw/${opts.name}`, opts.base);
       worktreePath = handle.path;
       branch = handle.branch;
       forkPoint = handle.forkPoint;
