@@ -56,6 +56,8 @@ export class SessionRuntime {
     adapter: AgentAdapter,
     env: Record<string, string> = {},
     sandbox?: SandboxSpec,
+    /** The agent conversation to reopen (adapters/catalog.ts), if any. */
+    resumeId?: string,
   ): number {
     if (this.running.has(session.id)) {
       throw new CrossweaveError('SESSION_ALREADY_RUNNING', `Session already running: ${session.name}`);
@@ -81,6 +83,7 @@ export class SessionRuntime {
       cols: 80,
       rows: 24,
       sandbox,
+      ...(resumeId === undefined ? {} : { resumeId }),
     });
 
     const entry: RunningSession = { proc, scrollback: '', subscribers: new Set(), session };

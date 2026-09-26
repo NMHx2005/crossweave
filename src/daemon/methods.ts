@@ -1,5 +1,6 @@
 import type { Database } from 'bun:sqlite';
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
+import { homedir } from 'node:os';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { WorkspaceManager } from '../domain/workspace.js';
@@ -46,7 +47,8 @@ import { measureWorktrees } from '../isolation/disk-guard.js';
 import { LeaseRepo } from '../db/repositories/lease.js';
 import { decideSandbox, sandboxTmpDir } from '../isolation/sandbox.js';
 import { spawnShell } from '../adapters/shell.js';
-import { profileFor } from '../adapters/catalog.js';
+import { profileFor, resolveAgent } from '../adapters/catalog.js';
+import { findConversation, latestWords } from '../domain/agent-logs.js';
 import { loadSettings, saveSettings, splitCommand, type UserSettings } from '../core/settings.js';
 import { TerminalRegistry } from './terminals.js';
 
@@ -261,6 +263,19 @@ export function buildMethods(
   // E2E: session.data is sealed at source with the workspace's gateway key, so a
   // relay only ever forwards ciphertext. Resolved per session's workspace, not the
   // daemon's root, so a multi-workspace daemon uses each workspace's own key.
+  const userHome = (): string => process.env.HOME || homedir();
+  /** `opencode session list` for resume; its binary is whatever the user configured. */
+  const listOpencodeSessions = (cwd: string): Promise<string> => new Promise((resolve, reject) => {
+    let command = 'opencode';
+    try {
+      command = resolveAgent('opencode', loadSettings()).argv[0] ?? command;
+    } catch {
+      // disabled or missing: the default name is as good a guess as any
+    }
+    execFile(command, ['session', 'list', '--format', 'json'], { cwd, timeout: 10_000, encoding: 'utf8' },
+      (err, stdout) => (err ? reject(err) : resolve(stdout)));
+  });
+
   // Roots are cached: this runs per output chunk and a workspace's root never moves.
   const sealRoots = new Map<string, string>();
   const sealChunk = createChunkSealer((workspaceId) => {
@@ -390,9 +405,19 @@ export function buildMethods(
           'writes outside its worktree are not confined on this platform/session shape.\n',
         );
       }
+      // Continue this session's own conversation when the agent left one: found by the
+      // worktree path, which is unique per session. A shared (--no-worktree) session
+      // sits in the user's own checkout, where "the newest conversation" is theirs.
+      const resumeId = row.worktreePath !== null && row.worktreePath !== projectRoot
+        ? await findConversation(row.agentKind, {
+          home: userHome(),
+          cwd: row.worktreePath,
+          listOpencode: () => listOpencodeSessions(row.worktreePath as string),
+        })
+        : undefined;
       let pid: number;
       try {
-        pid = runtime.start(row, sessions.adapterFor(row.agentKind), env, sandbox.spec);
+        pid = runtime.start(row, sessions.adapterFor(row.agentKind), env, sandbox.spec, resumeId);
       } catch (err) {
         // A spawn can fail synchronously — Bun.spawn throws `Executable not found in
         // $PATH` before any process exists — and the lease block was already acquired
@@ -557,16 +582,20 @@ export function buildMethods(
           if (d.skip === 'no-worktree') return { confined: false, reason: 'no-worktree' };
           return { confined: false, reason: d.skip ?? 'no-provider' };
         })();
+        // The agent's last words for the rail, read from its own log (Claude, Codex).
+        const words = session.worktreePath !== null && session.worktreePath !== projectRoot
+          ? latestWords(session.agentKind, { home: userHome(), cwd: session.worktreePath })
+          : undefined;
+        const withWords = { ...session, sandbox: sbox, ...(words === undefined ? {} : { latestWords: words }) };
         const active = leasesRepo
           .listBySession(session.id)
           .filter((lease) => lease.releasedAt === null);
-        if (active.length === 0) return { ...session, sandbox: sbox };
+        if (active.length === 0) return withWords;
         const value = (kind: 'port' | 'docker' | 'cache' | 'db'): string | null =>
           active.find((lease) => lease.kind === kind)?.value ?? null;
         const port = value('port');
         return {
-          ...session,
-          sandbox: sbox,
+          ...withWords,
           leases: {
             portBase: port === null ? null : Number(port),
             composeProject: value('docker'),
