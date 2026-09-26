@@ -97,4 +97,27 @@ describe('workspace.gc RPC', () => {
       await rm(worktree, { recursive: true, force: true });
     }
   });
+
+  test('passes force through: a killed session with unlanded work is kept, then reclaimed with force', async () => {
+    const fixture = await makeGitFixture();
+    try {
+      const db = openDatabase(':memory:');
+      new WorkspaceRepo(db).insert({
+        id: 'ws_3', name: 'w', rootPath: fixture.root, createdAt: 'now',
+        defaultIsolation: 'worktree', safeModeTier: 'T1',
+      });
+      const methods = buildMethods(db, fixture.root);
+      const ctx = { notify: () => undefined, onClose: () => undefined };
+      const row = await methods['session.new']!({ workspaceId: 'ws_3', name: 'wip', agent: 'claude' }, ctx) as { worktreePath: string };
+      await writeFile(join(row.worktreePath, 'wip.txt'), 'uncommitted\n');
+      await methods['session.kill']!({ workspaceId: 'ws_3', idOrName: 'wip' }, ctx);
+
+      const soft = await methods['workspace.gc']!({ id: 'ws_3' }, ctx) as { removed: string[]; kept: string[] };
+      expect(soft).toMatchObject({ removed: [], kept: ['wip'] });
+      const hard = await methods['workspace.gc']!({ id: 'ws_3', force: true }, ctx) as { removed: string[]; kept: string[] };
+      expect(hard).toMatchObject({ removed: ['wip'], kept: [] });
+    } finally {
+      await fixture.cleanup();
+    }
+  });
 });

@@ -1,4 +1,4 @@
-import { realpathSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { simpleGit } from 'simple-git';
 import { CrossweaveError } from '../core/errors.js';
@@ -99,6 +99,38 @@ export async function removeWorktree(projectRoot: string, worktreePath: string):
       'WORKTREE_REMOVE_FAILED',
       `git worktree remove failed for ${worktreePath}: ${(cause as Error).message}`,
     );
+  }
+}
+
+/**
+ * Whether a session's branch or worktree holds work that exists nowhere else: a
+ * commit no other branch contains, or anything `git status` reports (untracked files
+ * included — an agent's new file is work too).
+ *
+ * "No other branch" rather than "not on base" because the base is chosen per land,
+ * not stored; once any branch holds the commits (the user merged by hand, or kept a
+ * copy) deleting this one loses nothing. Any git failure answers true: the caller
+ * uses this to decide whether deletion is safe, and "cannot tell" is not safe.
+ */
+export async function hasUnlandedWork(
+  projectRoot: string,
+  branch: string | null,
+  worktreePath: string | null,
+): Promise<boolean> {
+  try {
+    if (worktreePath !== null && existsSync(worktreePath)) {
+      const status = await simpleGit(worktreePath).raw(['status', '--porcelain']);
+      if (status.trim() !== '') return true;
+    }
+    if (branch !== null) {
+      const heads = await simpleGit(projectRoot).raw(['for-each-ref', '--format=%(refname)', 'refs/heads/']);
+      const others = heads.split('\n').filter((r) => r !== '' && r !== `refs/heads/${branch}`);
+      const unique = await simpleGit(projectRoot).raw(['rev-list', '--count', `refs/heads/${branch}`, '--not', ...others]);
+      if (Number(unique.trim()) > 0) return true;
+    }
+    return false;
+  } catch {
+    return true;
   }
 }
 

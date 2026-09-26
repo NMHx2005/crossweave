@@ -462,7 +462,7 @@ export function buildMethods(
     },
     'workspace.gc': async (p) => {
       const id = str(p, 'id');
-      const result = await collectGarbage(db, id);
+      const result = await collectGarbage(db, id, { force: bool(p, 'force', false) });
       // Otherwise `workspace.info`'s disk figure (Important 3's TTL cache) can keep
       // showing pre-gc usage for up to `DISK_USAGE_CACHE_TTL_MS` after a gc, even
       // though the session list itself refreshes immediately via the broadcast below.

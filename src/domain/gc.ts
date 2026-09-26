@@ -6,12 +6,19 @@ import { WorkspaceRepo, type WorkspaceRow } from '../db/repositories/workspace.j
 import { LeaseRepo } from '../db/repositories/lease.js';
 import { CrossweaveError } from '../core/errors.js';
 import { assertContained, crossweaveDir } from '../core/paths.js';
-import { removeWorktree, deleteBranch, listWorktreePaths, isCrossweaveWorktree } from '../isolation/worktree.js';
+import { removeWorktree, deleteBranch, hasUnlandedWork, listWorktreePaths, isCrossweaveWorktree } from '../isolation/worktree.js';
 import { measureWorktrees, directorySize } from '../isolation/disk-guard.js';
 
 export interface GcResult {
   removed: string[];
   reclaimedBytes: number;
+  /** Dead sessions left alone because they still hold unlanded work. */
+  kept: string[];
+}
+
+export interface GcOptions {
+  /** Reclaim dead sessions even when they hold unlanded work. */
+  force?: boolean;
 }
 
 /**
@@ -75,11 +82,14 @@ export function disposeLeasedPaths(
  * This is the half that only ever runs when the user asks for it. `cw session kill`
  * without `--rm-worktree` leaves a session `dead` with its work intact on purpose
  * (M4's `cw land` needs the branch), so running this unprompted — on daemon boot, say
- * — would destroy work nobody offered up.
+ * — would destroy work nobody offered up. For the same reason a `dead` session that
+ * still holds unlanded work is kept even here, unless the caller forces it: "gc" reads
+ * as housekeeping, not as "discard what I have not landed yet".
  */
 async function reclaimEnded(
   db: Database,
   workspace: WorkspaceRow,
+  opts: GcOptions,
 ): Promise<GcResult & { disposedPaths: Set<string> }> {
   const repo = new SessionRepo(db);
   const leases = new LeaseRepo(db);
@@ -89,6 +99,7 @@ async function reclaimEnded(
     .filter((s) => s.status === 'dead' || s.status === 'landed');
 
   const removed: string[] = [];
+  const kept: string[] = [];
   let reclaimedBytes = 0;
   // Paths handled by this loop, whether or not their `removeWorktree` actually
   // succeeded — a failed removal here still deletes the row (best effort, does not
@@ -97,6 +108,16 @@ async function reclaimEnded(
   const disposedPaths = new Set<string>();
 
   for (const session of ended) {
+    // `landed` is always safe: its work is on the base (a squash land leaves the
+    // branch's own commits unmerged by ancestry, so the check below would misfire).
+    // `dead` only means killed — see the doc comment above.
+    if (
+      session.status === 'dead' && opts.force !== true &&
+      await hasUnlandedWork(workspace.rootPath, session.branch, session.worktreePath)
+    ) {
+      kept.push(session.name);
+      continue;
+    }
     const own =
       session.worktreePath !== null && session.worktreePath !== workspace.rootPath
         ? session.worktreePath
@@ -114,7 +135,7 @@ async function reclaimEnded(
     reclaimedBytes += sizes.get(session.id) ?? 0;
   }
 
-  return { removed, reclaimedBytes, disposedPaths };
+  return { removed, reclaimedBytes, kept, disposedPaths };
 }
 
 /**
@@ -158,7 +179,7 @@ async function sweepOrphans(
     removed.push(path.split('/').pop() ?? path);
   }
 
-  return { removed, reclaimedBytes };
+  return { removed, reclaimedBytes, kept: [] };
 }
 
 /**
@@ -174,12 +195,17 @@ export async function collectOrphans(db: Database, workspaceId: string): Promise
 }
 
 /** The full sweep behind `cw gc`: ended sessions first, then whatever is orphaned. */
-export async function collectGarbage(db: Database, workspaceId: string): Promise<GcResult> {
+export async function collectGarbage(
+  db: Database,
+  workspaceId: string,
+  opts: GcOptions = {},
+): Promise<GcResult> {
   const workspace = requireWorkspace(db, workspaceId);
-  const ended = await reclaimEnded(db, workspace);
+  const ended = await reclaimEnded(db, workspace, opts);
   const orphans = await sweepOrphans(db, workspace, ended.disposedPaths);
   return {
     removed: [...ended.removed, ...orphans.removed],
     reclaimedBytes: ended.reclaimedBytes + orphans.reclaimedBytes,
+    kept: ended.kept,
   };
 }

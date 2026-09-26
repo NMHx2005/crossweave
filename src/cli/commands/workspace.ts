@@ -100,23 +100,35 @@ export const workspaceCommand = defineCommand({
 
 export const gcCommand = defineCommand({
   meta: { name: 'gc', description: 'Reclaim worktrees and branches from ended sessions' },
-  async run() {
+  args: {
+    force: {
+      type: 'boolean', default: false,
+      description: 'Also reclaim killed sessions that still hold unlanded commits or changes',
+    },
+  },
+  async run({ args }) {
     try {
       await withClient(async (client) => {
         const ws = await client.call<Workspace>('workspace.init', {});
-        const result = await client.call<{ removed: string[]; reclaimedBytes: number }>(
-          'workspace.gc', { id: ws.id },
+        const result = await client.call<{ removed: string[]; reclaimedBytes: number; kept: string[] }>(
+          'workspace.gc', { id: ws.id, force: args.force },
         );
         if (result.removed.length === 0) {
           process.stdout.write('nothing to reclaim\n');
-          return;
+        } else {
+          // The DoD asks gc to report what it reclaimed, and a count of names is only
+          // half of that — the reason to run gc is the disk it gives back.
+          process.stdout.write(
+            `reclaimed ${humanBytes(result.reclaimedBytes)} from ` +
+              `${result.removed.length} session(s): ${result.removed.join(', ')}\n`,
+          );
         }
-        // The DoD asks gc to report what it reclaimed, and a count of names is only
-        // half of that — the reason to run gc is the disk it gives back.
-        process.stdout.write(
-          `reclaimed ${humanBytes(result.reclaimedBytes)} from ` +
-            `${result.removed.length} session(s): ${result.removed.join(', ')}\n`,
-        );
+        if (result.kept.length > 0) {
+          process.stdout.write(
+            `kept ${result.kept.length} killed session(s) with unlanded work: ` +
+              `${result.kept.join(', ')} — land them, or rerun with --force to discard\n`,
+          );
+        }
       });
     } catch (err) { fail(err); }
   },

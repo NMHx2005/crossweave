@@ -858,8 +858,10 @@ export const tuiCommand = defineCommand({
             setActionStatus('cancelled');
             return;
           }
-          await conn.call('workspace.gc', { id: ws.id });
-          setActionStatus('gc complete');
+          const result = await conn.call<{ kept: string[] }>('workspace.gc', { id: ws.id });
+          setActionStatus(result.kept.length > 0
+            ? `gc complete — kept ${result.kept.length} killed session(s) with unlanded work`
+            : 'gc complete');
         } catch (err) {
           setActionStatus(`gc failed: ${(err as Error).message}`);
         } finally {

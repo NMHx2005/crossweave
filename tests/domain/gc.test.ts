@@ -46,6 +46,54 @@ describe('collectGarbage', () => {
     expect(sessions.list(workspaceId).map((s) => s.name)).toEqual(['live']);
   }, 30_000);
 
+  // `kill` leaves a dead session's worktree and branch on disk precisely so it can
+  // still be landed; gc used to delete them regardless, work and all.
+  describe('a dead session that still holds unlanded work', () => {
+    async function deadWithCommit(name: string) {
+      const row = await sessions.create({ workspaceId, name, agent: 'claude', worktree: true });
+      const { simpleGit } = await import('simple-git');
+      await writeFile(join(row.worktreePath ?? '', 'feature.txt'), 'work\n');
+      await simpleGit(row.worktreePath ?? '').add('feature.txt').commit('feature');
+      await sessions.kill(workspaceId, name, { removeWorktree: false });
+      return row;
+    }
+
+    it('is kept, and reported as kept, when its branch has commits no other branch holds', async () => {
+      const row = await deadWithCommit('unlanded');
+      const result = await collectGarbage(db, workspaceId);
+      expect(result.removed).toEqual([]);
+      expect(result.kept).toEqual(['unlanded']);
+      expect(existsSync(row.worktreePath ?? '')).toBe(true);
+      const { simpleGit } = await import('simple-git');
+      expect((await simpleGit(fx.root).branch()).all).toContain('cw/unlanded');
+    }, 30_000);
+
+    it('is kept when its worktree has uncommitted changes', async () => {
+      const row = await sessions.create({ workspaceId, name: 'dirty', agent: 'claude', worktree: true });
+      await writeFile(join(row.worktreePath ?? '', 'scratch.txt'), 'not committed\n');
+      await sessions.kill(workspaceId, 'dirty', { removeWorktree: false });
+      const result = await collectGarbage(db, workspaceId);
+      expect(result.kept).toEqual(['dirty']);
+      expect(existsSync(join(row.worktreePath ?? '', 'scratch.txt'))).toBe(true);
+    }, 30_000);
+
+    it('is reclaimed once another branch holds its commits', async () => {
+      await deadWithCommit('merged');
+      const { simpleGit } = await import('simple-git');
+      await simpleGit(fx.root).raw(['branch', 'keep-copy', 'cw/merged']);
+      const result = await collectGarbage(db, workspaceId);
+      expect(result.removed).toEqual(['merged']);
+      expect(result.kept).toEqual([]);
+    }, 30_000);
+
+    it('is reclaimed with force', async () => {
+      const row = await deadWithCommit('forced');
+      const result = await collectGarbage(db, workspaceId, { force: true });
+      expect(result.removed).toEqual(['forced']);
+      expect(existsSync(row.worktreePath ?? '')).toBe(false);
+    }, 30_000);
+  });
+
   it('is a no-op when nothing has ended', async () => {
     await sessions.create({ workspaceId, name: 'live', agent: 'claude', worktree: true });
     const result = await collectGarbage(db, workspaceId);
