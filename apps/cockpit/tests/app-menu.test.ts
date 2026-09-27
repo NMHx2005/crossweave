@@ -10,8 +10,17 @@ describe('appMenuTemplate', () => {
   // Cmd+C / Cmd+V / Cmd+A: copying from a terminal pane and pasting into it both
   // silently did nothing on macOS, where those shortcuts live in the menu.
   test('has an Edit menu, so copy, paste and select-all have their shortcuts', () => {
-    const roles = build('darwin').map((item) => item.role ?? item.label)
-    expect(roles).toContain('editMenu')
+    const edit = build('darwin').find((item) => item.label === 'Edit')
+    const roles = (edit?.submenu as Array<{ role?: string }>).map((i) => i.role)
+    for (const role of ['undo', 'redo', 'cut', 'copy', 'paste', 'selectAll']) expect(roles).toContain(role)
+  })
+
+  test('Find, Find Next and Find Previous for the terminal panes', () => {
+    const fired: string[] = []
+    const menu = appMenuTemplate({ platform: 'darwin', recent: [], command: (c) => fired.push(c) })
+    const edit = menu.find((m) => m.label === 'Edit')!.submenu as Array<{ accelerator?: string; click?: () => void }>
+    for (const key of ['CmdOrCtrl+F', 'CmdOrCtrl+G', 'CmdOrCtrl+Shift+G']) edit.find((i) => i.accelerator === key)?.click?.()
+    expect(fired).toEqual(['find', 'find-next', 'find-prev'])
   })
 
   // The first macOS menu is the application menu (About, Hide, Quit ⌘Q); File was

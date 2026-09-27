@@ -3,6 +3,7 @@ import type { RecentMenuItem } from './recent-menu'
 
 export type CockpitCommand = 'command-bar' | 'new-agent' | 'jump-attention' | 'open-terminal' | 'open-file' | 'open-browser' | 'open-settings'
   | 'open-project' | 'split-right' | 'split-down' | 'close-pane' | 'toggle-sidebar'
+  | 'find' | 'find-next' | 'find-prev'
   /** ⌘1…⌘9: the Nth session down the rail. */
   | `jump-${1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9}`
 
@@ -43,7 +44,24 @@ export function appMenuTemplate(deps: AppMenuDeps): MenuItemConstructorOptions[]
         { role: 'close', accelerator: 'CmdOrCtrl+Shift+W' },
       ],
     },
-    { role: 'editMenu' },
+    // Electron's Edit roles (copy, paste, select all keep their accelerators — see the
+    // note above), plus Find for the terminal panes.
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'selectAll' },
+        { type: 'separator' },
+        { label: 'Find…', accelerator: 'CmdOrCtrl+F', click: () => deps.command('find') },
+        { label: 'Find Next', accelerator: 'CmdOrCtrl+G', click: () => deps.command('find-next') },
+        { label: 'Find Previous', accelerator: 'CmdOrCtrl+Shift+G', click: () => deps.command('find-prev') },
+      ],
+    },
     {
       // Accelerators live in the menu, not a keydown listener: a focused terminal pane
       // swallows keystrokes, and the menu both wins over it and shows the shortcut.

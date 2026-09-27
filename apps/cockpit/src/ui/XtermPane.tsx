@@ -1,8 +1,11 @@
-import { useEffect, useRef } from 'preact/hooks'
+import { useEffect, useReducer, useRef } from 'preact/hooks'
 import { Terminal } from '@xterm/xterm'
 import { describeAttachFailure } from '../lib/attach-message'
 import { FitAddon } from '@xterm/addon-fit'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
+import { SearchAddon, type ISearchOptions } from '@xterm/addon-search'
+import { CLOSED_FIND, findLabel, findReducer, type FindState } from '../lib/find-state'
+import { COCKPIT_TOKENS } from './tokens'
 import '@xterm/xterm/css/xterm.css'
 import type { PaneSource } from '../lib/pane-source'
 import { findFileLinks } from '../lib/file-links'
@@ -25,6 +28,11 @@ export function XtermPane({ source, focused }: XtermPaneProps) {
   const lookRef = useRef(look)
   lookRef.current = look
   const fitRef = useRef<FitAddon | null>(null)
+  const searchRef = useRef<SearchAddon | null>(null)
+  const [find, dispatchFind] = useReducer(findReducer, CLOSED_FIND)
+  const findRef = useRef(find)
+  findRef.current = find
+  const findInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     const container = containerRef.current
@@ -53,6 +61,10 @@ export function XtermPane({ source, focused }: XtermPaneProps) {
     // lines ("17:1") until the next full repaint. Unicode 11 widths agree with it.
     term.loadAddon(new Unicode11Addon())
     term.unicode.activeVersion = '11'
+    const search = new SearchAddon({ highlightLimit: 2000 })
+    term.loadAddon(search)
+    searchRef.current = search
+    const searchResults = search.onDidChangeResults((r) => dispatchFind({ type: 'results', resultIndex: r.resultIndex, resultCount: r.resultCount }))
     term.open(container)
     termRef.current = term
 
@@ -169,6 +181,8 @@ export function XtermPane({ source, focused }: XtermPaneProps) {
       exitUnlisten()
       dataSub.dispose()
       observer.disconnect()
+      searchResults.dispose()
+      searchRef.current = null
       source.detach()
       term.dispose()
       termRef.current = null
@@ -179,6 +193,61 @@ export function XtermPane({ source, focused }: XtermPaneProps) {
     if (focused) termRef.current?.focus()
     else termRef.current?.blur()
   }, [focused])
+
+  // ⌘F / ⌘G / ⌘⇧G from the menu reach every pane; only the focused one (its tab and
+  // its project shown) answers.
+  useEffect(() => {
+    const onFind = (ev: Event): void => {
+      if (!focusedRef.current) return
+      const action = (ev as CustomEvent<{ action?: string }>).detail?.action
+      if (action === 'open') {
+        dispatchFind({ type: 'open' })
+        setTimeout(() => { findInputRef.current?.focus(); findInputRef.current?.select() }, 0)
+      } else if (action === 'next' || action === 'prev') {
+        if (!findRef.current.open) dispatchFind({ type: 'open' })
+        runFind(findRef.current, action)
+      }
+    }
+    window.addEventListener('cockpit:find', onFind)
+    return () => window.removeEventListener('cockpit:find', onFind)
+  }, [])
+
+  /** Search `state.term`; `incremental` keeps the current match while typing extends it. */
+  function runFind(state: FindState, direction: 'next' | 'prev', incremental = false): void {
+    const search = searchRef.current
+    if (!search) return
+    if (state.term === '') {
+      search.clearDecorations()
+      return
+    }
+    const options: ISearchOptions = {
+      caseSensitive: state.caseSensitive,
+      regex: state.regex,
+      wholeWord: state.wholeWord,
+      incremental,
+      // Hex only (the addon's rule), from the chrome's tokens.
+      decorations: {
+        matchBackground: COCKPIT_TOKENS['--cw-surface-control'],
+        matchOverviewRuler: COCKPIT_TOKENS['--cw-text-dim'],
+        activeMatchBackground: COCKPIT_TOKENS['--cw-surface-active'],
+        activeMatchBorder: COCKPIT_TOKENS['--cw-needs-you'],
+        activeMatchColorOverviewRuler: COCKPIT_TOKENS['--cw-needs-you'],
+      },
+    }
+    try {
+      if (direction === 'next') search.findNext(state.term, options)
+      else search.findPrevious(state.term, options)
+    } catch {
+      // an unfinished regex while typing: no matches yet
+      dispatchFind({ type: 'results', resultIndex: -1, resultCount: 0 })
+    }
+  }
+
+  function closeFind(): void {
+    dispatchFind({ type: 'close' })
+    searchRef.current?.clearDecorations()
+    termRef.current?.focus()
+  }
 
   // Settings → Terminal saved (or an import applied): every open pane changes in place,
   // then refits, because a new font or size changes how many cells fit.
@@ -197,5 +266,43 @@ export function XtermPane({ source, focused }: XtermPaneProps) {
     if (container && container.clientWidth > 0 && container.clientHeight > 0) fitRef.current?.fit()
   }, [lookKey])
 
-  return <div class="xterm-pane" ref={containerRef} data-pane-key={source.key} />
+  return (
+    <div class="xterm-pane__wrap">
+      <div class="xterm-pane" ref={containerRef} data-pane-key={source.key} />
+      {find.open ? (
+        <div class="cockpit-find" role="search" aria-label="Find in terminal">
+          <input
+            ref={findInputRef}
+            value={find.term}
+            placeholder="Find"
+            aria-label="Find"
+            spellcheck={false}
+            onInput={(ev) => {
+              const next = findReducer(find, { type: 'term', term: (ev.target as HTMLInputElement).value })
+              dispatchFind({ type: 'term', term: next.term })
+              runFind(next, 'next', true)
+            }}
+            onKeyDown={(ev) => {
+              if (ev.isComposing) return
+              if (ev.key === 'Enter') { ev.preventDefault(); runFind(find, ev.shiftKey ? 'prev' : 'next') }
+              else if (ev.key === 'Escape') { ev.preventDefault(); closeFind() }
+            }}
+          />
+          <span class="cockpit-find__count" aria-live="polite">{findLabel(find)}</span>
+          {([['caseSensitive', 'Aa', 'Match case'], ['wholeWord', 'ab', 'Whole word'], ['regex', '.*', 'Regular expression']] as const).map(([option, glyph, title]) => (
+            <button key={option} type="button" class={`cockpit-find__toggle${find[option] ? ' is-on' : ''}`} title={title} aria-pressed={find[option]}
+              onClick={() => {
+                const next = findReducer(find, { type: 'toggle', option })
+                dispatchFind({ type: 'toggle', option })
+                runFind(next, 'next', true)
+                findInputRef.current?.focus()
+              }}>{glyph}</button>
+          ))}
+          <button type="button" class="cockpit-iconbtn cockpit-find__nav" title="Previous (⌘⇧G)" aria-label="Previous match" onClick={() => runFind(find, 'prev')}>↑</button>
+          <button type="button" class="cockpit-iconbtn cockpit-find__nav" title="Next (⌘G)" aria-label="Next match" onClick={() => runFind(find, 'next')}>↓</button>
+          <button type="button" class="cockpit-iconbtn cockpit-find__nav" title="Close (Esc)" aria-label="Close find" onClick={closeFind}>×</button>
+        </div>
+      ) : null}
+    </div>
+  )
 }
