@@ -91,10 +91,11 @@ export async function createGatewayTransport(
       reject(msg.id, { code: -32000, message: `Forbidden: ${msg.method} requires a control token` });
       return undefined;
     }
-    // Launch flags become an agent's argv, and an agent flag can run code (Claude's
-    // --settings declares hooks): a control token must not amount to a command line.
-    if (params !== undefined && 'args' in params) {
-      reject(msg.id, { code: -32000, message: 'Forbidden: launch flags can only be set from a local client' });
+    // A launcher line is a command the daemon types into a shell, and its env shapes
+    // that shell: both stay with local clients, so a remote token never amounts to
+    // choosing what a new shell runs.
+    if (params !== undefined && ('run' in params || 'env' in params || 'launcher' in params)) {
+      reject(msg.id, { code: -32000, message: 'Forbidden: launch commands can only be set from a local client' });
       return undefined;
     }
     if (opts.projectRoot) appendAudit(opts.projectRoot, { method: msg.method, kind: authedKind });

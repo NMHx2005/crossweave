@@ -82,10 +82,9 @@ describe('gateway transport', () => {
   });
 });
 
-// Launch flags reach an agent's argv, and an agent flag can run code (Claude's
-// --settings declares hooks): a remote token must not become a remote command line.
-describe('gateway and launch flags', () => {
-  it('refuses any args param instead of forwarding it', async () => {
+// A launcher line is typed into a new shell: a remote token must not choose it.
+describe('gateway and launch commands', () => {
+  it('refuses a run or env param instead of forwarding it', async () => {
     const clientSide = memoryTransport();
     const gatewayClientSide = memoryTransport();
     const gatewayDaemonSide = memoryTransport();
@@ -101,7 +100,7 @@ describe('gateway and launch flags', () => {
     });
     const client = DaemonClient.attach(clientSide as unknown as ClientTransport);
     for (const method of ['session.new', 'session.resume']) {
-      await expect(client.call(method, { token: 'tok', idOrName: 'a', name: 'a', agent: 'claude', args: ['--dangerously-skip-permissions'] }))
+      await expect(client.call(method, { token: 'tok', idOrName: 'a', name: 'a', run: 'claude --dangerously-skip-permissions' }))
         .rejects.toMatchObject({ message: expect.stringContaining('local') });
     }
     expect(daemonSent.length).toBe(0);

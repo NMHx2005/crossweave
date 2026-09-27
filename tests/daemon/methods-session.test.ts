@@ -141,3 +141,85 @@ describe('session status on session.list', () => {
     } finally { db.close(); }
   });
 });
+
+describe('launchers', () => {
+  // The launcher's command is typed into the shell the session just opened, and the
+  // launcher's env reaches that shell (a lease still wins over it).
+  test('start can run a command in the new shell, with extra environment', async () => {
+    const typed: string[] = [];
+    let seenEnv: Record<string, string> = {};
+    const factory = (kind: string) => ({
+      kind, enforcementTier: 'T3' as const,
+      spawn(opts: SpawnOptions) {
+        seenEnv = opts['env'];
+        const exits: Array<(c: number) => void> = [];
+        return { pid: 7, onData: () => undefined, onExit: (cb: (c: number) => void) => { exits.push(cb); }, write: (d: string) => { typed.push(d); }, resize: () => undefined, kill: () => { for (const cb of exits) cb(129); } };
+      },
+    });
+    const db = openDatabase(join(fx.root, '.crossweave', 'state.db'));
+    try {
+      const ws = new WorkspaceManager(db).init(fx.root);
+      const methods = buildMethods(db, fx.root, factory, DEFAULT_CONFIG);
+      const ctx = { notify: () => undefined, onClose: () => undefined };
+      const call = async (m: string, p: Record<string, unknown> = {}): Promise<unknown> => methods[m]!({ workspaceId: ws.id, ...p }, ctx);
+      await call('session.new', { name: 'api' });
+      await call('session.start', { idOrName: 'api', run: 'claude --model opus', env: { ANTHROPIC_MODEL: 'opus', PORT: '1' } });
+      expect(typed).toEqual(['claude --model opus\r']);
+      expect(seenEnv.ANTHROPIC_MODEL).toBe('opus');
+      expect(seenEnv.PORT).not.toBe('1');
+      await call('session.stop', { idOrName: 'api' });
+      // A second line would run a second command: refused before anything starts.
+      await expect(call('session.start', { idOrName: 'api', run: 'claude\nrm -rf x' })).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
+      expect(typed).toHaveLength(1);
+    } finally { db.close(); }
+  });
+
+  test('launchers.list says which launchers this machine can run', async () => {
+    const { db, call } = await harness();
+    try {
+      const list = await call('launchers.list') as Array<{ id: string; available: boolean; enabled: boolean }>;
+      expect(list.map((l) => l.id)).toContain('claude');
+      expect(list.every((l) => typeof l.available === 'boolean')).toBe(true);
+    } finally { db.close(); }
+  });
+});
+
+describe('starting with a saved launcher', () => {
+  test('its command is typed and its env applied; unknown or disabled ones are refused', async () => {
+    const { saveSettings, loadSettings } = await import('../../src/core/settings.js');
+    const base = loadSettings(home);
+    saveSettings({
+      ...base,
+      launchers: base.launchers.map((l) => (l.id === 'claude' ? { ...l, command: 'claude --model opus', env: { FOO: 'bar' } }
+        : l.id === 'aider' ? { ...l, enabled: false } : l)),
+    }, home);
+    const typed: string[] = [];
+    let seenEnv: Record<string, string> = {};
+    const factory = (kind: string) => ({
+      kind, enforcementTier: 'T3' as const,
+      spawn(opts: SpawnOptions) {
+        seenEnv = opts['env'];
+        const exits: Array<(c: number) => void> = [];
+        return { pid: 7, onData: () => undefined, onExit: (cb: (c: number) => void) => { exits.push(cb); }, write: (d: string) => { typed.push(d); }, resize: () => undefined, kill: () => { for (const cb of exits) cb(129); } };
+      },
+    });
+    const db = openDatabase(join(fx.root, '.crossweave', 'state.db'));
+    try {
+      const ws = new WorkspaceManager(db).init(fx.root);
+      const methods = buildMethods(db, fx.root, factory, DEFAULT_CONFIG);
+      const ctx = { notify: () => undefined, onClose: () => undefined };
+      const call = async (m: string, p: Record<string, unknown> = {}): Promise<unknown> => methods[m]!({ workspaceId: ws.id, ...p }, ctx);
+      await call('session.new', { name: 'api' });
+      await expect(call('session.start', { idOrName: 'api', launcher: 'nope' })).rejects.toMatchObject({ code: 'UNKNOWN_LAUNCHER' });
+      await expect(call('session.start', { idOrName: 'api', launcher: 'aider' })).rejects.toMatchObject({ code: 'LAUNCHER_DISABLED' });
+      await call('session.start', { idOrName: 'api', launcher: 'claude' });
+      expect(typed).toEqual(['claude --model opus\r']);
+      expect(seenEnv.FOO).toBe('bar');
+      await call('session.stop', { idOrName: 'api' });
+      // "terminal" is a plain shell: nothing typed.
+      await call('session.start', { idOrName: 'api', launcher: 'terminal' });
+      expect(typed).toHaveLength(1);
+      await call('session.stop', { idOrName: 'api' });
+    } finally { db.close(); }
+  });
+});

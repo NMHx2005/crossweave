@@ -142,20 +142,29 @@ export const sessionCommand = defineCommand({
     // that `kill` is terminal has no escape hatch a user can reach — SESSION_ENDED
     // would be advising a command that does not exist.
     start: defineCommand({
-      meta: { name: 'start', description: "Open the session's shell again (a stopped session); run your tools in it yourself" },
+      meta: { name: 'start', description: "Open the session's shell (a stopped session), optionally running a launcher or a command in it" },
       // Optional + validated by hand for the same reason `stop` does it: citty's own
       // missing-positional error has no `CODE:` prefix, which would break the contract
       // that every CLI failure emits exactly one `CODE: message` line.
-      args: { target: { type: 'positional', description: 'Session name or id', required: false } },
+      args: {
+        target: { type: 'positional', description: 'Session name or id', required: false },
+        launcher: { type: 'string', description: 'A launcher from Settings to run in the shell (claude, codex, … or your own)' },
+        run: { type: 'string', description: 'A one-line command to type into the shell once it opens' },
+      },
       async run({ args }) {
         try {
           if (args.target === undefined) {
             throw new CrossweaveError('INVALID_ARGUMENTS', 'Missing required argument: TARGET');
           }
+          if (args.launcher !== undefined && args.run !== undefined) {
+            throw new CrossweaveError('INVALID_ARGUMENTS', 'Give --launcher or --run, not both');
+          }
           await withClient(async (client) => {
             const workspaceId = await currentWorkspaceId(client);
             const row = await client.call<Session>('session.resume', {
               workspaceId, idOrName: args.target, env: { ...process.env },
+              ...(args.launcher === undefined ? {} : { launcher: args.launcher }),
+              ...(args.run === undefined ? {} : { run: args.run }),
             });
             process.stdout.write(`${row.name}\t${row.status}\t${row.worktreePath ?? '-'}\n`);
           });

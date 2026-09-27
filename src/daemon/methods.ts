@@ -37,9 +37,11 @@ import { LeaseRepo } from '../db/repositories/lease.js';
 import { spawnShell } from '../adapters/shell.js';
 import { latestWords } from '../domain/agent-logs.js';
 import { listWorktreeFiles, readWorktreeFile, writeWorktreeFile } from '../domain/worktree-files.js';
-import { loadSettings, saveSettings, type UserSettings } from '../core/settings.js';
+import { loadSettings, saveSettings, type LauncherDef, type UserSettings } from '../core/settings.js';
 import { TerminalRegistry } from './terminals.js';
 import { ActivityTracker, detectAgents } from './session-status.js';
+import { launcherProgram } from '../core/launcher-program.js';
+import { loginShellPath, mergePaths } from '../core/login-path.js';
 
 function str(params: Record<string, unknown>, key: string): string {
   const v = params[key];
@@ -330,9 +332,35 @@ export function buildMethods(
     }
   }
 
+  /** The saved launcher a start names (`launcher: 'claude'`), if any. */
+  function launcherFor(p: Record<string, unknown>): LauncherDef | undefined {
+    const id = optionalStr(p, 'launcher');
+    if (id === undefined || id === 'terminal') return undefined;
+    const found = loadSettings().launchers.find((l) => l.id === id);
+    if (found === undefined) throw new CrossweaveError('UNKNOWN_LAUNCHER', `No launcher named ${id} — see Settings`);
+    if (!found.enabled) throw new CrossweaveError('LAUNCHER_DISABLED', `${found.label} is turned off in Settings`);
+    return found;
+  }
+
+  /**
+   * A launcher's line, typed into the shell once it is open. One line only: a line
+   * break would make the shell run a second command nobody chose.
+   */
+  function runLine(p: Record<string, unknown>): string | undefined {
+    const launcher = launcherFor(p);
+    if (launcher !== undefined) return launcher.command;
+    const run = p.run;
+    if (run === undefined) return undefined;
+    if (typeof run !== 'string' || run.trim() === '' || run.length > 2000 || /[\r\n\0]/.test(run)) {
+      throw new CrossweaveError('INVALID_PARAMS', 'run must be one line of at most 2000 characters');
+    }
+    return run;
+  }
+
   async function start(p: Record<string, unknown>): Promise<SessionRow> {
     const row = sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName'));
     assertResumable(row);
+    const run = runLine(p);
     // Synchronous check-and-mark, before the first `await` below: see the comment
     // on `starting` above for why this closes the concurrent-start race.
     if (starting.has(row.id)) {
@@ -342,7 +370,13 @@ export function buildMethods(
     try {
       // A lease must win over the client's shell, or a session's port would depend
       // on what the user happened to export.
-      const env: Record<string, string> = { ...clientEnv(p), ...(await leaseManager.acquire(row.id)) };
+      // The launcher's env over the client's, and the lease over both: a session's port
+      // must not depend on what a launcher or the user's terminal happened to export.
+      const env: Record<string, string> = {
+        ...clientEnv(p),
+        ...(launcherFor(p)?.env ?? {}),
+        ...(await leaseManager.acquire(row.id)),
+      };
       let pid: number;
       try {
         pid = runtime.start(row, sessions.adapterFor(row.agentKind), env);
@@ -354,6 +388,9 @@ export function buildMethods(
         throw err;
       }
       sessions.markStatus(row.id, 'running', pid);
+      // Typed, not exec'd: the shell reads it once its rc files have run, and when the
+      // agent exits the user is back at a prompt in the worktree.
+      if (run !== undefined) runtime.write(row.id, row.name, `${run}\r`);
       ledger.append({ sessionId: row.id, workspaceId: row.workspaceId, kind: 'session.started', payload: '{}' });
       // Every client redraws on this. Without it, a session started by ANOTHER client
       // (the CLI while the cockpit is open) stayed `stopped` on every other screen.
@@ -511,6 +548,18 @@ export function buildMethods(
       return sessionDiff(projectRoot, row.branch, row.worktreePath);
     },
 
+    // The launchers a new session can start with, and whether this machine has each
+    // one's program — looked up on the user's login-shell PATH, which is what the
+    // session's shell will have (a cockpit opened from the Dock has launchd's minimal
+    // PATH, where ~/.local/bin does not exist).
+    'launchers.list': async () => {
+      const PATH = mergePaths(process.env.PATH, await loginShellPath()) ?? '';
+      return loadSettings().launchers.map((l) => {
+        const program = launcherProgram(l.command);
+        const available = program !== undefined && Bun.which(program, { PATH }) !== null;
+        return { ...l, available };
+      });
+    },
     'settings.get': () => loadSettings(),
     // Local clients only: it is the user's own file, never in the gateway's allowlist.
     'settings.set': (p) => {
@@ -564,6 +613,7 @@ export function buildMethods(
 
     'session.resume': async (p) => {
       const row = sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName'));
+      runLine(p);
       // Checked BEFORE isRunning: right after a kill the runtime still reports the
       // pty as running until its exit callback lands, and returning the row there
       // handed back a stale `dead` snapshot with no error at all.
