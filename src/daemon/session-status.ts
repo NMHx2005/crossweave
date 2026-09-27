@@ -119,6 +119,10 @@ const BINARIES: Record<string, string> = {
   agy: 'antigravity',
   antigravity: 'antigravity',
   'cursor-agent': 'cursor',
+  copilot: 'copilot',
+  aider: 'aider',
+  amp: 'amp',
+  qwen: 'qwen',
 };
 
 /** ...and by the npm package a `node …/cli.js` invocation runs from. */
@@ -127,6 +131,9 @@ const PACKAGES: Array<[RegExp, string]> = [
   [/@openai\/codex\//, 'codex'],
   [/@google\/gemini-cli\//, 'gemini'],
   [/\/opencode(?:-ai)?\//, 'opencode'],
+  [/@github\/copilot\//, 'copilot'],
+  [/@sourcegraph\/amp\//, 'amp'],
+  [/@qwen-code\/qwen-code\//, 'qwen'],
 ];
 
 /** The agent a command line runs, or null. Only the program counts, not its arguments. */

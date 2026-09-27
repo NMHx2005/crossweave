@@ -81,6 +81,8 @@ describe('agentFromArgs', () => {
     expect(agentFromArgs('node /x/node_modules/@google/gemini-cli/dist/index.js')).toBe('gemini');
     expect(agentFromArgs('agy')).toBe('antigravity');
     expect(agentFromArgs('cursor-agent -p hi')).toBe('cursor');
+    expect(agentFromArgs('node /opt/homebrew/lib/node_modules/@github/copilot/index.js')).toBe('copilot');
+    expect(agentFromArgs('/Users/me/.local/bin/aider --model sonnet')).toBe('aider');
     // A shell script installed under the agent's name is that agent; any other
     // script (a `cx` wrapper) is not, and the search goes on to what it runs.
     expect(agentFromArgs('/bin/bash /Users/me/.local/bin/claude --resume')).toBe('claude');
