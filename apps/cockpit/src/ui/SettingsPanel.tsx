@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'preact/hooks'
 import { formatEnvLines, launcherIdFor, parseEnvLines } from '../lib/launchers'
 import { AgentMark } from './icons'
-import type { InterfaceAppearance, TerminalAppearance } from '../../../../src/core/settings.js'
+import type { InterfaceAppearance, ModelPrice, TerminalAppearance, UsageSettings } from '../../../../src/core/settings.js'
 import { FontPicker, type InstalledFont } from './FontPicker'
 import type { TerminalImport } from '../host/cockpit-api'
 import { xtermLook } from '../lib/terminal-look'
@@ -21,6 +21,7 @@ export type UserSettings = {
   layouts: Record<string, unknown>
   terminal?: TerminalAppearance
   appearance?: InterfaceAppearance
+  usage?: UsageSettings
 }
 
 const EDITORS: Array<{ kind: EditorSetting['kind']; label: string }> = [
@@ -37,7 +38,7 @@ const EDITORS: Array<{ kind: EditorSetting['kind']; label: string }> = [
  * Saved per user by the daemon, which validates everything again; this form only shows
  * its answer.
  */
-export type NotifyPrefs = { sound: boolean; dockBadge: boolean }
+export type NotifyPrefs = { sound: boolean; dockBadge: boolean; finish: boolean }
 
 /** Offered first in the pickers when installed; everything else installed follows. */
 const UI_FONTS = ['Inter', 'SF Pro Text', 'SF Pro Display', 'Geist', 'IBM Plex Sans', 'Avenir Next', 'Helvetica Neue', 'JetBrains Mono']
@@ -54,7 +55,7 @@ const TERMINAL_APPS: Array<{ id: 'ghostty' | 'iterm2'; label: string }> = [
   { id: 'iterm2', label: 'iTerm2' },
 ]
 
-export function SettingsPanel({ initial, availability, defaults, notify, onNotify, importSources, onImport, loadFonts, onPreviewAppearance, onSave, onClose }: {
+export function SettingsPanel({ initial, availability, defaults, notify, onNotify, importSources, onImport, loadFonts, onPreviewAppearance, seenModels, onSave, onClose }: {
   initial: UserSettings
   /** Launcher id → whether this machine has its program (from launchers.list). */
   availability: Record<string, boolean>
@@ -70,6 +71,8 @@ export function SettingsPanel({ initial, availability, defaults, notify, onNotif
   loadFonts: () => Promise<InstalledFont[]>
   /** Shows the window in `appearance` now, before Save (the host reverts on Cancel). */
   onPreviewAppearance: (appearance: InterfaceAppearance | undefined) => void
+  /** Models the agents have used in the open projects, offered for pricing. */
+  seenModels: string[]
   onSave: (next: UserSettings) => Promise<string | null>
   onClose: () => void
 }) {
@@ -121,6 +124,27 @@ export function SettingsPanel({ initial, availability, defaults, notify, onNotif
     } finally {
       setImporting(null)
     }
+  }
+
+  const [newModel, setNewModel] = useState('')
+  const prices = draft.usage?.prices ?? {}
+  const pricedModels = [...new Set([...seenModels, ...Object.keys(prices)])].sort()
+  // From the latest draft, not this render's: several fields edited before a re-render
+  // (or quickly, one after another) each kept only the last.
+  const setPrice = (model: string, kind: keyof ModelPrice, value: string): void => {
+    const n = Number(value)
+    setDraft((d) => {
+      const all = d.usage?.prices ?? {}
+      const current = all[model] ?? { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 }
+      return { ...d, usage: { ...d.usage, prices: { ...all, [model]: { ...current, [kind]: Number.isFinite(n) && n >= 0 ? n : 0 } } } }
+    })
+  }
+  const removePrice = (model: string): void => {
+    setDraft((d) => {
+      const all = { ...(d.usage?.prices ?? {}) }
+      delete all[model]
+      return { ...d, usage: { ...d.usage, prices: all } }
+    })
   }
 
   const look = xtermLook(draft.terminal)
@@ -326,6 +350,42 @@ export function SettingsPanel({ initial, availability, defaults, notify, onNotif
           <span>Option key sends Meta (Esc+), for Alt shortcuts in the shell and in agents</span>
         </label>
 
+        <h3 class="cockpit-settings__heading">Usage</h3>
+        <p class="cockpit-muted">
+          Tokens the agents in each session have used, read from their own logs (Claude Code, Codex). The logs carry no
+          prices — add yours (USD per million tokens) to see cost; a model without a price shows as tokens.
+        </p>
+        <label class="cockpit-settings__toggle">
+          <input type="checkbox" checked={draft.usage?.show ?? true}
+            onChange={(e) => setDraft({ ...draft, usage: { ...draft.usage, show: (e.target as HTMLInputElement).checked } })} />
+          <span>Show usage on the rail</span>
+        </label>
+        {pricedModels.length > 0 ? (
+          <table class="cockpit-prices">
+            <thead><tr><th>Model</th><th>Input</th><th>Output</th><th>Cache write</th><th>Cache read</th><th /></tr></thead>
+            <tbody>
+              {pricedModels.map((model) => (
+                <tr key={model}>
+                  <td><code>{model}</code></td>
+                  {(['input', 'output', 'cacheWrite', 'cacheRead'] as const).map((kind) => (
+                    <td key={kind}>
+                      <input type="number" min={0} step="0.01" aria-label={`${model} ${kind} price`} placeholder="—"
+                        value={prices[model]?.[kind] ?? ''} onInput={(e) => setPrice(model, kind, (e.target as HTMLInputElement).value)} />
+                    </td>
+                  ))}
+                  <td>{prices[model] ? <button type="button" class="cockpit-iconbtn" aria-label={`Remove ${model} price`} onClick={() => removePrice(model)}>×</button> : null}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : <p class="cockpit-muted">No agent usage seen yet in the open projects.</p>}
+        <div class="cockpit-prices__add">
+          <input class="cockpit-field--mono" value={newModel} placeholder="another model, e.g. claude-opus-5-5" spellcheck={false}
+            onInput={(e) => setNewModel((e.target as HTMLInputElement).value.trim())} />
+          <button type="button" class="cockpit-btn cockpit-btn--sm" disabled={newModel === '' || newModel in prices}
+            onClick={() => { setPrice(newModel, 'input', '0'); setNewModel('') }}>Add model</button>
+        </div>
+
         <h3 class="cockpit-settings__heading">Cmd+click opens files in</h3>
         <div class="cockpit-settings__editors" role="radiogroup" aria-label="Editor">
           {EDITORS.map((e) => (
@@ -352,8 +412,12 @@ export function SettingsPanel({ initial, availability, defaults, notify, onNotif
           </label>
         ) : null}
 
-        <h3 class="cockpit-settings__heading">When a session waits for you</h3>
-        <p class="cockpit-muted">A desktop notification when the window is not in front; these apply right away.</p>
+        <h3 class="cockpit-settings__heading">Notifications</h3>
+        <p class="cockpit-muted">When a session waits for you, or its agent finishes, while you look elsewhere (another app, project or tab). These apply right away.</p>
+        <label class="cockpit-settings__toggle">
+          <input type="checkbox" checked={notify.finish} onChange={(e) => onNotify({ ...notify, finish: (e.target as HTMLInputElement).checked })} />
+          <span>Also when an agent finishes (it stopped working without asking)</span>
+        </label>
         <label class="cockpit-settings__toggle">
           <input type="checkbox" checked={notify.sound} onChange={(e) => onNotify({ ...notify, sound: (e.target as HTMLInputElement).checked })} />
           <span>Play a sound</span>

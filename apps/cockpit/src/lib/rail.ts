@@ -83,11 +83,16 @@ export function railOrder(sessions: readonly ListedSession[]): ListedSession[] {
  * asking (a reload) is not either — only a change seen happen.
  */
 export function newlyAsking(
-  prev: ReadonlyArray<Pick<ListedSession, 'id' | 'activity'>>,
+  prev: ReadonlyArray<Pick<ListedSession, 'id' | 'activity' | 'rang'>>,
   next: readonly ListedSession[],
 ): ListedSession[] {
-  const before = new Map(prev.map((s) => [s.id, s.activity]))
-  return next.filter((s) => s.activity === 'asked' && before.has(s.id) && before.get(s.id) !== 'asked')
+  const before = new Map(prev.map((s) => [s.id, s]))
+  return next.filter((s) => {
+    const was = before.get(s.id)
+    // Asking is ringing (a permission prompt, a question); an agent that went quiet
+    // after its turn without ringing has finished — newlyFinished's.
+    return was !== undefined && s.activity === 'asked' && s.rang === true && !(was.activity === 'asked' && was.rang === true)
+  })
 }
 
 /**
@@ -141,4 +146,23 @@ export function clampMenu(x: number, y: number, width: number, height: number, v
   const left = Math.max(margin, Math.min(x, viewW - width - margin))
   const top = Math.max(margin, Math.min(y, viewH - height - margin))
   return { left, top }
+}
+
+/**
+ * Sessions whose agent just finished: an agent CLI runs under the shell, it was working
+ * at the previous list and is idle now — it stopped producing without asking anything.
+ * A plain shell is never "finished" (every `ls` would notify); waiting for the user is
+ * `newlyAsking`'s; a closed shell is not finished; a session first seen idle is not news.
+ */
+export function newlyFinished(
+  prev: ReadonlyArray<Pick<ListedSession, 'id' | 'activity' | 'status'>>,
+  next: readonly ListedSession[],
+): ListedSession[] {
+  const before = new Map(prev.map((s) => [s.id, s]))
+  return next.filter((s) => {
+    const was = before.get(s.id)
+    const quiet = s.activity === 'idle' || (s.activity === 'asked' && s.rang !== true)
+    return was !== undefined && was.activity === 'working' && typeof s.agent === 'string'
+      && quiet && (s.status === 'running' || s.status === 'waiting')
+  })
 }

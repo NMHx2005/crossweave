@@ -496,6 +496,11 @@ body,
   padding: var(--cw-space-2);
 }
 
+/* Every tab is rendered so its terminals stay attached; only the active one shows. */
+.cockpit-stage__body[hidden] {
+  display: none;
+}
+
 .cockpit-split {
   flex: 1;
   min-width: 0;
@@ -567,6 +572,73 @@ body,
 
 .xterm-pane .xterm {
   height: 100%;
+}
+
+/* The pane and its find bar (⌘F), which floats over the terminal's top-right. */
+.xterm-pane__wrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+
+.cockpit-find {
+  position: absolute;
+  top: var(--cw-space-1);
+  right: var(--cw-space-3);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: var(--cw-space-1);
+  padding: var(--cw-space-1);
+  background: var(--cw-surface-overlay);
+  border: var(--cw-hairline) solid var(--cw-border-strong);
+  border-radius: var(--cw-radius);
+  box-shadow: 0 var(--cw-space-1) var(--cw-space-4) var(--cw-shadow);
+  animation: cockpit-enter var(--cw-dur-enter) var(--cw-ease);
+}
+
+.cockpit-find input {
+  width: calc(var(--cw-row-h) * 8);
+  height: var(--cw-row-h);
+  font-family: var(--cw-font-mono);
+}
+
+.cockpit-find__count {
+  min-width: calc(var(--cw-row-h) * 2.5);
+  color: var(--cw-text-dim);
+  font-size: var(--cw-fs-micro);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.cockpit-find__toggle {
+  height: var(--cw-row-h);
+  min-width: var(--cw-row-h);
+  padding: 0 var(--cw-space-1);
+  background: none;
+  border: var(--cw-hairline) solid transparent;
+  border-radius: var(--cw-radius-sm);
+  color: var(--cw-text-dim);
+  font-family: var(--cw-font-mono);
+  font-size: var(--cw-fs-sm);
+  cursor: pointer;
+}
+
+.cockpit-find__toggle:hover {
+  background: var(--cw-surface-hover);
+  color: var(--cw-text-bright);
+}
+
+.cockpit-find__toggle.is-on {
+  border-color: var(--cw-accent);
+  color: var(--cw-text-bright);
+}
+
+.cockpit-find__nav {
+  width: var(--cw-row-h);
+  height: var(--cw-row-h);
 }
 
 
@@ -1692,6 +1764,14 @@ body,
   font-size: var(--cw-fs-micro);
 }
 
+/* Finished while the user looked elsewhere; cleared once the session is looked at. */
+.cockpit-row__done {
+  flex: none;
+  color: var(--cw-ready);
+  font-size: var(--cw-fs-sm);
+  font-weight: 600;
+}
+
 .cockpit-row__changed {
   color: var(--cw-needs-you);
 }
@@ -1970,4 +2050,50 @@ body,
 .cockpit-fontpick__empty {
   padding: var(--cw-space-2);
   font-size: var(--cw-fs-sm);
+}
+
+/* Tokens or cost on the rail (Settings → Usage). */
+.cockpit-row__usage,
+.cockpit-project__usage {
+  flex: none;
+  color: var(--cw-text-dim);
+  font-family: var(--cw-font-mono);
+  font-size: var(--cw-fs-micro);
+  font-weight: 400;
+}
+
+.cockpit-project__usage {
+  margin-left: auto;
+  padding-left: var(--cw-space-2);
+}
+
+.cockpit-prices {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--cw-fs-sm);
+}
+
+.cockpit-prices th {
+  padding: 0 var(--cw-space-1) var(--cw-space-1);
+  color: var(--cw-text-dim);
+  font-weight: 400;
+  text-align: left;
+}
+
+.cockpit-prices td {
+  padding: var(--cw-hairline) var(--cw-space-1);
+}
+
+.cockpit-prices td input {
+  width: 100%;
+  height: var(--cw-row-h);
+}
+
+.cockpit-prices__add {
+  display: flex;
+  gap: var(--cw-space-2);
+}
+
+.cockpit-prices__add input {
+  flex: 1;
 }

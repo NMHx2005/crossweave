@@ -14,13 +14,14 @@ import { mountedViews, touchRecent } from '../lib/mounted-views'
 import { ProjectView, type ViewAction, type ViewHandle, type ViewHost, type ViewReport } from './ProjectView'
 import { baseName, readFlag, readString, writeFlag, writeString } from './storage'
 import { TerminalLookContext } from './terminal-look-context'
-import type { InterfaceAppearance, TerminalAppearance } from '../../../../src/core/settings.js'
+import type { InterfaceAppearance, TerminalAppearance, UsageSettings } from '../../../../src/core/settings.js'
 import { applyAppearance } from '../lib/appearance'
 
 const SIDEBAR_HIDDEN_KEY = 'cw.sidebar-hidden.v1'
 /** Notification choices ('0' off; on unless turned off). */
 const NOTIFY_SOUND_KEY = 'cw.notify-sound.v1' // gitleaks:allow (a localStorage key name, not a secret)
 const DOCK_BADGE_KEY = 'cw.dock-badge.v1' // gitleaks:allow (a localStorage key name, not a secret)
+const NOTIFY_FINISH_KEY = 'cw.notify-finish.v1' // gitleaks:allow (a localStorage key name, not a secret)
 /**
  * How many projects keep their panes alive in the window. Each live terminal keeps its
  * scrollback; past this, the project shown longest ago lets go of its panes (its
@@ -65,6 +66,7 @@ export function App() {
   const [notify, setNotify] = useState<NotifyPrefs>(() => ({
     sound: readString(NOTIFY_SOUND_KEY) !== '0',
     dockBadge: readString(DOCK_BADGE_KEY) !== '0',
+    finish: readString(NOTIFY_FINISH_KEY) !== '0',
   }))
   /** Settings → Terminal, applied to every pane; undefined is the cockpit's own look. */
   const [terminalLook, setTerminalLook] = useState<TerminalAppearance | undefined>(undefined)
@@ -75,6 +77,8 @@ export function App() {
   const savedAppearance = useRef(appearance)
   savedAppearance.current = appearance
   const loadFonts = useCallback(() => cockpitApi.listFonts(), [])
+  /** Settings → Usage: the rail's token / cost figures and the user's prices. */
+  const [usageSettings, setUsageSettings] = useState<UsageSettings | undefined>(undefined)
   const lookLoaded = useRef(false)
   /** Read once, through the first project a daemon answers for (Settings are per user). */
   const loadLook = useCallback((root: string): void => {
@@ -82,9 +86,10 @@ export function App() {
     lookLoaded.current = true
     void projectApi(root).getSettings()
       .then((s) => {
-        const saved = s as { terminal?: TerminalAppearance; appearance?: InterfaceAppearance } | null
+        const saved = s as { terminal?: TerminalAppearance; appearance?: InterfaceAppearance; usage?: UsageSettings } | null
         setTerminalLook(saved?.terminal)
         setAppearance(saved?.appearance)
+        setUsageSettings(saved?.usage)
       })
       .catch(() => { lookLoaded.current = false })
   }, [])
@@ -418,8 +423,9 @@ export function App() {
     const root = activeRef.current ?? openRoots[0]
     if (root === undefined) return 'Open a project first'
     try {
-      const saved = await projectApi(root).setSettings(next) as { terminal?: TerminalAppearance; appearance?: InterfaceAppearance }
+      const saved = await projectApi(root).setSettings(next) as { terminal?: TerminalAppearance; appearance?: InterfaceAppearance; usage?: UsageSettings }
       setTerminalLook(saved?.terminal)
+      setUsageSettings(saved?.usage)
       setAppearance(saved?.appearance)
       savedAppearance.current = saved?.appearance
       // Unchanged state does not re-run the effect; the preview may still be showing.
@@ -443,7 +449,7 @@ export function App() {
       const active = root === activeRoot
       const live = reports[root]
       if (live) {
-        groups.push({ projectRoot: root, name: projectLabel(p, baseName(root)), active, sessions: live.sessions, attentionById: live.attentionById, ...view })
+        groups.push({ projectRoot: root, name: projectLabel(p, baseName(root)), active, sessions: live.sessions, attentionById: live.attentionById, doneIds: live.doneIds, ...view })
         continue
       }
       const snap = snapshots[root]
@@ -545,12 +551,14 @@ export function App() {
           importSources={settingsOpen.importSources}
           onImport={(from) => cockpitApi.importTerminal(from)}
           loadFonts={loadFonts}
+          seenModels={[...new Set(groups.flatMap((g) => g.sessions.flatMap((s) => Object.keys(s.usage?.byModel ?? {}))))]}
           onPreviewAppearance={applyAppearance}
           notify={notify}
           onNotify={(next) => {
             setNotify(next)
             writeString(NOTIFY_SOUND_KEY, next.sound ? '1' : '0')
             writeString(DOCK_BADGE_KEY, next.dockBadge ? '1' : '0')
+            writeString(NOTIFY_FINISH_KEY, next.finish ? '1' : '0')
           }}
           onSave={saveSettings}
           onClose={() => {
@@ -597,6 +605,8 @@ export function App() {
           onRenameSession={renameSessionIn}
           onReorder={onReorder}
           onFolder={(root, id, how) => { void onFolder(root, id, how) }}
+          showUsage={usageSettings?.show ?? true}
+          prices={usageSettings?.prices}
           onSettings={() => { void handleOpenSettings() }}
           onSelect={(root, id) => onRailAction(root, id, 'focus')}
           onAction={onRailAction}

@@ -144,6 +144,10 @@ describe('cockpit design tokens — legibility (WCAG AA)', () => {
     // The font picker marks the font in use in the accent, on the list and on a hovered row.
     expect(contrast(T['--cw-accent'], T['--cw-surface-overlay'])).toBeGreaterThanOrEqual(AA_NORMAL)
     expect(contrast(T['--cw-accent'], T['--cw-surface-active'])).toBeGreaterThanOrEqual(AA_NORMAL)
+    // The rail's finished mark and its usage figures.
+    expect(contrast(T['--cw-ready'], T['--cw-surface-sidebar'])).toBeGreaterThanOrEqual(AA_NORMAL)
+    expect(contrast(T['--cw-text-dim'], T['--cw-surface-sidebar'])).toBeGreaterThanOrEqual(AA_NORMAL)
+    expect(contrast(T['--cw-text-dim'], T['--cw-surface-active'])).toBeGreaterThanOrEqual(AA_NORMAL)
   })
 
   it('disabled labels stay readable on the control surface', () => {

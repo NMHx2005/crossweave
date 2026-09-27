@@ -1,3 +1,28 @@
+import type { SessionUsage, TokenUsage } from './usage'
+
+function tokenUsage(v: unknown): TokenUsage | undefined {
+  const r = v as Record<string, unknown> | null
+  if (r === null || typeof r !== 'object') return undefined
+  const n = (x: unknown): number | undefined => (typeof x === 'number' && Number.isFinite(x) && x >= 0 ? x : undefined)
+  const [input, output, cacheWrite, cacheRead] = [n(r.input), n(r.output), n(r.cacheWrite), n(r.cacheRead)]
+  if (input === undefined || output === undefined || cacheWrite === undefined || cacheRead === undefined) return undefined
+  return { input, output, cacheWrite, cacheRead }
+}
+
+/** The daemon's usage figures, or undefined when they are not in the expected shape. */
+export function parseUsage(v: unknown): SessionUsage | undefined {
+  const r = v as { total?: unknown; byModel?: unknown } | null
+  const total = tokenUsage(r?.total)
+  if (!total || typeof r?.byModel !== 'object' || r.byModel === null) return undefined
+  const folder = (v as { folder?: unknown }).folder === true
+  const byModel: Record<string, TokenUsage> = {}
+  for (const [model, u] of Object.entries(r.byModel as Record<string, unknown>)) {
+    const t = tokenUsage(u)
+    if (t) byModel[model] = t
+  }
+  return folder ? { total, byModel, folder } : { total, byModel }
+}
+
 /** A session as the rail sees it: a worktree and the user's shell in it. */
 export type ListedSession = {
   id: string
@@ -18,6 +43,10 @@ export type ListedSession = {
   lastActivityAt?: number | null
   /** Files not yet committed in its folder, and commits not yet landed (null: unknown, e.g. shared). */
   git?: { changed: number; ahead: number | null }
+  /** Tokens the agents run in its folder have used since it was created, by model. */
+  usage?: SessionUsage
+  /** It rang the bell since the user last typed: asking, not just finished. */
+  rang?: boolean
 }
 
 export function parseSessionList(value: unknown): ListedSession[] {
@@ -45,6 +74,9 @@ export function parseSessionList(value: unknown): ListedSession[] {
     if (git !== null && typeof git === 'object' && typeof git.changed === 'number') {
       row.git = { changed: git.changed, ahead: typeof git.ahead === 'number' ? git.ahead : null }
     }
+    if (typeof record.rang === 'boolean') row.rang = record.rang
+    const usage = parseUsage(record.usage)
+    if (usage) row.usage = usage
     out.push(row)
   }
   return out

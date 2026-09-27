@@ -5,6 +5,8 @@ import { SESSION_COLORS, type SessionColor } from '../lib/colors'
 import { sessionNameError } from '../lib/quick-picker'
 import { agentName, clampMenu, gitBadge, jumpTargets, landChip, railOrder, relativeTime, rowState, rowTitle, ROW_STATE_LABEL, visibleRows } from '../lib/rail'
 import { formatRailMeta } from '../lib/sessions'
+import { projectUsage, usageLabel } from '../lib/usage'
+import type { ModelPrice } from '../../../../src/core/settings.js'
 import { AgentMark, ChevronIcon, CloseIcon, FolderIcon, GearIcon, PlusIcon, SearchIcon, SidebarIcon } from './icons'
 import { useDismiss } from './useDismiss'
 
@@ -18,6 +20,8 @@ export type ProjectGroup = {
   attentionById: Record<string, AttentionKind>
   color?: SessionColor
   hideEnded?: boolean
+  /** Sessions whose agent finished and that the user has not looked at since. */
+  doneIds?: readonly string[]
 }
 
 export type RowAction = 'open' | 'stop' | 'changes' | 'land' | 'kill' | 'delete' | 'terminal'
@@ -58,6 +62,9 @@ export type SidebarProps = {
   /** Drag and drop: `from` goes where `to` is. */
   onReorder: (from: string, to: string) => void
   onFolder: (projectRoot: string, sessionId: string | null, how: FolderHow) => void
+  /** Settings → Usage: whether the rail shows tokens / cost, and the user's prices. */
+  showUsage: boolean
+  prices: Record<string, ModelPrice> | undefined
 }
 
 type Menu =
@@ -177,6 +184,7 @@ export function Sidebar(props: SidebarProps) {
           if (filtering && rows.length === 0) return null
           const isCollapsed = !filtering && collapsed.has(project.projectRoot)
           const renamingThis = renaming?.kind === 'project' && renaming.projectRoot === project.projectRoot
+          const headUsage = props.showUsage ? usageLabel(projectUsage(project.sessions.map((s) => s.usage)), props.prices) : undefined
           const folderName = baseName(project.projectRoot)
           return (
             <section
@@ -228,6 +236,7 @@ export function Sidebar(props: SidebarProps) {
                     <ChevronIcon class="cockpit-project__twisty" />
                     <span class="cockpit-project__icon" style={project.color ? { color: `var(--cw-${project.color})` } : undefined}><FolderIcon /></span>
                     <span>{project.name}</span>
+                    {headUsage ? <span class="cockpit-project__usage" title={headUsage.title}>{headUsage.text}</span> : null}
                   </button>
                 )}
                 <button type="button" class="cockpit-iconbtn cockpit-project__action" title={`New session in ${project.name} (⌘T)`}
@@ -253,6 +262,8 @@ export function Sidebar(props: SidebarProps) {
                     const color = project.active ? colorById[session.id] : undefined
                     const meta = formatRailMeta(session)
                     const git = gitBadge(session.git)
+                    // The project folder's figures belong to the project heading, not to one row.
+                    const used = props.showUsage && !session.usage?.folder ? usageLabel(session.usage, props.prices) : undefined
                     const n = numbers.get(session.id)
                     const renamingRow = renaming?.kind === 'session' && renaming.sessionId === session.id
                     return (
@@ -304,12 +315,16 @@ export function Sidebar(props: SidebarProps) {
                             <button type="button" class="cockpit-chip cockpit-chip--conflict" title="See what conflicts"
                               onClick={(e) => { e.stopPropagation(); props.onAction(project.projectRoot, session.id, 'changes') }}>conflict</button>
                           ) : null}
+                          {project.doneIds?.includes(session.id) ? (
+                            <span class="cockpit-row__done" title="Finished — not looked at yet" aria-label="finished">✓</span>
+                          ) : null}
                           {git ? (
                             <span class="cockpit-row__git" aria-label={git.title}>
                               {git.changed ? <span class="cockpit-row__changed">{git.changed}</span> : null}
                               {git.ahead ? <span class="cockpit-row__ahead">{git.ahead}</span> : null}
                             </span>
                           ) : null}
+                          {used ? <span class="cockpit-row__usage" title={used.title}>{used.text}</span> : null}
                           {when ? <span class="cockpit-row__when">{when}</span> : null}
                           <AgentMark agent={session.agent} class="cockpit-row__agent" />
                         </div>

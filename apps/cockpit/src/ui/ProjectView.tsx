@@ -61,7 +61,7 @@ import {
 import type { RowAction } from './Sidebar'
 import { Stage, type StageStatus } from './Stage'
 import { sessionsThatStartedRunning } from '../lib/sessions'
-import { agentName, newlyAsking } from '../lib/rail'
+import { agentName, newlyAsking, newlyFinished } from '../lib/rail'
 import { ProjectApiContext } from './project-context'
 import { LAST_LAUNCHER_KEY, readString, readStringList, writeString, writeStringList } from './storage'
 
@@ -93,6 +93,8 @@ export type ViewReport = {
   attentionById: Record<string, AttentionKind>
   focusedId: string | null
   colors: Record<string, SessionColor>
+  /** Finished and not looked at yet (cleared when the session is focused on screen). */
+  doneIds: string[]
 }
 
 export type ViewHandle = {
@@ -163,6 +165,8 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
   sessionsRef.current = sessions
   /** What the previous load saw; null until the first load (see syncStage). */
   const knownRef = useRef<{ sessionIds: Set<string>; terminalIds: Set<string> } | null>(null)
+  /** Sessions whose agent finished while the user looked elsewhere. */
+  const [doneIds, setDoneIds] = useState<string[]>([])
   /** Actions that arrived before the first load: they need the session list. */
   const queuedRef = useRef<ViewAction[]>([])
 
@@ -187,8 +191,14 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
       if (cancelledRef.current) return
       // A session that just started waiting for you while you look elsewhere — another
       // app, or another project in this window — is worth a desktop notification.
-      if (knownRef.current !== null && (!document.hasFocus() || !visibleRef.current)) {
-        for (const s of newlyAsking(sessionsRef.current, loaded.sessions)) notifyAsking(s)
+      if (knownRef.current !== null) {
+        const away = !document.hasFocus() || !visibleRef.current
+        if (away) for (const s of newlyAsking(sessionsRef.current, loaded.sessions)) notifyAsking(s)
+        const finished = newlyFinished(sessionsRef.current, loaded.sessions)
+        // Not "unseen" when it finished on screen, in front of the user.
+        const unseen = finished.filter((s) => away || s.id !== focusedIdRef.current)
+        if (unseen.length > 0) setDoneIds((ids) => [...new Set([...ids, ...unseen.map((s) => s.id)])])
+        if (away && hostRef.current.notify.finish) for (const s of finished) notifyFinished(s)
       }
       setSessions(loaded.sessions)
       setSessionsRevision((n) => n + 1)
@@ -260,6 +270,23 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
     }
   }, [stage, projectRoot])
 
+  function notifyFinished(session: ListedSession): void {
+    try {
+      const note = new Notification(`${session.name} finished`, {
+        body: session.latestWords ?? agentName(session.agent),
+        tag: `cw-finished-${session.id}`,
+        silent: !hostRef.current.notify.sound,
+      })
+      note.onclick = () => {
+        window.focus()
+        hostRef.current.activate()
+        focusSessionRef.current(session.id)
+      }
+    } catch {
+      // notifications unavailable: the rail's mark still says it
+    }
+  }
+
   function notifyAsking(session: ListedSession): void {
     try {
       const note = new Notification(`${session.name} is waiting for you`, {
@@ -307,10 +334,18 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
     return out
   }, [sessions, landabilityByName])
 
+  const focusedIdRef = useRef(focusedId)
+  focusedIdRef.current = focusedId
+
+  // Looking at a finished session (focused, on screen) is seeing it.
+  useEffect(() => {
+    if (visible && focusedId !== null && doneIds.includes(focusedId)) setDoneIds((ids) => ids.filter((id) => id !== focusedId))
+  }, [visible, focusedId, doneIds])
+
   // The rail and the Dock read live views from here.
   useEffect(() => {
-    hostRef.current.report(projectRoot, { sessions, attentionById, focusedId, colors })
-  }, [projectRoot, sessions, attentionById, focusedId, colors])
+    hostRef.current.report(projectRoot, { sessions, attentionById, focusedId, colors, doneIds })
+  }, [projectRoot, sessions, attentionById, focusedId, colors, doneIds])
   useEffect(() => () => hostRef.current.report(projectRoot, null), [projectRoot])
 
   const focused = sessions.find((session) => session.id === focusedId) ?? null
@@ -374,6 +409,11 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
     else if (command === 'open-terminal') void handleTerminal()
     else if (command === 'open-file') void handleOpenFile()
     else if (command === 'open-browser') handleOpenBrowser()
+    // The focused terminal pane (of this view, its tab shown) takes it.
+    else if (command === 'find' || command === 'find-next' || command === 'find-prev') {
+      const action = command === 'find' ? 'open' : command === 'find-next' ? 'next' : 'prev'
+      window.dispatchEvent(new CustomEvent('cockpit:find', { detail: { action } }))
+    }
   }
 
   useEffect(() => {

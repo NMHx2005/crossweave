@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { agentName, gitBadge, landChip, newlyAsking, railOrder, relativeTime, rowState, rowTitle, visibleRows, jumpTargets, clampMenu } from '../src/lib/rail'
+import { agentName, gitBadge, landChip, newlyAsking, railOrder, relativeTime, rowState, rowTitle, visibleRows, jumpTargets, clampMenu, newlyFinished } from '../src/lib/rail'
 import { parseSessionList } from '../src/lib/sessions'
 
 describe('relativeTime', () => {
@@ -70,14 +70,21 @@ describe('parseSessionList status fields', () => {
 })
 
 describe('newlyAsking', () => {
-  test('only a session seen turning to asked, not one already asking or first seen', () => {
-    const prev = [{ id: 'a', activity: 'working' }, { id: 'b', activity: 'asked' }]
+  test('only a session seen starting to ask (it rang), not one already asking or first seen', () => {
+    const prev = [{ id: 'a', activity: 'working' }, { id: 'b', activity: 'asked', rang: true }, { id: 'd', activity: 'asked', rang: false }]
     const next = [
-      { id: 'a', name: 'a', activity: 'asked' },
-      { id: 'b', name: 'b', activity: 'asked' },
-      { id: 'c', name: 'c', activity: 'asked' },
+      { id: 'a', name: 'a', activity: 'asked', rang: true },
+      { id: 'b', name: 'b', activity: 'asked', rang: true },
+      { id: 'c', name: 'c', activity: 'asked', rang: true },
+      // Finished its turn, then rang: now it asks.
+      { id: 'd', name: 'd', activity: 'asked', rang: true },
     ]
-    expect(newlyAsking(prev, next).map((s) => s.id)).toEqual(['a'])
+    expect(newlyAsking(prev, next).map((s) => s.id)).toEqual(['a', 'd'])
+  })
+
+  // An agent that went quiet after its turn without ringing has finished, not asked.
+  test('quiet without a bell is not asking', () => {
+    expect(newlyAsking([{ id: 'a', activity: 'working' }], [{ id: 'a', name: 'a', activity: 'asked', rang: false }])).toEqual([])
   })
 })
 
@@ -140,5 +147,25 @@ describe('clampMenu', () => {
     expect(clampMenu(900, 700, 200, 300, 1000, 800)).toEqual({ left: 792, top: 492 })
     // Taller than the window: pinned to the top margin.
     expect(clampMenu(10, 10, 200, 900, 1000, 800)).toEqual({ left: 10, top: 8 })
+  })
+})
+
+describe('newlyFinished', () => {
+  const row = (id: string, activity: string, status = 'running', agent: string | null = 'claude') => ({ id, name: id, activity, status, agent })
+  test('an agent working then quiet without ringing, shell still open: finished', () => {
+    expect(newlyFinished([row('a', 'working')], [{ ...row('a', 'asked'), rang: false }]).map((s) => s.id)).toEqual(['a'])
+    expect(newlyFinished([row('a', 'working')], [row('a', 'idle')]).map((s) => s.id)).toEqual(['a'])
+  })
+  test('an agent that rang is asking, not finished', () => {
+    expect(newlyFinished([row('a', 'working')], [{ ...row('a', 'asked'), rang: true }])).toEqual([])
+  })
+  test('a plain shell going quiet is not "finished" (every command would notify)', () => {
+    expect(newlyFinished([row('a', 'working', 'running', null)], [row('a', 'idle', 'running', null)])).toEqual([])
+  })
+  test('a closed shell is not; first sight is not; still working is not', () => {
+    expect(newlyFinished([row('a', 'working')], [row('a', 'idle', 'idle')])).toEqual([])
+    expect(newlyFinished([], [row('a', 'idle')])).toEqual([])
+    expect(newlyFinished([row('a', 'working')], [row('a', 'working')])).toEqual([])
+    expect(newlyFinished([row('a', 'idle')], [row('a', 'idle')])).toEqual([])
   })
 })
