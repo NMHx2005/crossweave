@@ -12,18 +12,15 @@ const EDITORS: Array<{ kind: EditorSetting['kind']; label: string }> = [
 ]
 
 /**
- * Settings (⌘,): which editor Cmd+click opens, and this viewer's cockpit preferences.
+ * Settings (⌘,): which editor Cmd+click opens.
  * Saved per user by the daemon, which validates everything again — this form only
  * shows its answer. A custom editor command is split into arguments, never run
  * through a shell.
  */
-export function SettingsPanel({ initial, onSave, onClose, showButtons, onShowButtons }: {
+export function SettingsPanel({ initial, onSave, onClose }: {
   initial: UserSettings
   onSave: (next: UserSettings) => Promise<string | null>
   onClose: () => void
-  /** A cockpit preference of this viewer's, applied at once (not part of Save). */
-  showButtons: boolean
-  onShowButtons: (on: boolean) => void
 }) {
   const [draft, setDraft] = useState<UserSettings>(initial)
   const [error, setError] = useState<string | null>(null)
@@ -73,13 +70,6 @@ export function SettingsPanel({ initial, onSave, onClose, showButtons, onShowBut
             />
           </label>
         ) : null}
-
-        <h3 class="cockpit-settings__heading">Cockpit</h3>
-        <label class="cockpit-settings__toggle">
-          <input type="checkbox" checked={showButtons}
-            onChange={(e) => onShowButtons((e.target as HTMLInputElement).checked)} />
-          <span>Show action buttons in the rail (⌘K runs every action as a command either way)</span>
-        </label>
 
         {error ? <p class="cockpit-error" role="alert">{error}</p> : null}
         <div class="cockpit-picker__actions">

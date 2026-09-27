@@ -27,7 +27,6 @@ export type Command =
   | { kind: 'browser'; url?: string }
   | { kind: 'attention' }
   | { kind: 'settings' }
-  | { kind: 'buttons'; on: boolean }
   | { kind: 'gc'; force: boolean }
   | { kind: 'help' }
 
@@ -50,7 +49,6 @@ export const COMMANDS: readonly CommandSpec[] = [
   { name: 'browser', usage: 'browser [url]', summary: 'Open a browser pane', arg: 'none' },
   { name: 'next', aliases: ['attention'], usage: 'next', summary: 'Jump to the session that needs you', arg: 'none' },
   { name: 'settings', usage: 'settings', summary: 'Editor and cockpit settings', arg: 'none' },
-  { name: 'buttons', usage: 'buttons on|off', summary: 'Show or hide the rail\'s action buttons', arg: 'none' },
   { name: 'gc', usage: 'gc [--force]', summary: 'Remove ended sessions\' worktrees', arg: 'none' },
   { name: 'help', usage: 'help', summary: 'List every command', arg: 'none' },
 ]
@@ -146,9 +144,6 @@ export function parseCommand(line: string, ctx: CommandContext): ParsedCommand {
       return stray() ?? { ok: true, command: { kind: 'attention' } }
     case 'settings':
       return stray() ?? { ok: true, command: { kind: 'settings' } }
-    case 'buttons':
-      if (positional[0] !== 'on' && positional[0] !== 'off') return fail(`Usage: ${spec.usage}`)
-      return stray() ?? { ok: true, command: { kind: 'buttons', on: positional[0] === 'on' } }
     case 'gc':
       return stray('--force') ?? { ok: true, command: { kind: 'gc', force: flags.includes('--force') } }
     default:

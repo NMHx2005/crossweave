@@ -137,7 +137,8 @@ export function XtermPane({ source, focused }: XtermPaneProps) {
         // Never the raw IPC message: it names the transport channel and the error
         // class, and the one failure a user can act on deserves the sentence that
         // tells them how (src/lib/attach-message.ts).
-        term.write(`\r\n[${describeAttachFailure(message)}]\r\n`)
+        const said = describeAttachFailure(message)
+        if (said !== '') term.write(`\r\n[${said}]\r\n`)
       })
 
     const observer = new ResizeObserver(() => applyFit())

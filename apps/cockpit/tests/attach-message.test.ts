@@ -2,12 +2,11 @@ import { describe, expect, test } from 'bun:test'
 import { describeAttachFailure } from '../src/lib/attach-message'
 
 describe('describeAttachFailure', () => {
-  test('a session that is not running says so, and how to fix it — without the IPC plumbing', () => {
+  // The bar under a stopped session's pane says its shell is closed and reopens it;
+  // a notice in the terminal too only repeated that.
+  test('a session that is not running adds nothing to the pane', () => {
     const raw = "Error invoking remote method 'session.attach': CrossweaveError: Session is not running: alice"
-    const described = describeAttachFailure(raw)
-    expect(described).toBe('alice is not running.')
-    expect(described).not.toContain('invoking remote method')
-    expect(described).not.toContain('CrossweaveError')
+    expect(describeAttachFailure(raw)).toBe('')
   })
 
   test('anything else keeps its own message, with only the transport wrappers stripped', () => {

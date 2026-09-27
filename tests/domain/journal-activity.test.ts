@@ -10,7 +10,7 @@ import {
   readJournal,
   writeJournal,
 } from '../../src/domain/journal.js';
-import { ActivityFeed, activityFromEvent } from '../../src/domain/activity.js';
+import { activityFromEvent } from '../../src/domain/activity.js';
 
 function tempDir(): string {
   return mkdtempSync(join(tmpdir(), 'cw-journal-'));
@@ -68,26 +68,6 @@ describe('journal', () => {
     const many = Array.from({ length: 20 }, (_, i) => `s${i}`);
     expect(normalizeTabs(many, () => true).length).toBe(16);
     expect(normalizeTabs(many, () => true)[0]).toBe('s0');
-  });
-});
-
-describe('activity', () => {
-  it('tracks unread and ack', () => {
-    const feed = new ActivityFeed();
-    feed.push('land_failed', 's1');
-    feed.push('landed', 's2');
-    expect(feed.unread(5).length).toBe(2);
-    feed.ack('s1');
-    expect(feed.unread(5).length).toBe(1);
-    expect(feed.unread(5)[0]?.session).toBe('s2');
-  });
-
-  it('keeps the newest first and does not grow without bound', () => {
-    const feed = new ActivityFeed();
-    for (let i = 0; i < 60; i++) feed.push('landed', `s${i}`);
-    expect(feed.all().length).toBe(50);
-    expect(feed.all()[0]?.session).toBe('s59');
-    expect(feed.unread(5).length).toBe(5);
   });
 });
 

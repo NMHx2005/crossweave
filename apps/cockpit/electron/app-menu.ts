@@ -2,10 +2,10 @@ import type { MenuItemConstructorOptions } from 'electron'
 import type { RecentMenuItem } from './recent-menu'
 
 export type CockpitCommand = 'command-bar' | 'new-agent' | 'jump-attention' | 'open-terminal' | 'open-file' | 'open-browser' | 'open-settings'
+  | 'open-project' | 'split-right' | 'split-down' | 'close-pane' | 'toggle-sidebar'
 
 export interface AppMenuDeps {
   platform: NodeJS.Platform
-  openFolder(): void
   recent: RecentMenuItem[]
   /** A menu accelerator fired; the renderer owns what it does. */
   command(name: CockpitCommand): void
@@ -26,14 +26,17 @@ export function appMenuTemplate(deps: AppMenuDeps): MenuItemConstructorOptions[]
     {
       label: 'File',
       submenu: [
-        { label: 'Open Folder…', accelerator: 'CmdOrCtrl+O', click: () => deps.openFolder() },
+        // Opens beside the projects already in the window (the rail lists them all).
+        { label: 'Open Project…', accelerator: 'CmdOrCtrl+O', click: () => deps.command('open-project') },
         { label: 'Open File in Session…', accelerator: 'CmdOrCtrl+P', click: () => deps.command('open-file') },
         { label: 'Open Browser Pane', accelerator: 'CmdOrCtrl+Shift+B', click: () => deps.command('open-browser') },
         { type: 'separator' },
         { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: () => deps.command('open-settings') },
         { label: 'Open Recent', submenu: deps.recent },
         { type: 'separator' },
-        { role: 'close' },
+        // ⌘W closes the focused pane, as in a terminal; the window takes ⌘⇧W.
+        { label: 'Close Pane', accelerator: 'CmdOrCtrl+W', click: () => deps.command('close-pane') },
+        { role: 'close', accelerator: 'CmdOrCtrl+Shift+W' },
       ],
     },
     { role: 'editMenu' },
@@ -51,6 +54,10 @@ export function appMenuTemplate(deps: AppMenuDeps): MenuItemConstructorOptions[]
     {
       label: 'View',
       submenu: [
+        { label: 'Toggle Sidebar', accelerator: 'CmdOrCtrl+\\', click: () => deps.command('toggle-sidebar') },
+        { label: 'Split Right', accelerator: 'CmdOrCtrl+D', click: () => deps.command('split-right') },
+        { label: 'Split Down', accelerator: 'CmdOrCtrl+Shift+D', click: () => deps.command('split-down') },
+        { type: 'separator' },
         { role: 'reload' },
         { role: 'toggleDevTools' },
         { type: 'separator' },

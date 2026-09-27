@@ -14,19 +14,14 @@
 const IPC_PREFIX = /^Error invoking remote method '[^']*':\s*/
 const ERROR_CLASS_PREFIX = /^(?:CrossweaveError|Error):\s*/
 
-/** `Session is not running: <name>` — the one failure a user can actually act on. */
+/** `Session is not running: <name>`: the pane's own "shell is closed" bar says so. */
 const NOT_RUNNING = /Session is not running(?::\s*(.+))?$/
 
+/** The sentence to write into the pane, or '' when there is nothing to add. */
 export function describeAttachFailure(message: string): string {
   const unwrapped = message.replace(IPC_PREFIX, '').replace(ERROR_CLASS_PREFIX, '').trim()
-  const notRunning = NOT_RUNNING.exec(unwrapped)
-  if (notRunning !== null) {
-    const name = notRunning[1]?.trim()
-    const subject = name !== undefined && name.length > 0 ? `${name} is not running` : 'This session is not running'
-    // How to start it is the launch line's job, docked right under this pane (or
-    // `cw session start`); repeating it here pointed at a Start button that is now
-    // off by default.
-    return `${subject}.`
-  }
+  // The bar docked under a stopped session's pane already says its shell is closed
+  // and opens a new one; a second notice inside the terminal only repeated it.
+  if (NOT_RUNNING.test(unwrapped)) return ''
   return unwrapped
 }

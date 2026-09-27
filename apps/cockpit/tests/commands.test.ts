@@ -59,7 +59,6 @@ describe('parseCommand', () => {
     expect(ok('browser localhost:3000')).toEqual({ kind: 'browser', url: 'localhost:3000' })
     expect(ok('next')).toEqual({ kind: 'attention' })
     expect(ok('settings')).toEqual({ kind: 'settings' })
-    expect(ok('buttons on')).toEqual({ kind: 'buttons', on: true })
     expect(ok('gc --force')).toEqual({ kind: 'gc', force: true })
     expect(ok('help')).toEqual({ kind: 'help' })
   })

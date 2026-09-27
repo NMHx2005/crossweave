@@ -49,6 +49,9 @@ export const COCKPIT_TOKENS = {
   '--cw-surface-active': '#323842',
   '--cw-surface-control': '#404754',
   '--cw-surface-badge': '#23272e',
+  // The sidebar sits one step above the stage, as in Deck: the rail reads as a place,
+  // the stage as the work.
+  '--cw-surface-sidebar': '#1e2126',
 
   '--cw-border': '#37393d',
   '--cw-border-strong': '#3e4452',
@@ -70,6 +73,14 @@ export const COCKPIT_TOKENS = {
   '--cw-blocked': '#ff616e',
   '--cw-conflict': '#de73ff',
 
+  // Agent marks on the rail and tabs: each CLI's own hue, used for a glyph only.
+  '--cw-agent-claude': '#d97757',
+  '--cw-agent-codex': '#d7dae0',
+  '--cw-agent-gemini': '#8ab4f8',
+  '--cw-agent-opencode': '#c3c8d0',
+  '--cw-agent-antigravity': '#7aa2ff',
+  '--cw-agent-cursor': '#abb2bf',
+
   '--cw-scrollbar': '#4e5666',
   '--cw-scrollbar-hover': '#5a6375',
 
@@ -79,6 +90,9 @@ export const COCKPIT_TOKENS = {
   '--cw-fs-micro': '11px',
   '--cw-fs-sm': '12px',
   '--cw-fs': '13px',
+  // The rail's rows and project names: Deck-sized, read at a glance, not scanned.
+  '--cw-fs-rail': '14px',
+  '--cw-fs-project': '15px',
   // Structural dimension, one place: 1px borders, focus outline width, the row
   // separators and the meta gap all read as the same hairline rhythm.
   '--cw-hairline': '1px',
@@ -96,11 +110,17 @@ export const COCKPIT_TOKENS = {
   '--cw-space-4': '14px',
   '--cw-rail-w': '280px',
   '--cw-row-h': '24px',
+  '--cw-rail-row-h': '34px',
+  // Room the hidden-inset title bar leaves for the traffic lights.
+  '--cw-titlebar-h': '44px',
+  '--cw-traffic-w': '78px',
 
   // Motion. Editors move background and border only, over ~0.1s, without overshoot
   // and without transforms — the restraint is the feel.
   '--cw-dur-fast': '90ms',
   '--cw-dur': '140ms',
+  // One turn of the working ring: slow enough to read as "busy", not as an alarm.
+  '--cw-dur-spin': '1600ms',
   '--cw-ease': 'cubic-bezier(0.2, 0, 0.2, 1)',
 } as const
 

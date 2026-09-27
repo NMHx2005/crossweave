@@ -10,6 +10,12 @@ export type ListedSession = {
   portBase?: number
   /** `cw/<name>`, or null for a session in the shared checkout. */
   branch?: string | null
+  /** The agent CLI found under the session's shell, if any (the daemon infers it). */
+  agent?: string | null
+  /** What the shell is doing: working / asked / idle / failed. */
+  activity?: string
+  /** Epoch ms of the last output or input. */
+  lastActivityAt?: number | null
 }
 
 export function parseSessionList(value: unknown): ListedSession[] {
@@ -29,6 +35,10 @@ export function parseSessionList(value: unknown): ListedSession[] {
     if (typeof portBase === 'number') row.portBase = portBase
     if (typeof record.branch === 'string') row.branch = record.branch
     else if (record.branch === null) row.branch = null
+    if (typeof record.agent === 'string') row.agent = record.agent
+    else if (record.agent === null) row.agent = null
+    if (typeof record.activity === 'string') row.activity = record.activity
+    if (typeof record.lastActivityAt === 'number') row.lastActivityAt = record.lastActivityAt
     out.push(row)
   }
   return out
@@ -69,19 +79,4 @@ export function sessionsThatStartedRunning(
   return next
     .filter((s) => before.has(s.id) && !LIVE.has(before.get(s.id)!) && LIVE.has(s.status ?? ''))
     .map((s) => s.id)
-}
-
-/**
- * The rail header's one line of workspace state: its name, the branch sessions land
- * onto, and how many shells are open. Ended sessions are not counted.
- */
-export function workspaceSummary(
-  projectRoot: string,
-  baseBranch: string | null,
-  sessions: readonly ListedSession[],
-): { title: string; meta: string } {
-  const title = projectRoot.split('/').filter((p) => p !== '').pop() ?? 'crossweave'
-  const running = sessions.filter((s) => LIVE.has(s.status ?? '')).length
-  const open = sessions.filter((s) => s.status !== 'dead' && s.status !== 'landed').length
-  return { title, meta: `${baseBranch ?? 'detached HEAD'} · ${running} of ${open} running` }
 }

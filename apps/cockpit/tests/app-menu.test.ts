@@ -3,7 +3,7 @@ import { appMenuTemplate } from '../electron/app-menu'
 
 const noop = () => undefined
 const build = (platform: NodeJS.Platform) =>
-  appMenuTemplate({ platform, openFolder: noop, recent: [{ label: 'No Recent Folders', enabled: false }], command: noop })
+  appMenuTemplate({ platform, recent: [{ label: 'No Recent Folders', enabled: false }], command: noop })
 
 describe('appMenuTemplate', () => {
   // Replacing Electron's default menu with File/View/Window dropped Edit, and with it
@@ -21,18 +21,29 @@ describe('appMenuTemplate', () => {
     expect(build('linux')[0]?.label).toBe('File')
   })
 
-  test('keeps File > Open Folder and Open Recent', () => {
+  test('keeps File > Open Project and Open Recent', () => {
     const file = build('darwin').find((item) => item.label === 'File')
     const labels = (file?.submenu as Array<{ label?: string }>).map((i) => i.label)
-    expect(labels).toContain('Open Folder…')
+    expect(labels).toContain('Open Project…')
     expect(labels).toContain('Open Recent')
+  })
+
+  // Deck's pane keys: the pane has no title bar left to click on.
+  test('split and close the focused pane, and hide the sidebar, from the keyboard', () => {
+    const fired: string[] = []
+    const menu = appMenuTemplate({ platform: 'darwin', recent: [], command: (c) => fired.push(c) })
+    const items = menu.flatMap((m) => (Array.isArray(m.submenu) ? m.submenu : [])) as Array<{ accelerator?: string; click?: () => void }>
+    for (const key of ['CmdOrCtrl+D', 'CmdOrCtrl+Shift+D', 'CmdOrCtrl+W', 'CmdOrCtrl+\\']) {
+      items.find((i) => i.accelerator === key)?.click?.()
+    }
+    expect(fired).toEqual(['split-right', 'split-down', 'close-pane', 'toggle-sidebar'])
   })
 })
 
 describe('agent shortcuts', () => {
   test('⌘K opens the command bar, ⌘T the agent picker, ⌘⇧A jumps to attention, from the menu', () => {
     const fired: string[] = []
-    const menu = appMenuTemplate({ platform: 'darwin', openFolder: noop, recent: [], command: (c) => fired.push(c) })
+    const menu = appMenuTemplate({ platform: 'darwin', recent: [], command: (c) => fired.push(c) })
     const agent = menu.find((m) => m.label === 'Session')!.submenu as Array<{ label: string; accelerator?: string; click?: () => void }>
     expect(agent.map((i) => i.accelerator)).toEqual(['CmdOrCtrl+K', 'CmdOrCtrl+T', 'CmdOrCtrl+Shift+A', 'CmdOrCtrl+Shift+T'])
     for (const item of agent) item.click?.()

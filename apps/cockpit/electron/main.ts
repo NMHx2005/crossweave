@@ -12,6 +12,7 @@ import { switchCockpitWorkspace } from './workspace-switch'
 import { clearRecent, loadRecent, pushRecent } from './recent.js'
 import { recentMenuItems } from './recent-menu'
 import { loadOpenProjects, saveOpenProjects } from './open-projects'
+import { COCKPIT_TOKENS } from '../src/ui/tokens'
 import { appMenuTemplate } from './app-menu'
 import { editorLaunch, resolveLinkTarget } from './editor-open'
 import { loadSettings } from '../../../src/core/settings.js'
@@ -75,11 +76,6 @@ function buildMenu(): void {
   const template = appMenuTemplate({
     platform: process.platform,
     command: (name) => sendToRenderers('cockpit.command', { command: name }),
-    openFolder: () => {
-      void pickFolder().then((picked) => {
-        if (picked) void switchWorkspace(picked)
-      })
-    },
     recent: recentMenuItems(loadRecent(), {
       exists: existsSync,
       home: app.getPath('home'),
@@ -157,6 +153,11 @@ function createWindow(): BrowserWindow {
     minWidth: 800,
     minHeight: 480,
     title: 'crossweave Cockpit',
+    // Deck's chrome: no title bar; the traffic lights sit in the sidebar's top row,
+    // and the sidebar and tab strip are the window's drag regions.
+    titleBarStyle: 'hiddenInset',
+    trafficLightPosition: { x: 16, y: 15 },
+    backgroundColor: COCKPIT_TOKENS['--cw-surface'],
     webPreferences: {
       preload: join(__dirname, 'preload.mjs'),
       contextIsolation: true,

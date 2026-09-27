@@ -5,6 +5,7 @@ import type { LayoutNode, PaneRef, SplitDir, StageState, Tab } from '../lib/layo
 import { sessionSource, terminalSource, type InAppOpener } from '../lib/pane-source'
 import type { SessionColor } from '../lib/colors'
 import { XtermPane } from './XtermPane'
+import { AgentMark, DiffIcon, FileIcon, GlobeIcon, MoreIcon, PanelRightIcon, PlusIcon, SidebarIcon, TerminalIcon } from './icons'
 
 export type StageStatus = 'loading' | 'ready' | 'empty' | 'error'
 
@@ -41,11 +42,19 @@ export type StageProps = {
   inApp?: InAppOpener
   /** Session colors (colors.ts), shown as a dot on the tabs they lead. */
   colorById?: Record<string, SessionColor>
+  /** The sidebar is hidden: the tab strip makes room for the traffic lights. */
+  sidebarHidden: boolean
+  onToggleSidebar: () => void
+  /** The tab strip's `+`: a new session in the active project. */
+  onNewTab: () => void
+  /** The right-hand toggle: the focused session's Changes pane. */
+  onToggleChanges: () => void
 }
 
-function paneLabel(pane: PaneRef, names: ReadonlyMap<string, string>): string {
+function paneLabel(pane: PaneRef, names: ReadonlyMap<string, string>, titles: ReadonlyMap<string, string>): string {
   switch (pane.kind) {
-    case 'session': return names.get(pane.sessionId) ?? pane.sessionId
+    // What the agent last said, as in Deck; the session name until it said anything.
+    case 'session': return titles.get(pane.sessionId) ?? names.get(pane.sessionId) ?? pane.sessionId
     case 'terminal': return `${names.get(pane.sessionId) ?? pane.sessionId} · shell`
     case 'file': return pane.path.split('/').pop() ?? pane.path
     case 'browser': return pane.url.replace(/^https?:\/\//, '')
@@ -62,10 +71,24 @@ function paneCount(node: LayoutNode): number {
 }
 
 type TabMenu = { tabId: string; x: number; y: number }
+type PaneMenu = { tabId: string; paneId: string; pane: PaneRef; x: number; y: number }
+
+function PaneKindIcon({ pane, agents }: { pane: PaneRef; agents: ReadonlyMap<string, string | null | undefined> }) {
+  switch (pane.kind) {
+    case 'session': return <AgentMark agent={agents.get(pane.sessionId) ?? null} />
+    case 'terminal': return <TerminalIcon />
+    case 'file': return <FileIcon />
+    case 'browser': return <GlobeIcon />
+    case 'changes': return <DiffIcon />
+  }
+}
 
 export function Stage(props: StageProps) {
   const { stage, sessions, status, error, paneAttachEpoch = 0, paneAttachBumps = {} } = props
   const names = new Map(sessions.map((s) => [s.id, s.name]))
+  const titles = new Map(sessions.flatMap((s) => (s.latestWords ? [[s.id, s.latestWords] as const] : [])))
+  const agents = new Map(sessions.map((s) => [s.id, s.agent]))
+  const [paneMenu, setPaneMenu] = useState<PaneMenu | null>(null)
   const active = stage.tabs.find((t) => t.id === stage.activeTabId) ?? null
   const [menu, setMenu] = useState<TabMenu | null>(null)
   const [layoutsOpen, setLayoutsOpen] = useState(false)
@@ -74,7 +97,7 @@ export function Stage(props: StageProps) {
 
   const tabLabel = (tab: Tab): string => {
     const n = paneCount(tab.root)
-    return `${paneLabel(firstPane(tab.root), names)}${n > 1 ? ` +${n - 1}` : ''}`
+    return `${paneLabel(firstPane(tab.root), names, titles)}${n > 1 ? ` +${n - 1}` : ''}`
   }
 
   const renderNode = (tab: Tab, node: LayoutNode): preact.ComponentChildren => {
@@ -98,31 +121,19 @@ export function Stage(props: StageProps) {
     }
     const { pane } = node
     const focused = tab.focusedPaneId === node.id
-    // A shell can be split off beside anything that has a worktree behind it.
-    const hasSession = pane.kind !== 'browser'
     return (
       <div
         key={node.id}
         class={focused ? 'cockpit-pane is-focused' : 'cockpit-pane'}
+        aria-label={paneLabel(pane, names, titles)}
         onMouseDown={() => { if (!focused) props.onFocusPane(tab.id, node.id) }}
+        // No title bar on a pane, as in Deck: split and close live here and on ⌘D,
+        // ⌘⇧D and ⌘W.
+        onContextMenu={(e) => {
+          e.preventDefault()
+          setPaneMenu({ tabId: tab.id, paneId: node.id, pane, x: e.clientX, y: e.clientY })
+        }}
       >
-        <div class="cockpit-pane-bar">
-          <span class="cockpit-pane-bar__title">{paneLabel(pane, names)}</span>
-          {pane.kind === 'terminal' ? (
-            // Honest about coverage: a shell has no hook, so Radar cannot stop its writes.
-            <span class="cockpit-pane-bar__note" title="Writes typed here are not checked by Collision Radar">not guarded</span>
-          ) : null}
-          {hasSession ? (
-            <>
-              <button type="button" class="cockpit-pane-bar__btn" title="Split right: a shell in this worktree"
-                onClick={() => props.onSplit(tab.id, node.id, 'row', pane)}>Split right</button>
-              <button type="button" class="cockpit-pane-bar__btn" title="Split down: a shell in this worktree"
-                onClick={() => props.onSplit(tab.id, node.id, 'column', pane)}>Split down</button>
-            </>
-          ) : null}
-          <button type="button" class="cockpit-pane-bar__close" aria-label={`Close ${paneLabel(pane, names)}`}
-            onClick={(e) => { e.stopPropagation(); props.onClosePane(tab.id, node.id, pane) }}>×</button>
-        </div>
         {pane.kind === 'session' ? (() => {
           const launch = props.launchFor?.(pane.sessionId, focused) ?? null
           return (
@@ -151,6 +162,9 @@ export function Stage(props: StageProps) {
 
   const layoutsRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
+  const paneMenuRef = useRef<HTMLDivElement>(null)
+  const closePaneMenu = useCallback(() => setPaneMenu(null), [])
+  useDismiss(paneMenu !== null, closePaneMenu, paneMenuRef)
   const closeLayouts = useCallback(() => setLayoutsOpen(false), [])
   const closeMenu = useCallback(() => setMenu(null), [])
   useDismiss(layoutsOpen, closeLayouts, layoutsRef)
@@ -199,7 +213,12 @@ export function Stage(props: StageProps) {
 
   return (
     <main class="cockpit-stage" aria-label="Stage" onClick={() => { setMenu(null) }}>
-      <div class="cockpit-tabs" role="tablist" aria-label="Tabs">
+      <div class={`cockpit-tabs${props.sidebarHidden ? ' has-traffic' : ''}`} role="tablist" aria-label="Tabs">
+        {props.sidebarHidden ? (
+          <button type="button" class="cockpit-iconbtn" title="Show sidebar (⌘\\)" aria-label="Show sidebar" onClick={props.onToggleSidebar}>
+            <SidebarIcon />
+          </button>
+        ) : null}
         {stage.tabs.map((tab, index) => (
           <div
             key={tab.id}
@@ -227,7 +246,12 @@ export function Stage(props: StageProps) {
             {(() => {
               const lead = firstPane(tab.root)
               const color = lead.kind !== 'browser' ? props.colorById?.[lead.sessionId] : undefined
-              return color ? <span class="cockpit-dot" style={{ background: `var(--cw-${color})` }} aria-hidden="true" /> : null
+              return (
+                <>
+                  <PaneKindIcon pane={lead} agents={agents} />
+                  {color ? <span class="cockpit-dot" style={{ background: `var(--cw-${color})` }} aria-hidden="true" /> : null}
+                </>
+              )
             })()}
             <span class="cockpit-tab__title">{tabLabel(tab)}</span>
             {!tab.pinned ? (
@@ -236,10 +260,14 @@ export function Stage(props: StageProps) {
             ) : null}
           </div>
         ))}
+        <button type="button" class="cockpit-iconbtn cockpit-tabs__new" title="New session (⌘T)" aria-label="New session" onClick={props.onNewTab}>
+          <PlusIcon />
+        </button>
         <div class="cockpit-tabs__spacer" />
         <div class="cockpit-layouts" ref={layoutsRef}>
-          <button type="button" class="cockpit-layouts__toggle" onClick={(e) => { e.stopPropagation(); setLayoutsOpen(!layoutsOpen) }}>
-            Layouts ▾
+          <button type="button" class="cockpit-iconbtn" title="Layouts" aria-label="Layouts" aria-expanded={layoutsOpen}
+            onClick={(e) => { e.stopPropagation(); setLayoutsOpen(!layoutsOpen) }}>
+            <MoreIcon />
           </button>
           {layoutsOpen ? (
             <div class="cockpit-layouts__menu" onClick={(e) => e.stopPropagation()}>
@@ -266,7 +294,24 @@ export function Stage(props: StageProps) {
             </div>
           ) : null}
         </div>
+        <button type="button" class="cockpit-iconbtn" title="Changes of the focused session" aria-label="Changes" onClick={props.onToggleChanges}>
+          <PanelRightIcon />
+        </button>
       </div>
+      {paneMenu !== null ? (
+        <div class="cockpit-menu" role="menu" ref={paneMenuRef} style={{ left: `${paneMenu.x}px`, top: `${paneMenu.y}px` }}>
+          {paneMenu.pane.kind !== 'browser' ? (
+            <>
+              <button type="button" role="menuitem"
+                onClick={() => { props.onSplit(paneMenu.tabId, paneMenu.paneId, 'row', paneMenu.pane); setPaneMenu(null) }}>Split right<kbd>⌘D</kbd></button>
+              <button type="button" role="menuitem"
+                onClick={() => { props.onSplit(paneMenu.tabId, paneMenu.paneId, 'column', paneMenu.pane); setPaneMenu(null) }}>Split down<kbd>⌘⇧D</kbd></button>
+            </>
+          ) : null}
+          <button type="button" role="menuitem"
+            onClick={() => { props.onClosePane(paneMenu.tabId, paneMenu.paneId, paneMenu.pane); setPaneMenu(null) }}>Close pane<kbd>⌘W</kbd></button>
+        </div>
+      ) : null}
       {menu !== null ? (
         <div class="cockpit-menu" role="menu" ref={menuRef} style={{ left: `${menu.x}px`, top: `${menu.y}px` }}>
           {tabMenuItems(menu.tabId).map((item) => (
@@ -275,7 +320,6 @@ export function Stage(props: StageProps) {
           ))}
         </div>
       ) : null}
-      {error && stage.tabs.length > 0 ? <p class="cockpit-error" role="alert">{error}</p> : null}
       {status === 'loading' && <p class="cockpit-placeholder">Connecting to cwd…</p>}
       {status === 'error' && stage.tabs.length === 0 ? (
         <div class="cockpit-placeholder cockpit-placeholder--error" role="alert">

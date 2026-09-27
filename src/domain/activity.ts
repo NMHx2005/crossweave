@@ -1,51 +1,8 @@
-/** How many items the feed remembers before the oldest falls off. */
-const MAX_ITEMS = 50;
-
-/**
- * One thing that happened that a human might need to look at.
- *
- * `session` is deliberately an opaque key rather than a `sessionId`: crossweave's
- * `tui.event` payloads carry the session NAME (see `NotifyEvent` in
- * src/notify/dispatcher.ts), and a feed that renamed it on the way in would have to
- * translate back before it could ack. Whatever the producer supplies is what `ack`
- * matches on.
- *
- * Unread/ack is per-window UI state, not daemon state: a second window looking at the
- * same workspace has its own idea of what it has seen, and a reload legitimately starts
- * from nothing. That is why this class is in-memory and why it is not in the DB.
- */
+/** A land that some client (another window, the CLI) finished, worth telling the user. */
 export type ActivityKind = 'landed' | 'land_failed';
 
-export interface ActivityItem {
-  kind: ActivityKind;
-  session: string;
-  at: string;
-  read: boolean;
-}
-
-export class ActivityFeed {
-  private items: ActivityItem[] = [];
-
-  push(kind: ActivityKind, session: string): void {
-    this.items.unshift({ kind, session, at: new Date().toISOString(), read: false });
-    if (this.items.length > MAX_ITEMS) this.items.pop();
-  }
-
-  unread(limit = 5): ActivityItem[] {
-    return this.items.filter((i) => !i.read).slice(0, limit);
-  }
-
-  ack(session: string): void {
-    for (const it of this.items) if (it.session === session) it.read = true;
-  }
-
-  all(): ActivityItem[] {
-    return [...this.items];
-  }
-}
-
 /**
- * The one parser for the payloads that feed this list.
+ * The one parser for the tui.event payloads the cockpit turns into a toast.
  *
  * These are `tui.event` payloads — `NotifyEvent` from src/notify/dispatcher.ts, the same
  * objects the desktop notification and the TUI's own feed line are formatted from.

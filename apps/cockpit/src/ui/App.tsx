@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { ActivityFeed, activityFromEvent, type ActivityItem } from '../../../../src/domain/activity.js'
-import { cockpitApi, type ListedSession, type TerminalInfo } from '../host/cockpit-api'
+import { activityFromEvent } from '../../../../src/domain/activity.js'
+import { cockpitApi, type ListedSession, type ProjectSnapshot, type TerminalInfo } from '../host/cockpit-api'
 import { nextAttentionSession } from '../lib/attention-jump'
 import { QuickPicker, type NewSessionOptions } from './QuickPicker'
 import { StoppedBar } from './StoppedBar'
@@ -63,9 +63,9 @@ import {
   type SplitDir,
   type StageState,
 } from '../lib/layout'
-import { AgentRail } from './AgentRail'
+import { Sidebar, type ProjectGroup, type RowAction } from './Sidebar'
 import { Stage, type StageStatus } from './Stage'
-import { sessionsThatStartedRunning, workspaceSummary } from '../lib/sessions'
+import { sessionsThatStartedRunning } from '../lib/sessions'
 
 const EMPTY_CONVERGE: ConvergeStatus = { ready: [], unknown: [], blocked: [] }
 
@@ -100,8 +100,12 @@ export function App() {
   const [convergeDetail, setConvergeDetail] = useState<ConvergeDetail>({ pairwise: [], empty: [], baseBranch: null })
   const [commandBarOpen, setCommandBarOpen] = useState(false)
   const [commandHistory, setCommandHistory] = useState<string[]>(() => readStringList(COMMAND_HISTORY_KEY))
-  /** Commands first: the rail's buttons are an opt-in (Settings, or `buttons on`). */
-  const [showButtons, setShowButtons] = useState<boolean>(() => readFlag(SHOW_BUTTONS_KEY))
+  const [sidebarHidden, setSidebarHidden] = useState<boolean>(() => readFlag(SIDEBAR_HIDDEN_KEY))
+  /** Every project open in this window, in order, and a snapshot of each inactive one. */
+  const [openRoots, setOpenRoots] = useState<string[]>([])
+  const [snapshots, setSnapshots] = useState<Record<string, ProjectSnapshot>>({})
+  /** The clock the rail's "2m ago" reads; ticks so the times move without a reload. */
+  const [now, setNow] = useState(() => Date.now())
   const [confirmState, setConfirmState] = useState<(ConfirmRequest & { resolve: (ok: boolean) => void }) | null>(null)
   const [branches, setBranches] = useState<string[]>([])
   /** Non-null while ⌘P is open: the session whose worktree it searches. */
@@ -112,14 +116,6 @@ export function App() {
   const [paneAttachEpoch, setPaneAttachEpoch] = useState(0)
   const [paneAttachBumps, setPaneAttachBumps] = useState<Record<string, number>>({})
   const lastJournalRef = useRef('')
-  /**
-   * Recent activity lives in a ref and is mirrored into state: the feed is a mutable
-   * unread/ack store (see src/domain/activity.ts), and re-rendering needs a new array
-   * reference, not a mutated one. Unread is per-window state, so a reload starting empty
-   * is correct rather than a gap.
-   */
-  const feedRef = useRef(new ActivityFeed())
-  const [activity, setActivity] = useState<ActivityItem[]>([])
   const cancelledRef = useRef(false)
   const sessionsRef = useRef(sessions)
   sessionsRef.current = sessions
@@ -172,6 +168,11 @@ export function App() {
       setLandabilityByName(parseLandabilityByName(loaded.converge))
       setStatus(stageStatusAfterLoad(loaded.sessions.length))
       setError(null)
+      setNow(Date.now())
+      if (firstLoad) {
+        void refreshProjects()
+        runPendingAction()
+      }
       if (opts?.bumpAttach) {
         // daemon.gone: every pane's socket is dead, so every pane re-attaches.
         setPaneAttachEpoch((current) => current + 1)
@@ -191,11 +192,9 @@ export function App() {
         void load({ bumpAttach: shouldBumpPaneAttach(source) })
       },
       onEvent: (payload) => {
+        // A land from anywhere (another window, the CLI) is worth a word.
         const item = activityFromEvent(payload)
-        if (item) {
-          feedRef.current.push(item.kind, item.session)
-          setActivity(feedRef.current.all())
-        }
+        if (item) setLandMessage(item.kind === 'landed' ? `landed ${item.session}` : `land failed: ${item.session}`)
       },
     })
     return () => {
@@ -220,6 +219,11 @@ export function App() {
   const commandRef = useRef<(command: string) => void>(() => undefined)
   commandRef.current = (command: string) => {
     if (command === 'command-bar') openCommandBar()
+    else if (command === 'split-right') splitFocused('row')
+    else if (command === 'split-down') splitFocused('column')
+    else if (command === 'close-pane') closeFocusedPane()
+    else if (command === 'toggle-sidebar') toggleSidebar()
+    else if (command === 'open-project') void openProject()
     else if (command === 'new-agent') void handleNew()
     else if (command === 'jump-attention') jumpToAttention()
     else if (command === 'open-terminal') void handleTerminal()
@@ -231,6 +235,33 @@ export function App() {
     const command = (payload as { command?: unknown } | null)?.command
     if (typeof command === 'string') commandRef.current(command)
   }), [])
+
+  /** Every open project and a snapshot of each one not on the stage. */
+  const refreshProjects = useCallback(async (only?: string): Promise<void> => {
+    try {
+      const { active, open } = await cockpitApi.listProjects()
+      setOpenRoots(open)
+      const others = open.filter((root) => root !== active && (only === undefined || root === only))
+      const fetched = await Promise.all(others.map((root) => cockpitApi.projectSessions(root).catch(() => null)))
+      setSnapshots((prev) => {
+        const next: Record<string, ProjectSnapshot> = {}
+        for (const root of open) if (root !== active && prev[root]) next[root] = prev[root] as ProjectSnapshot
+        for (const snap of fetched) if (snap) next[snap.projectRoot] = snap
+        return next
+      })
+    } catch {
+      // the rail keeps what it had
+    }
+  }, [])
+
+  useEffect(() => {
+    const unsub = cockpitApi.onProjectInvalidate((root) => { void refreshProjects(root) })
+    const tick = setInterval(() => setNow(Date.now()), 15_000)
+    return () => {
+      unsub()
+      clearInterval(tick)
+    }
+  }, [refreshProjects])
 
   /** The session behind the focused pane of the active tab — what the rail's buttons act on. */
   const focusedId = useMemo(() => {
@@ -270,8 +301,7 @@ export function App() {
   const canLandFocused = focusedLandability === 'ready' || focusedLandability === 'unknown'
 
   /**
-   * Show a session: its existing pane if a tab has one, else a new tab. Looking at a
-   * session is also what clears its activity — the rail shows what you have not seen.
+   * Show a session: its existing pane if a tab has one, else a new tab.
    */
   function focusSession(sessionId: string): void {
     setStage((s) => {
@@ -280,19 +310,6 @@ export function App() {
       const name = sessionsRef.current.find((x) => x.id === sessionId)?.name ?? sessionId
       return openInNewTab(s, { kind: 'session', sessionId }, name)
     })
-    const session = sessions.find((s) => s.id === sessionId)
-    if (!session) return
-    feedRef.current.ack(session.name)
-    setActivity(feedRef.current.all())
-  }
-
-  function selectActivity(sessionName: string): void {
-    feedRef.current.ack(sessionName)
-    setActivity(feedRef.current.all())
-    const session = sessions.find((s) => s.name === sessionName)
-    // A session that has since been removed still gets its item acknowledged — an
-    // unactionable row that can never be cleared is worse than one that disappears.
-    if (session) focusSession(session.id)
   }
 
   async function runAction(action: () => Promise<unknown>): Promise<void> {
@@ -301,6 +318,98 @@ export function App() {
       setError(actionError)
       setStatus(stageStatusAfterFailure(sessionsRef.current.length))
     }
+  }
+
+  /**
+   * Another project goes on the stage: the bridge makes it active, and the window
+   * reloads onto it — its own tabs come back from where they were saved. `then` runs
+   * once it is loaded (focus a session, open the picker, act on a row).
+   */
+  async function switchProject(projectRoot: string, then?: PendingAction): Promise<void> {
+    try {
+      if (then) localStorage.setItem(PENDING_KEY, JSON.stringify(then))
+    } catch {
+      // storage unavailable: the switch still happens, the follow-up does not
+    }
+    try {
+      await cockpitApi.ensureWorkspace(projectRoot)
+      window.location.reload()
+    } catch (err) {
+      setLandMessage(plainErrorMessage(err))
+    }
+  }
+
+  function runPendingAction(): void {
+    let pending: PendingAction | null = null
+    try {
+      pending = JSON.parse(localStorage.getItem(PENDING_KEY) ?? 'null') as PendingAction | null
+      localStorage.removeItem(PENDING_KEY)
+    } catch {
+      pending = null
+    }
+    if (pending === null) return
+    if (pending.kind === 'new') void handleNewRef.current()
+    else if (pending.kind === 'row') setTimeout(() => rowActionRef.current(pending.sessionId, pending.action), 0)
+  }
+
+  function rowAction(sessionId: string, action: RowAction | 'focus'): void {
+    if (action === 'focus') focusSession(sessionId)
+    else if (action === 'open') { focusSession(sessionId); void handleStart(sessionId) }
+    else if (action === 'stop') void handleStop(sessionId)
+    else if (action === 'changes') openChanges(sessionId)
+    else if (action === 'land') void handleLand(sessionId)
+    else void handleKill(sessionId)
+  }
+  const rowActionRef = useRef(rowAction)
+  rowActionRef.current = rowAction
+
+  function onRailAction(projectRoot: string, sessionId: string, action: RowAction | 'focus'): void {
+    if (projectRoot === projectRootRef.current) rowAction(sessionId, action)
+    else void switchProject(projectRoot, { kind: 'row', sessionId, action })
+  }
+
+  function onRailNew(projectRoot: string): void {
+    if (projectRoot === projectRootRef.current) void handleNew()
+    else void switchProject(projectRoot, { kind: 'new' })
+  }
+
+  async function openProject(): Promise<void> {
+    const root = await cockpitApi.pickProject().catch(() => null)
+    if (root !== null) await switchProject(root)
+  }
+
+  async function closeProject(projectRoot: string): Promise<void> {
+    try {
+      await cockpitApi.closeProject(projectRoot)
+    } catch (err) {
+      setLandMessage(plainErrorMessage(err))
+    }
+    await refreshProjects()
+  }
+
+  function toggleSidebar(): void {
+    setSidebarHidden((hidden) => {
+      writeFlag(SIDEBAR_HIDDEN_KEY, !hidden)
+      return !hidden
+    })
+  }
+
+  /** The focused pane of the active tab, for ⌘D / ⌘⇧D / ⌘W. */
+  function focusedPaneAt(): { tabId: string; paneId: string; pane: PaneRef } | null {
+    const tab = stage.tabs.find((t) => t.id === stage.activeTabId)
+    if (!tab) return null
+    const found = findPane(tab.root, tab.focusedPaneId)
+    return found ? { tabId: tab.id, paneId: tab.focusedPaneId, pane: found.pane } : null
+  }
+
+  function splitFocused(dir: SplitDir): void {
+    const at = focusedPaneAt()
+    if (at && at.pane.kind !== 'browser') void openShell(at.pane.sessionId, { tabId: at.tabId, paneId: at.paneId, dir })
+  }
+
+  function closeFocusedPane(): void {
+    const at = focusedPaneAt()
+    if (at) handleClosePane(at.tabId, at.paneId, at.pane)
   }
 
   async function handleNew(): Promise<void> {
@@ -318,6 +427,9 @@ export function App() {
       focusSession(created.id)
     })
   }
+
+  const handleNewRef = useRef(handleNew)
+  handleNewRef.current = handleNew
 
   async function handlePickerCreate(name: string, options: NewSessionOptions): Promise<void> {
     setPickerOpen(false)
@@ -357,11 +469,6 @@ export function App() {
 
   function openCommandBar(): void {
     setCommandBarOpen(true)
-  }
-
-  function setButtons(on: boolean): void {
-    setShowButtons(on)
-    writeFlag(SHOW_BUTTONS_KEY, on)
   }
 
   /** One parsed command, run; resolves to an error sentence, or null. */
@@ -425,9 +532,6 @@ export function App() {
         case 'settings':
           setCommandBarOpen(false)
           await handleOpenSettings()
-          return null
-        case 'buttons':
-          setButtons(command.on)
           return null
         case 'gc':
           await cockpitApi.collectGarbage(command.force)
@@ -644,8 +748,33 @@ export function App() {
     }
   }
 
+  /** The rail: every open project, the active one live, the others from snapshots. */
+  function railGroups(): ProjectGroup[] {
+    const active = projectRootRef.current
+    const roots = openRoots.includes(active) || active === '' ? openRoots : [...openRoots, active]
+    const groups: ProjectGroup[] = []
+    for (const root of roots) {
+      if (root === active) {
+        groups.push({ projectRoot: root, name: baseName(root), active: true, sessions, attentionById })
+        continue
+      }
+      const snap = snapshots[root]
+      if (!snap) {
+        groups.push({ projectRoot: root, name: baseName(root), active: false, sessions: [], attentionById: {} })
+        continue
+      }
+      const landability = parseLandabilityByName(snap.converge)
+      const attention: Record<string, AttentionKind> = {}
+      for (const session of snap.sessions) {
+        attention[session.id] = deriveAttention({ status: session.status ?? '', landability: landability.get(session.name) })
+      }
+      groups.push({ projectRoot: root, name: snap.name, active: false, sessions: snap.sessions, attentionById: attention })
+    }
+    return groups
+  }
+
   return (
-    <div class="cockpit-shell">
+    <div class={`cockpit-shell${sidebarHidden ? ' is-sidebar-hidden' : ''}`}>
       {commandBarOpen ? (
         <CommandBar
           context={{
@@ -679,8 +808,6 @@ export function App() {
           initial={settingsOpen.settings}
           onSave={saveSettings}
           onClose={() => setSettingsOpen(null)}
-          showButtons={showButtons}
-          onShowButtons={setButtons}
         />
       ) : null}
       {quickOpen !== null ? (
@@ -695,41 +822,29 @@ export function App() {
           onCancel={() => setQuickOpen(null)}
         />
       ) : null}
-      <AgentRail
-        sessions={sessions}
-        focusedId={focusedId}
-        attentionById={attentionById}
-        activity={activity}
-        onFocus={focusSession}
-        onSelectActivity={selectActivity}
-        header={workspaceSummary(projectRootRef.current, convergeDetail.baseBranch, sessions)}
-        showButtons={showButtons}
-        onCommandBar={openCommandBar}
-        onChanges={() => openChanges()}
-        onNew={() => {
-          void handleNew()
-        }}
-        onStart={() => {
-          void handleStart()
-        }}
-        onStop={() => {
-          void handleStop()
-        }}
-        onKill={() => {
-          void handleKill()
-        }}
-        onTerminal={() => {
-          void handleTerminal()
-        }}
-        colorById={colors}
-        onSetColor={(sessionId, color) => {
-          const next = { ...colors }
-          if (color === null) delete next[sessionId]
-          else next[sessionId] = color
-          setColors(next)
-          writeColors(projectRootRef.current, next)
-        }}
-      />
+      {!sidebarHidden ? (
+        <Sidebar
+          projects={railGroups()}
+          focusedId={focusedId}
+          now={now}
+          colorById={colors}
+          onToggleSidebar={toggleSidebar}
+          onNew={onRailNew}
+          onOpenProject={() => { void openProject() }}
+          onCloseProject={(root) => { void closeProject(root) }}
+          onCommandBar={openCommandBar}
+          onSettings={() => { void handleOpenSettings() }}
+          onSelect={(root, id) => onRailAction(root, id, 'focus')}
+          onAction={onRailAction}
+          onSetColor={(sessionId, color) => {
+            const next = { ...colors }
+            if (color === null) delete next[sessionId]
+            else next[sessionId] = color
+            setColors(next)
+            writeColors(projectRootRef.current, next)
+          }}
+        />
+      ) : null}
       <Stage
         stage={stage}
         sessions={sessions}
@@ -797,45 +912,44 @@ export function App() {
           delete next[name]
           void saveLayouts(next)
         }}
+        sidebarHidden={sidebarHidden}
+        onToggleSidebar={toggleSidebar}
+        onNewTab={() => { void handleNew() }}
+        onToggleChanges={() => openChanges()}
       />
-      <footer class="cockpit-footer">
-        {showButtons ? (
-        <div class="cockpit-footer__actions">
-          <button
-            type="button"
-            onClick={() => {
-              void handleLand()
-            }}
-            disabled={!canLandFocused || landBusy}
-            title={focusedBlockedReason}
-          >
-            {focused ? `Land ${focused.name}` : 'Land'}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              void handleLandAll()
-            }}
-            disabled={converge.ready.length === 0 || landBusy}
-          >
-            Land all
-          </button>
-        </div>
-        ) : null}
-        {error ? (
-          <p class="cockpit-error" role="alert">
-            {error}
-          </p>
-        ) : landMessage ? (
-          <p class="cockpit-muted">{landMessage}</p>
-        ) : null}
-      </footer>
+      <Toast message={error && stage.tabs.length > 0 ? error : landMessage} tone={error && stage.tabs.length > 0 ? 'error' : 'info'}
+        onDone={() => { setLandMessage(null); if (stage.tabs.length > 0) setError(null) }} />
     </div>
   )
 }
 
 const COMMAND_HISTORY_KEY = 'cw.command-history.v1'
-const SHOW_BUTTONS_KEY = 'cw.show-buttons.v1'
+const SIDEBAR_HIDDEN_KEY = 'cw.sidebar-hidden.v1'
+/** What to do once the window has reloaded onto another project. */
+const PENDING_KEY = 'cw.pending-action.v1'
+type PendingAction = { kind: 'new' } | { kind: 'row'; sessionId: string; action: RowAction | 'focus' }
+
+function baseName(root: string): string {
+  return root.split('/').filter((p) => p !== '').pop() ?? root
+}
+
+/** A short-lived message where the footer used to be: land results, action errors. */
+function Toast({ message, tone, onDone }: { message: string | null; tone: 'info' | 'error'; onDone: () => void }) {
+  const doneRef = useRef(onDone)
+  doneRef.current = onDone
+  useEffect(() => {
+    if (message === null) return
+    const timer = setTimeout(() => doneRef.current(), tone === 'error' ? 8000 : 5000)
+    return () => clearTimeout(timer)
+  }, [message, tone])
+  if (message === null) return null
+  return (
+    <div class={`cockpit-toast cockpit-toast--${tone}`} role={tone === 'error' ? 'alert' : 'status'}>
+      <span>{message}</span>
+      <button type="button" class="cockpit-iconbtn" aria-label="Dismiss" onClick={onDone}>×</button>
+    </div>
+  )
+}
 
 /** Per-viewer conveniences only; every read and write survives unavailable storage. */
 function readStringList(key: string): string[] {

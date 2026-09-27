@@ -7,7 +7,7 @@ import type { SessionRow } from '../../../src/db/repositories/session.ts'
 import { SessionRuntime } from '../../../src/daemon/runtime.ts'
 import { encodeSessionData } from '../electron/daemon-bridge'
 import { decodeSessionData } from '../src/lib/session-data'
-import { formatRailMeta, isSessionRunning, parseSessionList, workspaceSummary } from '../src/lib/sessions'
+import { formatRailMeta, isSessionRunning, parseSessionList } from '../src/lib/sessions'
 
 /** Contrast helper only — XtermPane must never do this. */
 function stripCsi(input: string): string {
@@ -153,19 +153,5 @@ describe('fidelity attach path', () => {
     for (const status of ['idle', 'stopped', 'killed', '', undefined]) {
       expect(isSessionRunning({ status })).toBe(false)
     }
-  })
-})
-
-describe('workspaceSummary', () => {
-  test('names the workspace, its base branch, and how many shells are open', () => {
-    const sessions = [
-      { id: 'a', name: 'a', status: 'running' },
-      { id: 'b', name: 'b', status: 'idle' },
-      { id: 'c', name: 'c', status: 'waiting' },
-      { id: 'd', name: 'd', status: 'dead' },
-    ]
-    expect(workspaceSummary('/Users/me/work/shop/', 'main', sessions))
-      .toEqual({ title: 'shop', meta: 'main · 2 of 3 running' })
-    expect(workspaceSummary('/r', null, []).meta).toBe('detached HEAD · 0 of 0 running')
   })
 })
