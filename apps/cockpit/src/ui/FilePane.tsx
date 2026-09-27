@@ -9,7 +9,7 @@ import { css } from '@codemirror/lang-css'
 import { html } from '@codemirror/lang-html'
 import { python } from '@codemirror/lang-python'
 import { oneDark } from '@codemirror/theme-one-dark'
-import { cockpitApi } from '../host/cockpit-api'
+import { useProjectApi } from './project-context'
 import { languageFor } from '../lib/surfaces'
 
 function languageExtension(path: string): Extension[] {
@@ -40,6 +40,7 @@ type Status =
  * overwritten silently: the pane stops and asks.
  */
 export function FilePane({ sessionId, path, focused }: { sessionId: string; path: string; focused: boolean }) {
+  const api = useProjectApi()
   const hostRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
   const mtimeRef = useRef<number | undefined>(undefined)
@@ -52,7 +53,7 @@ export function FilePane({ sessionId, path, focused }: { sessionId: string; path
     if (!view) return
     const content = view.state.doc.toString()
     try {
-      const r = await cockpitApi.writeFile(sessionId, path, content, force ? undefined : mtimeRef.current)
+      const r = await api.writeFile(sessionId, path, content, force ? undefined : mtimeRef.current)
       mtimeRef.current = r.mtimeMs
       savedRef.current = content
       setDirty(false)
@@ -68,7 +69,7 @@ export function FilePane({ sessionId, path, focused }: { sessionId: string; path
   const load = async (): Promise<void> => {
     setStatus({ kind: 'loading' })
     try {
-      const r = await cockpitApi.readFile(sessionId, path)
+      const r = await api.readFile(sessionId, path)
       mtimeRef.current = r.mtimeMs
       savedRef.current = r.content
       const view = viewRef.current

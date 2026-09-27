@@ -1,4 +1,4 @@
-import { cockpitApi } from '../host/cockpit-api'
+import type { CockpitApi } from '../host/cockpit-api'
 import { decodeSessionData } from './session-data'
 
 /**
@@ -32,53 +32,54 @@ const codeSuffix = (code: number | undefined): string => (code === undefined ? '
 /** Opens a file in the cockpit's own editor pane (editor setting `cockpit`). */
 export type InAppOpener = (sessionId: string, path: string, line?: number) => void
 
-function linkOpener(sessionId: string, inApp?: InAppOpener) {
+function linkOpener(api: CockpitApi, sessionId: string, inApp?: InAppOpener) {
   return (path: string, line?: number, col?: number): void => {
-    void cockpitApi.openInEditor(sessionId, path, line, col).then((r) => {
+    void api.openInEditor(sessionId, path, line, col).then((r) => {
       if (r.inApp && typeof r.path === 'string') inApp?.(sessionId, r.path, r.line)
     })
   }
 }
 
-export function sessionSource(sessionId: string, inApp?: InAppOpener): PaneSource {
+/** `api`: the pane's own project's (a view off the stage keeps streaming). */
+export function sessionSource(api: CockpitApi, sessionId: string, inApp?: InAppOpener): PaneSource {
   return {
     key: `session:${sessionId}`,
-    attach: () => cockpitApi.attachSession(sessionId),
-    detach: () => { void cockpitApi.detachSession(sessionId) },
-    input: (data) => cockpitApi.sendInput(sessionId, data),
-    resize: (cols, rows) => cockpitApi.resizeSession(sessionId, cols, rows),
-    onData: (cb) => cockpitApi.onSessionData((payload) => {
+    attach: () => api.attachSession(sessionId),
+    detach: () => { void api.detachSession(sessionId) },
+    input: (data) => api.sendInput(sessionId, data),
+    resize: (cols, rows) => api.resizeSession(sessionId, cols, rows),
+    onData: (cb) => api.onSessionData((payload) => {
       const decoded = decodeSessionData(payload)
       if (decoded && decoded.sessionId === sessionId) cb(decoded.chunk)
     }),
-    onExit: (cb) => cockpitApi.onSessionExit((payload) => {
+    onExit: (cb) => api.onSessionExit((payload) => {
       if ((payload as { sessionId?: unknown } | null)?.sessionId === sessionId) cb(exitCode(payload))
     }),
     exitMessage: (code) => `[session exited${codeSuffix(code)} — press Start to bring it back]`,
     notRunningMessage: '[not running]',
-    openLink: linkOpener(sessionId, inApp),
+    openLink: linkOpener(api, sessionId, inApp),
   }
 }
 
-export function terminalSource(terminalId: string, sessionId: string, inApp?: InAppOpener): PaneSource {
+export function terminalSource(api: CockpitApi, terminalId: string, sessionId: string, inApp?: InAppOpener): PaneSource {
   return {
     key: `terminal:${terminalId}`,
-    attach: () => cockpitApi.attachTerminal(terminalId),
+    attach: () => api.attachTerminal(terminalId),
     // A terminal lives until it is closed; leaving the pane does not end the shell.
     detach: () => undefined,
-    input: (data) => cockpitApi.terminalInput(terminalId, data),
-    resize: (cols, rows) => cockpitApi.resizeTerminal(terminalId, cols, rows),
-    onData: (cb) => cockpitApi.onTerminalData((payload) => {
+    input: (data) => api.terminalInput(terminalId, data),
+    resize: (cols, rows) => api.resizeTerminal(terminalId, cols, rows),
+    onData: (cb) => api.onTerminalData((payload) => {
       if ((payload as { terminalId?: unknown } | null)?.terminalId !== terminalId) return
       const decoded = decodeSessionData(payload)
       if (decoded) cb(decoded.chunk)
     }),
-    onExit: (cb) => cockpitApi.onTerminalExit((payload) => {
+    onExit: (cb) => api.onTerminalExit((payload) => {
       if ((payload as { terminalId?: unknown } | null)?.terminalId === terminalId) cb(exitCode(payload))
     }),
     exitMessage: (code) => `[shell exited${codeSuffix(code)}]`,
     notRunningMessage: '[this shell has exited — close the pane or open a new Terminal]',
     // A shell sits in its session's worktree, so its paths resolve there too.
-    openLink: linkOpener(sessionId, inApp),
+    openLink: linkOpener(api, sessionId, inApp),
   }
 }

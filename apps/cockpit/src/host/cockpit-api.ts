@@ -29,172 +29,215 @@ export function cockpitListen(event: CockpitEvent, cb: (payload: unknown) => voi
   return window.cockpit.listen(event, cb)
 }
 
-/** Typed renderer wrappers over the closed preload bridge. */
-export const cockpitApi = {
-  ensureWorkspace(projectRoot?: string): Promise<WorkspaceEnsureResult> {
-    return cockpitInvoke('workspace.ensure', projectRoot ? { projectRoot } : undefined)
-  },
-  listSessions(): Promise<ListedSession[]> {
-    return cockpitInvoke('session.list').then(parseSessionList)
-  },
-  newSession(payload: { name: string; worktree?: boolean; base?: string }): Promise<unknown> {
-    return cockpitInvoke('session.new', payload)
-  },
-  startSession(idOrName: string): Promise<unknown> {
-    return cockpitInvoke('session.start', { idOrName })
-  },
-  /** `launcher`: a launcher id from Settings to run in the shell; 'terminal' or none for a plain shell. */
-  resumeSession(idOrName: string, launcher?: string): Promise<unknown> {
-    return cockpitInvoke('session.resume', { idOrName, ...(launcher === undefined || launcher === 'terminal' ? {} : { launcher }) })
-  },
-  listLaunchers(): Promise<LauncherOption[]> {
-    return cockpitInvoke('launchers.list')
-  },
-  attachSession(idOrName: string): Promise<SessionAttachResult> {
-    return cockpitInvoke('session.attach', { idOrName })
-  },
-  detachSession(sessionId: string): Promise<unknown> {
-    return cockpitInvoke('session.detach', { sessionId })
-  },
-  sendInput(idOrName: string, data: string): Promise<unknown> {
-    return cockpitInvoke('session.input', { idOrName, data })
-  },
-  resizeSession(idOrName: string, cols: number, rows: number): Promise<unknown> {
-    return cockpitInvoke('session.resize', { idOrName, cols, rows })
-  },
-  stopSession(idOrName: string): Promise<unknown> {
-    return cockpitInvoke('session.stop', { idOrName })
-  },
-  killSession(idOrName: string, removeWorktree?: boolean): Promise<unknown> {
-    return cockpitInvoke('session.kill', { idOrName, removeWorktree })
-  },
-  /** Gone from the rail: its worktree and branch deleted (the daemon refuses a live one). */
-  removeSession(idOrName: string): Promise<unknown> {
-    return cockpitInvoke('session.rm', { idOrName })
-  },
-  /** `projectRoot`: another open project's (the bridge routes it); the active one's by default. */
-  convergeStatus(projectRoot?: string): Promise<unknown> {
-    return cockpitInvoke('converge.status', projectRoot === undefined ? undefined : { projectRoot })
-  },
-  landSession(idOrName: string, force?: boolean, projectRoot?: string): Promise<unknown> {
-    return cockpitInvoke('land.session', { idOrName, force, ...(projectRoot === undefined ? {} : { projectRoot }) })
-  },
-  /** What this window last had open, so a restart can put it back (Horizon B journal). */
-  journalGet(): Promise<unknown> {
-    return cockpitInvoke('journal.get')
-  },
-  journalSet(openTabs: string[]): Promise<unknown> {
-    return cockpitInvoke('journal.set', { openTabs })
-  },
-  openTerminal(idOrName: string): Promise<TerminalInfo> {
-    return cockpitInvoke('terminal.open', { idOrName })
-  },
-  listTerminals(): Promise<TerminalInfo[]> {
-    return cockpitInvoke('terminal.list')
-  },
-  attachTerminal(terminalId: string): Promise<unknown> {
-    return cockpitInvoke('terminal.attach', { terminalId })
-  },
-  terminalInput(terminalId: string, data: string): Promise<unknown> {
-    return cockpitInvoke('terminal.input', { terminalId, data })
-  },
-  resizeTerminal(terminalId: string, cols: number, rows: number): Promise<unknown> {
-    return cockpitInvoke('terminal.resize', { terminalId, cols, rows })
-  },
-  closeTerminal(terminalId: string): Promise<unknown> {
-    return cockpitInvoke('terminal.close', { terminalId })
-  },
-  onTerminalData(cb: (payload: unknown) => void): () => void {
-    return cockpitListen('terminal.data', cb)
-  },
-  onTerminalExit(cb: (payload: unknown) => void): () => void {
-    return cockpitListen('terminal.exit', cb)
-  },
-  getSettings(): Promise<unknown> {
-    return cockpitInvoke('settings.get')
-  },
-  setSettings(settings: unknown): Promise<unknown> {
-    return cockpitInvoke('settings.set', { settings })
-  },
-  renameSession(idOrName: string, newName: string, projectRoot?: string): Promise<unknown> {
-    return cockpitInvoke('session.rename', { idOrName, newName, ...(projectRoot === undefined ? {} : { projectRoot }) })
-  },
-  collectGarbage(force: boolean, projectRoot?: string): Promise<{ removed?: string[]; kept?: string[] }> {
-    return cockpitInvoke('workspace.gc', { force, ...(projectRoot === undefined ? {} : { projectRoot }) })
-  },
-  sessionDiff(idOrName: string): Promise<SessionDiff> {
-    return cockpitInvoke('session.diff', { idOrName })
-  },
-  listFiles(idOrName: string): Promise<string[]> {
-    return cockpitInvoke('file.list', { idOrName })
-  },
-  readFile(idOrName: string, path: string): Promise<{ content: string; mtimeMs: number }> {
-    return cockpitInvoke('file.read', { idOrName, path })
-  },
-  writeFile(idOrName: string, path: string, content: string, expectedMtimeMs?: number): Promise<{ mtimeMs: number }> {
-    return cockpitInvoke('file.write', { idOrName, path, content, expectedMtimeMs })
-  },
-  listBranches(): Promise<string[]> {
-    return cockpitInvoke('git.branches')
-  },
-  openInEditor(sessionId: string, path: string, line?: number, col?: number): Promise<{ ok: boolean; inApp?: boolean; path?: string; line?: number }> {
-    return cockpitInvoke('editor.open', { sessionId, path, line, col })
-  },
-  onCommand(cb: (payload: unknown) => void): () => void {
-    return cockpitListen('cockpit.command', cb)
-  },
-  onSessionData(cb: (payload: unknown) => void): () => void {
-    return cockpitListen('session.data', cb)
-  },
-  onSessionExit(cb: (payload: unknown) => void): () => void {
-    return cockpitListen('session.exit', cb)
-  },
-  onTuiEvent(cb: (payload: unknown) => void): () => void {
-    return cockpitListen('tui.event', cb)
-  },
-  onTuiInvalidate(cb: (payload: unknown) => void): () => void {
-    return cockpitListen('tui.invalidate', cb)
-  },
-  onDaemonGone(cb: (payload: unknown) => void): () => void {
-    return cockpitListen('daemon.gone', cb)
-  },
-  /** Every project open in this window, and which one is on the stage. */
-  listProjects(): Promise<{ active: string | undefined; open: string[] }> {
-    return cockpitInvoke('projects.list')
-  },
-  projectSessions(projectRoot: string): Promise<ProjectSnapshot> {
-    return cockpitInvoke<{ projectRoot: string; name: string; sessions: unknown; converge: unknown }>('projects.sessions', { projectRoot })
-      .then((r) => ({ projectRoot: r.projectRoot, name: r.name, sessions: parseSessionList(r.sessions), converge: r.converge }))
-  },
-  closeProject(projectRoot: string): Promise<unknown> {
-    return cockpitInvoke('projects.close', { projectRoot })
-  },
-  /** The rail's project order: the open projects, rearranged. */
-  reorderProjects(roots: string[]): Promise<unknown> {
-    return cockpitInvoke('projects.reorder', { roots })
-  },
-  /** Finder, at a project's folder — or a session's, with `sessionId`. */
-  revealFolder(projectRoot: string, sessionId?: string): Promise<{ ok: boolean }> {
-    return cockpitInvoke('folder.reveal', { projectRoot, ...(sessionId === undefined ? {} : { sessionId }) })
-  },
-  /** The editor from Settings, opened on a project's or a session's folder. */
-  openFolderInEditor(projectRoot: string, sessionId?: string): Promise<{ ok: boolean }> {
-    return cockpitInvoke('folder.openInEditor', { projectRoot, ...(sessionId === undefined ? {} : { sessionId }) })
-  },
-  /** The Dock's number: sessions waiting for the user (0 clears it). */
-  setBadge(count: number): Promise<unknown> {
-    return cockpitInvoke('app.badge', { count })
-  },
-  /** The folder picker; null when cancelled. */
-  pickProject(): Promise<string | null> {
-    return cockpitInvoke<{ projectRoot: string | null }>('projects.pick').then((r) => r.projectRoot)
-  },
-  onProjectInvalidate(cb: (projectRoot: string) => void): () => void {
-    return cockpitListen('project.invalidate', (payload) => {
-      const root = (payload as { projectRoot?: unknown } | null)?.projectRoot
-      if (typeof root === 'string') cb(root)
-    })
-  },
+type Invoke = <T = unknown>(channel: CockpitChannel, payload?: unknown) => Promise<T>
+type Listen = (event: CockpitEvent, cb: (payload: unknown) => void) => () => void
+
+/** Typed renderer wrappers over the closed preload bridge, through `invoke` / `listen`. */
+function makeApi(invoke: Invoke, listen: Listen) {
+  return {
+    ensureWorkspace(projectRoot?: string): Promise<WorkspaceEnsureResult> {
+      return invoke('workspace.ensure', projectRoot ? { projectRoot } : undefined)
+    },
+    listSessions(): Promise<ListedSession[]> {
+      return invoke('session.list').then(parseSessionList)
+    },
+    newSession(payload: { name: string; worktree?: boolean; base?: string }): Promise<unknown> {
+      return invoke('session.new', payload)
+    },
+    startSession(idOrName: string): Promise<unknown> {
+      return invoke('session.start', { idOrName })
+    },
+    /** `launcher`: a launcher id from Settings to run in the shell; 'terminal' or none for a plain shell. */
+    resumeSession(idOrName: string, launcher?: string): Promise<unknown> {
+      return invoke('session.resume', { idOrName, ...(launcher === undefined || launcher === 'terminal' ? {} : { launcher }) })
+    },
+    listLaunchers(): Promise<LauncherOption[]> {
+      return invoke('launchers.list')
+    },
+    attachSession(idOrName: string): Promise<SessionAttachResult> {
+      return invoke('session.attach', { idOrName })
+    },
+    detachSession(sessionId: string): Promise<unknown> {
+      return invoke('session.detach', { sessionId })
+    },
+    sendInput(idOrName: string, data: string): Promise<unknown> {
+      return invoke('session.input', { idOrName, data })
+    },
+    resizeSession(idOrName: string, cols: number, rows: number): Promise<unknown> {
+      return invoke('session.resize', { idOrName, cols, rows })
+    },
+    stopSession(idOrName: string): Promise<unknown> {
+      return invoke('session.stop', { idOrName })
+    },
+    killSession(idOrName: string, removeWorktree?: boolean): Promise<unknown> {
+      return invoke('session.kill', { idOrName, removeWorktree })
+    },
+    /** Gone from the rail: its worktree and branch deleted (the daemon refuses a live one). */
+    removeSession(idOrName: string): Promise<unknown> {
+      return invoke('session.rm', { idOrName })
+    },
+    /** `projectRoot`: another open project's (the bridge routes it); the active one's by default. */
+    convergeStatus(projectRoot?: string): Promise<unknown> {
+      return invoke('converge.status', projectRoot === undefined ? undefined : { projectRoot })
+    },
+    landSession(idOrName: string, force?: boolean, projectRoot?: string): Promise<unknown> {
+      return invoke('land.session', { idOrName, force, ...(projectRoot === undefined ? {} : { projectRoot }) })
+    },
+    /** What this window last had open, so a restart can put it back (Horizon B journal). */
+    journalGet(): Promise<unknown> {
+      return invoke('journal.get')
+    },
+    journalSet(openTabs: string[]): Promise<unknown> {
+      return invoke('journal.set', { openTabs })
+    },
+    openTerminal(idOrName: string): Promise<TerminalInfo> {
+      return invoke('terminal.open', { idOrName })
+    },
+    listTerminals(): Promise<TerminalInfo[]> {
+      return invoke('terminal.list')
+    },
+    attachTerminal(terminalId: string): Promise<unknown> {
+      return invoke('terminal.attach', { terminalId })
+    },
+    terminalInput(terminalId: string, data: string): Promise<unknown> {
+      return invoke('terminal.input', { terminalId, data })
+    },
+    resizeTerminal(terminalId: string, cols: number, rows: number): Promise<unknown> {
+      return invoke('terminal.resize', { terminalId, cols, rows })
+    },
+    closeTerminal(terminalId: string): Promise<unknown> {
+      return invoke('terminal.close', { terminalId })
+    },
+    onTerminalData(cb: (payload: unknown) => void): () => void {
+      return listen('terminal.data', cb)
+    },
+    onTerminalExit(cb: (payload: unknown) => void): () => void {
+      return listen('terminal.exit', cb)
+    },
+    getSettings(): Promise<unknown> {
+      return invoke('settings.get')
+    },
+    setSettings(settings: unknown): Promise<unknown> {
+      return invoke('settings.set', { settings })
+    },
+    renameSession(idOrName: string, newName: string, projectRoot?: string): Promise<unknown> {
+      return invoke('session.rename', { idOrName, newName, ...(projectRoot === undefined ? {} : { projectRoot }) })
+    },
+    collectGarbage(force: boolean, projectRoot?: string): Promise<{ removed?: string[]; kept?: string[] }> {
+      return invoke('workspace.gc', { force, ...(projectRoot === undefined ? {} : { projectRoot }) })
+    },
+    sessionDiff(idOrName: string): Promise<SessionDiff> {
+      return invoke('session.diff', { idOrName })
+    },
+    listFiles(idOrName: string): Promise<string[]> {
+      return invoke('file.list', { idOrName })
+    },
+    readFile(idOrName: string, path: string): Promise<{ content: string; mtimeMs: number }> {
+      return invoke('file.read', { idOrName, path })
+    },
+    writeFile(idOrName: string, path: string, content: string, expectedMtimeMs?: number): Promise<{ mtimeMs: number }> {
+      return invoke('file.write', { idOrName, path, content, expectedMtimeMs })
+    },
+    listBranches(): Promise<string[]> {
+      return invoke('git.branches')
+    },
+    openInEditor(sessionId: string, path: string, line?: number, col?: number): Promise<{ ok: boolean; inApp?: boolean; path?: string; line?: number }> {
+      return invoke('editor.open', { sessionId, path, line, col })
+    },
+    onCommand(cb: (payload: unknown) => void): () => void {
+      return listen('cockpit.command', cb)
+    },
+    onSessionData(cb: (payload: unknown) => void): () => void {
+      return listen('session.data', cb)
+    },
+    onSessionExit(cb: (payload: unknown) => void): () => void {
+      return listen('session.exit', cb)
+    },
+    onTuiEvent(cb: (payload: unknown) => void): () => void {
+      return listen('tui.event', cb)
+    },
+    onTuiInvalidate(cb: (payload: unknown) => void): () => void {
+      return listen('tui.invalidate', cb)
+    },
+    onDaemonGone(cb: (payload: unknown) => void): () => void {
+      return listen('daemon.gone', cb)
+    },
+    /** Every project open in this window, and which one is on the stage. */
+    listProjects(): Promise<{ active: string | undefined; open: string[] }> {
+      return invoke('projects.list')
+    },
+    projectSessions(projectRoot: string): Promise<ProjectSnapshot> {
+      return invoke<{ projectRoot: string; name: string; sessions: unknown; converge: unknown }>('projects.sessions', { projectRoot })
+        .then((r) => ({ projectRoot: r.projectRoot, name: r.name, sessions: parseSessionList(r.sessions), converge: r.converge }))
+    },
+    closeProject(projectRoot: string): Promise<unknown> {
+      return invoke('projects.close', { projectRoot })
+    },
+    /** The rail's project order: the open projects, rearranged. */
+    reorderProjects(roots: string[]): Promise<unknown> {
+      return invoke('projects.reorder', { roots })
+    },
+    /** Finder, at a project's folder — or a session's, with `sessionId`. */
+    revealFolder(projectRoot: string, sessionId?: string): Promise<{ ok: boolean }> {
+      return invoke('folder.reveal', { projectRoot, ...(sessionId === undefined ? {} : { sessionId }) })
+    },
+    /** The editor from Settings, opened on a project's or a session's folder. */
+    openFolderInEditor(projectRoot: string, sessionId?: string): Promise<{ ok: boolean }> {
+      return invoke('folder.openInEditor', { projectRoot, ...(sessionId === undefined ? {} : { sessionId }) })
+    },
+    /** The Dock's number: sessions waiting for the user (0 clears it). */
+    setBadge(count: number): Promise<unknown> {
+      return invoke('app.badge', { count })
+    },
+    /** The folder picker; null when cancelled. */
+    pickProject(): Promise<string | null> {
+      return invoke<{ projectRoot: string | null }>('projects.pick').then((r) => r.projectRoot)
+    },
+    /** Some open project's sessions changed (any project: the rail lists them all). */
+    onProjectInvalidate(cb: (projectRoot: string) => void): () => void {
+      return listen('tui.invalidate', (payload) => {
+        const root = (payload as { projectRoot?: unknown } | null)?.projectRoot
+        if (typeof root === 'string') cb(root)
+      })
+    },
+  }
+}
+
+export type CockpitApi = ReturnType<typeof makeApi>
+
+/** The window's API: calls go to the project on the stage unless they name another. */
+export const cockpitApi: CockpitApi = makeApi(cockpitInvoke, cockpitListen)
+
+/**
+ * Channels the bridge or the main process answers for the whole window; a project's
+ * view must not stamp its root on them (for `projects.close` the root IS the argument).
+ */
+const WINDOW_CHANNELS = new Set<CockpitChannel>([
+  'workspace.ensure', 'projects.list', 'projects.pick', 'projects.reorder', 'projects.sessions',
+  'projects.close', 'app.badge', 'folder.reveal', 'folder.openInEditor',
+])
+
+/** `payload` with `projectRoot` added, unless the call already names one or is window-wide. */
+export function withProjectRoot(channel: CockpitChannel, payload: unknown, projectRoot: string): unknown {
+  if (WINDOW_CHANNELS.has(channel)) return payload
+  if (payload === undefined || payload === null) return { projectRoot }
+  if (typeof payload !== 'object' || Array.isArray(payload)) return payload
+  const record = payload as Record<string, unknown>
+  return typeof record.projectRoot === 'string' ? record : { ...record, projectRoot }
+}
+
+/**
+ * The API as one project's view uses it: every call goes to that project's daemon, and
+ * only that project's events arrive — so a view off the stage keeps working (its panes
+ * stream, its rail row updates) while another project is shown.
+ */
+export function projectApi(projectRoot: string): CockpitApi {
+  return makeApi(
+    (channel, payload) => cockpitInvoke(channel, withProjectRoot(channel, payload, projectRoot)),
+    (event, cb) => cockpitListen(event, (payload) => {
+      if ((payload as { projectRoot?: unknown } | null)?.projectRoot === projectRoot) cb(payload)
+    }),
+  )
 }
 
 /** A launcher as the picker shows it: Settings' entry plus whether this machine has it. */

@@ -5,6 +5,7 @@ import type { LayoutNode, PaneRef, SplitDir, StageState, Tab } from '../lib/layo
 import { sessionSource, terminalSource, type InAppOpener } from '../lib/pane-source'
 import type { SessionColor } from '../lib/colors'
 import { XtermPane } from './XtermPane'
+import { useProjectApi } from './project-context'
 import { AgentMark, DiffIcon, FileIcon, GlobeIcon, MoreIcon, PanelRightIcon, PlusIcon, SidebarIcon, TerminalIcon } from './icons'
 
 export type StageStatus = 'loading' | 'ready' | 'empty' | 'error' | 'welcome'
@@ -49,6 +50,11 @@ export type StageProps = {
   onNewTab: () => void
   /** The right-hand toggle: the focused session's Changes pane. */
   onToggleChanges: () => void
+  /**
+   * False while this project's view is kept alive off the stage: nothing in it takes
+   * the keyboard, so returning to it focuses its pane again.
+   */
+  shown?: boolean
 }
 
 function paneLabel(pane: PaneRef, names: ReadonlyMap<string, string>, titles: ReadonlyMap<string, string>): string {
@@ -85,6 +91,7 @@ function PaneKindIcon({ pane, agents }: { pane: PaneRef; agents: ReadonlyMap<str
 
 export function Stage(props: StageProps) {
   const { stage, sessions, status, error, paneAttachEpoch = 0, paneAttachBumps = {} } = props
+  const api = useProjectApi()
   const names = new Map(sessions.map((s) => [s.id, s.name]))
   const titles = new Map(sessions.flatMap((s) => (s.latestWords ? [[s.id, s.latestWords] as const] : [])))
   const agents = new Map(sessions.map((s) => [s.id, s.agent]))
@@ -120,7 +127,7 @@ export function Stage(props: StageProps) {
       )
     }
     const { pane } = node
-    const focused = tab.focusedPaneId === node.id
+    const focused = tab.focusedPaneId === node.id && props.shown !== false
     return (
       <div
         key={node.id}
@@ -140,7 +147,7 @@ export function Stage(props: StageProps) {
             <>
               <XtermPane
                 key={`${pane.sessionId}:${paneAttachEpoch}:${paneAttachBumps[pane.sessionId] ?? 0}`}
-                source={sessionSource(pane.sessionId, props.inApp)}
+                source={sessionSource(api, pane.sessionId, props.inApp)}
                 // The stopped bar takes the keyboard while there is no shell to type to.
                 focused={focused && launch === null}
               />
@@ -150,7 +157,7 @@ export function Stage(props: StageProps) {
         })() : pane.kind === 'terminal' ? (
           <XtermPane
             key={`terminal:${pane.terminalId}:${paneAttachEpoch}`}
-            source={terminalSource(pane.terminalId, pane.sessionId, props.inApp)}
+            source={terminalSource(api, pane.terminalId, pane.sessionId, props.inApp)}
             focused={focused}
           />
         ) : (

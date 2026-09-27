@@ -84,6 +84,10 @@ export function XtermPane({ source, focused }: XtermPaneProps) {
     const unlisten = source.onData((chunk) => term.write(chunk))
 
     const applyFit = (): void => {
+      // A project off the stage is display:none: its panes measure 0×0. Fitting then
+      // would tell the shell its terminal shrank to nothing (and reflow its output);
+      // the ResizeObserver fits again when the view is shown.
+      if (container.clientWidth === 0 || container.clientHeight === 0) return
       fit.fit()
       if (cancelled) return
       if (term.cols === lastCols && term.rows === lastRows) return
