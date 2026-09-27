@@ -111,6 +111,11 @@ export interface UserSettings {
   terminal?: TerminalAppearance;
   appearance?: InterfaceAppearance;
   usage?: UsageSettings;
+  /**
+   * The cockpit's shortcuts over its defaults: command id → Electron accelerator, or
+   * null to unbind. The cockpit checks the grammar and conflicts; this checks shape.
+   */
+  keybindings?: Record<string, string | null>;
 }
 
 /** A font family as it reaches xterm's CSS font string: nothing that could end the quotes. */
@@ -227,6 +232,21 @@ export function cleanUsage(raw: unknown): { usage: UsageSettings | undefined; pr
   return { usage: Object.keys(out).length === 0 ? undefined : out, problems };
 }
 
+const COMMAND_ID = /^[a-z0-9][a-z0-9-]{0,39}$/;
+const ACCELERATOR_CHARS = /^[A-Za-z0-9+,./;'[\]\\\-=`]{1,40}$/;
+
+export function cleanKeybindings(raw: unknown): { keybindings: Record<string, string | null> | undefined; problems: string[] } {
+  const problems: string[] = [];
+  if (raw === undefined || raw === null) return { keybindings: undefined, problems };
+  if (typeof raw !== 'object' || Array.isArray(raw)) return { keybindings: undefined, problems: ['keybindings must map a command to a shortcut'] };
+  const out: Record<string, string | null> = {};
+  for (const [id, key] of Object.entries(raw as Record<string, unknown>)) {
+    if (COMMAND_ID.test(id) && (key === null || (typeof key === 'string' && ACCELERATOR_CHARS.test(key)))) out[id] = key;
+    else problems.push(`keybinding "${id}": a command id, and a shortcut like CmdOrCtrl+Shift+K (or none)`);
+  }
+  return { keybindings: Object.keys(out).length === 0 ? undefined : out, problems };
+}
+
 const EDITORS: ReadonlySet<string> = new Set(['vscode', 'cursor', 'zed', 'custom', 'cockpit']);
 const LAUNCHER_ID = /^[a-z0-9][a-z0-9-]{0,31}$/;
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -290,6 +310,7 @@ function validate(settings: UserSettings): void {
     ...cleanTerminal(settings.terminal).problems,
     ...cleanAppearance(settings.appearance).problems,
     ...cleanUsage(settings.usage).problems,
+    ...cleanKeybindings(settings.keybindings).problems,
   ];
   if (problems.length > 0) invalid(problems[0] as string);
 }
@@ -313,11 +334,13 @@ export function loadSettings(homeDir?: string): UserSettings {
   const { terminal } = cleanTerminal(saved.terminal);
   const { appearance } = cleanAppearance(saved.appearance);
   const { usage } = cleanUsage(saved.usage);
+  const { keybindings } = cleanKeybindings(saved.keybindings);
   return {
     launchers: mergeLaunchers(saved.launchers), editor, layouts,
     ...(terminal === undefined ? {} : { terminal }),
     ...(appearance === undefined ? {} : { appearance }),
     ...(usage === undefined ? {} : { usage }),
+    ...(keybindings === undefined ? {} : { keybindings }),
   };
 }
 
@@ -376,6 +399,7 @@ export function saveSettings(settings: UserSettings, homeDir?: string): void {
     ...(settings.terminal === undefined ? {} : { terminal: cleanTerminal(settings.terminal).terminal }),
     ...(settings.appearance === undefined ? {} : { appearance: cleanAppearance(settings.appearance).appearance }),
     ...(settings.usage === undefined ? {} : { usage: cleanUsage(settings.usage).usage }),
+    ...(settings.keybindings === undefined ? {} : { keybindings: cleanKeybindings(settings.keybindings).keybindings }),
   };
   writeFileSync(tmp, `${JSON.stringify(normalized, null, 2)}\n`, { mode: 0o600 });
   chmodSync(tmp, 0o600);

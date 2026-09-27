@@ -84,6 +84,8 @@ function resolveBunCommand(): string {
 function buildMenu(): void {
   const template = appMenuTemplate({
     platform: process.platform,
+    // Settings → Keyboard, read from the user's file (the daemon validated it on save).
+    keybindings: loadSettings().keybindings,
     command: (name) => sendToRenderers('cockpit.command', { command: name }),
     recent: recentMenuItems(loadRecent(), {
       exists: existsSync,
@@ -213,6 +215,10 @@ function registerHandlers(bridge: DaemonBridge): void {
       if (channel === 'app.badge') return setBadge(payload)
       if (channel === 'terminal.importSources') return importSources(importDeps())
       if (channel === 'fonts.list') return listFonts(importDeps().run)
+      if (channel === 'menu.refresh') {
+        buildMenu()
+        return { ok: true }
+      }
       if (channel === 'terminal.import') {
         const from = (payload as { from?: unknown } | null)?.from
         if (from !== 'ghostty' && from !== 'iterm2') return { ok: false, reason: 'Import from ghostty or iterm2' }

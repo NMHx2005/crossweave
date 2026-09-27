@@ -184,3 +184,18 @@ describe('usage settings', () => {
     }
   });
 });
+
+describe('keybindings', () => {
+  it('round-trips overrides; null unbinds a command', () => {
+    const keybindings = { 'command-bar': 'CmdOrCtrl+Shift+P', find: null };
+    saveSettings({ ...loadSettings(home), keybindings }, home);
+    expect(loadSettings(home).keybindings).toEqual(keybindings);
+  });
+
+  it('refuses what cannot be a command id or an accelerator', () => {
+    const base = loadSettings(home);
+    for (const bad of [{ 'Bad Id': 'CmdOrCtrl+K' }, { find: 'Cmd+K; rm' }, { find: 12 }]) {
+      expect(() => saveSettings({ ...base, keybindings: bad as never }, home)).toThrow(/keybinding/i);
+    }
+  });
+});

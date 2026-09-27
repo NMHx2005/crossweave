@@ -67,3 +67,28 @@ describe('agent shortcuts', () => {
     expect(fired).toEqual(['jump-1', 'jump-5', 'jump-9'])
   })
 })
+
+describe('keybindings', () => {
+  const find = (menu: ReturnType<typeof appMenuTemplate>, label: string) =>
+    menu.flatMap((m) => (Array.isArray(m.submenu) ? m.submenu : [])).find((i) => (i as { label?: string }).label === label) as { accelerator?: string } | undefined
+
+  test("the user's shortcut replaces the default; null unbinds; an invalid one is left off", () => {
+    const menu = appMenuTemplate({
+      platform: 'darwin', recent: [], command: () => undefined,
+      keybindings: { 'command-bar': 'CmdOrCtrl+Shift+P', find: null, 'new-agent': 'not a key' },
+    })
+    expect(find(menu, 'Command…')?.accelerator).toBe('CmdOrCtrl+Shift+P')
+    expect(find(menu, 'Find…')?.accelerator).toBeUndefined()
+    expect(find(menu, 'New Session…')?.accelerator).toBeUndefined()
+    expect(find(menu, 'Split Right')?.accelerator).toBe('CmdOrCtrl+D')
+  })
+
+  test('the pane menu and the shortcut list are reachable', () => {
+    const fired: string[] = []
+    const menu = appMenuTemplate({ platform: 'darwin', recent: [], command: (c) => fired.push(c) })
+    const pane = menu.find((m) => m.label === 'Pane')!.submenu as Array<{ label?: string; click?: () => void }>
+    pane.find((i) => i.label === 'Zoom Pane')?.click?.()
+    ;(find(menu, 'Keyboard Shortcuts') as { click?: () => void } | undefined)?.click?.()
+    expect(fired).toEqual(['zoom-pane', 'show-shortcuts'])
+  })
+})
