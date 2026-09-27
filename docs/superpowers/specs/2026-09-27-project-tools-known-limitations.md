@@ -54,3 +54,26 @@
   and the daemon outlives its deleted fixture — 14 were found running from one
   sandboxed `bun test`. Stopping the child on `DAEMON_START_FAILED`, and a daemon that
   exits when its project folder disappears, would both close it.
+
+## Follow-up (2026-09-27): delete a session, clean shell environment
+
+- **Delete…** on a session (right-click) kills it if it is live, then removes its row,
+  worktree and branch (`session.rm`); a session in the project folder only loses its
+  row. Killed sessions show Delete… only.
+- **Session shells no longer inherit an agent session's identity.** A daemon started
+  from inside Claude Code (the cockpit launched from its terminal, or `cw` run there)
+  handed `CLAUDECODE`, `CLAUDE_CODE_CHILD_SESSION`, the session id and the messaging
+  socket and token to every shell; `claude` run in a crossweave shell then treated
+  itself as a child session and turned transcript saving off. `src/core/shell-env.ts`
+  drops them before every pty spawn.
+
+### Gaps
+
+- **The identity list is by name.** A future Claude Code (or another agent CLI) that
+  adds a new identity variable passes through until it is listed; a prefix rule was
+  rejected because it would also drop settings users export on purpose
+  (`CLAUDE_CODE_USE_BEDROCK`, …).
+- **Daemons already running keep the old behaviour** until they restart — a shell
+  opened by such a daemon still carries the identity it inherited.
+- **Delete is not undoable**; the confirmation is the only guard. Unlanded commits on
+  the deleted branch are lost (git's reflog keeps them for a while).
