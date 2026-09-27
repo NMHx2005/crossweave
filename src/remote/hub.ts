@@ -80,6 +80,14 @@ function sessionOf(p: Record<string, unknown>): string {
   return v;
 }
 
+function launcherOf(p: Record<string, unknown>): string {
+  const launcher = p.launcher === undefined ? 'terminal' : p.launcher;
+  if (typeof launcher !== 'string' || !LAUNCHER_ID.test(launcher)) {
+    throw new RemoteError('INVALID_PARAMS', 'launcher must be the id of a launcher set up on the Mac');
+  }
+  return launcher;
+}
+
 /** What the phone's list shows of a session — nothing it does not draw. */
 function trimSession(s: Record<string, unknown>): Record<string, unknown> {
   const pick = ['id', 'name', 'status', 'activity', 'rang', 'agent', 'note', 'latestWords', 'branch', 'lastActivityAt', 'cols', 'rows', 'createdAt'];
@@ -267,16 +275,23 @@ export class Hub {
       case 'create': {
         const pc = await this.project(state, p);
         const name = text(p, 'name', 64);
-        const launcher = p.launcher === undefined ? 'terminal' : p.launcher;
-        if (typeof launcher !== 'string' || !LAUNCHER_ID.test(launcher)) {
-          throw new RemoteError('INVALID_PARAMS', 'launcher must be the id of a launcher set up on the Mac');
-        }
+        const launcher = launcherOf(p);
         // Only a launcher id reaches the daemon, which looks its command up in the
         // Mac's own Settings: the phone picks among lines the user wrote, never one of its own.
         const row = await pc.conn.call<{ id: string }>('session.new', { workspaceId: pc.workspaceId, name, worktree: true });
         await pc.conn.call('session.resume', { workspaceId: pc.workspaceId, idOrName: row.id, launcher });
         audit('create', { project: p.project as string, session: row.id });
         return { id: row.id };
+      }
+
+      case 'start': {
+        const pc = await this.project(state, p);
+        const session = sessionOf(p);
+        const launcher = launcherOf(p);
+        // A stopped session's shell, reopened — with a launcher only by id, as for create.
+        await pc.conn.call('session.resume', { workspaceId: pc.workspaceId, idOrName: session, ...(launcher === 'terminal' ? {} : { launcher }) });
+        audit('start', { project: p.project as string, session });
+        return { ok: true };
       }
 
       case 'note': {

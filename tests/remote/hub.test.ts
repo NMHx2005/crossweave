@@ -113,6 +113,17 @@ describe('remote hub', () => {
     }
   });
 
+  it('reopens a stopped session\'s shell, with a launcher id only', async () => {
+    const { hub, conns } = setup();
+    await hub.handle('p1', 'start', { project: '/repo/a', session: 's_1' });
+    await hub.handle('p1', 'start', { project: '/repo/a', session: 's_1', launcher: 'codex', run: 'x' });
+    expect(conns[0]?.conn.calls).toEqual([
+      { method: 'session.resume', params: { workspaceId: 'ws-/repo/a', idOrName: 's_1' } },
+      { method: 'session.resume', params: { workspaceId: 'ws-/repo/a', idOrName: 's_1', launcher: 'codex' } },
+    ]);
+    await expect(hub.handle('p1', 'start', { project: '/repo/a', session: 's_1', launcher: 'a b' })).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
+  });
+
   it('offers only the enabled launchers, as id, label and whether the Mac has it', async () => {
     const { hub } = setup(() => [
       { id: 'claude', label: 'Claude Code', command: 'claude --secret-flag', enabled: true, available: true },
