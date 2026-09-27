@@ -57,6 +57,10 @@ const AGENT_NAMES: Record<string, string> = {
   gemini: 'Gemini CLI',
   antigravity: 'Antigravity',
   cursor: 'Cursor Agent',
+  copilot: 'GitHub Copilot CLI',
+  aider: 'Aider',
+  amp: 'Amp',
+  qwen: 'Qwen Code',
 }
 
 export function agentName(agent: string | null | undefined): string {

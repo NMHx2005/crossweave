@@ -80,6 +80,10 @@ export const COCKPIT_TOKENS = {
   '--cw-agent-opencode': '#c3c8d0',
   '--cw-agent-antigravity': '#7aa2ff',
   '--cw-agent-cursor': '#abb2bf',
+  '--cw-agent-copilot': '#c49bff',
+  '--cw-agent-aider': '#7ee2a8',
+  '--cw-agent-amp': '#ffb86b',
+  '--cw-agent-qwen': '#7c8cff',
 
   '--cw-scrollbar': '#4e5666',
   '--cw-scrollbar-hover': '#5a6375',

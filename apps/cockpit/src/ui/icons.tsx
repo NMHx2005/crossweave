@@ -47,6 +47,14 @@ export function AgentMark({ agent, class: cls }: { agent: string | null | undefi
       return <Svg class={c}><path d="M3 13L8 3l5 10M5.5 9h5" /></Svg>
     case 'cursor':
       return <Svg class={c}><path d="M8 2l5.5 3.2v5.6L8 14l-5.5-3.2V5.2z" /><path d="M2.5 5.2L8 8.4l5.5-3.2M8 8.4V14" /></Svg>
+    case 'copilot':
+      return <Svg class={c}><rect x="2.5" y="4.5" width="11" height="8" rx="3" /><path d="M6 8.2v1.2M10 8.2v1.2" /></Svg>
+    case 'aider':
+      return <Svg class={c}><path d="M3 12.5l3.5-9h3l3.5 9M4.8 9h6.4" /></Svg>
+    case 'amp':
+      return <Svg class={c}><path d="M9.5 2L4 9h4l-1.5 5L12 7H8z" fill="currentColor" stroke="none" /></Svg>
+    case 'qwen':
+      return <Svg class={c}><circle cx="8" cy="8" r="5" /><path d="M10.5 10.5L13 13" /></Svg>
     default:
       return <TerminalIcon class={c} />
   }

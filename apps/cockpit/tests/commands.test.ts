@@ -7,6 +7,7 @@ const ctx: CommandContext = {
     { id: 's2', name: 'auth-refactor', status: 'running' },
   ],
   focusedName: 'api',
+  launchers: ['claude', 'codex'],
 }
 
 const ok = (line: string) => {
@@ -21,17 +22,18 @@ const err = (line: string) => {
 }
 
 describe('parseCommand', () => {
-  // A session is a worktree and a shell: no agent to name, no flags to pass.
-  test('new: a name, a base, shared', () => {
-    expect(ok('new web')).toEqual({ kind: 'new', name: 'web', shared: false })
-    expect(ok('new web --base main')).toEqual({ kind: 'new', name: 'web', base: 'main', shared: false })
+  // A session is a worktree and a shell; a launcher from Settings may run in it.
+  test('new: a name, an optional launcher, a base, shared', () => {
+    expect(ok('new web')).toEqual({ kind: 'new', name: 'web', launcher: 'terminal', shared: false })
+    expect(ok('new web claude --base main')).toEqual({ kind: 'new', name: 'web', launcher: 'claude', base: 'main', shared: false })
     expect(ok('new web --shared')).toMatchObject({ shared: true })
   })
 
-  test('new: refuses a taken or invalid name, and anything extra', () => {
+  test('new: refuses a taken or invalid name, an unknown launcher, and anything extra', () => {
     expect(err('new api')).toMatch(/exists/)
     expect(err('new "bad name"')).toMatch(/name/i)
-    expect(err('new web claude')).toMatch(/too many/i)
+    expect(err('new web aider')).toMatch(/aider/)
+    expect(err('new web claude extra')).toMatch(/too many/i)
     expect(err('new')).toMatch(/usage/i)
   })
 
@@ -81,6 +83,11 @@ describe('completions', () => {
   test('a session argument completes to session names', () => {
     expect(completions('stop au', ctx).map((x) => x.value)).toEqual(['stop auth-refactor '])
     expect(completions('land ', ctx).map((x) => x.value)).toEqual(['land api ', 'land auth-refactor '])
+  })
+
+  test('new completes its launcher after the name', () => {
+    expect(completions('new web c', ctx).map((x) => x.value)).toEqual(['new web claude ', 'new web codex '])
+    expect(completions('new web t', ctx).map((x) => x.value)).toEqual(['new web terminal '])
   })
 
   test('every documented verb parses in its simplest form', () => {

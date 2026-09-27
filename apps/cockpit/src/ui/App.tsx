@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { activityFromEvent } from '../../../../src/domain/activity.js'
-import { cockpitApi, type ListedSession, type ProjectSnapshot, type TerminalInfo } from '../host/cockpit-api'
+import { cockpitApi, type LauncherOption, type ListedSession, type ProjectSnapshot, type TerminalInfo } from '../host/cockpit-api'
 import { nextAttentionSession } from '../lib/attention-jump'
-import { QuickPicker, type NewSessionOptions } from './QuickPicker'
+import { QuickPicker, type NewSessionOptions, type NewSessionRequest } from './QuickPicker'
 import { StoppedBar } from './StoppedBar'
 import { ConfirmDialog, type ConfirmRequest } from './ConfirmDialog'
 import { ChangesPane } from './ChangesPane'
@@ -113,7 +113,13 @@ export function App() {
   const [quickOpen, setQuickOpen] = useState<{ sessionId: string; name: string; files: string[] } | null>(null)
   const [colors, setColors] = useState<Record<string, SessionColor>>({})
   /** Non-null while Settings is open. */
-  const [settingsOpen, setSettingsOpen] = useState<{ settings: UserSettings } | null>(null)
+  const [settingsOpen, setSettingsOpen] = useState<{
+    settings: UserSettings
+    availability: Record<string, boolean>
+    defaults: Record<string, { label: string; command: string }>
+  } | null>(null)
+  /** The launchers a new session can start with, as of the last picker or command bar. */
+  const [launchers, setLaunchers] = useState<LauncherOption[]>([])
   const [paneAttachEpoch, setPaneAttachEpoch] = useState(0)
   const [paneAttachBumps, setPaneAttachBumps] = useState<Record<string, number>>({})
   const lastJournalRef = useRef('')
@@ -185,6 +191,12 @@ export function App() {
       }
     } catch (err) {
       if (cancelledRef.current) return
+      // Opened from the Dock with no project yet: the welcome, not an error.
+      if (String(err).includes('NO_PROJECT')) {
+        setStatus('welcome')
+        void refreshProjects()
+        return
+      }
       setError(plainErrorMessage(err))
       setStatus(stageStatusAfterFailure(sessionsRef.current.length))
     }
@@ -372,6 +384,7 @@ export function App() {
     }
     if (pending === null) return
     if (pending.kind === 'new') void handleNewRef.current()
+    else if (pending.kind === 'create') void createAndOpenRef.current(pending.name, pending.options, pending.launcher)
     else if (pending.kind === 'row') setTimeout(() => rowActionRef.current(pending.sessionId, pending.action), 0)
   }
 
@@ -436,27 +449,42 @@ export function App() {
   }
 
   async function handleNew(): Promise<void> {
-    setBranches(await cockpitApi.listBranches().catch(() => [] as string[]))
+    // Fetched on open: a CLI installed a minute ago, or a launcher just edited, shows.
+    const [branchList, launcherList] = await Promise.all([
+      cockpitApi.listBranches().catch(() => [] as string[]),
+      cockpitApi.listLaunchers().catch(() => [] as LauncherOption[]),
+    ])
+    setBranches(branchList)
+    setLaunchers(launcherList)
     setPickerOpen(true)
   }
 
   /** A new session is a worktree and its shell, opened at once — like a tmux window. */
-  async function createAndOpen(name: string, options: NewSessionOptions): Promise<void> {
+  /** A worktree, its shell opened at once — running `launcher` in it unless 'terminal'. */
+  async function createAndOpen(name: string, options: NewSessionOptions, launcher = 'terminal'): Promise<void> {
     await runAction(async () => {
       const created = await cockpitApi.newSession({ name, ...options }) as { id?: string }
       if (typeof created?.id !== 'string') return
-      await cockpitApi.resumeSession(created.id)
+      await cockpitApi.resumeSession(created.id, launcher)
+      writeString(LAST_LAUNCHER_KEY, launcher)
       await load()
       focusSession(created.id)
     })
   }
+  const createAndOpenRef = useRef(createAndOpen)
+  createAndOpenRef.current = createAndOpen
 
   const handleNewRef = useRef(handleNew)
   handleNewRef.current = handleNew
 
-  async function handlePickerCreate(name: string, options: NewSessionOptions): Promise<void> {
+  async function handlePickerCreate(request: NewSessionRequest): Promise<void> {
     setPickerOpen(false)
-    await createAndOpen(name, options)
+    if (request.projectRoot !== projectRootRef.current) {
+      // Created there once that project is on the stage.
+      await switchProject(request.projectRoot, { kind: 'create', name: request.name, options: request.options, launcher: request.launcher })
+      return
+    }
+    await createAndOpen(request.name, request.options, request.launcher)
   }
 
   /** What a stopped session's pane shows under its terminal: a way to reopen its shell. */
@@ -492,6 +520,8 @@ export function App() {
 
   function openCommandBar(): void {
     setCommandBarOpen(true)
+    // Launcher names complete in `new <name> <launcher>`; fetched fresh each time.
+    void cockpitApi.listLaunchers().then(setLaunchers).catch(() => undefined)
   }
 
   /** One parsed command, run; resolves to an error sentence, or null. */
@@ -508,7 +538,7 @@ export function App() {
           await createAndOpen(command.name, {
             worktree: !command.shared,
             ...(command.base === undefined ? {} : { base: command.base }),
-          })
+          }, command.launcher)
           return null
         case 'start':
           await cockpitApi.resumeSession(command.session)
@@ -635,7 +665,14 @@ export function App() {
 
   async function handleOpenSettings(): Promise<void> {
     await runAction(async () => {
-      setSettingsOpen({ settings: await cockpitApi.getSettings() as UserSettings })
+      const [settings, launcherList] = await Promise.all([cockpitApi.getSettings(), cockpitApi.listLaunchers()])
+      const availability: Record<string, boolean> = {}
+      const defaults: Record<string, { label: string; command: string }> = {}
+      for (const l of launcherList) {
+        availability[l.id] = l.available
+        if (l.defaults) defaults[l.id] = l.defaults
+      }
+      setSettingsOpen({ settings: settings as UserSettings, availability, defaults })
     })
   }
 
@@ -803,6 +840,7 @@ export function App() {
           context={{
             sessions: sessions.map((s) => ({ id: s.id, name: s.name, ...(s.status === undefined ? {} : { status: s.status }) })),
             focusedName: focused?.name ?? null,
+            launchers: launchers.filter((l) => l.enabled && l.available).map((l) => l.id),
           }}
           history={commandHistory}
           onRun={runCommand}
@@ -818,10 +856,14 @@ export function App() {
       ) : null}
       {pickerOpen ? (
         <QuickPicker
+          projects={railGroups().map((g) => ({ projectRoot: g.projectRoot, name: g.name }))}
+          activeRoot={projectRootRef.current}
           takenNames={sessions.map((s) => s.name)}
           branches={branches}
-          onCreate={(name, options) => {
-            void handlePickerCreate(name, options)
+          launchers={launchers}
+          lastLauncher={readString(LAST_LAUNCHER_KEY)}
+          onCreate={(request) => {
+            void handlePickerCreate(request)
           }}
           onCancel={() => setPickerOpen(false)}
         />
@@ -829,6 +871,8 @@ export function App() {
       {settingsOpen !== null ? (
         <SettingsPanel
           initial={settingsOpen.settings}
+          availability={settingsOpen.availability}
+          defaults={settingsOpen.defaults}
           onSave={saveSettings}
           onClose={() => setSettingsOpen(null)}
         />
@@ -868,6 +912,13 @@ export function App() {
           }}
         />
       ) : null}
+      {status === 'welcome' ? (
+        <Welcome
+          projects={openRoots}
+          onOpen={() => { void openProject() }}
+          onSwitch={(root) => { void switchProject(root) }}
+        />
+      ) : (
       <Stage
         stage={stage}
         sessions={sessions}
@@ -940,6 +991,7 @@ export function App() {
         onNewTab={() => { void handleNew() }}
         onToggleChanges={() => openChanges()}
       />
+      )}
       <Toast message={error && stage.tabs.length > 0 ? error : landMessage} tone={error && stage.tabs.length > 0 ? 'error' : 'info'}
         onDone={() => { setLandMessage(null); if (stage.tabs.length > 0) setError(null) }} />
     </div>
@@ -950,7 +1002,58 @@ const COMMAND_HISTORY_KEY = 'cw.command-history.v1'
 const SIDEBAR_HIDDEN_KEY = 'cw.sidebar-hidden.v1'
 /** What to do once the window has reloaded onto another project. */
 const PENDING_KEY = 'cw.pending-action.v1'
-type PendingAction = { kind: 'new' } | { kind: 'row'; sessionId: string; action: RowAction | 'focus' }
+type PendingAction =
+  | { kind: 'new' }
+  | { kind: 'create'; name: string; options: NewSessionOptions; launcher: string }
+  | { kind: 'row'; sessionId: string; action: RowAction | 'focus' }
+
+/** The launcher the last new session started with, preselected next time. */
+const LAST_LAUNCHER_KEY = 'cw.last-launcher.v1'
+
+function readString(key: string): string | undefined {
+  try {
+    return localStorage.getItem(key) ?? undefined
+  } catch {
+    return undefined
+  }
+}
+
+function writeString(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value)
+  } catch {
+    // a convenience: the picker starts on Terminal next time
+  }
+}
+
+/**
+ * The app opened with no project yet (from the Dock, Spotlight): open one, or go back
+ * to one this window had open.
+ */
+function Welcome({ projects, onOpen, onSwitch }: { projects: string[]; onOpen: () => void; onSwitch: (root: string) => void }) {
+  return (
+    <main class="cockpit-welcome" aria-label="Welcome">
+      <div class="cockpit-welcome__drag" />
+      <div class="cockpit-welcome__body">
+        <h1>crossweave</h1>
+        <p class="cockpit-muted">Open a project folder to start sessions in it — a terminal, or an agent CLI, each in its own worktree.</p>
+        <button type="button" class="cockpit-welcome__open" onClick={onOpen}>Open project…</button>
+        {projects.length > 0 ? (
+          <ul class="cockpit-welcome__recent">
+            {projects.map((root) => (
+              <li key={root}>
+                <button type="button" onClick={() => onSwitch(root)} title={root}>
+                  <strong>{baseName(root)}</strong>
+                  <span class="cockpit-muted">{root}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+    </main>
+  )
+}
 
 function baseName(root: string): string {
   return root.split('/').filter((p) => p !== '').pop() ?? root

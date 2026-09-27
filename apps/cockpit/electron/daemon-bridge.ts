@@ -104,6 +104,9 @@ export class DaemonBridge {
       this.ensureTail = run.then(settle, settle)
       return run
     }
+    // The welcome (no project attached yet) still lists and picks projects.
+    if (channel === 'projects.list') return { active: this.projectRoot, open: this.openRoots() }
+    if (channel === 'projects.pick') return { projectRoot: (await this.deps.pickFolder()) ?? null }
     // The window exists before main's first ensure finishes; a call made in that gap
     // waits for it rather than failing "not attached".
     if (this.ensuring !== undefined) await this.ensuring.catch(() => undefined)
@@ -113,10 +116,8 @@ export class DaemonBridge {
     if (channel === 'session.detach') {
       return { ok: true }
     }
-    if (channel === 'projects.list') return { active: this.projectRoot, open: this.openRoots() }
     if (channel === 'projects.sessions') return this.projectSessions(payload)
     if (channel === 'projects.close') return this.closeProject(payload)
-    if (channel === 'projects.pick') return { projectRoot: (await this.deps.pickFolder()) ?? null }
     return this.rpc(channel, payload)
   }
 
@@ -249,11 +250,9 @@ export class DaemonBridge {
     if (typeof saved === 'string' && saved.length > 0 && exists(saved)) {
       return saved
     }
-    const picked = await this.deps.pickFolder()
-    if (!picked) {
-      throw new Error('No project folder selected')
-    }
-    return picked
+    // No dialog here: an app opened from the Dock with no project yet shows its
+    // welcome, where the user picks one (projects.pick) when they choose to.
+    throw new Error('NO_PROJECT: open a project to begin')
   }
 
   private async rpc(channel: CockpitChannel, payload: unknown): Promise<unknown> {

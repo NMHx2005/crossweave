@@ -255,7 +255,8 @@ if (!hasSingleInstanceLock) {
     try {
       await bridge.handle('workspace.ensure', launchRoot ? { projectRoot: launchRoot } : undefined)
     } catch (err) {
-      console.error('workspace.ensure failed:', err)
+      // No project yet is the welcome screen's job, not an error.
+      if (!String(err).includes('NO_PROJECT')) console.error('workspace.ensure failed:', err)
     }
 
     app.on('activate', () => {

@@ -11,10 +11,12 @@ export type CommandContext = {
   sessions: Array<{ id: string; name: string; status?: string }>
   /** The session a verb acts on when none is named. */
   focusedName: string | null
+  /** Launcher ids a new session can start with (enabled and installed). */
+  launchers: string[]
 }
 
 export type Command =
-  | { kind: 'new'; name: string; base?: string; shared: boolean }
+  | { kind: 'new'; name: string; launcher: string; base?: string; shared: boolean }
   | { kind: 'start'; session: string }
   | { kind: 'stop'; session: string }
   | { kind: 'kill'; session: string; removeWorktree: boolean }
@@ -32,12 +34,12 @@ export type Command =
 
 export type ParsedCommand = { ok: true; command: Command } | { ok: false; error: string }
 
-type ArgKind = 'session' | 'none'
+type ArgKind = 'session' | 'new' | 'none'
 
 export type CommandSpec = { name: string; aliases?: string[]; usage: string; summary: string; arg: ArgKind }
 
 export const COMMANDS: readonly CommandSpec[] = [
-  { name: 'new', usage: 'new <name> [--base <ref>] [--shared]', summary: 'A worktree and a shell in it', arg: 'none' },
+  { name: 'new', usage: 'new <name> [launcher] [--base <ref>] [--shared]', summary: 'A worktree and a shell in it, optionally running a launcher', arg: 'new' },
   { name: 'start', usage: 'start [session]', summary: "Open the session's shell again", arg: 'session' },
   { name: 'stop', usage: 'stop [session]', summary: 'Close the shell (and what runs in it); the worktree stays', arg: 'session' },
   { name: 'kill', usage: 'kill [session] [--rm]', summary: 'End the session; --rm also deletes its worktree', arg: 'session' },
@@ -101,15 +103,18 @@ export function parseCommand(line: string, ctx: CommandContext): ParsedCommand {
       const base = inline !== undefined ? inline.slice('--base='.length) : baseAt === -1 ? undefined : words[baseAt + 1]
       if (baseAt !== -1 && (base === undefined || base.startsWith('--'))) return fail('--base needs a branch or commit')
       const names = words.filter((w, i) => !w.startsWith('--') && !(baseAt !== -1 && i === baseAt + 1))
-      const [name] = names
+      const [name, launcher = 'terminal'] = names
       if (name === undefined) return fail(`Usage: ${spec.usage}`)
-      if (names.length > 1) return fail(`Too many arguments — ${spec.usage}`)
+      if (names.length > 2) return fail(`Too many arguments — ${spec.usage}`)
+      if (launcher !== 'terminal' && !ctx.launchers.includes(launcher)) {
+        return fail(`No usable launcher named ${launcher} — ${['terminal', ...ctx.launchers].join(', ')}`)
+      }
       const nameError = sessionNameError(name)
       if (nameError !== null) return fail(`Session name: ${nameError}`)
       if (ctx.sessions.some((s) => s.name === name)) return fail(`A session named ${name} exists`)
       return {
         ok: true,
-        command: { kind: 'new', name, shared: flags.includes('--shared'), ...(base === undefined ? {} : { base }) },
+        command: { kind: 'new', name, launcher, shared: flags.includes('--shared'), ...(base === undefined ? {} : { base }) },
       }
     }
     case 'start':
@@ -169,6 +174,11 @@ export function completions(line: string, ctx: CommandContext): Completion[] {
   }
   const spec = specFor(before[0] as string)
   if (spec === undefined || current.startsWith('-')) return []
+  if (spec.arg === 'new' && before.length === 2) {
+    return ['terminal', ...ctx.launchers]
+      .filter((l) => l.startsWith(current))
+      .map((l) => ({ value: `${prefix}${l} `, label: l, detail: 'launcher' }))
+  }
   if (spec.arg === 'session' && before.length === 1) {
     return ctx.sessions
       .filter((s) => s.name.startsWith(current))

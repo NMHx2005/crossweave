@@ -7,7 +7,7 @@ import type { SessionColor } from '../lib/colors'
 import { XtermPane } from './XtermPane'
 import { AgentMark, DiffIcon, FileIcon, GlobeIcon, MoreIcon, PanelRightIcon, PlusIcon, SidebarIcon, TerminalIcon } from './icons'
 
-export type StageStatus = 'loading' | 'ready' | 'empty' | 'error'
+export type StageStatus = 'loading' | 'ready' | 'empty' | 'error' | 'welcome'
 
 export type StageProps = {
   stage: StageState

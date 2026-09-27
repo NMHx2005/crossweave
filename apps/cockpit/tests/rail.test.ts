@@ -43,7 +43,8 @@ describe('landChip', () => {
 describe('agentName', () => {
   test('known agents by name, anything else as-is, none as Shell', () => {
     expect(agentName('claude')).toBe('Claude Code')
-    expect(agentName('aider')).toBe('aider')
+    expect(agentName('goose')).toBe('goose')
+    expect(agentName('aider')).toBe('Aider')
     expect(agentName(null)).toBe('Shell')
   })
 })

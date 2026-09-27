@@ -1225,6 +1225,10 @@ body,
 .cockpit-agent--opencode { color: var(--cw-agent-opencode); }
 .cockpit-agent--antigravity { color: var(--cw-agent-antigravity); }
 .cockpit-agent--cursor { color: var(--cw-agent-cursor); }
+.cockpit-agent--copilot { color: var(--cw-agent-copilot); }
+.cockpit-agent--aider { color: var(--cw-agent-aider); }
+.cockpit-agent--amp { color: var(--cw-agent-amp); }
+.cockpit-agent--qwen { color: var(--cw-agent-qwen); }
 .cockpit-agent--shell { color: var(--cw-text-dim); }
 
 /* Status glyphs: a turning ring while it works, a solid dot when it wants you or failed,
@@ -1329,4 +1333,227 @@ body,
 
 .cockpit-toast--error {
   border-color: color-mix(in srgb, var(--cw-blocked) 85%, var(--cw-surface));
+}
+
+/* ---------- New session picker, launchers, welcome ---------- */
+
+.cockpit-picker--new {
+  width: calc(var(--cw-row-h) * 20);
+}
+
+.cockpit-picker--new .cockpit-picker__list {
+  max-height: calc(var(--cw-rail-row-h) * 8);
+  overflow: auto;
+}
+
+.cockpit-picker__agent {
+  align-items: center;
+  gap: var(--cw-space-2);
+  height: var(--cw-rail-row-h);
+  font-size: var(--cw-fs);
+}
+
+.cockpit-picker__agent:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.cockpit-picker__agent:disabled:hover {
+  background: none;
+}
+
+.cockpit-picker__agent-label {
+  flex: none;
+  color: var(--cw-text-bright);
+}
+
+.cockpit-picker__agent-detail {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: right;
+  font-family: var(--cw-font-mono);
+  font-size: var(--cw-fs-micro);
+}
+
+.cockpit-launchers {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--cw-hairline);
+}
+
+.cockpit-launcher {
+  border-radius: var(--cw-radius);
+}
+
+.cockpit-launcher.is-open {
+  background: var(--cw-surface);
+  border: var(--cw-hairline) solid var(--cw-border-strong);
+}
+
+.cockpit-launcher__row {
+  display: flex;
+  align-items: center;
+  gap: var(--cw-space-2);
+  min-height: var(--cw-rail-row-h);
+  padding: 0 var(--cw-space-2);
+  font-size: var(--cw-fs);
+}
+
+.cockpit-launcher__label {
+  flex: none;
+  min-width: calc(var(--cw-row-h) * 5);
+  color: var(--cw-text-bright);
+}
+
+.cockpit-launcher__command {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--cw-text-dim);
+  font-family: var(--cw-font-mono);
+  font-size: var(--cw-fs-sm);
+}
+
+.cockpit-launcher__state {
+  flex: none;
+  color: var(--cw-text-dim);
+  font-size: var(--cw-fs-micro);
+}
+
+.cockpit-launcher__state.is-ok {
+  color: var(--cw-ready);
+}
+
+.cockpit-launcher__edit,
+.cockpit-launcher__actions button,
+.cockpit-launchers__add {
+  padding: var(--cw-control-pad-y) var(--cw-space-3);
+  background: var(--cw-surface-control);
+  border: none;
+  border-radius: var(--cw-radius-sm);
+  color: var(--cw-text-bright);
+  font: inherit;
+  font-size: var(--cw-fs-sm);
+  cursor: pointer;
+}
+
+.cockpit-launcher__actions button.is-danger {
+  background: var(--cw-blocked);
+  color: var(--cw-surface);
+}
+
+.cockpit-launchers__add {
+  align-self: flex-start;
+}
+
+.cockpit-launcher__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cw-space-2);
+  padding: 0 var(--cw-space-3) var(--cw-space-3);
+}
+
+.cockpit-launcher__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.cockpit-settings__env {
+  padding: var(--cw-control-pad-y) var(--cw-space-2);
+  background: var(--cw-surface-input);
+  border: var(--cw-hairline) solid var(--cw-border-strong);
+  border-radius: var(--cw-radius-sm);
+  color: var(--cw-text-bright);
+  font-family: var(--cw-font-mono);
+  font-size: var(--cw-fs-sm);
+  resize: vertical;
+}
+
+.cockpit-settings code {
+  font-family: var(--cw-font-mono);
+  color: var(--cw-text-bright);
+}
+
+.cockpit-welcome {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--cw-surface);
+}
+
+/* With no tab strip, this empty band is what drags the window. */
+.cockpit-welcome__drag {
+  flex: none;
+  height: var(--cw-titlebar-h);
+  -webkit-app-region: drag;
+}
+
+.cockpit-welcome__body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--cw-space-3);
+  padding: var(--cw-space-4);
+  text-align: center;
+}
+
+.cockpit-welcome__body h1 {
+  margin: 0;
+  color: var(--cw-text-bright);
+  font-size: calc(var(--cw-fs-project) * 2);
+  font-weight: 600;
+}
+
+.cockpit-welcome__body p {
+  max-width: calc(var(--cw-row-h) * 20);
+  font-size: var(--cw-fs);
+}
+
+.cockpit-welcome__open {
+  padding: var(--cw-space-2) var(--cw-space-4);
+  background: var(--cw-accent);
+  border: none;
+  border-radius: var(--cw-radius);
+  color: var(--cw-surface);
+  font: inherit;
+  font-size: var(--cw-fs-rail);
+  cursor: pointer;
+}
+
+.cockpit-welcome__recent {
+  margin: var(--cw-space-3) 0 0;
+  padding: 0;
+  list-style: none;
+  min-width: calc(var(--cw-row-h) * 16);
+}
+
+.cockpit-welcome__recent button {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  padding: var(--cw-space-2) var(--cw-space-3);
+  background: transparent;
+  border: none;
+  border-radius: var(--cw-radius);
+  color: var(--cw-text-bright);
+  font: inherit;
+  font-size: var(--cw-fs);
+  text-align: left;
+  cursor: pointer;
+}
+
+.cockpit-welcome__recent button:hover {
+  background: var(--cw-surface-hover);
 }

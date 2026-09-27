@@ -97,18 +97,28 @@ describe('notification filter', () => {
 })
 
 describe('DaemonBridge', () => {
-  test('workspace.ensure picks a folder, connects, inits, then subscribes', async () => {
+  test('workspace.ensure connects, inits, then subscribes, and remembers the root', async () => {
     const { bridge, fake, picked, getSaved } = makeBridge({ saved: undefined })
-    const result = await bridge.handle('workspace.ensure')
-    expect(picked).toEqual(['/tmp/picked'])
-    expect(getSaved()).toBe('/tmp/picked')
+    const result = await bridge.handle('workspace.ensure', { projectRoot: '/tmp/given' })
+    expect(picked).toEqual([])
+    expect(getSaved()).toBe('/tmp/given')
     expect(fake.calls.map((c) => c.method)).toEqual(['workspace.init', 'daemon.subscribe'])
     const sub = fake.calls.find((c) => c.method === 'daemon.subscribe')
     expect(sub?.notificationsAtCall).toBeGreaterThan(0)
     expect(result).toEqual({
-      projectRoot: '/tmp/picked',
+      projectRoot: '/tmp/given',
       workspace: { id: 'ws_1', name: 'demo', rootPath: '/tmp/demo' },
     })
+  })
+
+  // Opened from the Dock with no project yet, the app shows its welcome; a folder
+  // dialog popping up on launch was the only way in before.
+  test('with no project given or saved, ensure says so instead of opening a picker', async () => {
+    const { bridge, picked } = makeBridge({ saved: undefined })
+    await expect(bridge.handle('workspace.ensure')).rejects.toThrow(/NO_PROJECT/)
+    expect(picked).toEqual([])
+    // What the welcome needs works before any project is attached.
+    expect(await bridge.handle('projects.list')).toEqual({ active: undefined, open: [] })
   })
 
   test('workspace.ensure skips the picker when a projectRoot is given', async () => {
@@ -267,7 +277,7 @@ describe('DaemonBridge', () => {
     expect(events).toEqual([{ event: 'daemon.gone', payload: {} }])
   })
 
-  test('concurrent workspace.ensure shares one picker and one connect', async () => {
+  test('concurrent workspace.ensure shares one connect', async () => {
     let connects = 0
     let picks = 0
     let release!: () => void
@@ -276,7 +286,7 @@ describe('DaemonBridge', () => {
     })
     const fake = new FakeDaemon()
     const { bridge } = makeBridge({
-      saved: undefined,
+      saved: '/tmp/saved',
       fake,
       connect: async () => {
         connects += 1
@@ -294,10 +304,10 @@ describe('DaemonBridge', () => {
     release()
     const [a, b] = await Promise.all([first, second])
     expect(connects).toBe(1)
-    expect(picks).toBe(1)
+    expect(picks).toBe(0)
     expect(a).toEqual(b)
     expect(a).toEqual({
-      projectRoot: '/tmp/picked',
+      projectRoot: '/tmp/saved',
       workspace: { id: 'ws_1', name: 'demo', rootPath: '/tmp/demo' },
     })
   })

@@ -90,7 +90,8 @@ export function Sidebar(props: SidebarProps) {
           <SidebarIcon />
         </button>
         <button type="button" class="cockpit-sidebar__new"
-          onClick={() => { const active = projects.find((p) => p.active); if (active) props.onNew(active.projectRoot) }}>
+          // With no project yet, "New" starts by choosing one.
+          onClick={() => { const active = projects.find((p) => p.active); if (active) props.onNew(active.projectRoot); else props.onOpenProject() }}>
           <PlusIcon /> New
         </button>
         <span class="cockpit-sidebar__spring" />

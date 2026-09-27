@@ -43,8 +43,12 @@ export const cockpitApi = {
   startSession(idOrName: string): Promise<unknown> {
     return cockpitInvoke('session.start', { idOrName })
   },
-  resumeSession(idOrName: string): Promise<unknown> {
-    return cockpitInvoke('session.resume', { idOrName })
+  /** `launcher`: a launcher id from Settings to run in the shell; 'terminal' or none for a plain shell. */
+  resumeSession(idOrName: string, launcher?: string): Promise<unknown> {
+    return cockpitInvoke('session.resume', { idOrName, ...(launcher === undefined || launcher === 'terminal' ? {} : { launcher }) })
+  },
+  listLaunchers(): Promise<LauncherOption[]> {
+    return cockpitInvoke('launchers.list')
   },
   attachSession(idOrName: string): Promise<SessionAttachResult> {
     return cockpitInvoke('session.attach', { idOrName })
@@ -170,6 +174,19 @@ export const cockpitApi = {
       if (typeof root === 'string') cb(root)
     })
   },
+}
+
+/** A launcher as the picker shows it: Settings' entry plus whether this machine has it. */
+export type LauncherOption = {
+  id: string
+  label: string
+  command: string
+  env: Record<string, string>
+  enabled: boolean
+  builtin: boolean
+  available: boolean
+  /** A built-in's shipped label and command (for Reset). */
+  defaults?: { label: string; command: string }
 }
 
 /** One open project as the rail shows it. */

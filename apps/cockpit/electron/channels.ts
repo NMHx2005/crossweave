@@ -23,7 +23,8 @@ export const COCKPIT_CHANNELS = [
   'terminal.input',
   'terminal.resize',
   'terminal.close',
-  // Per-user settings (daemon RPCs).
+  // Per-user settings and the launchers a new session can start with (daemon RPCs).
+  'launchers.list',
   'settings.get',
   'settings.set',
   // Files in a session's worktree (the in-app editor) and branches to start from.

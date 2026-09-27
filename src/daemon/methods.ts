@@ -37,7 +37,7 @@ import { LeaseRepo } from '../db/repositories/lease.js';
 import { spawnShell } from '../adapters/shell.js';
 import { latestWords } from '../domain/agent-logs.js';
 import { listWorktreeFiles, readWorktreeFile, writeWorktreeFile } from '../domain/worktree-files.js';
-import { loadSettings, saveSettings, type LauncherDef, type UserSettings } from '../core/settings.js';
+import { BUILTIN_LAUNCHERS, loadSettings, saveSettings, type LauncherDef, type UserSettings } from '../core/settings.js';
 import { TerminalRegistry } from './terminals.js';
 import { ActivityTracker, detectAgents } from './session-status.js';
 import { launcherProgram } from '../core/launcher-program.js';
@@ -557,7 +557,9 @@ export function buildMethods(
       return loadSettings().launchers.map((l) => {
         const program = launcherProgram(l.command);
         const available = program !== undefined && Bun.which(program, { PATH }) !== null;
-        return { ...l, available };
+        // A built-in's shipped form, for the Settings form's Reset.
+        const shipped = BUILTIN_LAUNCHERS.find((b) => b.id === l.id);
+        return { ...l, available, ...(shipped ? { defaults: { label: shipped.label, command: shipped.command } } : {}) };
       });
     },
     'settings.get': () => loadSettings(),
