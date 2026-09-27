@@ -119,9 +119,11 @@ function createBridge(): DaemonBridge {
  * an existing file inside it (resolveLinkTarget).
  */
 async function openInEditor(bridge: DaemonBridge, payload: unknown): Promise<{ ok: boolean; inApp?: boolean; path?: string; line?: number; col?: number }> {
-  const p = (payload ?? {}) as { sessionId?: unknown; path?: unknown; line?: unknown; col?: unknown }
+  const p = (payload ?? {}) as { sessionId?: unknown; path?: unknown; line?: unknown; col?: unknown; projectRoot?: unknown }
   if (typeof p.sessionId !== 'string' || typeof p.path !== 'string') return { ok: false }
-  const sessions = await bridge.handle('session.list') as Array<{ id: string; worktreePath?: string | null }>
+  // The session's own project (a view off the stage names it); the bridge refuses one
+  // that is not open in this window.
+  const sessions = await bridge.handle('session.list', typeof p.projectRoot === 'string' ? { projectRoot: p.projectRoot } : undefined) as Array<{ id: string; worktreePath?: string | null }>
   const worktree = sessions.find((s) => s.id === p.sessionId)?.worktreePath
   if (typeof worktree !== 'string') return { ok: false }
   const file = resolveLinkTarget(worktree, p.path)
@@ -267,9 +269,12 @@ async function switchWorkspace(projectRoot: string): Promise<void> {
       ensure: async (root) => {
         await bridge?.handle('workspace.ensure', { projectRoot: root })
       },
-      recreateWindow: () => {
-        for (const win of BrowserWindow.getAllWindows()) win.destroy()
-        return createWindow()
+      // Never destroy the window: it holds every open project's live panes.
+      reveal: (root) => {
+        const existing = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed())
+        if (existing === undefined) return createWindow()
+        existing.webContents.send('cockpit.command', { command: 'show-project', projectRoot: root })
+        return existing
       },
     })
   } catch (err) {

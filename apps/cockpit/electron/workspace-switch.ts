@@ -5,7 +5,11 @@ export interface WorkspaceSwitchWindow {
 
 export interface WorkspaceSwitchDeps {
   ensure(projectRoot: string): Promise<void>
-  recreateWindow(): WorkspaceSwitchWindow
+  /**
+   * The window showing `projectRoot`: the existing one told to put it on the stage
+   * (its other projects keep their live panes), or a new one when none is open.
+   */
+  reveal(projectRoot: string): WorkspaceSwitchWindow
 }
 
 export async function switchCockpitWorkspace(
@@ -13,7 +17,7 @@ export async function switchCockpitWorkspace(
   deps: WorkspaceSwitchDeps,
 ): Promise<void> {
   await deps.ensure(projectRoot)
-  const win = deps.recreateWindow()
+  const win = deps.reveal(projectRoot)
   win.show()
   win.focus()
 }

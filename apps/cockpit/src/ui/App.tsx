@@ -1,301 +1,87 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
-import { activityFromEvent } from '../../../../src/domain/activity.js'
-import { cockpitApi, type LauncherOption, type ListedSession, type ProjectSnapshot, type TerminalInfo } from '../host/cockpit-api'
-import { nextAttentionSession } from '../lib/attention-jump'
-import { QuickPicker, type NewSessionOptions, type NewSessionRequest } from './QuickPicker'
-import { StoppedBar } from './StoppedBar'
+import { cockpitApi, projectApi, type LauncherOption, type ListedSession, type ProjectSnapshot } from '../host/cockpit-api'
 import { ConfirmDialog, type ConfirmRequest } from './ConfirmDialog'
-import { ChangesPane } from './ChangesPane'
-import { CommandBar } from './CommandBar'
-import { rememberLine, type Command } from '../lib/commands'
-import { QuickOpen } from './QuickOpen'
-import { FilePane } from './FilePane'
-import { BrowserPane } from './BrowserPane'
+import type { NewSessionRequest } from './QuickPicker'
 import { SettingsPanel, type NotifyPrefs, type UserSettings } from './SettingsPanel'
 import { ProjectSettings } from './ProjectSettings'
 import { moveProject, projectLabel, readPrefs, withPrefs, writePrefs, type PrefsMap, type ProjectPrefs } from '../lib/project-prefs'
 import { suggestSessionName } from '../lib/quick-picker'
-import { readColors, writeColors, type SessionColor } from '../lib/colors'
-import {
-  deriveAttention,
-  parseLandabilityByName,
-  type AttentionKind,
-  type Landability,
-} from '../lib/attention'
-import {
-  loadWorkspace,
-  plainErrorMessage,
-  runCockpitAction,
-  shouldBumpPaneAttach,
-  stageStatusAfterFailure,
-  stageStatusAfterLoad,
-  subscribeCockpitHost,
-} from '../lib/cockpit-host'
-import {
-  landAllReady,
-  landSelected,
-  parseConvergeStatus,
-  type ConvergeStatus,
-  type LandResult,
-  landVerdict,
-  type ConvergeDetail,
-} from '../lib/land-actions'
-import {
-  closeOthers,
-  closePane,
-  closeTab,
-  closeToRight,
-  emptyStage,
-  findPane,
-  focusPane,
-  fromSavedLayout,
-  locatePane,
-  moveTab,
-  openInNewTab,
-  paneKeys,
-  parseStoredStage,
-  placeBeside,
-  replacePane,
-  resizeSplit,
-  setPinned,
-  splitPane,
-  syncStage,
-  toSavedLayout,
-  type PaneRef,
-  type SavedLayout,
-  type SplitDir,
-  type StageState,
-} from '../lib/layout'
+import { deriveAttention, parseLandabilityByName, type AttentionKind } from '../lib/attention'
+import { plainErrorMessage } from '../lib/cockpit-host'
 import { Sidebar, type FolderHow, type ProjectAction, type ProjectGroup, type Renaming, type RowAction } from './Sidebar'
-import { Stage, type StageStatus } from './Stage'
-import { sessionsThatStartedRunning } from '../lib/sessions'
-import { agentName, jumpTargets, newlyAsking } from '../lib/rail'
+import { jumpTargets } from '../lib/rail'
+import { mountedViews, touchRecent } from '../lib/mounted-views'
+import { ProjectView, type ViewAction, type ViewHandle, type ViewHost, type ViewReport } from './ProjectView'
+import { baseName, readFlag, readString, writeFlag, writeString } from './storage'
 
-const EMPTY_CONVERGE: ConvergeStatus = { ready: [], unknown: [], blocked: [] }
+const SIDEBAR_HIDDEN_KEY = 'cw.sidebar-hidden.v1'
+/** Notification choices ('0' off; on unless turned off). */
+const NOTIFY_SOUND_KEY = 'cw.notify-sound.v1' // gitleaks:allow (a localStorage key name, not a secret)
+const DOCK_BADGE_KEY = 'cw.dock-badge.v1' // gitleaks:allow (a localStorage key name, not a secret)
+/**
+ * How many projects keep their panes alive in the window. Each live terminal keeps its
+ * scrollback; past this, the project shown longest ago lets go of its panes (its
+ * shells keep running in its daemon) and re-attaches when shown again.
+ */
+const LIVE_VIEWS = 6
 
-/** Where this window keeps its tabs: per workspace, in this browser profile only. */
-const stageKey = (projectRoot: string): string => `cw.stage.v1:${projectRoot}`
+/** Row actions that need the project on the stage; the others run where it is. */
+const NEEDS_STAGE = new Set<RowAction | 'focus'>(['focus', 'open', 'terminal', 'changes'])
 
-function readStoredStage(projectRoot: string): StageState | null {
-  try {
-    const text = window.localStorage.getItem(stageKey(projectRoot))
-    return text === null ? null : parseStoredStage(text)
-  } catch {
-    return null
-  }
-}
-
+/**
+ * The window: the rail, the dialogs and toasts every project shares, and one live
+ * ProjectView per recently shown project. Switching project shows another view — it
+ * does not reload the window, and the project left keeps its panes streaming.
+ */
 export function App() {
-  const [sessions, setSessions] = useState<ListedSession[]>([])
-  const [stage, setStage] = useState<StageState>(emptyStage)
-  const [status, setStatus] = useState<StageStatus>('loading')
-  const [error, setError] = useState<string | null>(null)
-  const [landabilityByName, setLandabilityByName] = useState<Map<string, Landability>>(
-    () => new Map(),
-  )
-  const [converge, setConverge] = useState<ConvergeStatus>(EMPTY_CONVERGE)
-  const [landBusy, setLandBusy] = useState(false)
-  const [landMessage, setLandMessage] = useState<string | null>(null)
-  /** Non-null while the ⌘T picker is open. */
-  const [pickerOpen, setPickerOpen] = useState(false)
-  const [layouts, setLayouts] = useState<Record<string, SavedLayout>>({})
-  /** Bumped on every successful load, so open Changes panes refetch after new work. */
-  const [sessionsRevision, setSessionsRevision] = useState(0)
-  const [convergeDetail, setConvergeDetail] = useState<ConvergeDetail>({ pairwise: [], empty: [], baseBranch: null })
-  const [commandBarOpen, setCommandBarOpen] = useState(false)
-  const [commandHistory, setCommandHistory] = useState<string[]>(() => readStringList(COMMAND_HISTORY_KEY))
-  const [sidebarHidden, setSidebarHidden] = useState<boolean>(() => readFlag(SIDEBAR_HIDDEN_KEY))
-  /** Every project open in this window, in order, and a snapshot of each inactive one. */
   const [openRoots, setOpenRoots] = useState<string[]>([])
+  const [activeRoot, setActiveRoot] = useState<string | null>(null)
+  const [booted, setBooted] = useState(false)
+  /** Projects most recently shown first: which views stay mounted. */
+  const [recent, setRecent] = useState<string[]>([])
+  /** Live views' state, by project; projects without a view use snapshots. */
+  const [reports, setReports] = useState<Record<string, ViewReport>>({})
+  const reportsRef = useRef(reports)
+  reportsRef.current = reports
   const [snapshots, setSnapshots] = useState<Record<string, ProjectSnapshot>>({})
+  const [prefs, setPrefs] = useState<PrefsMap>(readPrefs)
+  const [railQuery, setRailQuery] = useState('')
+  const [renaming, setRenaming] = useState<Renaming | null>(null)
+  const [sidebarHidden, setSidebarHidden] = useState<boolean>(() => readFlag(SIDEBAR_HIDDEN_KEY))
   /** The clock the rail's "2m ago" reads; ticks so the times move without a reload. */
   const [now, setNow] = useState(() => Date.now())
   const [confirmState, setConfirmState] = useState<(ConfirmRequest & { resolve: (ok: boolean) => void }) | null>(null)
-  const [branches, setBranches] = useState<string[]>([])
-  /** Non-null while ⌘P is open: the session whose worktree it searches. */
-  const [quickOpen, setQuickOpen] = useState<{ sessionId: string; name: string; files: string[] } | null>(null)
-  const [colors, setColors] = useState<Record<string, SessionColor>>({})
-  /** Non-null while Settings is open. */
+  const [toast, setToast] = useState<{ message: string; tone: 'info' | 'error' } | null>(null)
   const [settingsOpen, setSettingsOpen] = useState<{
     settings: UserSettings
     availability: Record<string, boolean>
     defaults: Record<string, { label: string; command: string }>
   } | null>(null)
-  /** The launchers a new session can start with, as of the last picker or command bar. */
-  const [launchers, setLaunchers] = useState<LauncherOption[]>([])
-  /** Per-project display name, color and new-session defaults (this window's view). */
-  const [prefs, setPrefs] = useState<PrefsMap>(readPrefs)
-  const [railQuery, setRailQuery] = useState('')
-  const [renaming, setRenaming] = useState<Renaming | null>(null)
-  /** Non-null while a project's settings are open. */
   const [projectSettings, setProjectSettings] = useState<{ projectRoot: string; launchers: LauncherOption[]; branches: string[] } | null>(null)
   const [notify, setNotify] = useState<NotifyPrefs>(() => ({
     sound: readString(NOTIFY_SOUND_KEY) !== '0',
     dockBadge: readString(DOCK_BADGE_KEY) !== '0',
   }))
-  const notifyRef = useRef(notify)
-  notifyRef.current = notify
-  const [paneAttachEpoch, setPaneAttachEpoch] = useState(0)
-  const [paneAttachBumps, setPaneAttachBumps] = useState<Record<string, number>>({})
-  const lastJournalRef = useRef('')
-  const cancelledRef = useRef(false)
-  const sessionsRef = useRef(sessions)
-  sessionsRef.current = sessions
-  /** What the previous load saw; null until the first load (see syncStage). */
-  const knownRef = useRef<{ sessionIds: Set<string>; terminalIds: Set<string> } | null>(null)
-  const projectRootRef = useRef('')
+  const handles = useRef(new Map<string, ViewHandle>())
+  /** Actions for a view that is not mounted (or has not registered) yet. */
+  const pending = useRef(new Map<string, ViewAction[]>())
+  const activeRef = useRef(activeRoot)
+  activeRef.current = activeRoot
 
-  const load = useCallback(async (opts?: { bumpAttach?: boolean }): Promise<void> => {
-    try {
-      const loaded = await loadWorkspace(cockpitApi)
-      if (cancelledRef.current) return
-      const started = sessionsThatStartedRunning(sessionsRef.current, loaded.sessions)
-      if (started.length > 0) {
-        // Re-key only those panes: a global bump would remount every live terminal.
-        setPaneAttachBumps((bumps) => {
-          const out = { ...bumps }
-          for (const id of started) out[id] = (out[id] ?? 0) + 1
-          return out
-        })
-      }
-      // Listed from the daemon, not kept only in this window: a reload must find the
-      // shells it had open rather than leave them running with no pane.
-      const openTerminals = await cockpitApi.listTerminals().catch(() => [] as TerminalInfo[])
-      if (cancelledRef.current) return
-      // A session that just started waiting for you while you look elsewhere is worth
-      // a desktop notification; clicking it brings you to that session.
-      if (knownRef.current !== null && !document.hasFocus()) {
-        for (const s of newlyAsking(sessionsRef.current, loaded.sessions)) notifyAsking(s)
-      }
-      setSessions(loaded.sessions)
-      setSessionsRevision((n) => n + 1)
-      const firstLoad = knownRef.current === null
-      const known = knownRef.current
-      projectRootRef.current = loaded.projectRoot
-      if (firstLoad) {
-        setColors(readColors(loaded.projectRoot))
-        // After ensure, never alongside it: a settings.get racing the first attach
-        // failed "Workspace is not attached" and the saved layouts silently vanished.
-        void cockpitApi.getSettings().then((s) => {
-          const saved = (s as { layouts?: unknown } | null)?.layouts
-          if (saved && typeof saved === 'object') setLayouts(saved as Record<string, SavedLayout>)
-        }).catch(() => undefined)
-      }
-      setStage((prev) => {
-        // The first load restores this workspace's tabs from the last window, if any.
-        const base = firstLoad ? (readStoredStage(loaded.projectRoot) ?? prev) : prev
-        return syncStage(base, { sessions: loaded.sessions, terminals: openTerminals }, known)
-      })
-      knownRef.current = {
-        sessionIds: new Set(loaded.sessions.map((s) => s.id)),
-        terminalIds: new Set(openTerminals.map((t) => t.terminalId)),
-      }
-      setConverge(loaded.converge)
-      setConvergeDetail(loaded.convergeDetail)
-      setLandabilityByName(parseLandabilityByName(loaded.converge))
-      setStatus(stageStatusAfterLoad(loaded.sessions.length))
-      setError(null)
-      setNow(Date.now())
-      if (firstLoad) {
-        void refreshProjects()
-        runPendingAction()
-      }
-      if (opts?.bumpAttach) {
-        // daemon.gone: every pane's socket is dead, so every pane re-attaches.
-        setPaneAttachEpoch((current) => current + 1)
-      }
-    } catch (err) {
-      if (cancelledRef.current) return
-      // Opened from the Dock with no project yet: the welcome, not an error.
-      if (String(err).includes('NO_PROJECT')) {
-        setStatus('welcome')
-        void refreshProjects()
-        return
-      }
-      setError(plainErrorMessage(err))
-      setStatus(stageStatusAfterFailure(sessionsRef.current.length))
-    }
-  }, [])
+  const mounted = useMemo(() => mountedViews(recent, activeRoot, openRoots, LIVE_VIEWS), [recent, activeRoot, openRoots])
 
-  useEffect(() => {
-    cancelledRef.current = false
-    void load()
-    const unsub = subscribeCockpitHost(cockpitApi, {
-      refresh: (source) => {
-        void load({ bumpAttach: shouldBumpPaneAttach(source) })
-      },
-      onEvent: (payload) => {
-        // A land from anywhere (another window, the CLI) is worth a word.
-        const item = activityFromEvent(payload)
-        if (item) setLandMessage(item.kind === 'landed' ? `landed ${item.session}` : `land failed: ${item.session}`)
-      },
-    })
-    return () => {
-      cancelledRef.current = true
-      unsub()
-    }
-  }, [load])
+  const showToast = useCallback((message: string, tone: 'info' | 'error' = 'info') => setToast({ message, tone }), [])
 
-  // Keep this workspace's tabs for the next window. Best effort: storage can be full
-  // or disabled, and losing the layout is not worth an error.
-  useEffect(() => {
-    if (projectRootRef.current === '') return
-    try {
-      window.localStorage.setItem(stageKey(projectRootRef.current), JSON.stringify(stage))
-    } catch {
-      // ignore
-    }
-  }, [stage])
-
-  // Menu accelerators (⌘T, ⌘⇧A, ⌘⇧T) arrive as commands from the main process. The ref
-  // keeps the listener registered once while always calling the current handlers.
-  const commandRef = useRef<(command: string) => void>(() => undefined)
-  commandRef.current = (command: string) => {
-    if (command === 'command-bar') openCommandBar()
-    else if (command === 'split-right') splitFocused('row')
-    else if (command === 'split-down') splitFocused('column')
-    else if (command === 'close-pane') closeFocusedPane()
-    else if (command === 'toggle-sidebar') toggleSidebar()
-    else if (command === 'open-project') void openProject()
-    else if (command === 'new-agent') void handleNew()
-    else if (command === 'jump-attention') jumpToAttention()
-    else if (command === 'open-terminal') void handleTerminal()
-    else if (command === 'open-file') void handleOpenFile()
-    else if (command === 'open-browser') handleOpenBrowser()
-    else if (command === 'open-settings') void handleOpenSettings()
-    else if (/^jump-[1-9]$/.test(command)) jumpTo(Number(command.slice('jump-'.length)))
-  }
-  useEffect(() => cockpitApi.onCommand((payload) => {
-    const command = (payload as { command?: unknown } | null)?.command
-    if (typeof command === 'string') commandRef.current(command)
-  }), [])
-
-  function notifyAsking(session: ListedSession): void {
-    try {
-      const note = new Notification(`${session.name} is waiting for you`, {
-        body: session.latestWords ?? agentName(session.agent),
-        tag: `cw-asked-${session.id}`,
-        silent: !notifyRef.current.sound,
-      })
-      note.onclick = () => {
-        window.focus()
-        focusSessionRef.current(session.id)
-      }
-    } catch {
-      // notifications unavailable: the rail's amber row still says it
-    }
-  }
-
-  /** Every open project and a snapshot of each one not on the stage. */
+  /** Every open project, and a snapshot of each one without a live view. */
   const refreshProjects = useCallback(async (only?: string): Promise<void> => {
     try {
-      const { active, open } = await cockpitApi.listProjects()
+      const { open } = await cockpitApi.listProjects()
       setOpenRoots(open)
-      const others = open.filter((root) => root !== active && (only === undefined || root === only))
-      const fetched = await Promise.all(others.map((root) => cockpitApi.projectSessions(root).catch(() => null)))
+      const wanted = open.filter((root) => !reportsRef.current[root] && (only === undefined || root === only))
+      const fetched = await Promise.all(wanted.map((root) => cockpitApi.projectSessions(root).catch(() => null)))
       setSnapshots((prev) => {
         const next: Record<string, ProjectSnapshot> = {}
-        for (const root of open) if (root !== active && prev[root]) next[root] = prev[root] as ProjectSnapshot
+        for (const root of open) if (prev[root]) next[root] = prev[root] as ProjectSnapshot
         for (const snap of fetched) if (snap) next[snap.projectRoot] = snap
         return next
       })
@@ -304,8 +90,41 @@ export function App() {
     }
   }, [])
 
+  function show(root: string): void {
+    setOpenRoots((open) => (open.includes(root) ? open : [...open, root]))
+    setActiveRoot(root)
+    setRecent((r) => touchRecent(r, root))
+  }
+
+  // Boot: the project the bridge has on the stage (main attached it from argv or the
+  // last session), else the welcome.
   useEffect(() => {
-    const unsub = cockpitApi.onProjectInvalidate((root) => { void refreshProjects(root) })
+    void (async () => {
+      let active: string | undefined
+      try {
+        active = (await cockpitApi.listProjects()).active
+      } catch {
+        active = undefined
+      }
+      if (active === undefined) {
+        try {
+          active = (await cockpitApi.ensureWorkspace()).projectRoot
+        } catch (err) {
+          // Opened from the Dock with no project yet: the welcome, not an error.
+          if (!String(err).includes('NO_PROJECT')) showToast(plainErrorMessage(err), 'error')
+        }
+      }
+      if (active !== undefined) show(active)
+      await refreshProjects()
+      setBooted(true)
+    })()
+  }, [refreshProjects, showToast])
+
+  useEffect(() => {
+    // A project without a live view refreshes its rail snapshot; live views refresh themselves.
+    const unsub = cockpitApi.onProjectInvalidate((root) => {
+      if (!reportsRef.current[root]) void refreshProjects(root)
+    })
     const tick = setInterval(() => setNow(Date.now()), 15_000)
     return () => {
       unsub()
@@ -314,176 +133,85 @@ export function App() {
   }, [refreshProjects])
 
   // The Dock counts the sessions waiting for you, in every open project. Sent only on a
-  // change: this runs on every list.
+  // change: this runs on every report.
   const badgeRef = useRef(-1)
   useEffect(() => {
-    const all = [...sessions, ...Object.values(snapshots).flatMap((snap) => snap.sessions)]
+    const all: ListedSession[] = [
+      ...Object.values(reports).flatMap((r) => r.sessions),
+      ...Object.entries(snapshots).filter(([root]) => !reports[root]).flatMap(([, snap]) => snap.sessions),
+    ]
     const count = notify.dockBadge
       ? all.filter((s) => s.activity === 'asked' && (s.status === 'running' || s.status === 'waiting')).length
       : 0
     if (badgeRef.current === count) return
     badgeRef.current = count
     void cockpitApi.setBadge(count).catch(() => undefined)
-  }, [sessions, snapshots, notify.dockBadge])
+  }, [reports, snapshots, notify.dockBadge])
 
-  /** The session behind the focused pane of the active tab — what the rail's buttons act on. */
-  const focusedId = useMemo(() => {
-    const tab = stage.tabs.find((t) => t.id === stage.activeTabId)
-    const pane = tab ? findPane(tab.root, tab.focusedPaneId)?.pane : undefined
-    return pane && pane.kind !== 'browser' ? pane.sessionId : null
-  }, [stage])
-
-  /**
-   * Report the open sessions back to the daemon, which owns the journal file. Skipped
-   * when unchanged: a `tui.invalidate` arrives after every session mutation.
-   */
-  useEffect(() => {
-    const ids = [...new Set(paneKeys(stage).filter((k) => k.startsWith('session:')).map((k) => k.slice('session:'.length)))]
-    const key = ids.join('\n')
-    if (ids.length === 0 || lastJournalRef.current === key) return
-    lastJournalRef.current = key
-    void cockpitApi.journalSet(ids).catch(() => undefined)
-  }, [stage])
-
-  const attentionById = useMemo(() => {
-    const out: Record<string, AttentionKind> = {}
-    for (const session of sessions) {
-      out[session.id] = deriveAttention({
-        status: session.status ?? '',
-        landability: landabilityByName.get(session.name),
-      })
-    }
-    return out
-  }, [sessions, landabilityByName])
-
-  const focused = sessions.find((session) => session.id === focusedId) ?? null
-  const focusedLandability = focused ? landabilityByName.get(focused.name) : undefined
-  const focusedBlockedReason = focused
-    ? converge.blocked.find((entry) => entry.name === focused.name)?.reason
-    : undefined
-  const canLandFocused = focusedLandability === 'ready' || focusedLandability === 'unknown'
-
-  /**
-   * Show a session: its existing pane if a tab has one, else a new tab.
-   */
-  function focusSession(sessionId: string): void {
-    setStage((s) => {
-      const at = locatePane(s, `session:${sessionId}`)
-      if (at) return focusPane(s, at.tabId, at.paneId)
-      const name = sessionsRef.current.find((x) => x.id === sessionId)?.name ?? sessionId
-      return openInNewTab(s, { kind: 'session', sessionId }, name)
-    })
-  }  const focusSessionRef = useRef(focusSession)
-  focusSessionRef.current = focusSession
-
-
-  async function runAction(action: () => Promise<unknown>): Promise<void> {
-    const actionError = await runCockpitAction(action, () => load())
-    if (actionError) {
-      setError(actionError)
-      setStatus(stageStatusAfterFailure(sessionsRef.current.length))
-    }
-  }
-
-  /**
-   * Another project goes on the stage: the bridge makes it active, and the window
-   * reloads onto it — its own tabs come back from where they were saved. `then` runs
-   * once it is loaded (focus a session, open the picker, act on a row).
-   */
-  async function switchProject(projectRoot: string, then?: PendingAction): Promise<void> {
-    try {
-      if (then) localStorage.setItem(PENDING_KEY, JSON.stringify(then))
-    } catch {
-      // storage unavailable: the switch still happens, the follow-up does not
-    }
-    try {
-      await cockpitApi.ensureWorkspace(projectRoot)
-      window.location.reload()
-    } catch (err) {
-      setLandMessage(plainErrorMessage(err))
-    }
-  }
-
-  function runPendingAction(): void {
-    let pending: PendingAction | null = null
-    try {
-      pending = JSON.parse(localStorage.getItem(PENDING_KEY) ?? 'null') as PendingAction | null
-      localStorage.removeItem(PENDING_KEY)
-    } catch {
-      pending = null
-    }
-    if (pending === null) return
-    if (pending.kind === 'new') void handleNewRef.current()
-    else if (pending.kind === 'create') void createAndOpenRef.current(pending.name, pending.options, pending.launcher)
-    else if (pending.kind === 'row') setTimeout(() => rowActionRef.current(pending.sessionId, pending.action), 0)
-  }
-
-  function rowAction(sessionId: string, action: RowAction | 'focus'): void {
-    if (action === 'focus') focusSession(sessionId)
-    else if (action === 'open') { focusSession(sessionId); void handleStart(sessionId) }
-    else if (action === 'stop') void handleStop(sessionId)
-    else if (action === 'changes') openChanges(sessionId)
-    else if (action === 'land') void handleLand(sessionId)
-    else if (action === 'terminal') void openShell(sessionId)
-    else if (action === 'delete') void handleDelete(sessionId)
-    else void handleKill(sessionId)
-  }
-  const rowActionRef = useRef(rowAction)
-  rowActionRef.current = rowAction
-
-  function onRailAction(projectRoot: string, sessionId: string, action: RowAction | 'focus'): void {
-    if (projectRoot === projectRootRef.current) rowAction(sessionId, action)
-    else void switchProject(projectRoot, { kind: 'row', sessionId, action })
-  }
-
-  function onRailNew(projectRoot: string): void {
-    if (projectRoot === projectRootRef.current) void handleNew()
-    else void switchProject(projectRoot, { kind: 'new' })
-  }
-
-  async function openProject(): Promise<void> {
-    const root = await cockpitApi.pickProject().catch(() => null)
-    if (root !== null) await switchProject(root)
-  }
-
-  /**
-   * Out of the rail — its daemon and sessions keep running, and opening the folder
-   * again brings them back. Closing the one on the stage moves to the next open
-   * project, or to the welcome when it was the last.
-   */
-  async function closeProject(projectRoot: string): Promise<void> {
-    const wasActive = projectRoot === projectRootRef.current
-    try {
-      await cockpitApi.closeProject(projectRoot)
-    } catch (err) {
-      setLandMessage(plainErrorMessage(err))
+  /** Hand `action` to `root`'s view now if it is live, or once it has mounted and loaded. */
+  function enqueue(root: string, action: ViewAction): void {
+    const handle = handles.current.get(root)
+    if (handle) {
+      handle.run(action)
       return
     }
-    if (!wasActive) {
-      setLandMessage(`Closed ${labelOf(projectRoot)} — its sessions keep running`)
-      await refreshProjects()
+    pending.current.set(root, [...(pending.current.get(root) ?? []), action])
+  }
+
+  /**
+   * Put `root` on the stage: the bridge makes it the default project (and remembers it
+   * for the next launch), and its view is shown — mounted first if it has none. No
+   * reload: every other view keeps its panes.
+   */
+  async function activate(root: string, then?: ViewAction): Promise<void> {
+    if (root !== activeRef.current) {
+      try {
+        await cockpitApi.ensureWorkspace(root)
+      } catch (err) {
+        showToast(plainErrorMessage(err), 'error')
+        return
+      }
+      show(root)
+      if (!openRoots.includes(root)) void refreshProjects()
+    }
+    if (then) enqueue(root, then)
+  }
+
+  // Listeners registered once call the current activate (it reads this render's state).
+  const activateRef = useRef(activate)
+  activateRef.current = activate
+
+  /** Run `action` in `root`'s view without putting it on the stage (it stays or becomes live). */
+  function runIn(root: string, action: ViewAction): void {
+    if (root === activeRef.current) {
+      enqueue(root, action)
       return
     }
-    const next = openRoots.find((root) => root !== projectRoot)
-    if (next !== undefined) await switchProject(next)
-    else window.location.reload()
+    setRecent((r) => (r.includes(root) ? r : [...r.slice(0, 1), root, ...r.slice(1)]))
+    enqueue(root, action)
   }
 
-  function labelOf(projectRoot: string): string {
-    return projectLabel(prefs[projectRoot], snapshots[projectRoot]?.name ?? baseName(projectRoot))
+  function onRailAction(root: string, sessionId: string, action: RowAction | 'focus'): void {
+    const act: ViewAction = { kind: 'row', sessionId, action }
+    if (NEEDS_STAGE.has(action)) void activate(root, act)
+    else runIn(root, act)
   }
 
-  function updatePrefs(projectRoot: string, patch: Partial<Record<keyof ProjectPrefs, unknown>>): void {
+  function labelOf(root: string): string {
+    return projectLabel(prefs[root], snapshots[root]?.name ?? baseName(root))
+  }
+
+  function updatePrefs(root: string, patch: Partial<Record<keyof ProjectPrefs, unknown>>): void {
     setPrefs((current) => {
-      const next = withPrefs(current, projectRoot, patch)
+      const next = withPrefs(current, root, patch)
       writePrefs(next)
       return next
     })
   }
 
-  /** What a new session in `projectRoot` starts as, unless the picker or a flag says otherwise. */
-  function defaultsFor(projectRoot: string): { launcher?: string; worktree: boolean; base?: string } {
-    const p = prefs[projectRoot]
+  /** What a new session in `root` starts as, unless the picker or a flag says otherwise. */
+  const defaultsFor = (root: string): { launcher?: string; worktree: boolean; base?: string } => {
+    const p = prefs[root]
     return {
       worktree: p?.worktree === true,
       ...(p?.launcher === undefined ? {} : { launcher: p.launcher }),
@@ -491,103 +219,129 @@ export function App() {
     }
   }
 
+  function sessionsOf(root: string): ListedSession[] {
+    return reports[root]?.sessions ?? snapshots[root]?.sessions ?? []
+  }
+
+  async function openProject(): Promise<void> {
+    const root = await cockpitApi.pickProject().catch(() => null)
+    if (root !== null) await activate(root)
+  }
+
+  /**
+   * Out of the rail — its daemon and sessions keep running, and opening the folder
+   * again brings them back. Closing the one on the stage shows the next open project,
+   * or the welcome when it was the last.
+   */
+  async function closeProject(root: string): Promise<void> {
+    try {
+      await cockpitApi.closeProject(root)
+    } catch (err) {
+      showToast(plainErrorMessage(err), 'error')
+      return
+    }
+    const rest = openRoots.filter((r) => r !== root)
+    setOpenRoots(rest)
+    setRecent((r) => r.filter((x) => x !== root))
+    pending.current.delete(root)
+    if (root === activeRef.current) {
+      const next = rest[0]
+      if (next !== undefined) await activate(next)
+      else setActiveRoot(null)
+    } else {
+      showToast(`Closed ${labelOf(root)} — its sessions keep running`)
+    }
+    await refreshProjects()
+  }
+
   async function reorderProjects(next: string[]): Promise<void> {
     setOpenRoots(next)
     try {
       await cockpitApi.reorderProjects(next)
     } catch (err) {
-      setLandMessage(plainErrorMessage(err))
+      showToast(plainErrorMessage(err), 'error')
       await refreshProjects()
     }
   }
 
-  function onProjectAction(projectRoot: string, action: ProjectAction): void {
+  function onProjectAction(root: string, action: ProjectAction): void {
     switch (action) {
-      case 'new': onRailNew(projectRoot); return
-      case 'terminal-here': void terminalHere(projectRoot); return
-      case 'land-all': void handleLandAll(projectRoot); return
-      case 'gc': void cleanUp(projectRoot); return
-      case 'toggle-ended': updatePrefs(projectRoot, { hideEnded: prefs[projectRoot]?.hideEnded === true ? undefined : true }); return
-      case 'settings': void openProjectSettings(projectRoot); return
-      case 'close': void closeProject(projectRoot); return
-      case 'move-up': void reorderProjects(moveProject(openRoots, projectRoot, -1)); return
-      case 'move-down': void reorderProjects(moveProject(openRoots, projectRoot, 1)); return
+      case 'new': void activate(root, { kind: 'new' }); return
+      case 'terminal-here': {
+        // A Terminal session in the project folder itself (no worktree), opened at once.
+        const name = suggestSessionName('shell', sessionsOf(root).map((s) => s.name))
+        void activate(root, { kind: 'create', name, options: { worktree: false }, launcher: 'terminal' })
+        return
+      }
+      case 'land-all': runIn(root, { kind: 'land-all' }); return
+      case 'gc': void cleanUp(root); return
+      case 'toggle-ended': updatePrefs(root, { hideEnded: prefs[root]?.hideEnded === true ? undefined : true }); return
+      case 'settings': void openProjectSettings(root); return
+      case 'close': void closeProject(root); return
+      case 'move-up': void reorderProjects(moveProject(openRoots, root, -1)); return
+      case 'move-down': void reorderProjects(moveProject(openRoots, root, 1)); return
     }
   }
 
-  /** A Terminal session in the project folder itself (no worktree), opened at once. */
-  async function terminalHere(projectRoot: string): Promise<void> {
-    const taken = (projectRoot === projectRootRef.current ? sessions : snapshots[projectRoot]?.sessions ?? []).map((s) => s.name)
-    const name = suggestSessionName('shell', taken)
-    if (projectRoot === projectRootRef.current) await createAndOpen(name, { worktree: false }, 'terminal')
-    else await switchProject(projectRoot, { kind: 'create', name, options: { worktree: false }, launcher: 'terminal' })
+  /** Resolves to the user's answer; only one confirmation is ever open. */
+  function askConfirm(request: ConfirmRequest): Promise<boolean> {
+    return new Promise((resolve) => setConfirmState({ ...request, resolve }))
   }
 
-  async function cleanUp(projectRoot: string): Promise<void> {
-    const label = labelOf(projectRoot)
+  async function cleanUp(root: string): Promise<void> {
+    const label = labelOf(root)
     const ok = await askConfirm({
       title: `Clean up ended sessions in ${label}?`,
       body: 'Deletes the worktrees and branches of sessions that were landed, and of killed ones with nothing left to land. A killed session still holding unlanded work is kept.',
       confirmLabel: 'Clean up',
     })
     if (!ok) return
-    const active = projectRoot === projectRootRef.current
     try {
-      const result = await cockpitApi.collectGarbage(false, active ? undefined : projectRoot)
+      const result = await projectApi(root).collectGarbage(false)
       const removed = result?.removed?.length ?? 0
       const kept = result?.kept?.length ?? 0
-      setLandMessage(`${label}: cleaned up ${removed === 0 ? 'nothing' : `${removed} worktree${removed === 1 ? '' : 's'}`}${kept > 0 ? `; kept ${kept} with unlanded work` : ''}`)
+      showToast(`${label}: cleaned up ${removed === 0 ? 'nothing' : `${removed} worktree${removed === 1 ? '' : 's'}`}${kept > 0 ? `; kept ${kept} with unlanded work` : ''}`)
     } catch (err) {
-      setLandMessage(plainErrorMessage(err))
+      showToast(plainErrorMessage(err), 'error')
     }
-    if (active) await load()
-    else await refreshProjects(projectRoot)
   }
 
-  async function openProjectSettings(projectRoot: string): Promise<void> {
-    const active = projectRoot === projectRootRef.current
+  async function openProjectSettings(root: string): Promise<void> {
+    const api = projectApi(root)
     const [launcherList, branchList] = await Promise.all([
-      cockpitApi.listLaunchers().catch(() => [] as LauncherOption[]),
-      active ? cockpitApi.listBranches().catch(() => [] as string[]) : Promise.resolve([] as string[]),
+      api.listLaunchers().catch(() => [] as LauncherOption[]),
+      api.listBranches().catch(() => [] as string[]),
     ])
-    setProjectSettings({ projectRoot, launchers: launcherList, branches: branchList })
+    setProjectSettings({ projectRoot: root, launchers: launcherList, branches: branchList })
   }
 
-  /** Renamed in place, in whichever open project it lives (the bridge routes it). */
-  async function renameSessionIn(projectRoot: string, sessionId: string, name: string): Promise<string | null> {
-    const active = projectRoot === projectRootRef.current
+  /** Renamed in place, in whichever open project it lives; its view refreshes on the daemon's word. */
+  async function renameSessionIn(root: string, sessionId: string, name: string): Promise<string | null> {
     try {
-      await cockpitApi.renameSession(sessionId, name, active ? undefined : projectRoot)
+      await projectApi(root).renameSession(sessionId, name)
     } catch (err) {
       return plainErrorMessage(err)
     }
-    if (active) await load()
-    else await refreshProjects(projectRoot)
+    if (!reportsRef.current[root]) await refreshProjects(root)
     return null
   }
 
-  async function onFolder(projectRoot: string, sessionId: string | null, how: FolderHow): Promise<void> {
+  async function onFolder(root: string, sessionId: string | null, how: FolderHow): Promise<void> {
     if (how === 'copy') {
-      const list = projectRoot === projectRootRef.current ? sessions : snapshots[projectRoot]?.sessions ?? []
-      const path = sessionId === null ? projectRoot : list.find((s) => s.id === sessionId)?.worktreePath
+      const path = sessionId === null ? root : sessionsOf(root).find((s) => s.id === sessionId)?.worktreePath
       if (typeof path !== 'string') return
       try {
         await navigator.clipboard.writeText(path)
-        setLandMessage(`Copied ${path}`)
+        showToast(`Copied ${path}`)
       } catch {
-        setLandMessage('Could not reach the clipboard')
+        showToast('Could not reach the clipboard', 'error')
       }
       return
     }
     const id = sessionId ?? undefined
-    const result = await (how === 'reveal' ? cockpitApi.revealFolder(projectRoot, id) : cockpitApi.openFolderInEditor(projectRoot, id))
+    const result = await (how === 'reveal' ? cockpitApi.revealFolder(root, id) : cockpitApi.openFolderInEditor(root, id))
       .catch(() => ({ ok: false }))
-    if (!result.ok) setLandMessage(how === 'reveal' ? 'That folder is gone' : 'Could not open the editor — check Settings (⌘,)')
-  }
-
-  function jumpTo(n: number): void {
-    const target = jumpTargets(railGroups(), railQuery)[n - 1]
-    if (target) onRailAction(target.projectRoot, target.sessionId, 'focus')
+    if (!result.ok) showToast(how === 'reveal' ? 'That folder is gone' : 'Could not open the editor — check Settings (⌘,)', 'error')
   }
 
   function onReorder(from: string, to: string): void {
@@ -603,244 +357,16 @@ export function App() {
     })
   }
 
-  /** The focused pane of the active tab, for ⌘D / ⌘⇧D / ⌘W. */
-  function focusedPaneAt(): { tabId: string; paneId: string; pane: PaneRef } | null {
-    const tab = stage.tabs.find((t) => t.id === stage.activeTabId)
-    if (!tab) return null
-    const found = findPane(tab.root, tab.focusedPaneId)
-    return found ? { tabId: tab.id, paneId: tab.focusedPaneId, pane: found.pane } : null
-  }
-
-  function splitFocused(dir: SplitDir): void {
-    const at = focusedPaneAt()
-    if (at && at.pane.kind !== 'browser') void openShell(at.pane.sessionId, { tabId: at.tabId, paneId: at.paneId, dir })
-  }
-
-  function closeFocusedPane(): void {
-    const at = focusedPaneAt()
-    if (at) handleClosePane(at.tabId, at.paneId, at.pane)
-  }
-
-  async function handleNew(): Promise<void> {
-    // Fetched on open: a CLI installed a minute ago, or a launcher just edited, shows.
-    const [branchList, launcherList] = await Promise.all([
-      cockpitApi.listBranches().catch(() => [] as string[]),
-      cockpitApi.listLaunchers().catch(() => [] as LauncherOption[]),
-    ])
-    setBranches(branchList)
-    setLaunchers(launcherList)
-    setPickerOpen(true)
-  }
-
-  /** A new session is a worktree and its shell, opened at once — like a tmux window. */
-  /** A worktree, its shell opened at once — running `launcher` in it unless 'terminal'. */
-  async function createAndOpen(name: string, options: NewSessionOptions, launcher = 'terminal'): Promise<void> {
-    await runAction(async () => {
-      const created = await cockpitApi.newSession({ name, ...options }) as { id?: string }
-      if (typeof created?.id !== 'string') return
-      await cockpitApi.resumeSession(created.id, launcher)
-      writeString(LAST_LAUNCHER_KEY, launcher)
-      await load()
-      focusSession(created.id)
-    })
-  }
-  const createAndOpenRef = useRef(createAndOpen)
-  createAndOpenRef.current = createAndOpen
-
-  const handleNewRef = useRef(handleNew)
-  handleNewRef.current = handleNew
-
-  async function handlePickerCreate(request: NewSessionRequest): Promise<void> {
-    setPickerOpen(false)
-    if (request.projectRoot !== projectRootRef.current) {
-      // Created there once that project is on the stage.
-      await switchProject(request.projectRoot, { kind: 'create', name: request.name, options: request.options, launcher: request.launcher })
+  async function handleOpenSettings(): Promise<void> {
+    // Settings are the user's (~/.crossweave), read through any project's daemon.
+    const root = activeRef.current ?? openRoots[0]
+    if (root === undefined) {
+      showToast('Open a project first — Settings are read through its daemon', 'error')
       return
     }
-    await createAndOpen(request.name, request.options, request.launcher)
-  }
-
-  /** What a stopped session's pane shows under its terminal: a way to reopen its shell. */
-  function launchFor(sessionId: string, focused: boolean): preact.JSX.Element | null {
-    const session = sessions.find((s) => s.id === sessionId)
-    if (!session || session.status !== 'idle') return null
-    return (
-      <StoppedBar
-        key={session.id}
-        sessionName={session.name}
-        focused={focused}
-        onStart={async () => {
-          try {
-            await cockpitApi.resumeSession(session.id)
-          } catch (err) {
-            return plainErrorMessage(err)
-          }
-          await load()
-          return null
-        }}
-      />
-    )
-  }
-
-  /** The Changes pane for a session: beside the focused pane, or focused if open. */
-  function openChanges(targetId?: string): void {
-    const target = sessionById(targetId)
-    if (!target) return
-    const at = locatePane(stage, `changes:${target.id}`)
-    if (at) setStage((s) => focusPane(s, at.tabId, at.paneId))
-    else openSurface({ kind: 'changes', sessionId: target.id }, `${target.name} · changes`)
-  }
-
-  function openCommandBar(): void {
-    setCommandBarOpen(true)
-    // Launcher names complete in `new <name> <launcher>`; fetched fresh each time.
-    void cockpitApi.listLaunchers().then(setLaunchers).catch(() => undefined)
-  }
-
-  /** One parsed command, run; resolves to an error sentence, or null. */
-  async function runCommand(command: Command, line: string): Promise<string | null> {
-    setCommandHistory((all) => {
-      const next = rememberLine(all, line)
-      writeStringList(COMMAND_HISTORY_KEY, next)
-      return next
-    })
     try {
-      switch (command.kind) {
-        case 'new': {
-          setCommandBarOpen(false)
-          // No --worktree / --shared: the project's own default (the project folder unless set).
-          const defaults = defaultsFor(projectRootRef.current)
-          const worktree = command.worktree ?? defaults.worktree
-          const base = command.base ?? (worktree ? defaults.base : undefined)
-          await createAndOpen(command.name, { worktree, ...(base === undefined ? {} : { base }) }, command.launcher)
-          return null
-        }
-        case 'start':
-          await cockpitApi.resumeSession(command.session)
-          await load()
-          focusSession(command.session)
-          return null
-        case 'stop':
-          await cockpitApi.stopSession(command.session)
-          await load()
-          return null
-        case 'kill':
-          setCommandBarOpen(false)
-          await handleKill(command.session, command.removeWorktree)
-          return null
-        case 'land':
-          setCommandBarOpen(false)
-          await handleLand(command.session)
-          return null
-        case 'land-all':
-          setCommandBarOpen(false)
-          await handleLandAll()
-          return null
-        case 'diff':
-          openChanges(command.session)
-          return null
-        case 'terminal':
-          await openShell(command.session)
-          return null
-        case 'rename':
-          await cockpitApi.renameSession(command.session, command.to)
-          await load()
-          return null
-        case 'open':
-          setCommandBarOpen(false)
-          if (command.path !== undefined && focusedId !== null) openFilePane(focusedId, command.path)
-          else await handleOpenFile()
-          return null
-        case 'browser':
-          handleOpenBrowser(command.url)
-          return null
-        case 'attention':
-          jumpToAttention()
-          return null
-        case 'settings':
-          setCommandBarOpen(false)
-          await handleOpenSettings()
-          return null
-        case 'gc':
-          await cockpitApi.collectGarbage(command.force)
-          await load()
-          return null
-        case 'help':
-          return null
-      }
-    } catch (err) {
-      return plainErrorMessage(err)
-    }
-  }
-
-  function jumpToAttention(): void {
-    const target = nextAttentionSession(sessions, attentionById, focusedId)
-    if (target !== null) focusSession(target)
-  }
-
-  /** Resolves to the user's answer; only one confirmation is ever open. */
-  function askConfirm(request: ConfirmRequest): Promise<boolean> {
-    return new Promise((resolve) => setConfirmState({ ...request, resolve }))
-  }
-
-  function sessionById(id: string | undefined): ListedSession | null {
-    return sessions.find((s) => s.id === (id ?? focusedId)) ?? null
-  }
-
-  async function handleStart(targetId?: string): Promise<void> {
-    const target = sessionById(targetId)
-    if (!target) return
-    // The pane re-attaches from load(): the session's move to `running` is detected
-    // there, the same way as when the CLI or another window starts it.
-    await runAction(() => cockpitApi.resumeSession(target.id))
-  }
-
-  /** A shell for `sessionId`, split beside `at` (or in a tab of its own). */
-  async function openShell(sessionId: string, at?: { tabId: string; paneId: string; dir: SplitDir }): Promise<void> {
-    await runAction(async () => {
-      const opened = await cockpitApi.openTerminal(sessionId)
-      const pane: PaneRef = { kind: 'terminal', terminalId: opened.terminalId, sessionId }
-      setStage((s) => {
-        // A load that raced this call may have opened it already.
-        const existing = locatePane(s, `terminal:${opened.terminalId}`)
-        if (existing) return focusPane(s, existing.tabId, existing.paneId)
-        // The pane bar's split buttons say exactly where; a shortcut uses placeBeside.
-        if (at) return splitPane(s, at.tabId, at.paneId, at.dir, pane)
-        return placeBeside(s, pane, `${opened.sessionName} · shell`)
-      })
-    })
-  }
-
-  /** A file or browser pane: beside the focused pane, or in a tab of its own. */
-  function openSurface(pane: PaneRef, title: string): void {
-    setStage((s) => placeBeside(s, pane, title))
-  }
-
-  function openFilePane(sessionId: string, path: string): void {
-    const at = locatePane(stage, `file:${sessionId}:${path}`)
-    if (at) setStage((s) => focusPane(s, at.tabId, at.paneId))
-    else openSurface({ kind: 'file', sessionId, path }, path.split('/').pop() ?? path)
-  }
-
-  async function handleOpenFile(targetId?: string): Promise<void> {
-    const target = sessionById(targetId)
-    if (!target) return
-    await runAction(async () => {
-      const files = await cockpitApi.listFiles(target.id)
-      setQuickOpen({ sessionId: target.id, name: target.name, files })
-    })
-  }
-
-  function handleOpenBrowser(url?: string): void {
-    // A running session's leased port is where its dev server listens by convention.
-    const port = focused?.portBase
-    const initial = url ?? (port === undefined ? '' : `http://localhost:${port}/`)
-    openSurface({ kind: 'browser', url: initial }, 'browser')
-  }
-
-  async function handleOpenSettings(): Promise<void> {
-    await runAction(async () => {
-      const [settings, launcherList] = await Promise.all([cockpitApi.getSettings(), cockpitApi.listLaunchers()])
+      const api = projectApi(root)
+      const [settings, launcherList] = await Promise.all([api.getSettings(), api.listLaunchers()])
       const availability: Record<string, boolean> = {}
       const defaults: Record<string, { label: string; command: string }> = {}
       for (const l of launcherList) {
@@ -848,14 +374,17 @@ export function App() {
         if (l.defaults) defaults[l.id] = l.defaults
       }
       setSettingsOpen({ settings: settings as UserSettings, availability, defaults })
-    })
+    } catch (err) {
+      showToast(plainErrorMessage(err), 'error')
+    }
   }
 
   /** Save through the daemon, which validates; its refusal is shown in the form. */
   async function saveSettings(next: UserSettings): Promise<string | null> {
+    const root = activeRef.current ?? openRoots[0]
+    if (root === undefined) return 'Open a project first'
     try {
-      const saved = await cockpitApi.setSettings(next) as UserSettings
-      setLayouts((saved.layouts ?? {}) as Record<string, SavedLayout>)
+      await projectApi(root).setSettings(next)
       return null
     } catch (err) {
       // Only the daemon's sentence: not the IPC wrapper or the error class in front of it.
@@ -863,172 +392,24 @@ export function App() {
     }
   }
 
-  async function handleTerminal(targetId?: string): Promise<void> {
-    const target = sessionById(targetId)
-    if (!target) return
-    await openShell(target.id)
-  }
-
-  function handleClosePane(tabId: string, paneId: string, pane: PaneRef): void {
-    // Closing an extra shell's pane ends it; closing a session's pane only hides it.
-    if (pane.kind === 'terminal') void cockpitApi.closeTerminal(pane.terminalId).catch(() => undefined)
-    setStage((s) => closePane(s, tabId, paneId))
-  }
-
-  async function saveLayouts(next: Record<string, SavedLayout>): Promise<void> {
-    setLayouts(next)
-    try {
-      const current = await cockpitApi.getSettings() as Record<string, unknown>
-      await cockpitApi.setSettings({ ...current, layouts: next })
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    }
-  }
-
-  async function handleStop(targetId?: string): Promise<void> {
-    const target = sessionById(targetId)
-    if (!target) return
-    await runAction(() => cockpitApi.stopSession(target.id))
-  }
-
-  async function handleKill(targetId?: string, removeWorktree = false): Promise<void> {
-    const target = sessionById(targetId)
-    if (!target) return
-    const ok = await askConfirm({
-      title: `Kill ${target.name}?`,
-      body: removeWorktree
-        ? 'Its shell (and whatever runs in it) ends, and its worktree and branch are deleted. Unlanded work is lost.'
-        : 'Its shell (and whatever runs in it) ends and the session cannot be reopened. Its worktree stays, so its work can still be landed.',
-      confirmLabel: removeWorktree ? 'Kill and delete' : 'Kill',
-      danger: true,
-    })
-    if (!ok) return
-    await runAction(() => cockpitApi.killSession(target.id, removeWorktree))
-  }
-
-  /**
-   * Out of the rail for good: a live session is killed first (the daemon refuses to
-   * remove one that runs), then its row, worktree and branch go. A session in the
-   * project folder only loses its row — the folder is the project's.
-   */
-  async function handleDelete(targetId?: string): Promise<void> {
-    const target = sessionById(targetId)
-    if (!target) return
-    const shared = target.branch === null || target.worktreePath === projectRootRef.current
-    const ok = await askConfirm({
-      title: `Delete ${target.name}?`,
-      body: shared
-        ? 'Its shell (and whatever runs in it) ends and the session leaves the rail. It works in the project folder, which stays exactly as it is.'
-        : 'Its shell (and whatever runs in it) ends, and its worktree and branch are deleted. Work that was not landed is lost.',
-      confirmLabel: 'Delete',
-      danger: true,
-    })
-    if (!ok) return
-    await runAction(async () => {
-      if (target.status !== 'dead' && target.status !== 'landed') await cockpitApi.killSession(target.id, false)
-      await cockpitApi.removeSession(target.id)
-    })
-    setLandMessage(`Deleted ${target.name}`)
-  }
-
-  function landDeps() {
-    return {
-      getStatus: async () => parseConvergeStatus(await cockpitApi.convergeStatus()),
-      land: async (name: string): Promise<LandResult> =>
-        (await cockpitApi.landSession(name)) as LandResult,
-    }
-  }
-
-  async function handleLand(targetId?: string): Promise<void> {
-    const target = sessionById(targetId)
-    if (!target || landBusy) return
-    setLandBusy(true)
-    try {
-      const deps = landDeps()
-      let result = await landSelected({ ...deps, name: target.name })
-      if (result.status === 'needs_confirm_unknown') {
-        const reason =
-          converge.unknown.find((entry) => entry.name === target.name)?.reason ??
-          'incomplete evidence'
-        const ok = await askConfirm({
-          title: `Land ${target.name} with incomplete evidence?`,
-          body: reason,
-          confirmLabel: 'Land anyway',
-        })
-        if (!ok) return
-        result = await landSelected({ ...deps, name: target.name, forceUnknown: true })
-      }
-      if (result.status === 'blocked') {
-        const reason = converge.blocked.find((entry) => entry.name === target.name)?.reason
-        setLandMessage(reason ? `blocked: ${reason}` : `blocked: ${target.name}`)
-        return
-      }
-      if (result.status === 'failed') {
-        setLandMessage(result.error)
-        return
-      }
-      setLandMessage(`landed ${target.name}`)
-      await load()
-    } catch (err) {
-      setLandMessage(err instanceof Error ? err.message : String(err))
-    } finally {
-      setLandBusy(false)
-    }
-  }
-
-  /** Every ready session, in order — in the active project, or in `projectRoot` from the rail. */
-  async function handleLandAll(projectRoot?: string): Promise<void> {
-    if (landBusy) return
-    const other = projectRoot !== undefined && projectRoot !== projectRootRef.current ? projectRoot : undefined
-    setLandBusy(true)
-    setLandMessage('landing ready sessions…')
-    try {
-      const landedSoFar: string[] = []
-      const result = await landAllReady({
-        getStatus: async () => parseConvergeStatus(await cockpitApi.convergeStatus(other)),
-        land: async (name) => (await cockpitApi.landSession(name, undefined, other)) as LandResult,
-        onProgress: (name) => {
-          landedSoFar.push(name)
-          setLandMessage(`landed ${landedSoFar.join(', ')}`)
-        },
-      })
-      if (result.failedAt) {
-        setLandMessage(
-          `landed ${result.landed.join(', ') || '(none)'}; stopped at ${result.failedAt}: ${result.error ?? 'failed'}`,
-        )
-      } else if (result.landed.length === 0) {
-        const unknown = other === undefined ? converge.unknown[0] : undefined
-        setLandMessage(unknown ? `nothing to land: ${unknown.reason}` : 'nothing to land')
-      } else {
-        setLandMessage(`landed ${result.landed.join(', ')}`)
-      }
-      if (other === undefined) await load()
-      else await refreshProjects(other)
-    } catch (err) {
-      setLandMessage(err instanceof Error ? err.message : String(err))
-    } finally {
-      setLandBusy(false)
-    }
-  }
-
-  /** The rail: every open project, the active one live, the others from snapshots. */
+  /** The rail: every open project — live views as they are, the others from snapshots. */
   function railGroups(): ProjectGroup[] {
-    const active = projectRootRef.current
-    const roots = openRoots.includes(active) || active === '' ? openRoots : [...openRoots, active]
     const groups: ProjectGroup[] = []
-    for (const root of roots) {
+    for (const root of openRoots) {
       const p = prefs[root]
       const view = {
         ...(p?.color === undefined ? {} : { color: p.color }),
         ...(p?.hideEnded === true ? { hideEnded: true } : {}),
       }
-      if (root === active) {
-        groups.push({ projectRoot: root, name: projectLabel(p, baseName(root)), active: true, sessions, attentionById, ...view })
+      const active = root === activeRoot
+      const live = reports[root]
+      if (live) {
+        groups.push({ projectRoot: root, name: projectLabel(p, baseName(root)), active, sessions: live.sessions, attentionById: live.attentionById, ...view })
         continue
       }
       const snap = snapshots[root]
       if (!snap) {
-        groups.push({ projectRoot: root, name: projectLabel(p, baseName(root)), active: false, sessions: [], attentionById: {}, ...view })
+        groups.push({ projectRoot: root, name: projectLabel(p, baseName(root)), active, sessions: [], attentionById: {}, ...view })
         continue
       }
       const landability = parseLandabilityByName(snap.converge)
@@ -1036,45 +417,85 @@ export function App() {
       for (const session of snap.sessions) {
         attention[session.id] = deriveAttention({ status: session.status ?? '', landability: landability.get(session.name) })
       }
-      groups.push({ projectRoot: root, name: projectLabel(p, snap.name), active: false, sessions: snap.sessions, attentionById: attention, ...view })
+      groups.push({ projectRoot: root, name: projectLabel(p, snap.name), active, sessions: snap.sessions, attentionById: attention, ...view })
     }
     return groups
   }
 
+  function jumpTo(n: number): void {
+    const target = jumpTargets(railGroups(), railQuery)[n - 1]
+    if (target) onRailAction(target.projectRoot, target.sessionId, 'focus')
+  }
+
+  // Menu accelerators arrive from the main process. The window's own are handled here;
+  // the rest belong to the project on the stage.
+  const commandRef = useRef<(command: string) => void>(() => undefined)
+  commandRef.current = (command: string) => {
+    if (command === 'toggle-sidebar') toggleSidebar()
+    else if (command === 'open-project') void openProject()
+    else if (command === 'open-settings') void handleOpenSettings()
+    else if (/^jump-[1-9]$/.test(command)) jumpTo(Number(command.slice('jump-'.length)))
+    else if (activeRef.current === null) {
+      if (command === 'new-agent') void openProject()
+    } else handles.current.get(activeRef.current)?.command(command)
+  }
+  useEffect(() => cockpitApi.onCommand((payload) => {
+    const record = payload as { command?: unknown; projectRoot?: unknown } | null
+    // Open Recent and `cw <dir>` from a terminal: main has attached it already.
+    if (record?.command === 'show-project' && typeof record.projectRoot === 'string') void activateRef.current(record.projectRoot)
+    else if (typeof record?.command === 'string') commandRef.current(record.command)
+  }), [])
+
+  const groups = railGroups()
+  const projectsForPicker = groups.map((g) => ({ projectRoot: g.projectRoot, name: g.name }))
+
+  function viewHost(root: string): ViewHost {
+    return {
+      askConfirm,
+      // A message from a project off the stage says which project it is about.
+      toast: (message, tone) => showToast(root === activeRef.current ? message : `${labelOf(root)}: ${message}`, tone),
+      openSettings: () => { void handleOpenSettings() },
+      activate: () => { void activate(root) },
+      createElsewhere: (request: NewSessionRequest) => {
+        void activate(request.projectRoot, { kind: 'create', name: request.name, options: request.options, launcher: request.launcher })
+      },
+      defaultsFor,
+      projects: projectsForPicker,
+      notify,
+      sidebarHidden,
+      onToggleSidebar: toggleSidebar,
+      report: (r, report) => {
+        setReports((current) => {
+          if (report === null) {
+            if (!(r in current)) return current
+            const next = { ...current }
+            delete next[r]
+            return next
+          }
+          return { ...current, [r]: report }
+        })
+      },
+      register: (r, handle) => {
+        if (handle === null) handles.current.delete(r)
+        else handles.current.set(r, handle)
+      },
+      takePending: (r) => {
+        const actions = pending.current.get(r) ?? []
+        pending.current.delete(r)
+        return actions
+      },
+    }
+  }
+
+  const activeReport = activeRoot === null ? undefined : reports[activeRoot]
+
   return (
     <div class={`cockpit-shell${sidebarHidden ? ' is-sidebar-hidden' : ''}`}>
-      {commandBarOpen ? (
-        <CommandBar
-          context={{
-            sessions: sessions.map((s) => ({ id: s.id, name: s.name, ...(s.status === undefined ? {} : { status: s.status }) })),
-            focusedName: focused?.name ?? null,
-            launchers: launchers.filter((l) => l.enabled && l.available).map((l) => l.id),
-          }}
-          history={commandHistory}
-          onRun={runCommand}
-          onClose={() => setCommandBarOpen(false)}
-        />
-      ) : null}
       {confirmState !== null ? (
         <ConfirmDialog
           {...confirmState}
           onConfirm={() => { confirmState.resolve(true); setConfirmState(null) }}
           onCancel={() => { confirmState.resolve(false); setConfirmState(null) }}
-        />
-      ) : null}
-      {pickerOpen ? (
-        <QuickPicker
-          projects={railGroups().map((g) => ({ projectRoot: g.projectRoot, name: g.name }))}
-          activeRoot={projectRootRef.current}
-          takenNames={sessions.map((s) => s.name)}
-          branches={branches}
-          launchers={launchers}
-          lastLauncher={readString(LAST_LAUNCHER_KEY)}
-          defaultsFor={defaultsFor}
-          onCreate={(request) => {
-            void handlePickerCreate(request)
-          }}
-          onCancel={() => setPickerOpen(false)}
         />
       ) : null}
       {settingsOpen !== null ? (
@@ -1109,28 +530,16 @@ export function App() {
           onClose={() => setProjectSettings(null)}
         />
       ) : null}
-      {quickOpen !== null ? (
-        <QuickOpen
-          sessionName={quickOpen.name}
-          files={quickOpen.files}
-          onOpen={(path) => {
-            const { sessionId } = quickOpen
-            setQuickOpen(null)
-            openFilePane(sessionId, path)
-          }}
-          onCancel={() => setQuickOpen(null)}
-        />
-      ) : null}
       {!sidebarHidden ? (
         <Sidebar
-          projects={railGroups()}
-          focusedId={focusedId}
+          projects={groups}
+          focusedId={activeReport?.focusedId ?? null}
           now={now}
-          colorById={colors}
+          colorById={activeReport?.colors ?? {}}
           onToggleSidebar={toggleSidebar}
-          onNew={onRailNew}
+          onNew={(root) => { void activate(root, { kind: 'new' }) }}
           onOpenProject={() => { void openProject() }}
-          onCommandBar={openCommandBar}
+          onCommandBar={() => { if (activeRef.current !== null) handles.current.get(activeRef.current)?.command('command-bar') }}
           query={railQuery}
           onQuery={setRailQuery}
           renaming={renaming}
@@ -1145,129 +554,25 @@ export function App() {
           onSelect={(root, id) => onRailAction(root, id, 'focus')}
           onAction={onRailAction}
           onSetColor={(sessionId, color) => {
-            const next = { ...colors }
-            if (color === null) delete next[sessionId]
-            else next[sessionId] = color
-            setColors(next)
-            writeColors(projectRootRef.current, next)
+            if (activeRef.current !== null) handles.current.get(activeRef.current)?.setColor(sessionId, color)
           }}
         />
       ) : null}
-      {status === 'welcome' ? (
-        <Welcome
-          projects={openRoots.map((root) => ({ root, label: labelOf(root) }))}
-          onOpen={() => { void openProject() }}
-          onSwitch={(root) => { void switchProject(root) }}
-        />
-      ) : (
-      <Stage
-        stage={stage}
-        sessions={sessions}
-        status={status}
-        error={error}
-        launchFor={launchFor}
-        onRetry={() => {
-          setStatus('loading')
-          void load()
-        }}
-        paneAttachEpoch={paneAttachEpoch}
-        paneAttachBumps={paneAttachBumps}
-        onActivateTab={(tabId) => setStage((s) => ({ ...s, activeTabId: tabId }))}
-        onFocusPane={(tabId, paneId) => setStage((s) => focusPane(s, tabId, paneId))}
-        onClosePane={handleClosePane}
-        onSplit={(tabId, paneId, dir, pane) => {
-          if (pane.kind !== 'browser') void openShell(pane.sessionId, { tabId, paneId, dir })
-        }}
-        onResize={(tabId, splitId, index, delta) => setStage((s) => resizeSplit(s, tabId, splitId, index, delta))}
-        onMoveTab={(tabId, toIndex) => setStage((s) => moveTab(s, tabId, toIndex))}
-        onPinTab={(tabId, pinned) => setStage((s) => setPinned(s, tabId, pinned))}
-        onCloseTab={(tabId) => setStage((s) => closeTab(s, tabId))}
-        onCloseOthers={(tabId) => setStage((s) => closeOthers(s, tabId))}
-        onCloseToRight={(tabId) => setStage((s) => closeToRight(s, tabId))}
-        colorById={colors}
-        inApp={(sessionId, path) => openFilePane(sessionId, path)}
-        renderSurface={(pane, paneFocused, at) => {
-          if (pane.kind === 'changes') {
-            const session = sessions.find((s) => s.id === pane.sessionId)
-            if (!session) return null
-            const namesByBranch = new Map(sessions.flatMap((s) => (s.branch ? [[s.branch, s.name] as const] : [])))
-            return (
-              <ChangesPane
-                sessionName={session.name}
-                verdict={landVerdict(session, converge, convergeDetail, namesByBranch)}
-                revision={sessionsRevision}
-                loadDiff={() => cockpitApi.sessionDiff(session.id)}
-                onLand={() => void handleLand(session.id)}
-                landBusy={landBusy}
-              />
-            )
-          }
-          if (pane.kind === 'file') return <FilePane sessionId={pane.sessionId} path={pane.path} focused={paneFocused} />
-          if (pane.kind === 'browser') {
-            return (
-              <BrowserPane
-                url={pane.url}
-                onNavigate={(url) => setStage((s) => replacePane(s, at.tabId, at.paneId, { kind: 'browser', url }))}
-              />
-            )
-          }
-          return null
-        }}
-        layouts={Object.keys(layouts).sort()}
-        onSaveLayout={(name) => {
-          const saved = toSavedLayout(stage, new Map(sessions.map((s) => [s.id, s.name])))
-          void saveLayouts({ ...layouts, [name]: saved })
-        }}
-        onApplyLayout={(name) => {
-          const saved = layouts[name]
-          if (saved) setStage(fromSavedLayout(saved, new Map(sessions.map((s) => [s.name, s.id]))))
-        }}
-        onDeleteLayout={(name) => {
-          const next = { ...layouts }
-          delete next[name]
-          void saveLayouts(next)
-        }}
-        sidebarHidden={sidebarHidden}
-        onToggleSidebar={toggleSidebar}
-        onNewTab={() => { void handleNew() }}
-        onToggleChanges={() => openChanges()}
-      />
-      )}
-      <Toast message={error && stage.tabs.length > 0 ? error : landMessage} tone={error && stage.tabs.length > 0 ? 'error' : 'info'}
-        onDone={() => { setLandMessage(null); if (stage.tabs.length > 0) setError(null) }} />
+      <div class="cockpit-views">
+        {booted && activeRoot === null ? (
+          <Welcome
+            projects={openRoots.map((root) => ({ root, label: labelOf(root) }))}
+            onOpen={() => { void openProject() }}
+            onSwitch={(root) => { void activate(root) }}
+          />
+        ) : null}
+        {mounted.map((root) => (
+          <ProjectView key={root} projectRoot={root} visible={root === activeRoot} host={viewHost(root)} />
+        ))}
+      </div>
+      <Toast message={toast?.message ?? null} tone={toast?.tone ?? 'info'} onDone={() => setToast(null)} />
     </div>
   )
-}
-
-const COMMAND_HISTORY_KEY = 'cw.command-history.v1'
-const SIDEBAR_HIDDEN_KEY = 'cw.sidebar-hidden.v1'
-/** What to do once the window has reloaded onto another project. */
-const PENDING_KEY = 'cw.pending-action.v1'
-type PendingAction =
-  | { kind: 'new' }
-  | { kind: 'create'; name: string; options: NewSessionOptions; launcher: string }
-  | { kind: 'row'; sessionId: string; action: RowAction | 'focus' }
-
-/** The launcher the last new session started with, preselected next time. */
-const LAST_LAUNCHER_KEY = 'cw.last-launcher.v1'
-/** Notification choices ('0' off; on unless turned off). */
-const NOTIFY_SOUND_KEY = 'cw.notify-sound.v1' // gitleaks:allow (a localStorage key name, not a secret)
-const DOCK_BADGE_KEY = 'cw.dock-badge.v1' // gitleaks:allow (a localStorage key name, not a secret)
-
-function readString(key: string): string | undefined {
-  try {
-    return localStorage.getItem(key) ?? undefined
-  } catch {
-    return undefined
-  }
-}
-
-function writeString(key: string, value: string): void {
-  try {
-    localStorage.setItem(key, value)
-  } catch {
-    // a convenience: the picker starts on Terminal next time
-  }
 }
 
 /**
@@ -1299,10 +604,6 @@ function Welcome({ projects, onOpen, onSwitch }: { projects: Array<{ root: strin
   )
 }
 
-function baseName(root: string): string {
-  return root.split('/').filter((p) => p !== '').pop() ?? root
-}
-
 /** A short-lived message where the footer used to be: land results, action errors. */
 function Toast({ message, tone, onDone }: { message: string | null; tone: 'info' | 'error'; onDone: () => void }) {
   const doneRef = useRef(onDone)
@@ -1319,38 +620,4 @@ function Toast({ message, tone, onDone }: { message: string | null; tone: 'info'
       <button type="button" class="cockpit-iconbtn" aria-label="Dismiss" onClick={onDone}>×</button>
     </div>
   )
-}
-
-/** Per-viewer conveniences only; every read and write survives unavailable storage. */
-function readStringList(key: string): string[] {
-  try {
-    const parsed: unknown = JSON.parse(localStorage.getItem(key) ?? '[]')
-    return Array.isArray(parsed) ? parsed.filter((l): l is string => typeof l === 'string') : []
-  } catch {
-    return []
-  }
-}
-
-function writeStringList(key: string, list: string[]): void {
-  try {
-    localStorage.setItem(key, JSON.stringify(list))
-  } catch {
-    // storage unavailable
-  }
-}
-
-function readFlag(key: string): boolean {
-  try {
-    return localStorage.getItem(key) === '1'
-  } catch {
-    return false
-  }
-}
-
-function writeFlag(key: string, on: boolean): void {
-  try {
-    localStorage.setItem(key, on ? '1' : '0')
-  } catch {
-    // storage unavailable
-  }
 }
