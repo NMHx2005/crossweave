@@ -34,6 +34,9 @@ interface RunningSession {
   session: SessionRow;
   /** stop() was asked for, so the exit that follows is no failure. */
   stopping: boolean;
+  /** The pty's size, as last set: a remote viewer draws this grid rather than resizing it. */
+  cols: number;
+  rows: number;
 }
 
 /** What the runtime tells the status tracker; see src/daemon/session-status.ts. */
@@ -87,7 +90,7 @@ export class SessionRuntime {
       rows: 24,
     });
 
-    const entry: RunningSession = { proc, scrollback: '', subscribers: new Set(), session, stopping: false };
+    const entry: RunningSession = { proc, scrollback: '', subscribers: new Set(), session, stopping: false, cols: 80, rows: 24 };
 
     this.running.set(session.id, entry);
     this.observer?.started(session.id);
@@ -132,7 +135,15 @@ export class SessionRuntime {
   }
 
   resize(sessionId: string, name: string, cols: number, rows: number): void {
-    this.require(sessionId, name).proc.resize(cols, rows);
+    const entry = this.require(sessionId, name);
+    entry.proc.resize(cols, rows);
+    entry.cols = cols;
+    entry.rows = rows;
+  }
+
+  size(sessionId: string): { cols: number; rows: number } | undefined {
+    const entry = this.running.get(sessionId);
+    return entry === undefined ? undefined : { cols: entry.cols, rows: entry.rows };
   }
 
   subscribe(sessionId: string, name: string, ctx: MethodContext): void {
