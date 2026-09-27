@@ -178,6 +178,21 @@ describe('session runtime', () => {
     expect(started.pid).toBeGreaterThan(0);
   });
 
+  // A remote viewer draws the grid the desktop pane sized; it must never resize the
+  // pty itself (that would reflow the desktop pane), so the list carries the size.
+  it('reports a running session\'s terminal size, following resizes', async () => {
+    await client.call('session.new', { workspaceId, name: 'auth', worktree: true });
+    type Row = { name: string; cols?: number; rows?: number };
+    const row = async () => (await client.call<Row[]>('session.list', { workspaceId })).find((s) => s.name === 'auth');
+    expect(await row()).not.toHaveProperty('cols');
+    await client.call('session.start', { workspaceId, idOrName: 'auth' });
+    expect(await row()).toMatchObject({ cols: 80, rows: 24 });
+    await client.call('session.resize', { workspaceId, idOrName: 'auth', cols: 132, rows: 40 });
+    expect(await row()).toMatchObject({ cols: 132, rows: 40 });
+    await client.call('session.stop', { workspaceId, idOrName: 'auth' });
+    expect(await row()).not.toHaveProperty('cols');
+  });
+
   it('streams agent output to a subscriber and accepts input', async () => {
     await client.call('session.new', { workspaceId, name: 'auth', worktree: true });
     await client.call('session.start', { workspaceId, idOrName: 'auth' });

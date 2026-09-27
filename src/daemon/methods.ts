@@ -516,6 +516,7 @@ export function buildMethods(
         const status = activity.status(session.id, agent);
         const git = gitCounts.get(session.id);
         const tracked = usage.get(session.id);
+        const size = runtime.size(session.id);
         // A session in the project folder shares that folder's logs with every other
         // one there: its figures are the folder's, counted once by the client.
         const used = tracked && session.worktreePath === projectRoot ? { ...tracked, folder: true } : tracked;
@@ -524,6 +525,7 @@ export function buildMethods(
           ...(used === undefined ? {} : { usage: used }),
           ...(words === undefined ? {} : { latestWords: words }),
           ...(git === undefined ? {} : { git }),
+          ...(size === undefined ? {} : size),
           agent,
           activity: status.activity,
           lastActivityAt: status.lastActivityAt,
