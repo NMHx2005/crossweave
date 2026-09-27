@@ -13,6 +13,11 @@ export interface SessionStatus {
   activity: Activity;
   /** Epoch ms of the last output or input, or null before either. */
   lastActivityAt: number | null;
+  /**
+   * The session rang the bell since the user last typed: an agent asking (permission,
+   * a question) rather than one that finished its turn and went quiet.
+   */
+  rang: boolean;
 }
 
 interface Track {
@@ -81,9 +86,9 @@ export class ActivityTracker {
 
   status(id: string, agent: string | null): SessionStatus {
     const t = this.tracks.get(id);
-    if (t === undefined) return { activity: 'idle', lastActivityAt: null };
+    if (t === undefined) return { activity: 'idle', lastActivityAt: null, rang: false };
     const lastActivityAt = Math.max(t.lastOutputAt ?? -1, t.lastInputAt ?? -1);
-    return { activity: this.activityOf(t, agent), lastActivityAt: lastActivityAt < 0 ? null : lastActivityAt };
+    return { activity: this.activityOf(t, agent), lastActivityAt: lastActivityAt < 0 ? null : lastActivityAt, rang: t.bellSinceInput };
   }
 
   private activityOf(t: Track, agent: string | null): Activity {

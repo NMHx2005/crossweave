@@ -45,6 +45,25 @@ describe('ActivityTracker', () => {
     expect(t.status('s', null).activity).toBe('asked');
   });
 
+  // "Asked" covers two things: an agent that rang for the user (a permission prompt, a
+  // question) and one that simply finished its turn. `rang` tells them apart, so the
+  // cockpit can say "waiting for you" for the first and "finished" for the second.
+  it('says whether the agent rang since the last keystroke', () => {
+    const c = clock();
+    const t = new ActivityTracker(c.now, 2000);
+    t.started('s');
+    t.input('s');
+    t.output('s', 'working…');
+    c.advance(2500);
+    expect(t.status('s', 'claude')).toMatchObject({ activity: 'asked', rang: false });
+    t.output('s', 'Allow this edit? \x07');
+    c.advance(2500);
+    expect(t.status('s', 'claude')).toMatchObject({ activity: 'asked', rang: true });
+    t.input('s');
+    expect(t.status('s', 'claude').rang).toBe(false);
+    expect(t.status('unknown', null).rang).toBe(false);
+  });
+
   it('a shell that died on its own with a failure code has failed; one we stopped has not', () => {
     const t = new ActivityTracker(() => 0, 2000);
     t.started('a');
