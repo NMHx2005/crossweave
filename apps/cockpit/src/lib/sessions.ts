@@ -47,6 +47,8 @@ export type ListedSession = {
   usage?: SessionUsage
   /** It rang the bell since the user last typed: asking, not just finished. */
   rang?: boolean
+  /** The user's one-line note on it, shown in the rail instead of the agent's words. */
+  note?: string
 }
 
 export function parseSessionList(value: unknown): ListedSession[] {
@@ -75,6 +77,7 @@ export function parseSessionList(value: unknown): ListedSession[] {
       row.git = { changed: git.changed, ahead: typeof git.ahead === 'number' ? git.ahead : null }
     }
     if (typeof record.rang === 'boolean') row.rang = record.rang
+    if (typeof record.note === 'string' && record.note.trim() !== '') row.note = record.note
     const usage = parseUsage(record.usage)
     if (usage) row.usage = usage
     out.push(row)

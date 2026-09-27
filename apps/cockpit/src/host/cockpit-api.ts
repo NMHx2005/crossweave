@@ -121,6 +121,10 @@ function makeApi(invoke: Invoke, listen: Listen) {
     setSettings(settings: unknown): Promise<unknown> {
       return invoke('settings.set', { settings })
     },
+    /** One line on the session ('' clears it). */
+    setNote(idOrName: string, note: string): Promise<unknown> {
+      return invoke('session.note', { idOrName, note })
+    },
     renameSession(idOrName: string, newName: string, projectRoot?: string): Promise<unknown> {
       return invoke('session.rename', { idOrName, newName, ...(projectRoot === undefined ? {} : { projectRoot }) })
     },
@@ -186,6 +190,10 @@ function makeApi(invoke: Invoke, listen: Listen) {
     openFolderInEditor(projectRoot: string, sessionId?: string): Promise<{ ok: boolean }> {
       return invoke('folder.openInEditor', { projectRoot, ...(sessionId === undefined ? {} : { sessionId }) })
     },
+    /** Rebuild the menu after Settings → Keyboard changed. */
+    refreshMenu(): Promise<unknown> {
+      return invoke('menu.refresh')
+    },
     /** The font families installed on this Mac, for the font pickers. */
     listFonts(): Promise<Array<{ family: string; mono: boolean }>> {
       return invoke('fonts.list')
@@ -228,7 +236,7 @@ export const cockpitApi: CockpitApi = makeApi(cockpitInvoke, cockpitListen)
 const WINDOW_CHANNELS = new Set<CockpitChannel>([
   'workspace.ensure', 'projects.list', 'projects.pick', 'projects.reorder', 'projects.sessions',
   'projects.close', 'app.badge', 'folder.reveal', 'folder.openInEditor',
-  'terminal.importSources', 'terminal.import', 'fonts.list',
+  'terminal.importSources', 'terminal.import', 'fonts.list', 'menu.refresh',
 ])
 
 /** `payload` with `projectRoot` added, unless the call already names one or is window-wide. */

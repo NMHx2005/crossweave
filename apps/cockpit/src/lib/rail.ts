@@ -20,8 +20,9 @@ export function relativeTime(at: number | null | undefined, now: number): string
 }
 
 /** The row's title: what the agent last said, else the session's name. */
-export function rowTitle(session: Pick<ListedSession, 'name' | 'latestWords'>): string {
-  return session.latestWords ?? session.name
+/** The user's note when there is one, else what the agent last said, else the name. */
+export function rowTitle(session: Pick<ListedSession, 'name' | 'latestWords' | 'note'>): string {
+  return session.note ?? session.latestWords ?? session.name
 }
 
 export type RowState = 'working' | 'asked' | 'failed' | 'idle' | 'stopped' | 'ended'

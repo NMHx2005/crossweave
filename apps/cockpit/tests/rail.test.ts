@@ -14,7 +14,8 @@ describe('relativeTime', () => {
 })
 
 describe('rowTitle', () => {
-  test('what the agent last said, else the session name', () => {
+  test("the user's note first, then what the agent last said, then the name", () => {
+    expect(rowTitle({ name: 'api', latestWords: 'Tracing…', note: 'fix login' })).toBe('fix login')
     expect(rowTitle({ name: 'api', latestWords: "I'll trace the divider." })).toBe("I'll trace the divider.")
     expect(rowTitle({ name: 'api' })).toBe('api')
   })

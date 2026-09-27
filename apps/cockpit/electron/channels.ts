@@ -41,6 +41,8 @@ export const COCKPIT_CHANNELS = [
   'projects.reorder',
   // The command bar's rename and gc.
   'session.rename',
+  // A session's one-line note (shown in the rail instead of the agent's last words).
+  'session.note',
   'workspace.gc',
   'file.read',
   'file.write',
@@ -57,6 +59,8 @@ export const COCKPIT_CHANNELS = [
   'terminal.import',
   // Settings → Appearance / Terminal: the font families installed on this Mac.
   'fonts.list',
+  // Settings saved new shortcuts: rebuild the menu from the settings file.
+  'menu.refresh',
 ] as const
 
 export type CockpitChannel = (typeof COCKPIT_CHANNELS)[number]
