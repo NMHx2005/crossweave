@@ -1,4 +1,5 @@
 import type { AgentProcess, SpawnOptions } from './types.js';
+import { shellEnv } from '../core/shell-env.js';
 
 type BunTerminal = { write(data: string): void; resize(cols: number, rows: number): void; close(): void };
 type BunPtyProcess = { pid: number; exited: Promise<number>; terminal: BunTerminal; kill(signal?: number | NodeJS.Signals): void };
@@ -80,7 +81,7 @@ export function spawnInPty(
   let wrapper: PtyProcess | undefined;
   const proc = Bun.spawn(argv, {
     cwd: opts.cwd,
-    env: { ...process.env, ...opts.env, TERM: 'xterm-256color' },
+    env: shellEnv(process.env, opts.env),
     terminal: {
       cols: opts.cols,
       rows: opts.rows,
