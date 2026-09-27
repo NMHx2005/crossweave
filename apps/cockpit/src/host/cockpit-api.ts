@@ -68,6 +68,10 @@ export const cockpitApi = {
   killSession(idOrName: string, removeWorktree?: boolean): Promise<unknown> {
     return cockpitInvoke('session.kill', { idOrName, removeWorktree })
   },
+  /** Gone from the rail: its worktree and branch deleted (the daemon refuses a live one). */
+  removeSession(idOrName: string): Promise<unknown> {
+    return cockpitInvoke('session.rm', { idOrName })
+  },
   /** `projectRoot`: another open project's (the bridge routes it); the active one's by default. */
   convergeStatus(projectRoot?: string): Promise<unknown> {
     return cockpitInvoke('converge.status', projectRoot === undefined ? undefined : { projectRoot })

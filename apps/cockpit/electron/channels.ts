@@ -11,6 +11,8 @@ export const COCKPIT_CHANNELS = [
   'session.resize',
   'session.stop',
   'session.kill',
+  // Delete: the session's row, worktree and branch (after a kill when it is live).
+  'session.rm',
   'converge.status',
   'land.session',
   'journal.get',

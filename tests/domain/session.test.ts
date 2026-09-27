@@ -314,6 +314,22 @@ describe('SessionManager name reclamation', () => {
     expect(sessions.list(workspaceId)).toHaveLength(0);
   });
 
+  // The cockpit's Delete… on a session in the project folder: kill, then remove.
+  it('removing a shared session drops only its row — the project folder and its branch stay', async () => {
+    await sessions.create({ workspaceId, name: 'here', worktree: false });
+    const { simpleGit } = await import('simple-git');
+    const before = await simpleGit(fx.root).branch();
+    await sessions.kill(workspaceId, 'here', { removeWorktree: false });
+
+    await sessions.remove(workspaceId, 'here');
+
+    expect(sessions.list(workspaceId)).toHaveLength(0);
+    expect(existsSync(join(fx.root, '.git'))).toBe(true);
+    const after = await simpleGit(fx.root).branch();
+    expect(after.current).toBe(before.current);
+    expect(after.all).toEqual(before.all);
+  });
+
   it('refuses to remove a session that is still live', async () => {
     await sessions.create({ workspaceId, name: 'live', worktree: true });
     await expect(sessions.remove(workspaceId, 'live')).rejects.toMatchObject({

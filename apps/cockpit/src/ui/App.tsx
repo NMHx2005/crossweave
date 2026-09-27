@@ -425,6 +425,7 @@ export function App() {
     else if (action === 'changes') openChanges(sessionId)
     else if (action === 'land') void handleLand(sessionId)
     else if (action === 'terminal') void openShell(sessionId)
+    else if (action === 'delete') void handleDelete(sessionId)
     else void handleKill(sessionId)
   }
   const rowActionRef = useRef(rowAction)
@@ -905,6 +906,31 @@ export function App() {
     await runAction(() => cockpitApi.killSession(target.id, removeWorktree))
   }
 
+  /**
+   * Out of the rail for good: a live session is killed first (the daemon refuses to
+   * remove one that runs), then its row, worktree and branch go. A session in the
+   * project folder only loses its row — the folder is the project's.
+   */
+  async function handleDelete(targetId?: string): Promise<void> {
+    const target = sessionById(targetId)
+    if (!target) return
+    const shared = target.branch === null || target.worktreePath === projectRootRef.current
+    const ok = await askConfirm({
+      title: `Delete ${target.name}?`,
+      body: shared
+        ? 'Its shell (and whatever runs in it) ends and the session leaves the rail. It works in the project folder, which stays exactly as it is.'
+        : 'Its shell (and whatever runs in it) ends, and its worktree and branch are deleted. Work that was not landed is lost.',
+      confirmLabel: 'Delete',
+      danger: true,
+    })
+    if (!ok) return
+    await runAction(async () => {
+      if (target.status !== 'dead' && target.status !== 'landed') await cockpitApi.killSession(target.id, false)
+      await cockpitApi.removeSession(target.id)
+    })
+    setLandMessage(`Deleted ${target.name}`)
+  }
+
   function landDeps() {
     return {
       getStatus: async () => parseConvergeStatus(await cockpitApi.convergeStatus()),
@@ -1225,8 +1251,8 @@ type PendingAction =
 /** The launcher the last new session started with, preselected next time. */
 const LAST_LAUNCHER_KEY = 'cw.last-launcher.v1'
 /** Notification choices ('0' off; on unless turned off). */
-const NOTIFY_SOUND_KEY = 'cw.notify-sound.v1'
-const DOCK_BADGE_KEY = 'cw.dock-badge.v1'
+const NOTIFY_SOUND_KEY = 'cw.notify-sound.v1' // gitleaks:allow (a localStorage key name, not a secret)
+const DOCK_BADGE_KEY = 'cw.dock-badge.v1' // gitleaks:allow (a localStorage key name, not a secret)
 
 function readString(key: string): string | undefined {
   try {

@@ -20,7 +20,7 @@ export type ProjectGroup = {
   hideEnded?: boolean
 }
 
-export type RowAction = 'open' | 'stop' | 'changes' | 'land' | 'kill' | 'terminal'
+export type RowAction = 'open' | 'stop' | 'changes' | 'land' | 'kill' | 'delete' | 'terminal'
 
 export type ProjectAction =
   | 'new' | 'terminal-here' | 'land-all' | 'gc' | 'toggle-ended' | 'settings' | 'close' | 'move-up' | 'move-down'
@@ -377,7 +377,10 @@ export function Sidebar(props: SidebarProps) {
             </div>
           ) : null}
           <div class="cockpit-menu__sep" role="separator" />
-          <button type="button" role="menuitem" class="is-danger" onClick={() => rowMenu('kill')}>Kill…</button>
+          {menu.session.status !== 'dead' && menu.session.status !== 'landed' ? (
+            <button type="button" role="menuitem" class="is-danger" onClick={() => rowMenu('kill')}>Kill…</button>
+          ) : null}
+          <button type="button" role="menuitem" class="is-danger" onClick={() => rowMenu('delete')}>Delete…</button>
         </div>
       ) : null}
 

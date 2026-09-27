@@ -18,6 +18,11 @@ describe('cockpit IPC allowlist', () => {
     expect(isCockpitChannel('session.start')).toBe(true)
   })
 
+  // The rail's Delete…: without it a killed session could only be cleared by gc.
+  test('lets the renderer delete a session', () => {
+    expect(isCockpitChannel('session.rm')).toBe(true)
+  })
+
   test('listen events are a closed set', () => {
     expect(COCKPIT_EVENTS.length).toBeGreaterThan(0)
     for (const event of COCKPIT_EVENTS) {
