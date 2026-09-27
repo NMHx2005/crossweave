@@ -1,0 +1,4 @@
+# False positives: localStorage key names ('cw.notify-sound.v1', 'cw.dock-badge.v1'),
+# matched by generic-api-key because the constants end in _KEY. Not secrets.
+src/ui/App.tsx:generic-api-key:1228
+src/ui/App.tsx:generic-api-key:1229

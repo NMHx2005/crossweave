@@ -28,6 +28,7 @@ export const MoreIcon = (p: IconProps) => <Svg {...p}><path d="M4 8h.01M8 8h.01M
 export const GearIcon = (p: IconProps) => (
   <Svg {...p}><circle cx="8" cy="8" r="2" /><path d="M8 1.8v1.7M8 12.5v1.7M1.8 8h1.7M12.5 8h1.7M3.6 3.6l1.2 1.2M11.2 11.2l1.2 1.2M3.6 12.4l1.2-1.2M11.2 4.8l1.2-1.2" /></Svg>
 )
+export const ChevronIcon = (p: IconProps) => <Svg {...p}><path d="M6 4l4 4-4 4" /></Svg>
 export const CloseIcon = (p: IconProps) => <Svg {...p}><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" /></Svg>
 export const SearchIcon = (p: IconProps) => <Svg {...p}><circle cx="7" cy="7" r="4" /><path d="M10 10l3.5 3.5" /></Svg>
 

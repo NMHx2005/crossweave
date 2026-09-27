@@ -89,3 +89,56 @@ export function newlyAsking(
   const before = new Map(prev.map((s) => [s.id, s.activity]))
   return next.filter((s) => s.activity === 'asked' && before.has(s.id) && before.get(s.id) !== 'asked')
 }
+
+/**
+ * The rows a project shows: landed sessions never (their worktree is gone), killed
+ * ones unless the project hides them, and — with a filter typed — only those whose
+ * name, last words, branch or agent contain it.
+ */
+export function visibleRows(sessions: readonly ListedSession[], opts: { hideEnded?: boolean; query?: string } = {}): ListedSession[] {
+  const query = (opts.query ?? '').trim().toLowerCase()
+  return sessions.filter((s) => {
+    if (s.status === 'landed') return false
+    if (opts.hideEnded === true && s.status === 'dead') return false
+    if (query === '') return true
+    return [s.name, s.latestWords, s.branch, s.agent, s.agent ? agentName(s.agent) : undefined]
+      .some((field) => typeof field === 'string' && field.toLowerCase().includes(query))
+  })
+}
+
+/** The git counts as the row shows them: `3` files changed, `↑2` commits to land. */
+export function gitBadge(git: ListedSession['git']): { changed?: string; ahead?: string; title: string } | undefined {
+  if (git === undefined) return undefined
+  const parts: string[] = []
+  const out: { changed?: string; ahead?: string; title: string } = { title: '' }
+  if (git.changed > 0) {
+    out.changed = String(git.changed)
+    parts.push(`${git.changed} uncommitted file${git.changed === 1 ? '' : 's'}`)
+  }
+  if (git.ahead !== null && git.ahead > 0) {
+    out.ahead = `↑${git.ahead}`
+    parts.push(`${git.ahead} commit${git.ahead === 1 ? '' : 's'} to land`)
+  }
+  if (parts.length === 0) return undefined
+  out.title = parts.join(' · ')
+  return out
+}
+
+/**
+ * ⌘1…⌘9's targets: the rail's rows top to bottom, across projects, as the rail shows
+ * them (collapsing a project only folds it away; its sessions keep their numbers).
+ */
+export function jumpTargets(
+  groups: ReadonlyArray<{ projectRoot: string; sessions: readonly ListedSession[]; hideEnded?: boolean }>,
+  query = '',
+): Array<{ projectRoot: string; sessionId: string }> {
+  return groups.flatMap((g) =>
+    railOrder(visibleRows(g.sessions, { hideEnded: g.hideEnded, query })).map((s) => ({ projectRoot: g.projectRoot, sessionId: s.id })))
+}
+
+/** Where a menu opened at (x, y) goes so all of it stays inside the window. */
+export function clampMenu(x: number, y: number, width: number, height: number, viewW: number, viewH: number, margin = 8): { left: number; top: number } {
+  const left = Math.max(margin, Math.min(x, viewW - width - margin))
+  const top = Math.max(margin, Math.min(y, viewH - height - margin))
+  return { left, top }
+}

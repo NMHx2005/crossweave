@@ -36,14 +36,19 @@ export const COCKPIT_CHANNELS = [
   'projects.sessions',
   'projects.close',
   'projects.pick',
+  'projects.reorder',
   // The command bar's rename and gc.
   'session.rename',
   'workspace.gc',
   'file.read',
   'file.write',
   'git.branches',
-  // Handled in the main process, not forwarded: open a file in the user's editor.
+  // Handled in the main process, not forwarded: open a file in the user's editor,
+  // show a project's or session's folder in Finder or the editor, the Dock badge.
   'editor.open',
+  'folder.reveal',
+  'folder.openInEditor',
+  'app.badge',
 ] as const
 
 export type CockpitChannel = (typeof COCKPIT_CHANNELS)[number]

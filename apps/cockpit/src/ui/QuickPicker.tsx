@@ -28,6 +28,8 @@ export type QuickPickerProps = {
   launchers: LauncherOption[]
   /** The launcher chosen last time, preselected when it is still usable. */
   lastLauncher: string | undefined
+  /** A project's own defaults (Project settings): launcher, own worktree or not, base. */
+  defaultsFor: (projectRoot: string) => { launcher?: string; worktree: boolean; base?: string }
   onCreate: (request: NewSessionRequest) => void
   onCancel: () => void
 }
@@ -37,7 +39,8 @@ type Choice = { id: string; label: string; detail: string; usable: boolean; agen
 /**
  * ⌘T: which project, what to start (a plain Terminal, or an agent CLI from Settings —
  * the ones this machine does not have are shown but cannot be picked), a name, and
- * where the worktree starts. The shell opens in the session's worktree at once.
+ * where it works: the project folder unless the project's settings or the checkbox ask
+ * for a worktree of its own. The shell opens there at once.
  */
 export function QuickPicker(props: QuickPickerProps) {
   const { projects, activeRoot, takenNames, branches, launchers } = props
@@ -51,15 +54,17 @@ export function QuickPicker(props: QuickPickerProps) {
       agent: l.id,
     })),
   ]
-  const initial = Math.max(0, choices.findIndex((c) => c.id === props.lastLauncher && c.usable))
+  const preferred = props.defaultsFor(activeRoot)
+  const pick = (id: string | undefined): number => choices.findIndex((c) => c.id === id && c.usable)
+  const initial = Math.max(0, pick(preferred.launcher) >= 0 ? pick(preferred.launcher) : pick(props.lastLauncher))
   const [index, setIndex] = useState(initial)
   const chosen = choices[index] ?? choices[0]!
   const prefix = (id: string): string => (id === 'terminal' ? 'shell' : id)
   const [name, setName] = useState(() => suggestSessionName(prefix(chosen.id), takenNames))
   const [nameTouched, setNameTouched] = useState(false)
   const [projectRoot, setProjectRoot] = useState(activeRoot)
-  const [base, setBase] = useState('')
-  const [isolated, setIsolated] = useState(true)
+  const [base, setBase] = useState(preferred.base ?? '')
+  const [isolated, setIsolated] = useState(preferred.worktree)
   const inputRef = useRef<HTMLInputElement>(null)
   const otherProject = projectRoot !== activeRoot
 
@@ -85,7 +90,7 @@ export function QuickPicker(props: QuickPickerProps) {
       projectRoot,
       name,
       launcher: chosen.id,
-      options: { worktree: isolated, ...(isolated && base !== '' && !otherProject ? { base } : {}) },
+      options: { worktree: isolated, ...(isolated && base !== '' ? { base } : {}) },
     })
   }
 
@@ -124,7 +129,14 @@ export function QuickPicker(props: QuickPickerProps) {
         {projects.length > 1 ? (
           <label class="cockpit-picker__field">
             <span class="cockpit-muted">Project</span>
-            <select value={projectRoot} onChange={(e) => setProjectRoot((e.target as HTMLSelectElement).value)}>
+            <select value={projectRoot} onChange={(e) => {
+              // Another project brings its own defaults.
+              const root = (e.target as HTMLSelectElement).value
+              const d = props.defaultsFor(root)
+              setProjectRoot(root)
+              setIsolated(d.worktree)
+              setBase(d.base ?? '')
+            }}>
               {projects.map((p) => <option key={p.projectRoot} value={p.projectRoot}>{p.name}</option>)}
             </select>
           </label>
@@ -155,6 +167,7 @@ export function QuickPicker(props: QuickPickerProps) {
           <span class="cockpit-muted">Name</span>
           <input
             ref={inputRef}
+            class="cockpit-field--mono"
             value={name}
             onInput={(e) => {
               setNameTouched(true)
@@ -167,6 +180,8 @@ export function QuickPicker(props: QuickPickerProps) {
           <span class="cockpit-muted">Start from</span>
           <select value={base} disabled={!isolated || otherProject} onChange={(e) => setBase((e.target as HTMLSelectElement).value)}>
             <option value="">current HEAD</option>
+            {/* A project's default base, even when it is not among the listed branches. */}
+            {base !== '' && (otherProject || !branches.includes(base)) ? <option value={base}>{base}</option> : null}
             {otherProject ? null : branches.map((b) => <option key={b} value={b}>{b}</option>)}
           </select>
         </label>
@@ -176,8 +191,8 @@ export function QuickPicker(props: QuickPickerProps) {
         </label>
         {error ? <p class="cockpit-error" role="alert">{error}</p> : null}
         <div class="cockpit-picker__actions">
-          <button type="button" onClick={props.onCancel}>Cancel</button>
-          <button type="button" class="is-primary" disabled={error !== null || !chosen.usable} onClick={submit}>
+          <button type="button" class="cockpit-btn" onClick={props.onCancel}>Cancel</button>
+          <button type="button" class="cockpit-btn cockpit-btn--primary" disabled={error !== null || !chosen.usable} onClick={submit}>
             {chosen.id === 'terminal' ? 'Open terminal' : `Start ${chosen.label}`}
           </button>
         </div>

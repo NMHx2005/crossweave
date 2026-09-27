@@ -3,6 +3,10 @@ import type { RecentMenuItem } from './recent-menu'
 
 export type CockpitCommand = 'command-bar' | 'new-agent' | 'jump-attention' | 'open-terminal' | 'open-file' | 'open-browser' | 'open-settings'
   | 'open-project' | 'split-right' | 'split-down' | 'close-pane' | 'toggle-sidebar'
+  /** ⌘1…⌘9: the Nth session down the rail. */
+  | `jump-${1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9}`
+
+const JUMP_KEYS = [1, 2, 3, 4, 5, 6, 7, 8, 9] as const
 
 export interface AppMenuDeps {
   platform: NodeJS.Platform
@@ -49,6 +53,12 @@ export function appMenuTemplate(deps: AppMenuDeps): MenuItemConstructorOptions[]
         { label: 'New Session…', accelerator: 'CmdOrCtrl+T', click: () => deps.command('new-agent') },
         { label: 'Jump to Attention', accelerator: 'CmdOrCtrl+Shift+A', click: () => deps.command('jump-attention') },
         { label: 'Open Terminal', accelerator: 'CmdOrCtrl+Shift+T', click: () => deps.command('open-terminal') },
+        { type: 'separator' },
+        ...JUMP_KEYS.map((n) => ({
+          label: `Go to Session ${n}`,
+          accelerator: `CmdOrCtrl+${n}`,
+          click: () => deps.command(`jump-${n}`),
+        })),
       ],
     },
     {

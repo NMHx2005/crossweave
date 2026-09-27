@@ -19,6 +19,8 @@ export type DaemonBridgeDeps = {
   pickFolder: () => Promise<string | undefined>
   loadSavedRoot: () => string | undefined
   saveRoot: (root: string) => void
+  /** The active project was closed: the next launch opens on the welcome, not on it. */
+  forgetSavedRoot?: () => void
   send: (event: CockpitEvent, payload: unknown) => void
   exists?: (path: string) => boolean
   /** The projects this window lists in its rail, in the order they were opened. */
@@ -27,6 +29,12 @@ export type DaemonBridgeDeps = {
 }
 
 type Attached = { client: DaemonLike; workspace: WorkspaceSnapshot }
+
+/**
+ * What the rail may do to a project that is not on the stage, without switching to it:
+ * rename a session, clean up, land. Anything that opens a pane still switches first.
+ */
+const ROUTABLE = new Set<string>(['session.rename', 'workspace.gc', 'converge.status', 'land.session'])
 
 const FORWARDED = new Set<string>(['session.data', 'session.exit', 'tui.event', 'tui.invalidate', 'terminal.data', 'terminal.exit'])
 
@@ -118,6 +126,7 @@ export class DaemonBridge {
     }
     if (channel === 'projects.sessions') return this.projectSessions(payload)
     if (channel === 'projects.close') return this.closeProject(payload)
+    if (channel === 'projects.reorder') return this.reorder(payload)
     return this.rpc(channel, payload)
   }
 
@@ -150,15 +159,35 @@ export class DaemonBridge {
     return { projectRoot, name: workspace.name, sessions, converge }
   }
 
+  /**
+   * Closing the active project detaches the window from it too; the renderer then
+   * switches to another open project, or shows the welcome when none is left.
+   */
   private closeProject(payload: unknown): { ok: true } {
     const projectRoot = this.rootOf(payload)
-    if (projectRoot === this.projectRoot) throw new Error('The active project cannot be closed; switch to another first')
+    if (projectRoot === this.projectRoot) {
+      this.detach(this.client)
+      this.deps.forgetSavedRoot?.()
+    }
     const next = (this.deps.loadOpenRoots?.() ?? this.openRootsFallback).filter((r) => r !== projectRoot)
     if (this.deps.saveOpenRoots) this.deps.saveOpenRoots(next)
     else this.openRootsFallback = next
     const attached = this.pool.get(projectRoot)
     this.pool.delete(projectRoot)
     attached?.client.close()
+    return { ok: true }
+  }
+
+  /** The rail's order, as the user arranged it: the same projects, nothing added or dropped. */
+  private reorder(payload: unknown): { ok: true } {
+    const roots = asRecord(payload).roots
+    const current = this.deps.loadOpenRoots?.() ?? this.openRootsFallback
+    if (!Array.isArray(roots) || roots.length !== current.length || new Set(roots).size !== roots.length
+      || !roots.every((r) => typeof r === 'string' && current.includes(r))) {
+      throw new Error('roots must be the open projects, reordered')
+    }
+    if (this.deps.saveOpenRoots) this.deps.saveOpenRoots(roots as string[])
+    else this.openRootsFallback = roots as string[]
     return { ok: true }
   }
 
@@ -256,8 +285,15 @@ export class DaemonBridge {
   }
 
   private async rpc(channel: CockpitChannel, payload: unknown): Promise<unknown> {
-    const client = this.client
-    const workspace = this.workspace
+    const { projectRoot: target, ...rest } = asRecord(payload)
+    let client = this.client
+    let workspace = this.workspace
+    if (typeof target === 'string' && target !== this.projectRoot) {
+      if (!ROUTABLE.has(channel)) throw new Error(`${channel} acts on the active project only`)
+      if (!this.openRoots().includes(target)) throw new Error('That project is not open in this window')
+      ;({ client, workspace } = await this.attach(target))
+    }
+    payload = rest
     if (!client || !workspace) {
       throw new Error('Workspace is not attached; invoke workspace.ensure first')
     }

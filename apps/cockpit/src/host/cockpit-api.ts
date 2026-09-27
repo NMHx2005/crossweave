@@ -68,11 +68,12 @@ export const cockpitApi = {
   killSession(idOrName: string, removeWorktree?: boolean): Promise<unknown> {
     return cockpitInvoke('session.kill', { idOrName, removeWorktree })
   },
-  convergeStatus(): Promise<unknown> {
-    return cockpitInvoke('converge.status')
+  /** `projectRoot`: another open project's (the bridge routes it); the active one's by default. */
+  convergeStatus(projectRoot?: string): Promise<unknown> {
+    return cockpitInvoke('converge.status', projectRoot === undefined ? undefined : { projectRoot })
   },
-  landSession(idOrName: string, force?: boolean): Promise<unknown> {
-    return cockpitInvoke('land.session', { idOrName, force })
+  landSession(idOrName: string, force?: boolean, projectRoot?: string): Promise<unknown> {
+    return cockpitInvoke('land.session', { idOrName, force, ...(projectRoot === undefined ? {} : { projectRoot }) })
   },
   /** What this window last had open, so a restart can put it back (Horizon B journal). */
   journalGet(): Promise<unknown> {
@@ -111,11 +112,11 @@ export const cockpitApi = {
   setSettings(settings: unknown): Promise<unknown> {
     return cockpitInvoke('settings.set', { settings })
   },
-  renameSession(idOrName: string, newName: string): Promise<unknown> {
-    return cockpitInvoke('session.rename', { idOrName, newName })
+  renameSession(idOrName: string, newName: string, projectRoot?: string): Promise<unknown> {
+    return cockpitInvoke('session.rename', { idOrName, newName, ...(projectRoot === undefined ? {} : { projectRoot }) })
   },
-  collectGarbage(force: boolean): Promise<unknown> {
-    return cockpitInvoke('workspace.gc', { force })
+  collectGarbage(force: boolean, projectRoot?: string): Promise<{ removed?: string[]; kept?: string[] }> {
+    return cockpitInvoke('workspace.gc', { force, ...(projectRoot === undefined ? {} : { projectRoot }) })
   },
   sessionDiff(idOrName: string): Promise<SessionDiff> {
     return cockpitInvoke('session.diff', { idOrName })
@@ -163,6 +164,22 @@ export const cockpitApi = {
   },
   closeProject(projectRoot: string): Promise<unknown> {
     return cockpitInvoke('projects.close', { projectRoot })
+  },
+  /** The rail's project order: the open projects, rearranged. */
+  reorderProjects(roots: string[]): Promise<unknown> {
+    return cockpitInvoke('projects.reorder', { roots })
+  },
+  /** Finder, at a project's folder — or a session's, with `sessionId`. */
+  revealFolder(projectRoot: string, sessionId?: string): Promise<{ ok: boolean }> {
+    return cockpitInvoke('folder.reveal', { projectRoot, ...(sessionId === undefined ? {} : { sessionId }) })
+  },
+  /** The editor from Settings, opened on a project's or a session's folder. */
+  openFolderInEditor(projectRoot: string, sessionId?: string): Promise<{ ok: boolean }> {
+    return cockpitInvoke('folder.openInEditor', { projectRoot, ...(sessionId === undefined ? {} : { sessionId }) })
+  },
+  /** The Dock's number: sessions waiting for the user (0 clears it). */
+  setBadge(count: number): Promise<unknown> {
+    return cockpitInvoke('app.badge', { count })
   },
   /** The folder picker; null when cancelled. */
   pickProject(): Promise<string | null> {

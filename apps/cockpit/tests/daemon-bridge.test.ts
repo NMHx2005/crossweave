@@ -434,6 +434,7 @@ describe('many projects in one window', () => {
   function multi() {
     const fakes = new Map<string, FakeDaemon>()
     let open: string[] = []
+    let forgot = 0
     const events: Array<{ event: CockpitEvent; payload: unknown }> = []
     const bridge = new DaemonBridge({
       connect: async (root) => {
@@ -448,10 +449,11 @@ describe('many projects in one window', () => {
       saveRoot: () => undefined,
       loadOpenRoots: () => open,
       saveOpenRoots: (roots) => { open = roots },
+      forgetSavedRoot: () => { forgot += 1 },
       exists: () => true,
       send: (event, payload) => { events.push({ event, payload }) },
     })
-    return { bridge, fakes, events, open: () => open }
+    return { bridge, fakes, events, open: () => open, forgotten: () => forgot }
   }
 
   // Switching project used to close the previous daemon connection: a window could
@@ -487,13 +489,55 @@ describe('many projects in one window', () => {
     expect(events).toEqual([{ event: 'project.invalidate', payload: { projectRoot: '/w/api' } }])
   })
 
-  test('closing a project forgets it and drops its connection, but never the active one', async () => {
+  test('closing a project forgets it and drops its connection', async () => {
     const { bridge, fakes, open } = multi()
     await bridge.handle('workspace.ensure', { projectRoot: '/w/api' })
     await bridge.handle('workspace.ensure', { projectRoot: '/w/web' })
     await bridge.handle('projects.close', { projectRoot: '/w/api' })
     expect(open()).toEqual(['/w/web'])
     expect(fakes.get('/w/api')!.closed).toBe(true)
-    await expect(bridge.handle('projects.close', { projectRoot: '/w/web' })).rejects.toThrow(/active/)
+  })
+
+  // The project menu closes the active project too (it used to refuse): the window
+  // detaches, and the next launch starts on the welcome instead of reopening it.
+  test('closing the active project detaches the window and forgets it as the last one', async () => {
+    const { bridge, fakes, open, forgotten } = multi()
+    await bridge.handle('workspace.ensure', { projectRoot: '/w/api' })
+    await bridge.handle('projects.close', { projectRoot: '/w/api' })
+    expect(open()).toEqual([])
+    expect(fakes.get('/w/api')!.closed).toBe(true)
+    expect(forgotten()).toBe(1)
+    expect(await bridge.handle('projects.list')).toEqual({ active: undefined, open: [] })
+    await expect(bridge.handle('session.list', {})).rejects.toThrow(/not attached/)
+  })
+
+  // Renaming, cleaning up or landing in a project off the stage goes to its own daemon.
+  test('routes rename, gc and land to another open project, and nothing else', async () => {
+    const { bridge, fakes } = multi()
+    await bridge.handle('workspace.ensure', { projectRoot: '/w/api' })
+    await bridge.handle('workspace.ensure', { projectRoot: '/w/web' })
+    await bridge.handle('session.rename', { projectRoot: '/w/api', idOrName: 'a', newName: 'b' })
+    // projectRoot names the daemon; it is not passed on.
+    expect(fakes.get('/w/api')!.calls.at(-1)?.params).not.toHaveProperty('projectRoot')
+    expect(fakes.get('/w/api')!.calls.at(-1)).toMatchObject({ method: 'session.rename', params: { idOrName: 'a', newName: 'b', workspaceId: 'ws_/w/api' } })
+    await bridge.handle('workspace.gc', { projectRoot: '/w/api', force: false })
+    expect(fakes.get('/w/api')!.calls.at(-1)).toMatchObject({ method: 'workspace.gc', params: { id: 'ws_/w/api', workspaceId: 'ws_/w/api' } })
+    await expect(bridge.handle('session.kill', { projectRoot: '/w/api', idOrName: 'a' })).rejects.toThrow(/active project only/)
+    await expect(bridge.handle('session.rename', { projectRoot: '/etc', idOrName: 'a', newName: 'b' })).rejects.toThrow(/not open/)
+    // The active project's own root is just the active project.
+    await bridge.handle('session.rename', { projectRoot: '/w/web', idOrName: 'x', newName: 'y' })
+    expect(fakes.get('/w/web')!.calls.at(-1)).toMatchObject({ method: 'session.rename', params: { idOrName: 'x', newName: 'y', workspaceId: 'ws_/w/web' } })
+  })
+
+  test('reorder takes the open projects in a new order, and nothing else', async () => {
+    const { bridge, open } = multi()
+    await bridge.handle('workspace.ensure', { projectRoot: '/w/api' })
+    await bridge.handle('workspace.ensure', { projectRoot: '/w/web' })
+    await bridge.handle('projects.reorder', { roots: ['/w/web', '/w/api'] })
+    expect(open()).toEqual(['/w/web', '/w/api'])
+    for (const roots of [['/w/web'], ['/w/web', '/w/web'], ['/w/web', '/etc'], 'x', [1, 2]]) {
+      await expect(bridge.handle('projects.reorder', { roots })).rejects.toThrow(/reordered/)
+    }
+    expect(open()).toEqual(['/w/web', '/w/api'])
   })
 })

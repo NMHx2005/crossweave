@@ -23,10 +23,14 @@ const err = (line: string) => {
 
 describe('parseCommand', () => {
   // A session is a worktree and a shell; a launcher from Settings may run in it.
-  test('new: a name, an optional launcher, a base, shared', () => {
-    expect(ok('new web')).toEqual({ kind: 'new', name: 'web', launcher: 'terminal', shared: false })
-    expect(ok('new web claude --base main')).toEqual({ kind: 'new', name: 'web', launcher: 'claude', base: 'main', shared: false })
-    expect(ok('new web --shared')).toMatchObject({ shared: true })
+  test('new: a name, an optional launcher, a base, where it works', () => {
+    // No flag: the project's default decides (the project folder unless set).
+    expect(ok('new web')).toEqual({ kind: 'new', name: 'web', launcher: 'terminal' })
+    expect(ok('new web claude --base main')).toEqual({ kind: 'new', name: 'web', launcher: 'claude', base: 'main', worktree: true })
+    expect(ok('new web --shared')).toEqual({ kind: 'new', name: 'web', launcher: 'terminal', worktree: false })
+    expect(ok('new web --worktree')).toEqual({ kind: 'new', name: 'web', launcher: 'terminal', worktree: true })
+    expect(err('new web --worktree --shared')).toMatch(/not both/)
+    expect(err('new web --shared --base main')).toMatch(/worktree/)
   })
 
   test('new: refuses a taken or invalid name, an unknown launcher, and anything extra', () => {

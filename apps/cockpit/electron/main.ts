@@ -15,6 +15,7 @@ import { loadOpenProjects, saveOpenProjects } from './open-projects'
 import { COCKPIT_TOKENS } from '../src/ui/tokens'
 import { appMenuTemplate } from './app-menu'
 import { editorLaunch, resolveLinkTarget } from './editor-open'
+import { badgeCount, folderLaunch, resolveFolder } from './path-target'
 import { loadSettings } from '../../../src/core/settings.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -41,6 +42,12 @@ function saveRoot(root: string): void {
   try {
     pushRecent(root)
     buildMenu()
+  } catch {}
+}
+
+function forgetSavedRoot(): void {
+  try {
+    writeFileSync(savedRootPath(), '{}\n')
   } catch {}
 }
 
@@ -98,6 +105,7 @@ function createBridge(): DaemonBridge {
     pickFolder,
     loadSavedRoot,
     saveRoot,
+    forgetSavedRoot,
     exists: existsSync,
     send: sendToRenderers,
     loadOpenRoots: loadOpenProjects,
@@ -134,6 +142,41 @@ async function openInEditor(bridge: DaemonBridge, payload: unknown): Promise<{ o
   return { ok: true }
 }
 
+async function folderFor(bridge: DaemonBridge, payload: unknown): Promise<string | null> {
+  const { open } = await bridge.handle('projects.list') as { open: string[] }
+  return resolveFolder(payload, open, async (projectRoot) => {
+    const snapshot = await bridge.handle('projects.sessions', { projectRoot }) as { sessions: Array<{ id: string; worktreePath?: string | null }> }
+    return snapshot.sessions
+  })
+}
+
+/** Finder, or the editor from Settings (the in-app editor has no folder view: Finder). */
+async function openFolder(bridge: DaemonBridge, payload: unknown, how: 'reveal' | 'editor'): Promise<{ ok: boolean }> {
+  const folder = await folderFor(bridge, payload)
+  if (folder === null || !existsSync(folder)) return { ok: false }
+  const editor = loadSettings().editor
+  if (how === 'reveal' || editor.kind === 'cockpit') {
+    shell.showItemInFolder(folder)
+    return { ok: true }
+  }
+  const launch = folderLaunch(editor, folder)
+  if (launch.kind === 'url') {
+    await shell.openExternal(launch.url)
+  } else {
+    const [command, ...args] = launch.argv
+    if (command === undefined) return { ok: false }
+    execFile(command, args, () => undefined)
+  }
+  return { ok: true }
+}
+
+function setBadge(payload: unknown): { ok: boolean } {
+  const count = badgeCount(payload)
+  if (count === null) return { ok: false }
+  app.setBadgeCount(count)
+  return { ok: true }
+}
+
 function registerHandlers(bridge: DaemonBridge): void {
   for (const channel of COCKPIT_CHANNELS) {
     ipcMain.handle(channel, async (_event, payload: unknown) => {
@@ -141,6 +184,9 @@ function registerHandlers(bridge: DaemonBridge): void {
         throw new Error(`Disallowed invoke channel: ${channel}`)
       }
       if (channel === 'editor.open') return openInEditor(bridge, payload)
+      if (channel === 'folder.reveal') return openFolder(bridge, payload, 'reveal')
+      if (channel === 'folder.openInEditor') return openFolder(bridge, payload, 'editor')
+      if (channel === 'app.badge') return setBadge(payload)
       return bridge.handle(channel, payload)
     })
   }

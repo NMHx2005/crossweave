@@ -16,6 +16,8 @@ export type ListedSession = {
   activity?: string
   /** Epoch ms of the last output or input. */
   lastActivityAt?: number | null
+  /** Files not yet committed in its folder, and commits not yet landed (null: unknown, e.g. shared). */
+  git?: { changed: number; ahead: number | null }
 }
 
 export function parseSessionList(value: unknown): ListedSession[] {
@@ -39,6 +41,10 @@ export function parseSessionList(value: unknown): ListedSession[] {
     else if (record.agent === null) row.agent = null
     if (typeof record.activity === 'string') row.activity = record.activity
     if (typeof record.lastActivityAt === 'number') row.lastActivityAt = record.lastActivityAt
+    const git = record.git as { changed?: unknown; ahead?: unknown } | undefined
+    if (git !== null && typeof git === 'object' && typeof git.changed === 'number') {
+      row.git = { changed: git.changed, ahead: typeof git.ahead === 'number' ? git.ahead : null }
+    }
     out.push(row)
   }
   return out

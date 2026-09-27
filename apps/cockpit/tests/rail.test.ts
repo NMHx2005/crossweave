@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { agentName, landChip, newlyAsking, railOrder, relativeTime, rowState, rowTitle } from '../src/lib/rail'
+import { agentName, gitBadge, landChip, newlyAsking, railOrder, relativeTime, rowState, rowTitle, visibleRows, jumpTargets, clampMenu } from '../src/lib/rail'
 import { parseSessionList } from '../src/lib/sessions'
 
 describe('relativeTime', () => {
@@ -78,5 +78,67 @@ describe('newlyAsking', () => {
       { id: 'c', name: 'c', activity: 'asked' },
     ]
     expect(newlyAsking(prev, next).map((s) => s.id)).toEqual(['a'])
+  })
+})
+
+describe('visibleRows', () => {
+  const rows = parseSessionList([
+    { id: 'a', name: 'api', status: 'running', latestWords: 'Tracing the divider', agent: 'claude', branch: 'cw/api' },
+    { id: 'b', name: 'web', status: 'dead', branch: 'cw/web' },
+    { id: 'c', name: 'old', status: 'landed' },
+  ])
+  const ids = (list: Array<{ id: string }>): string[] => list.map((s) => s.id)
+
+  test('landed never; killed unless hidden', () => {
+    expect(ids(visibleRows(rows))).toEqual(['a', 'b'])
+    expect(ids(visibleRows(rows, { hideEnded: true }))).toEqual(['a'])
+  })
+
+  test('a filter matches name, last words, branch or agent, ignoring case', () => {
+    expect(ids(visibleRows(rows, { query: 'WEB' }))).toEqual(['b'])
+    expect(ids(visibleRows(rows, { query: 'divider' }))).toEqual(['a'])
+    expect(ids(visibleRows(rows, { query: 'claude code' }))).toEqual(['a'])
+    expect(ids(visibleRows(rows, { query: 'cw/' }))).toEqual(['a', 'b'])
+    expect(ids(visibleRows(rows, { query: '   ' }))).toEqual(['a', 'b'])
+    expect(visibleRows(rows, { query: 'nothing' })).toEqual([])
+  })
+})
+
+describe('gitBadge', () => {
+  test('files changed and commits to land; nothing when both are zero or unknown', () => {
+    expect(gitBadge({ changed: 3, ahead: 2 })).toEqual({ changed: '3', ahead: '↑2', title: '3 uncommitted files · 2 commits to land' })
+    expect(gitBadge({ changed: 1, ahead: null })).toEqual({ changed: '1', title: '1 uncommitted file' })
+    expect(gitBadge({ changed: 0, ahead: 1 })).toEqual({ ahead: '↑1', title: '1 commit to land' })
+    expect(gitBadge({ changed: 0, ahead: 0 })).toBeUndefined()
+    expect(gitBadge(undefined)).toBeUndefined()
+  })
+
+  test('parsed from the daemon list', () => {
+    expect(parseSessionList([{ id: 'a', name: 'a', git: { changed: 2, ahead: null } }])[0]?.git).toEqual({ changed: 2, ahead: null })
+    expect(parseSessionList([{ id: 'a', name: 'a', git: { changed: 'x' } }])[0]?.git).toBeUndefined()
+  })
+})
+
+describe('jumpTargets', () => {
+  test('rows top to bottom across projects, in rail order, honoring hidden and filtered rows', () => {
+    const api = parseSessionList([
+      { id: 'a1', name: 'one', status: 'idle', lastActivityAt: 1 },
+      { id: 'a2', name: 'two', status: 'running', activity: 'asked' },
+      { id: 'a3', name: 'gone', status: 'dead' },
+    ])
+    const web = parseSessionList([{ id: 'w1', name: 'web', status: 'running' }])
+    const groups = [{ projectRoot: '/api', sessions: api, hideEnded: true }, { projectRoot: '/web', sessions: web }]
+    expect(jumpTargets(groups).map((t) => t.sessionId)).toEqual(['a2', 'a1', 'w1'])
+    expect(jumpTargets(groups, 'web')).toEqual([{ projectRoot: '/web', sessionId: 'w1' }])
+    expect(jumpTargets([])).toEqual([])
+  })
+})
+
+describe('clampMenu', () => {
+  test('stays inside the window, with a margin', () => {
+    expect(clampMenu(100, 100, 200, 300, 1000, 800)).toEqual({ left: 100, top: 100 })
+    expect(clampMenu(900, 700, 200, 300, 1000, 800)).toEqual({ left: 792, top: 492 })
+    // Taller than the window: pinned to the top margin.
+    expect(clampMenu(10, 10, 200, 900, 1000, 800)).toEqual({ left: 10, top: 8 })
   })
 })

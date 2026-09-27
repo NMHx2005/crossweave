@@ -16,7 +16,8 @@ export type CommandContext = {
 }
 
 export type Command =
-  | { kind: 'new'; name: string; launcher: string; base?: string; shared: boolean }
+  /** `worktree` undefined: the project's default (Project settings; the project folder unless set). */
+  | { kind: 'new'; name: string; launcher: string; base?: string; worktree?: boolean }
   | { kind: 'start'; session: string }
   | { kind: 'stop'; session: string }
   | { kind: 'kill'; session: string; removeWorktree: boolean }
@@ -39,7 +40,7 @@ type ArgKind = 'session' | 'new' | 'none'
 export type CommandSpec = { name: string; aliases?: string[]; usage: string; summary: string; arg: ArgKind }
 
 export const COMMANDS: readonly CommandSpec[] = [
-  { name: 'new', usage: 'new <name> [launcher] [--base <ref>] [--shared]', summary: 'A worktree and a shell in it, optionally running a launcher', arg: 'new' },
+  { name: 'new', usage: 'new <name> [launcher] [--worktree | --shared] [--base <ref>]', summary: "A session and a shell in it — in the project folder unless the project's settings or --worktree say otherwise", arg: 'new' },
   { name: 'start', usage: 'start [session]', summary: "Open the session's shell again", arg: 'session' },
   { name: 'stop', usage: 'stop [session]', summary: 'Close the shell (and what runs in it); the worktree stays', arg: 'session' },
   { name: 'kill', usage: 'kill [session] [--rm]', summary: 'End the session; --rm also deletes its worktree', arg: 'session' },
@@ -95,7 +96,7 @@ export function parseCommand(line: string, ctx: CommandContext): ParsedCommand {
 
   switch (spec.name) {
     case 'new': {
-      const bad = allowOnly('--base', '--shared')
+      const bad = allowOnly('--base', '--shared', '--worktree')
       if (bad !== undefined) return fail(`new does not take ${bad}`)
       // `--base <ref>` consumes the word after it.
       const baseAt = words.indexOf('--base')
@@ -112,9 +113,14 @@ export function parseCommand(line: string, ctx: CommandContext): ParsedCommand {
       const nameError = sessionNameError(name)
       if (nameError !== null) return fail(`Session name: ${nameError}`)
       if (ctx.sessions.some((s) => s.name === name)) return fail(`A session named ${name} exists`)
+      const shared = flags.includes('--shared')
+      if (shared && flags.includes('--worktree')) return fail('Give --worktree or --shared, not both')
+      if (shared && base !== undefined) return fail('--base starts a worktree; a shared session works on the project folder as it is')
+      // A base only means something for a worktree, so naming one asks for a worktree.
+      const worktree = shared ? false : flags.includes('--worktree') || base !== undefined ? true : undefined
       return {
         ok: true,
-        command: { kind: 'new', name, launcher, shared: flags.includes('--shared'), ...(base === undefined ? {} : { base }) },
+        command: { kind: 'new', name, launcher, ...(worktree === undefined ? {} : { worktree }), ...(base === undefined ? {} : { base }) },
       }
     }
     case 'start':

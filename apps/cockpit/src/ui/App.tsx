@@ -11,7 +11,10 @@ import { rememberLine, type Command } from '../lib/commands'
 import { QuickOpen } from './QuickOpen'
 import { FilePane } from './FilePane'
 import { BrowserPane } from './BrowserPane'
-import { SettingsPanel, type UserSettings } from './SettingsPanel'
+import { SettingsPanel, type NotifyPrefs, type UserSettings } from './SettingsPanel'
+import { ProjectSettings } from './ProjectSettings'
+import { moveProject, projectLabel, readPrefs, withPrefs, writePrefs, type PrefsMap, type ProjectPrefs } from '../lib/project-prefs'
+import { suggestSessionName } from '../lib/quick-picker'
 import { readColors, writeColors, type SessionColor } from '../lib/colors'
 import {
   deriveAttention,
@@ -63,10 +66,10 @@ import {
   type SplitDir,
   type StageState,
 } from '../lib/layout'
-import { Sidebar, type ProjectGroup, type RowAction } from './Sidebar'
+import { Sidebar, type FolderHow, type ProjectAction, type ProjectGroup, type Renaming, type RowAction } from './Sidebar'
 import { Stage, type StageStatus } from './Stage'
 import { sessionsThatStartedRunning } from '../lib/sessions'
-import { agentName, newlyAsking } from '../lib/rail'
+import { agentName, jumpTargets, newlyAsking } from '../lib/rail'
 
 const EMPTY_CONVERGE: ConvergeStatus = { ready: [], unknown: [], blocked: [] }
 
@@ -120,6 +123,18 @@ export function App() {
   } | null>(null)
   /** The launchers a new session can start with, as of the last picker or command bar. */
   const [launchers, setLaunchers] = useState<LauncherOption[]>([])
+  /** Per-project display name, color and new-session defaults (this window's view). */
+  const [prefs, setPrefs] = useState<PrefsMap>(readPrefs)
+  const [railQuery, setRailQuery] = useState('')
+  const [renaming, setRenaming] = useState<Renaming | null>(null)
+  /** Non-null while a project's settings are open. */
+  const [projectSettings, setProjectSettings] = useState<{ projectRoot: string; launchers: LauncherOption[]; branches: string[] } | null>(null)
+  const [notify, setNotify] = useState<NotifyPrefs>(() => ({
+    sound: readString(NOTIFY_SOUND_KEY) !== '0',
+    dockBadge: readString(DOCK_BADGE_KEY) !== '0',
+  }))
+  const notifyRef = useRef(notify)
+  notifyRef.current = notify
   const [paneAttachEpoch, setPaneAttachEpoch] = useState(0)
   const [paneAttachBumps, setPaneAttachBumps] = useState<Record<string, number>>({})
   const lastJournalRef = useRef('')
@@ -248,6 +263,7 @@ export function App() {
     else if (command === 'open-file') void handleOpenFile()
     else if (command === 'open-browser') handleOpenBrowser()
     else if (command === 'open-settings') void handleOpenSettings()
+    else if (/^jump-[1-9]$/.test(command)) jumpTo(Number(command.slice('jump-'.length)))
   }
   useEffect(() => cockpitApi.onCommand((payload) => {
     const command = (payload as { command?: unknown } | null)?.command
@@ -259,6 +275,7 @@ export function App() {
       const note = new Notification(`${session.name} is waiting for you`, {
         body: session.latestWords ?? agentName(session.agent),
         tag: `cw-asked-${session.id}`,
+        silent: !notifyRef.current.sound,
       })
       note.onclick = () => {
         window.focus()
@@ -295,6 +312,19 @@ export function App() {
       clearInterval(tick)
     }
   }, [refreshProjects])
+
+  // The Dock counts the sessions waiting for you, in every open project. Sent only on a
+  // change: this runs on every list.
+  const badgeRef = useRef(-1)
+  useEffect(() => {
+    const all = [...sessions, ...Object.values(snapshots).flatMap((snap) => snap.sessions)]
+    const count = notify.dockBadge
+      ? all.filter((s) => s.activity === 'asked' && (s.status === 'running' || s.status === 'waiting')).length
+      : 0
+    if (badgeRef.current === count) return
+    badgeRef.current = count
+    void cockpitApi.setBadge(count).catch(() => undefined)
+  }, [sessions, snapshots, notify.dockBadge])
 
   /** The session behind the focused pane of the active tab — what the rail's buttons act on. */
   const focusedId = useMemo(() => {
@@ -394,6 +424,7 @@ export function App() {
     else if (action === 'stop') void handleStop(sessionId)
     else if (action === 'changes') openChanges(sessionId)
     else if (action === 'land') void handleLand(sessionId)
+    else if (action === 'terminal') void openShell(sessionId)
     else void handleKill(sessionId)
   }
   const rowActionRef = useRef(rowAction)
@@ -414,13 +445,154 @@ export function App() {
     if (root !== null) await switchProject(root)
   }
 
+  /**
+   * Out of the rail — its daemon and sessions keep running, and opening the folder
+   * again brings them back. Closing the one on the stage moves to the next open
+   * project, or to the welcome when it was the last.
+   */
   async function closeProject(projectRoot: string): Promise<void> {
+    const wasActive = projectRoot === projectRootRef.current
     try {
       await cockpitApi.closeProject(projectRoot)
     } catch (err) {
       setLandMessage(plainErrorMessage(err))
+      return
     }
-    await refreshProjects()
+    if (!wasActive) {
+      setLandMessage(`Closed ${labelOf(projectRoot)} — its sessions keep running`)
+      await refreshProjects()
+      return
+    }
+    const next = openRoots.find((root) => root !== projectRoot)
+    if (next !== undefined) await switchProject(next)
+    else window.location.reload()
+  }
+
+  function labelOf(projectRoot: string): string {
+    return projectLabel(prefs[projectRoot], snapshots[projectRoot]?.name ?? baseName(projectRoot))
+  }
+
+  function updatePrefs(projectRoot: string, patch: Partial<Record<keyof ProjectPrefs, unknown>>): void {
+    setPrefs((current) => {
+      const next = withPrefs(current, projectRoot, patch)
+      writePrefs(next)
+      return next
+    })
+  }
+
+  /** What a new session in `projectRoot` starts as, unless the picker or a flag says otherwise. */
+  function defaultsFor(projectRoot: string): { launcher?: string; worktree: boolean; base?: string } {
+    const p = prefs[projectRoot]
+    return {
+      worktree: p?.worktree === true,
+      ...(p?.launcher === undefined ? {} : { launcher: p.launcher }),
+      ...(p?.base === undefined ? {} : { base: p.base }),
+    }
+  }
+
+  async function reorderProjects(next: string[]): Promise<void> {
+    setOpenRoots(next)
+    try {
+      await cockpitApi.reorderProjects(next)
+    } catch (err) {
+      setLandMessage(plainErrorMessage(err))
+      await refreshProjects()
+    }
+  }
+
+  function onProjectAction(projectRoot: string, action: ProjectAction): void {
+    switch (action) {
+      case 'new': onRailNew(projectRoot); return
+      case 'terminal-here': void terminalHere(projectRoot); return
+      case 'land-all': void handleLandAll(projectRoot); return
+      case 'gc': void cleanUp(projectRoot); return
+      case 'toggle-ended': updatePrefs(projectRoot, { hideEnded: prefs[projectRoot]?.hideEnded === true ? undefined : true }); return
+      case 'settings': void openProjectSettings(projectRoot); return
+      case 'close': void closeProject(projectRoot); return
+      case 'move-up': void reorderProjects(moveProject(openRoots, projectRoot, -1)); return
+      case 'move-down': void reorderProjects(moveProject(openRoots, projectRoot, 1)); return
+    }
+  }
+
+  /** A Terminal session in the project folder itself (no worktree), opened at once. */
+  async function terminalHere(projectRoot: string): Promise<void> {
+    const taken = (projectRoot === projectRootRef.current ? sessions : snapshots[projectRoot]?.sessions ?? []).map((s) => s.name)
+    const name = suggestSessionName('shell', taken)
+    if (projectRoot === projectRootRef.current) await createAndOpen(name, { worktree: false }, 'terminal')
+    else await switchProject(projectRoot, { kind: 'create', name, options: { worktree: false }, launcher: 'terminal' })
+  }
+
+  async function cleanUp(projectRoot: string): Promise<void> {
+    const label = labelOf(projectRoot)
+    const ok = await askConfirm({
+      title: `Clean up ended sessions in ${label}?`,
+      body: 'Deletes the worktrees and branches of sessions that were landed, and of killed ones with nothing left to land. A killed session still holding unlanded work is kept.',
+      confirmLabel: 'Clean up',
+    })
+    if (!ok) return
+    const active = projectRoot === projectRootRef.current
+    try {
+      const result = await cockpitApi.collectGarbage(false, active ? undefined : projectRoot)
+      const removed = result?.removed?.length ?? 0
+      const kept = result?.kept?.length ?? 0
+      setLandMessage(`${label}: cleaned up ${removed === 0 ? 'nothing' : `${removed} worktree${removed === 1 ? '' : 's'}`}${kept > 0 ? `; kept ${kept} with unlanded work` : ''}`)
+    } catch (err) {
+      setLandMessage(plainErrorMessage(err))
+    }
+    if (active) await load()
+    else await refreshProjects(projectRoot)
+  }
+
+  async function openProjectSettings(projectRoot: string): Promise<void> {
+    const active = projectRoot === projectRootRef.current
+    const [launcherList, branchList] = await Promise.all([
+      cockpitApi.listLaunchers().catch(() => [] as LauncherOption[]),
+      active ? cockpitApi.listBranches().catch(() => [] as string[]) : Promise.resolve([] as string[]),
+    ])
+    setProjectSettings({ projectRoot, launchers: launcherList, branches: branchList })
+  }
+
+  /** Renamed in place, in whichever open project it lives (the bridge routes it). */
+  async function renameSessionIn(projectRoot: string, sessionId: string, name: string): Promise<string | null> {
+    const active = projectRoot === projectRootRef.current
+    try {
+      await cockpitApi.renameSession(sessionId, name, active ? undefined : projectRoot)
+    } catch (err) {
+      return plainErrorMessage(err)
+    }
+    if (active) await load()
+    else await refreshProjects(projectRoot)
+    return null
+  }
+
+  async function onFolder(projectRoot: string, sessionId: string | null, how: FolderHow): Promise<void> {
+    if (how === 'copy') {
+      const list = projectRoot === projectRootRef.current ? sessions : snapshots[projectRoot]?.sessions ?? []
+      const path = sessionId === null ? projectRoot : list.find((s) => s.id === sessionId)?.worktreePath
+      if (typeof path !== 'string') return
+      try {
+        await navigator.clipboard.writeText(path)
+        setLandMessage(`Copied ${path}`)
+      } catch {
+        setLandMessage('Could not reach the clipboard')
+      }
+      return
+    }
+    const id = sessionId ?? undefined
+    const result = await (how === 'reveal' ? cockpitApi.revealFolder(projectRoot, id) : cockpitApi.openFolderInEditor(projectRoot, id))
+      .catch(() => ({ ok: false }))
+    if (!result.ok) setLandMessage(how === 'reveal' ? 'That folder is gone' : 'Could not open the editor — check Settings (⌘,)')
+  }
+
+  function jumpTo(n: number): void {
+    const target = jumpTargets(railGroups(), railQuery)[n - 1]
+    if (target) onRailAction(target.projectRoot, target.sessionId, 'focus')
+  }
+
+  function onReorder(from: string, to: string): void {
+    const at = openRoots.indexOf(to)
+    if (at < 0 || !openRoots.includes(from)) return
+    void reorderProjects(moveProject(openRoots, from, at - openRoots.indexOf(from)))
   }
 
   function toggleSidebar(): void {
@@ -533,13 +705,15 @@ export function App() {
     })
     try {
       switch (command.kind) {
-        case 'new':
+        case 'new': {
           setCommandBarOpen(false)
-          await createAndOpen(command.name, {
-            worktree: !command.shared,
-            ...(command.base === undefined ? {} : { base: command.base }),
-          }, command.launcher)
+          // No --worktree / --shared: the project's own default (the project folder unless set).
+          const defaults = defaultsFor(projectRootRef.current)
+          const worktree = command.worktree ?? defaults.worktree
+          const base = command.base ?? (worktree ? defaults.base : undefined)
+          await createAndOpen(command.name, { worktree, ...(base === undefined ? {} : { base }) }, command.launcher)
           return null
+        }
         case 'start':
           await cockpitApi.resumeSession(command.session)
           await load()
@@ -776,15 +950,17 @@ export function App() {
     }
   }
 
-  async function handleLandAll(): Promise<void> {
+  /** Every ready session, in order — in the active project, or in `projectRoot` from the rail. */
+  async function handleLandAll(projectRoot?: string): Promise<void> {
     if (landBusy) return
+    const other = projectRoot !== undefined && projectRoot !== projectRootRef.current ? projectRoot : undefined
     setLandBusy(true)
     setLandMessage('landing ready sessions…')
     try {
       const landedSoFar: string[] = []
       const result = await landAllReady({
-        getStatus: async () => parseConvergeStatus(await cockpitApi.convergeStatus()),
-        land: async (name) => (await cockpitApi.landSession(name)) as LandResult,
+        getStatus: async () => parseConvergeStatus(await cockpitApi.convergeStatus(other)),
+        land: async (name) => (await cockpitApi.landSession(name, undefined, other)) as LandResult,
         onProgress: (name) => {
           landedSoFar.push(name)
           setLandMessage(`landed ${landedSoFar.join(', ')}`)
@@ -795,12 +971,13 @@ export function App() {
           `landed ${result.landed.join(', ') || '(none)'}; stopped at ${result.failedAt}: ${result.error ?? 'failed'}`,
         )
       } else if (result.landed.length === 0) {
-        const unknown = converge.unknown[0]
+        const unknown = other === undefined ? converge.unknown[0] : undefined
         setLandMessage(unknown ? `nothing to land: ${unknown.reason}` : 'nothing to land')
       } else {
         setLandMessage(`landed ${result.landed.join(', ')}`)
       }
-      await load()
+      if (other === undefined) await load()
+      else await refreshProjects(other)
     } catch (err) {
       setLandMessage(err instanceof Error ? err.message : String(err))
     } finally {
@@ -814,13 +991,18 @@ export function App() {
     const roots = openRoots.includes(active) || active === '' ? openRoots : [...openRoots, active]
     const groups: ProjectGroup[] = []
     for (const root of roots) {
+      const p = prefs[root]
+      const view = {
+        ...(p?.color === undefined ? {} : { color: p.color }),
+        ...(p?.hideEnded === true ? { hideEnded: true } : {}),
+      }
       if (root === active) {
-        groups.push({ projectRoot: root, name: baseName(root), active: true, sessions, attentionById })
+        groups.push({ projectRoot: root, name: projectLabel(p, baseName(root)), active: true, sessions, attentionById, ...view })
         continue
       }
       const snap = snapshots[root]
       if (!snap) {
-        groups.push({ projectRoot: root, name: baseName(root), active: false, sessions: [], attentionById: {} })
+        groups.push({ projectRoot: root, name: projectLabel(p, baseName(root)), active: false, sessions: [], attentionById: {}, ...view })
         continue
       }
       const landability = parseLandabilityByName(snap.converge)
@@ -828,7 +1010,7 @@ export function App() {
       for (const session of snap.sessions) {
         attention[session.id] = deriveAttention({ status: session.status ?? '', landability: landability.get(session.name) })
       }
-      groups.push({ projectRoot: root, name: snap.name, active: false, sessions: snap.sessions, attentionById: attention })
+      groups.push({ projectRoot: root, name: projectLabel(p, snap.name), active: false, sessions: snap.sessions, attentionById: attention, ...view })
     }
     return groups
   }
@@ -862,6 +1044,7 @@ export function App() {
           branches={branches}
           launchers={launchers}
           lastLauncher={readString(LAST_LAUNCHER_KEY)}
+          defaultsFor={defaultsFor}
           onCreate={(request) => {
             void handlePickerCreate(request)
           }}
@@ -873,8 +1056,31 @@ export function App() {
           initial={settingsOpen.settings}
           availability={settingsOpen.availability}
           defaults={settingsOpen.defaults}
+          notify={notify}
+          onNotify={(next) => {
+            setNotify(next)
+            writeString(NOTIFY_SOUND_KEY, next.sound ? '1' : '0')
+            writeString(DOCK_BADGE_KEY, next.dockBadge ? '1' : '0')
+          }}
           onSave={saveSettings}
           onClose={() => setSettingsOpen(null)}
+        />
+      ) : null}
+      {projectSettings !== null ? (
+        <ProjectSettings
+          projectRoot={projectSettings.projectRoot}
+          folderName={baseName(projectSettings.projectRoot)}
+          initial={prefs[projectSettings.projectRoot] ?? {}}
+          launchers={projectSettings.launchers}
+          branches={projectSettings.branches}
+          onSave={(next) => {
+            updatePrefs(projectSettings.projectRoot, {
+              label: next.label, color: next.color, launcher: next.launcher,
+              worktree: next.worktree, base: next.base, hideEnded: next.hideEnded,
+            })
+            setProjectSettings(null)
+          }}
+          onClose={() => setProjectSettings(null)}
         />
       ) : null}
       {quickOpen !== null ? (
@@ -898,8 +1104,17 @@ export function App() {
           onToggleSidebar={toggleSidebar}
           onNew={onRailNew}
           onOpenProject={() => { void openProject() }}
-          onCloseProject={(root) => { void closeProject(root) }}
           onCommandBar={openCommandBar}
+          query={railQuery}
+          onQuery={setRailQuery}
+          renaming={renaming}
+          onRenaming={setRenaming}
+          onProjectAction={onProjectAction}
+          onProjectColor={(root, color) => updatePrefs(root, { color: color ?? undefined })}
+          onRenameProject={(root, label) => updatePrefs(root, { label: label === '' ? undefined : label })}
+          onRenameSession={renameSessionIn}
+          onReorder={onReorder}
+          onFolder={(root, id, how) => { void onFolder(root, id, how) }}
           onSettings={() => { void handleOpenSettings() }}
           onSelect={(root, id) => onRailAction(root, id, 'focus')}
           onAction={onRailAction}
@@ -914,7 +1129,7 @@ export function App() {
       ) : null}
       {status === 'welcome' ? (
         <Welcome
-          projects={openRoots}
+          projects={openRoots.map((root) => ({ root, label: labelOf(root) }))}
           onOpen={() => { void openProject() }}
           onSwitch={(root) => { void switchProject(root) }}
         />
@@ -1009,6 +1224,9 @@ type PendingAction =
 
 /** The launcher the last new session started with, preselected next time. */
 const LAST_LAUNCHER_KEY = 'cw.last-launcher.v1'
+/** Notification choices ('0' off; on unless turned off). */
+const NOTIFY_SOUND_KEY = 'cw.notify-sound.v1'
+const DOCK_BADGE_KEY = 'cw.dock-badge.v1'
 
 function readString(key: string): string | undefined {
   try {
@@ -1030,20 +1248,20 @@ function writeString(key: string, value: string): void {
  * The app opened with no project yet (from the Dock, Spotlight): open one, or go back
  * to one this window had open.
  */
-function Welcome({ projects, onOpen, onSwitch }: { projects: string[]; onOpen: () => void; onSwitch: (root: string) => void }) {
+function Welcome({ projects, onOpen, onSwitch }: { projects: Array<{ root: string; label: string }>; onOpen: () => void; onSwitch: (root: string) => void }) {
   return (
     <main class="cockpit-welcome" aria-label="Welcome">
       <div class="cockpit-welcome__drag" />
       <div class="cockpit-welcome__body">
         <h1>crossweave</h1>
-        <p class="cockpit-muted">Open a project folder to start sessions in it — a terminal, or an agent CLI, each in its own worktree.</p>
-        <button type="button" class="cockpit-welcome__open" onClick={onOpen}>Open project…</button>
+        <p class="cockpit-muted">Open a project folder to start sessions in it — a terminal or an agent CLI, in the project folder or in a worktree of its own.</p>
+        <button type="button" class="cockpit-btn cockpit-btn--primary cockpit-welcome__open" onClick={onOpen}>Open project…</button>
         {projects.length > 0 ? (
           <ul class="cockpit-welcome__recent">
-            {projects.map((root) => (
+            {projects.map(({ root, label }) => (
               <li key={root}>
                 <button type="button" onClick={() => onSwitch(root)} title={root}>
-                  <strong>{baseName(root)}</strong>
+                  <strong>{label}</strong>
                   <span class="cockpit-muted">{root}</span>
                 </button>
               </li>

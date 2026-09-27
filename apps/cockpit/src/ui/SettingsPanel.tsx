@@ -27,12 +27,17 @@ const EDITORS: Array<{ kind: EditorSetting['kind']; label: string }> = [
  * Saved per user by the daemon, which validates everything again; this form only shows
  * its answer.
  */
-export function SettingsPanel({ initial, availability, defaults, onSave, onClose }: {
+export type NotifyPrefs = { sound: boolean; dockBadge: boolean }
+
+export function SettingsPanel({ initial, availability, defaults, notify, onNotify, onSave, onClose }: {
   initial: UserSettings
   /** Launcher id → whether this machine has its program (from launchers.list). */
   availability: Record<string, boolean>
   /** The shipped form of each built-in, for Reset. */
   defaults: Record<string, { label: string; command: string }>
+  /** This window's own notification choices: applied at once, not with Save. */
+  notify: NotifyPrefs
+  onNotify: (next: NotifyPrefs) => void
   onSave: (next: UserSettings) => Promise<string | null>
   onClose: () => void
 }) {
@@ -101,7 +106,7 @@ export function SettingsPanel({ initial, availability, defaults, onSave, onClose
                   <span class={`cockpit-launcher__state${available ? ' is-ok' : ''}`}>
                     {available === undefined ? 'unsaved' : available ? 'installed' : 'not installed'}
                   </span>
-                  <button type="button" class="cockpit-launcher__edit" aria-expanded={expanded}
+                  <button type="button" class="cockpit-btn cockpit-btn--sm cockpit-launcher__edit" aria-expanded={expanded}
                     onClick={() => setOpen(expanded ? null : l.id)}>{expanded ? 'Done' : 'Edit'}</button>
                 </div>
                 {expanded ? (
@@ -130,7 +135,7 @@ export function SettingsPanel({ initial, availability, defaults, onSave, onClose
                     </label>
                     <div class="cockpit-launcher__actions">
                       {l.builtin ? (
-                        <button type="button" onClick={() => {
+                        <button type="button" class="cockpit-btn cockpit-btn--sm" onClick={() => {
                           const d = defaults[l.id]
                           if (d) update(l.id, { label: d.label, command: d.command, env: {} })
                           const rest = { ...envText }
@@ -138,7 +143,7 @@ export function SettingsPanel({ initial, availability, defaults, onSave, onClose
                           setEnvText(rest)
                         }}>Reset to default</button>
                       ) : (
-                        <button type="button" class="is-danger" onClick={() => {
+                        <button type="button" class="cockpit-btn cockpit-btn--sm cockpit-btn--danger" onClick={() => {
                           setDraft({ ...draft, launchers: draft.launchers.filter((x) => x.id !== l.id) })
                           setOpen(null)
                         }}>Delete</button>
@@ -150,7 +155,7 @@ export function SettingsPanel({ initial, availability, defaults, onSave, onClose
             )
           })}
         </ul>
-        <button type="button" class="cockpit-launchers__add" onClick={addLauncher}>+ Add launcher</button>
+        <button type="button" class="cockpit-btn cockpit-btn--ghost cockpit-launchers__add" onClick={addLauncher}>+ Add launcher</button>
 
         <h3 class="cockpit-settings__heading">Cmd+click opens files in</h3>
         <div class="cockpit-settings__editors" role="radiogroup" aria-label="Editor">
@@ -178,10 +183,21 @@ export function SettingsPanel({ initial, availability, defaults, onSave, onClose
           </label>
         ) : null}
 
+        <h3 class="cockpit-settings__heading">When a session waits for you</h3>
+        <p class="cockpit-muted">A desktop notification when the window is not in front; these apply right away.</p>
+        <label class="cockpit-settings__toggle">
+          <input type="checkbox" checked={notify.sound} onChange={(e) => onNotify({ ...notify, sound: (e.target as HTMLInputElement).checked })} />
+          <span>Play a sound</span>
+        </label>
+        <label class="cockpit-settings__toggle">
+          <input type="checkbox" checked={notify.dockBadge} onChange={(e) => onNotify({ ...notify, dockBadge: (e.target as HTMLInputElement).checked })} />
+          <span>Count them on the Dock icon</span>
+        </label>
+
         {error ? <p class="cockpit-error" role="alert">{error}</p> : null}
         <div class="cockpit-picker__actions">
-          <button type="button" onClick={onClose}>Cancel</button>
-          <button type="button" class="is-primary" disabled={saving} onClick={() => { void save() }}>Save</button>
+          <button type="button" class="cockpit-btn" onClick={onClose}>Cancel</button>
+          <button type="button" class="cockpit-btn cockpit-btn--primary" disabled={saving} onClick={() => { void save() }}>Save</button>
         </div>
       </div>
     </div>

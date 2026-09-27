@@ -44,9 +44,17 @@ describe('agent shortcuts', () => {
   test('⌘K opens the command bar, ⌘T the agent picker, ⌘⇧A jumps to attention, from the menu', () => {
     const fired: string[] = []
     const menu = appMenuTemplate({ platform: 'darwin', recent: [], command: (c) => fired.push(c) })
-    const agent = menu.find((m) => m.label === 'Session')!.submenu as Array<{ label: string; accelerator?: string; click?: () => void }>
+    const agent = (menu.find((m) => m.label === 'Session')!.submenu as Array<{ label: string; accelerator?: string; click?: () => void }>).slice(0, 4)
     expect(agent.map((i) => i.accelerator)).toEqual(['CmdOrCtrl+K', 'CmdOrCtrl+T', 'CmdOrCtrl+Shift+A', 'CmdOrCtrl+Shift+T'])
     for (const item of agent) item.click?.()
     expect(fired).toEqual(['command-bar', 'new-agent', 'jump-attention', 'open-terminal'])
+  })
+
+  test('⌘1…⌘9 jump to the Nth session', () => {
+    const fired: string[] = []
+    const menu = appMenuTemplate({ platform: 'darwin', recent: [], command: (c) => fired.push(c) })
+    const items = menu.find((m) => m.label === 'Session')!.submenu as Array<{ accelerator?: string; click?: () => void }>
+    for (const n of [1, 5, 9]) items.find((i) => i.accelerator === `CmdOrCtrl+${n}`)?.click?.()
+    expect(fired).toEqual(['jump-1', 'jump-5', 'jump-9'])
   })
 })
