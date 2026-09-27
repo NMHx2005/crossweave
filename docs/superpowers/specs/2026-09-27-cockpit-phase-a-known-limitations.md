@@ -26,8 +26,12 @@
   that rings on completion is reported as asking. The rail's colors are unchanged
   (quiet agent = amber).
 - **Only Claude Code and Codex logs are read**; other agents show no usage.
-- **Usage in the project folder is the folder's**: sessions working there share it, so it
-  shows once, on the project heading, not per session.
+- **No usage for sessions in the project folder** (changed 2026-09-28): every Claude run
+  there — in crossweave or in a terminal outside it — writes to the same log folder, and
+  nothing in a log says which shell ran it. Counting the folder's logs showed 326M tokens
+  on a session nobody had used. Only sessions in their own worktree show figures, and the
+  project heading sums those. Attributing by when an agent ran under a session's shell
+  was considered and rejected: it misattributes whenever another Claude runs there too.
 - **No prices ship**: costs appear only for models the user priced; with some models
   unpriced the figure is a floor ("$4.10+").
 - **A log over 64 MB is read from its last 64 MB** on the first read.
