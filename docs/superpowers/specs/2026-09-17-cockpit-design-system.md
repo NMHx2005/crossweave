@@ -79,7 +79,7 @@ invented hues — which is also why a badge and the agent's TUI beside it agree.
 | working | `--cw-working` `#4dc4ff` | wash: hue text on 16% of itself |
 | ready | `--cw-ready` `#a5e075` | wash |
 | needs you | `--cw-needs-you` `#f0a45d` | wash |
-| blocked | `--cw-blocked` `#ff616e` | **filled**: dark text on 85% hue |
+| blocked | `--cw-blocked` `#ff7580` (was `#ff616e`: 4.0:1 as danger text on a hovered menu row) | **filled**: dark text on 85% hue |
 | conflict | `--cw-conflict` `#de73ff` | **filled** |
 | unknown | `--cw-text-dim` | neutral |
 

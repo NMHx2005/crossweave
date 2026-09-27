@@ -86,7 +86,9 @@ export const COCKPIT_TOKENS = {
   '--cw-working': '#4dc4ff',
   '--cw-ready': '#a5e075',
   '--cw-needs-you': '#f0a45d',
-  '--cw-blocked': '#ff616e',
+  // Was #ff616e: 4.0:1 as a danger menu item's text on the hovered row (Kill…,
+  // Close project) — caught once every theme ran the same checks. One step lighter.
+  '--cw-blocked': '#ff7580',
   '--cw-conflict': '#de73ff',
 
   // Agent marks on the rail and tabs: each CLI's own hue, used for a glyph only.
