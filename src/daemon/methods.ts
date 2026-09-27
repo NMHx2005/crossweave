@@ -43,6 +43,7 @@ import { ActivityTracker, detectAgents } from './session-status.js';
 import { GitCounter } from './git-counts.js';
 import { launcherProgram } from '../core/launcher-program.js';
 import { loginShellPath, mergePaths } from '../core/login-path.js';
+import { loginShellNames } from '../core/shell-names.js';
 
 function str(params: Record<string, unknown>, key: string): string {
   const v = params[key];
@@ -569,10 +570,13 @@ export function buildMethods(
     // session's shell will have (a cockpit opened from the Dock has launchd's minimal
     // PATH, where ~/.local/bin does not exist).
     'launchers.list': async () => {
-      const PATH = mergePaths(process.env.PATH, await loginShellPath()) ?? '';
+      const [loginPath, shellNames] = await Promise.all([loginShellPath(), loginShellNames()]);
+      const PATH = mergePaths(process.env.PATH, loginPath) ?? '';
       return loadSettings().launchers.map((l) => {
         const program = launcherProgram(l.command);
-        const available = program !== undefined && Bun.which(program, { PATH }) !== null;
+        // On PATH, or an alias/function the user's shell defines (a `cx` wrapper):
+        // the line is typed into that shell, so either runs.
+        const available = program !== undefined && (Bun.which(program, { PATH }) !== null || shellNames.has(program));
         // A built-in's shipped form, for the Settings form's Reset.
         const shipped = BUILTIN_LAUNCHERS.find((b) => b.id === l.id);
         return { ...l, available, ...(shipped ? { defaults: { label: shipped.label, command: shipped.command } } : {}) };
