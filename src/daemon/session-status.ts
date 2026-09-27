@@ -135,8 +135,9 @@ export function agentFromArgs(args: string): string | null {
   const program = (words[0] ?? '').split('/').pop() ?? '';
   const known = BINARIES[program];
   if (known !== undefined) return known;
-  // An interpreter running a script: the script's path names the package.
-  if (/^(?:node|bun|deno|python3?)$/.test(program) && words[1] !== undefined) {
+  // An interpreter running a script: the script's path names the package, or the
+  // script is itself named for the agent (a shell wrapper installed as `claude`).
+  if (/^(?:node|bun|deno|python3?|sh|bash|zsh)$/.test(program) && words[1] !== undefined) {
     for (const [pattern, agent] of PACKAGES) if (pattern.test(words[1])) return agent;
     const script = words[1].split('/').pop() ?? '';
     return BINARIES[script.replace(/\.(?:js|mjs|cjs)$/, '')] ?? null;

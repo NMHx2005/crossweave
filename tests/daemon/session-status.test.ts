@@ -81,6 +81,10 @@ describe('agentFromArgs', () => {
     expect(agentFromArgs('node /x/node_modules/@google/gemini-cli/dist/index.js')).toBe('gemini');
     expect(agentFromArgs('agy')).toBe('antigravity');
     expect(agentFromArgs('cursor-agent -p hi')).toBe('cursor');
+    // A shell script installed under the agent's name is that agent; any other
+    // script (a `cx` wrapper) is not, and the search goes on to what it runs.
+    expect(agentFromArgs('/bin/bash /Users/me/.local/bin/claude --resume')).toBe('claude');
+    expect(agentFromArgs('/bin/bash /Users/me/bin/cx')).toBeNull();
     expect(agentFromArgs('-zsh')).toBeNull();
     expect(agentFromArgs('vim claude.md')).toBeNull();
   });
