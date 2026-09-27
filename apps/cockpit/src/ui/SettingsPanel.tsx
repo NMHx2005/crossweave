@@ -1,6 +1,9 @@
 import { useState } from 'preact/hooks'
 import { formatEnvLines, launcherIdFor, parseEnvLines } from '../lib/launchers'
 import { AgentMark } from './icons'
+import type { TerminalAppearance } from '../../../../src/core/settings.js'
+import type { TerminalImport } from '../host/cockpit-api'
+import { xtermLook } from '../lib/terminal-look'
 
 export type EditorSetting = { kind: 'vscode' | 'cursor' | 'zed' | 'custom' | 'cockpit'; command?: string }
 export type LauncherSetting = {
@@ -11,7 +14,7 @@ export type LauncherSetting = {
   enabled: boolean
   builtin: boolean
 }
-export type UserSettings = { launchers: LauncherSetting[]; editor: EditorSetting; layouts: Record<string, unknown> }
+export type UserSettings = { launchers: LauncherSetting[]; editor: EditorSetting; layouts: Record<string, unknown>; terminal?: TerminalAppearance }
 
 const EDITORS: Array<{ kind: EditorSetting['kind']; label: string }> = [
   { kind: 'vscode', label: 'VS Code' },
@@ -29,7 +32,12 @@ const EDITORS: Array<{ kind: EditorSetting['kind']; label: string }> = [
  */
 export type NotifyPrefs = { sound: boolean; dockBadge: boolean }
 
-export function SettingsPanel({ initial, availability, defaults, notify, onNotify, onSave, onClose }: {
+const TERMINAL_APPS: Array<{ id: 'ghostty' | 'iterm2'; label: string }> = [
+  { id: 'ghostty', label: 'Ghostty' },
+  { id: 'iterm2', label: 'iTerm2' },
+]
+
+export function SettingsPanel({ initial, availability, defaults, notify, onNotify, importSources, onImport, onSave, onClose }: {
   initial: UserSettings
   /** Launcher id → whether this machine has its program (from launchers.list). */
   availability: Record<string, boolean>
@@ -38,6 +46,9 @@ export function SettingsPanel({ initial, availability, defaults, notify, onNotif
   /** This window's own notification choices: applied at once, not with Save. */
   notify: NotifyPrefs
   onNotify: (next: NotifyPrefs) => void
+  /** Which terminals have settings on this machine (Settings → Terminal's import buttons). */
+  importSources: { ghostty: boolean; iterm2: boolean }
+  onImport: (from: 'ghostty' | 'iterm2') => Promise<TerminalImport>
   onSave: (next: UserSettings) => Promise<string | null>
   onClose: () => void
 }) {
@@ -47,6 +58,38 @@ export function SettingsPanel({ initial, availability, defaults, notify, onNotif
   const [open, setOpen] = useState<string | null>(null)
   /** The env textarea as typed, per launcher, until it parses. */
   const [envText, setEnvText] = useState<Record<string, string>>({})
+  /** What the last import said (a font not installed, a theme not found), or why it failed. */
+  const [importNote, setImportNote] = useState<{ text: string; error: boolean } | null>(null)
+  const [importing, setImporting] = useState<string | null>(null)
+
+  const setTerminal = (patch: Partial<TerminalAppearance>): void => {
+    const next: TerminalAppearance = { ...draft.terminal, ...patch }
+    for (const key of Object.keys(next) as Array<keyof TerminalAppearance>) if (next[key] === undefined) delete next[key]
+    setDraft({ ...draft, terminal: next })
+  }
+
+  const runImport = async (from: 'ghostty' | 'iterm2', label: string): Promise<void> => {
+    setImporting(from)
+    setImportNote(null)
+    try {
+      const result = await onImport(from)
+      if (!result.ok) {
+        setImportNote({ text: result.reason, error: true })
+        return
+      }
+      // A draft: nothing is written until Save.
+      setDraft({ ...draft, terminal: result.appearance })
+      setImportNote({ text: [`Imported from ${label} — review, then Save.`, ...result.notes].join(' '), error: false })
+    } catch (err) {
+      setImportNote({ text: err instanceof Error ? err.message : String(err), error: true })
+    } finally {
+      setImporting(null)
+    }
+  }
+
+  const look = xtermLook(draft.terminal)
+  const ansi = [look.theme.black, look.theme.red, look.theme.green, look.theme.yellow, look.theme.blue, look.theme.magenta, look.theme.cyan, look.theme.white,
+    look.theme.brightBlack, look.theme.brightRed, look.theme.brightGreen, look.theme.brightYellow, look.theme.brightBlue, look.theme.brightMagenta, look.theme.brightCyan, look.theme.brightWhite]
 
   const update = (id: string, patch: Partial<LauncherSetting>): void => {
     setDraft({ ...draft, launchers: draft.launchers.map((l) => (l.id === id ? { ...l, ...patch } : l)) })
@@ -156,6 +199,71 @@ export function SettingsPanel({ initial, availability, defaults, notify, onNotif
           })}
         </ul>
         <button type="button" class="cockpit-btn cockpit-btn--ghost cockpit-launchers__add" onClick={addLauncher}>+ Add launcher</button>
+
+        <h3 class="cockpit-settings__heading">Terminal</h3>
+        <p class="cockpit-muted">
+          How the panes look. Import from the terminal you use — font, size, colors, cursor and the Option key — then adjust.
+        </p>
+        <div class="cockpit-term__actions">
+          {TERMINAL_APPS.map((app) => (
+            <button key={app.id} type="button" class="cockpit-btn cockpit-btn--sm"
+              disabled={!importSources[app.id] || importing !== null}
+              title={importSources[app.id] ? `Read ${app.label}'s settings (nothing is saved until you press Save)` : `No ${app.label} settings found on this Mac`}
+              onClick={() => { void runImport(app.id, app.label) }}>
+              {importing === app.id ? 'Importing…' : `Import from ${app.label}`}
+            </button>
+          ))}
+          <span class="cockpit-sidebar__spring" />
+          <button type="button" class="cockpit-btn cockpit-btn--sm cockpit-btn--ghost" disabled={draft.terminal === undefined}
+            onClick={() => { setDraft({ ...draft, terminal: undefined }); setImportNote(null) }}>
+            Use cockpit default
+          </button>
+        </div>
+        {importNote ? <p class={importNote.error ? 'cockpit-error' : 'cockpit-muted'} role={importNote.error ? 'alert' : 'status'}>{importNote.text}</p> : null}
+        {/* The preview paints with the imported colors themselves: they are data, not the chrome's tokens. */}
+        <div class="cockpit-term__preview" aria-label="Terminal preview"
+          style={{ background: look.theme.background, color: look.theme.foreground, fontFamily: look.fontFamily, fontSize: `${look.fontSize}px` }}>
+          <div>
+            <span style={{ color: look.theme.blue }}>~/project</span> <span style={{ color: look.theme.magenta }}>main</span>{' '}
+            <span style={{ color: look.theme.green }}>❯</span> claude --continue
+            <span class={`cockpit-term__cursor is-${look.cursorStyle}`} style={{ background: look.cursorStyle === 'block' ? look.theme.cursor : undefined, borderColor: look.theme.cursor }} />
+          </div>
+          <div class="cockpit-term__ansi">
+            {ansi.map((color, i) => <span key={i} style={{ background: color }} title={`ANSI ${i}`} />)}
+          </div>
+        </div>
+        <div class="cockpit-term__fields">
+          <label class="cockpit-picker__field">
+            <span class="cockpit-muted">Font</span>
+            <input class="cockpit-field--mono" value={draft.terminal?.fontFamily ?? ''} placeholder="the cockpit's (Menlo)" spellcheck={false}
+              onInput={(e) => setTerminal({ fontFamily: (e.target as HTMLInputElement).value.trim() || undefined })} />
+          </label>
+          <label class="cockpit-picker__field">
+            <span class="cockpit-muted">Size</span>
+            <input type="number" min={8} max={32} value={draft.terminal?.fontSize ?? ''} placeholder="13"
+              onInput={(e) => {
+                const n = Number((e.target as HTMLInputElement).value)
+                setTerminal({ fontSize: Number.isInteger(n) && n > 0 ? n : undefined })
+              }} />
+          </label>
+          <label class="cockpit-picker__field">
+            <span class="cockpit-muted">Cursor</span>
+            <select value={draft.terminal?.cursorStyle ?? 'block'}
+              onChange={(e) => setTerminal({ cursorStyle: (e.target as HTMLSelectElement).value as TerminalAppearance['cursorStyle'] })}>
+              <option value="block">Block</option>
+              <option value="bar">Bar</option>
+              <option value="underline">Underline</option>
+            </select>
+          </label>
+        </div>
+        <label class="cockpit-settings__toggle">
+          <input type="checkbox" checked={draft.terminal?.cursorBlink ?? true} onChange={(e) => setTerminal({ cursorBlink: (e.target as HTMLInputElement).checked })} />
+          <span>Blinking cursor</span>
+        </label>
+        <label class="cockpit-settings__toggle">
+          <input type="checkbox" checked={draft.terminal?.optionAsMeta ?? false} onChange={(e) => setTerminal({ optionAsMeta: (e.target as HTMLInputElement).checked })} />
+          <span>Option key sends Meta (Esc+), for Alt shortcuts in the shell and in agents</span>
+        </label>
 
         <h3 class="cockpit-settings__heading">Cmd+click opens files in</h3>
         <div class="cockpit-settings__editors" role="radiogroup" aria-label="Editor">

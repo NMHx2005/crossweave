@@ -51,6 +51,10 @@ export const COCKPIT_CHANNELS = [
   'folder.reveal',
   'folder.openInEditor',
   'app.badge',
+  // Settings → Terminal: which of Ghostty / iTerm2 have settings here, and a read-only
+  // import of one (the renderer saves it through settings.set).
+  'terminal.importSources',
+  'terminal.import',
 ] as const
 
 export type CockpitChannel = (typeof COCKPIT_CHANNELS)[number]

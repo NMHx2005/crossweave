@@ -1779,3 +1779,65 @@ body,
   font-family: var(--cw-font-mono);
   font-size: var(--cw-fs-sm);
 }
+
+/* A long dialog scrolls; its sections never shrink to make it fit (the preview was
+   squashed to half a line). */
+.cockpit-settings > * {
+  flex: none;
+}
+
+/* Settings → Terminal: import buttons, a preview in the imported colors, the fields. */
+.cockpit-term__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--cw-space-2);
+}
+
+.cockpit-term__preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cw-space-2);
+  padding: var(--cw-space-3);
+  border: var(--cw-hairline) solid var(--cw-border-strong);
+  border-radius: var(--cw-radius);
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.cockpit-term__cursor {
+  display: inline-block;
+  width: calc(var(--cw-space-2) + var(--cw-hairline) * 2);
+  /* The preview's own line box: its font size is the imported one. */
+  height: calc(var(--cw-space-3) + var(--cw-space-1));
+  margin-left: var(--cw-hairline);
+  vertical-align: text-bottom;
+}
+
+.cockpit-term__cursor.is-bar {
+  width: calc(var(--cw-hairline) * 2);
+  border-left: calc(var(--cw-hairline) * 2) solid;
+}
+
+.cockpit-term__cursor.is-underline {
+  height: calc(var(--cw-hairline) * 2);
+  border-bottom: calc(var(--cw-hairline) * 2) solid;
+  vertical-align: baseline;
+}
+
+.cockpit-term__ansi {
+  display: grid;
+  grid-template-columns: repeat(16, 1fr);
+  gap: var(--cw-hairline);
+}
+
+.cockpit-term__ansi span {
+  height: var(--cw-space-3);
+  border-radius: var(--cw-radius-sm);
+}
+
+.cockpit-term__fields {
+  display: grid;
+  grid-template-columns: 1fr calc(var(--cw-row-h) * 3) calc(var(--cw-row-h) * 5);
+  gap: var(--cw-space-2);
+}

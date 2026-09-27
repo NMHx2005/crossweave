@@ -16,6 +16,7 @@ import { COCKPIT_TOKENS } from '../src/ui/tokens'
 import { appMenuTemplate } from './app-menu'
 import { editorLaunch, resolveLinkTarget } from './editor-open'
 import { badgeCount, folderLaunch, resolveFolder } from './path-target'
+import { importSources, importTerminal, type ImportDeps } from './terminal-import'
 import { loadSettings } from '../../../src/core/settings.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -172,6 +173,26 @@ async function openFolder(bridge: DaemonBridge, payload: unknown, how: 'reveal' 
   return { ok: true }
 }
 
+/** Reads the user's terminal settings; argv-only subprocesses, bounded in time and size. */
+function importDeps(): ImportDeps {
+  return {
+    home: app.getPath('home'),
+    ...(process.env.XDG_CONFIG_HOME ? { xdgConfigHome: process.env.XDG_CONFIG_HOME } : {}),
+    readFile: (path) => {
+      try {
+        const text = readFileSync(path, 'utf8')
+        return text.length > 1_000_000 ? undefined : text
+      } catch {
+        return undefined
+      }
+    },
+    run: (command, args) => new Promise((resolve) => {
+      execFile(command, args, { timeout: 5000, maxBuffer: 32 * 1024 * 1024, encoding: 'utf8' },
+        (err, stdout) => resolve(err ? undefined : String(stdout)))
+    }),
+  }
+}
+
 function setBadge(payload: unknown): { ok: boolean } {
   const count = badgeCount(payload)
   if (count === null) return { ok: false }
@@ -189,6 +210,12 @@ function registerHandlers(bridge: DaemonBridge): void {
       if (channel === 'folder.reveal') return openFolder(bridge, payload, 'reveal')
       if (channel === 'folder.openInEditor') return openFolder(bridge, payload, 'editor')
       if (channel === 'app.badge') return setBadge(payload)
+      if (channel === 'terminal.importSources') return importSources(importDeps())
+      if (channel === 'terminal.import') {
+        const from = (payload as { from?: unknown } | null)?.from
+        if (from !== 'ghostty' && from !== 'iterm2') return { ok: false, reason: 'Import from ghostty or iterm2' }
+        return importTerminal(from, importDeps())
+      }
       return bridge.handle(channel, payload)
     })
   }

@@ -13,6 +13,8 @@ import { jumpTargets } from '../lib/rail'
 import { mountedViews, touchRecent } from '../lib/mounted-views'
 import { ProjectView, type ViewAction, type ViewHandle, type ViewHost, type ViewReport } from './ProjectView'
 import { baseName, readFlag, readString, writeFlag, writeString } from './storage'
+import { TerminalLookContext } from './terminal-look-context'
+import type { TerminalAppearance } from '../../../../src/core/settings.js'
 
 const SIDEBAR_HIDDEN_KEY = 'cw.sidebar-hidden.v1'
 /** Notification choices ('0' off; on unless turned off). */
@@ -56,12 +58,24 @@ export function App() {
     settings: UserSettings
     availability: Record<string, boolean>
     defaults: Record<string, { label: string; command: string }>
+    importSources: { ghostty: boolean; iterm2: boolean }
   } | null>(null)
   const [projectSettings, setProjectSettings] = useState<{ projectRoot: string; launchers: LauncherOption[]; branches: string[] } | null>(null)
   const [notify, setNotify] = useState<NotifyPrefs>(() => ({
     sound: readString(NOTIFY_SOUND_KEY) !== '0',
     dockBadge: readString(DOCK_BADGE_KEY) !== '0',
   }))
+  /** Settings → Terminal, applied to every pane; undefined is the cockpit's own look. */
+  const [terminalLook, setTerminalLook] = useState<TerminalAppearance | undefined>(undefined)
+  const lookLoaded = useRef(false)
+  /** Read once, through the first project a daemon answers for (Settings are per user). */
+  const loadLook = useCallback((root: string): void => {
+    if (lookLoaded.current) return
+    lookLoaded.current = true
+    void projectApi(root).getSettings()
+      .then((s) => setTerminalLook((s as { terminal?: TerminalAppearance } | null)?.terminal))
+      .catch(() => { lookLoaded.current = false })
+  }, [])
   const handles = useRef(new Map<string, ViewHandle>())
   /** Actions for a view that is not mounted (or has not registered) yet. */
   const pending = useRef(new Map<string, ViewAction[]>())
@@ -114,11 +128,14 @@ export function App() {
           if (!String(err).includes('NO_PROJECT')) showToast(plainErrorMessage(err), 'error')
         }
       }
-      if (active !== undefined) show(active)
+      if (active !== undefined) {
+        show(active)
+        loadLook(active)
+      }
       await refreshProjects()
       setBooted(true)
     })()
-  }, [refreshProjects, showToast])
+  }, [refreshProjects, showToast, loadLook])
 
   useEffect(() => {
     // A project without a live view refreshes its rail snapshot; live views refresh themselves.
@@ -172,6 +189,7 @@ export function App() {
         return
       }
       show(root)
+      loadLook(root)
       if (!openRoots.includes(root)) void refreshProjects()
     }
     if (then) enqueue(root, then)
@@ -366,14 +384,18 @@ export function App() {
     }
     try {
       const api = projectApi(root)
-      const [settings, launcherList] = await Promise.all([api.getSettings(), api.listLaunchers()])
+      const [settings, launcherList, importSources] = await Promise.all([
+        api.getSettings(),
+        api.listLaunchers(),
+        cockpitApi.terminalImportSources().catch(() => ({ ghostty: false, iterm2: false })),
+      ])
       const availability: Record<string, boolean> = {}
       const defaults: Record<string, { label: string; command: string }> = {}
       for (const l of launcherList) {
         availability[l.id] = l.available
         if (l.defaults) defaults[l.id] = l.defaults
       }
-      setSettingsOpen({ settings: settings as UserSettings, availability, defaults })
+      setSettingsOpen({ settings: settings as UserSettings, availability, defaults, importSources })
     } catch (err) {
       showToast(plainErrorMessage(err), 'error')
     }
@@ -384,7 +406,8 @@ export function App() {
     const root = activeRef.current ?? openRoots[0]
     if (root === undefined) return 'Open a project first'
     try {
-      await projectApi(root).setSettings(next)
+      const saved = await projectApi(root).setSettings(next) as { terminal?: TerminalAppearance }
+      setTerminalLook(saved?.terminal)
       return null
     } catch (err) {
       // Only the daemon's sentence: not the IPC wrapper or the error class in front of it.
@@ -503,6 +526,8 @@ export function App() {
           initial={settingsOpen.settings}
           availability={settingsOpen.availability}
           defaults={settingsOpen.defaults}
+          importSources={settingsOpen.importSources}
+          onImport={(from) => cockpitApi.importTerminal(from)}
           notify={notify}
           onNotify={(next) => {
             setNotify(next)
@@ -558,6 +583,7 @@ export function App() {
           }}
         />
       ) : null}
+      <TerminalLookContext.Provider value={terminalLook}>
       <div class="cockpit-views">
         {booted && activeRoot === null ? (
           <Welcome
@@ -570,6 +596,7 @@ export function App() {
           <ProjectView key={root} projectRoot={root} visible={root === activeRoot} host={viewHost(root)} />
         ))}
       </div>
+      </TerminalLookContext.Provider>
       <Toast message={toast?.message ?? null} tone={toast?.tone ?? 'info'} onDone={() => setToast(null)} />
     </div>
   )

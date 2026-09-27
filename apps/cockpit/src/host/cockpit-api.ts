@@ -1,6 +1,7 @@
 import type { SessionDiff } from '../lib/patch'
 import type { CockpitChannel, CockpitEvent } from '../../electron/channels'
 import { parseSessionList, type ListedSession } from '../lib/sessions'
+import type { TerminalAppearance } from '../../../../src/core/settings.js'
 
 export type { CockpitChannel, CockpitEvent, ListedSession }
 
@@ -185,6 +186,14 @@ function makeApi(invoke: Invoke, listen: Listen) {
     openFolderInEditor(projectRoot: string, sessionId?: string): Promise<{ ok: boolean }> {
       return invoke('folder.openInEditor', { projectRoot, ...(sessionId === undefined ? {} : { sessionId }) })
     },
+    /** Settings → Terminal: which terminals have settings on this machine. */
+    terminalImportSources(): Promise<{ ghostty: boolean; iterm2: boolean }> {
+      return invoke('terminal.importSources')
+    },
+    /** A read-only import of Ghostty's or iTerm2's look, as a draft for Settings. */
+    importTerminal(from: 'ghostty' | 'iterm2'): Promise<TerminalImport> {
+      return invoke('terminal.import', { from })
+    },
     /** The Dock's number: sessions waiting for the user (0 clears it). */
     setBadge(count: number): Promise<unknown> {
       return invoke('app.badge', { count })
@@ -215,6 +224,7 @@ export const cockpitApi: CockpitApi = makeApi(cockpitInvoke, cockpitListen)
 const WINDOW_CHANNELS = new Set<CockpitChannel>([
   'workspace.ensure', 'projects.list', 'projects.pick', 'projects.reorder', 'projects.sessions',
   'projects.close', 'app.badge', 'folder.reveal', 'folder.openInEditor',
+  'terminal.importSources', 'terminal.import',
 ])
 
 /** `payload` with `projectRoot` added, unless the call already names one or is window-wide. */
@@ -239,6 +249,10 @@ export function projectApi(projectRoot: string): CockpitApi {
     }),
   )
 }
+
+export type TerminalImport =
+  | { ok: true; appearance: TerminalAppearance; notes: string[] }
+  | { ok: false; reason: string }
 
 /** A launcher as the picker shows it: Settings' entry plus whether this machine has it. */
 export type LauncherOption = {

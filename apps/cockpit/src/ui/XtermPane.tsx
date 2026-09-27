@@ -8,7 +8,8 @@ import type { PaneSource } from '../lib/pane-source'
 import { findFileLinks } from '../lib/file-links'
 import { stripFocusReports, stripTerminalReports } from '../../../../src/client/terminal-reports.js'
 import { clipboardWriteFromOsc52 } from '../../../../src/client/osc52.js'
-import { XTERM_FONT_FAMILY, XTERM_FONT_SIZE, XTERM_THEME } from './tokens'
+import { xtermLook } from '../lib/terminal-look'
+import { useTerminalLook } from './terminal-look-context'
 
 export type XtermPaneProps = {
   source: PaneSource
@@ -20,20 +21,21 @@ export function XtermPane({ source, focused }: XtermPaneProps) {
   const termRef = useRef<Terminal | null>(null)
   const focusedRef = useRef(focused)
   focusedRef.current = focused
+  const look = xtermLook(useTerminalLook())
+  const lookRef = useRef(look)
+  lookRef.current = look
+  const fitRef = useRef<FitAddon | null>(null)
 
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
 
     const term = new Terminal({
-      cursorBlink: true,
       convertEol: false,
-      // Named, not inlined: the pane's palette and the chrome's come from the
-      // same tokens object, so they cannot drift apart (they used to).
-      fontFamily: XTERM_FONT_FAMILY,
-      fontSize: XTERM_FONT_SIZE,
+      // The cockpit's palette and font (from the same tokens as the chrome, so they
+      // cannot drift), or what Settings → Terminal imported over them.
+      ...lookRef.current,
       scrollback: 5000,
-      theme: XTERM_THEME,
       // Agents like Claude Code turn on mouse tracking (?1000/1002/1006), which hands
       // every drag to the agent — and on macOS xterm.js then offers NO way to select
       // text unless this is on. With it, Option+drag selects (as in iTerm2), so a
@@ -43,6 +45,7 @@ export function XtermPane({ source, focused }: XtermPaneProps) {
       allowProposedApi: true,
     })
     const fit = new FitAddon()
+    fitRef.current = fit
     term.loadAddon(fit)
     // xterm's built-in width table is Unicode 6: an emoji is one cell, where Claude
     // Code (and every current terminal) counts two. Its status line (📂, 🟢, …) then
@@ -176,6 +179,23 @@ export function XtermPane({ source, focused }: XtermPaneProps) {
     if (focused) termRef.current?.focus()
     else termRef.current?.blur()
   }, [focused])
+
+  // Settings → Terminal saved (or an import applied): every open pane changes in place,
+  // then refits, because a new font or size changes how many cells fit.
+  const lookKey = JSON.stringify(look)
+  useEffect(() => {
+    const term = termRef.current
+    if (!term) return
+    const next = lookRef.current
+    term.options.fontFamily = next.fontFamily
+    term.options.fontSize = next.fontSize
+    term.options.theme = next.theme
+    term.options.cursorStyle = next.cursorStyle
+    term.options.cursorBlink = next.cursorBlink
+    term.options.macOptionIsMeta = next.macOptionIsMeta
+    const container = containerRef.current
+    if (container && container.clientWidth > 0 && container.clientHeight > 0) fitRef.current?.fit()
+  }, [lookKey])
 
   return <div class="xterm-pane" ref={containerRef} data-pane-key={source.key} />
 }
