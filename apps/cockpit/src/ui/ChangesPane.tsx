@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type { LandVerdict } from '../lib/land-actions'
 import { patchSections, type SessionDiff } from '../lib/patch'
+import { plainErrorMessage } from '../lib/cockpit-host'
 
 type ChangesPaneProps = {
   sessionName: string
@@ -10,6 +11,11 @@ type ChangesPaneProps = {
   loadDiff: () => Promise<SessionDiff>
   onLand: () => void
   landBusy: boolean
+  /**
+   * The session works in the project folder itself: it has no branch, so there is
+   * nothing to compare or land. Said plainly instead of the daemon's refusal.
+   */
+  shared?: boolean
 }
 
 const VERDICT_TEXT: Record<LandVerdict['kind'], string> = {
@@ -27,7 +33,7 @@ const STATUS_MARK = { added: 'A', modified: 'M', deleted: 'D' } as const
  * conflicts with, and the diff that landing would bring in. The review pointed out
  * that the cockpit asked for a land while showing none of this.
  */
-export function ChangesPane({ sessionName, verdict, revision, loadDiff, onLand, landBusy }: ChangesPaneProps) {
+export function ChangesPane({ sessionName, verdict, revision, loadDiff, onLand, landBusy, shared = false }: ChangesPaneProps) {
   const [diff, setDiff] = useState<SessionDiff | null>(null)
   const [error, setError] = useState<string | null>(null)
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({})
@@ -37,18 +43,35 @@ export function ChangesPane({ sessionName, verdict, revision, loadDiff, onLand, 
   loadRef.current = loadDiff
 
   useEffect(() => {
+    if (shared) return
     let cancelled = false
     loadRef.current()
       .then((d) => { if (!cancelled) { setDiff(d); setError(null) } })
       .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message.replace(/^.*?: (?=[A-Z])/, '') : String(err))
+        if (!cancelled) setError(plainErrorMessage(err))
       })
     return () => { cancelled = true }
-  }, [revision, sessionName])
+  }, [revision, sessionName, shared])
 
   const sections = useMemo(() => (diff ? patchSections(diff.patch) : []), [diff])
   const totals = diff?.files.reduce((t, f) => ({ added: t.added + f.added, deleted: t.deleted + f.deleted }), { added: 0, deleted: 0 })
   const canLand = verdict.kind === 'ready' || verdict.kind === 'unknown'
+
+  if (shared) {
+    return (
+      <div class="cockpit-changes">
+        <header class="cockpit-changes__head">
+          <span class="cockpit-changes__verdict is-none">Works in the project folder</span>
+        </header>
+        <p class="cockpit-muted cockpit-changes__note">
+          {sessionName} has no branch of its own, so there is nothing here to compare or land: what it changes
+          is simply the project folder's uncommitted work (<code>git status</code> in its shell). Sessions
+          started with “Own worktree” get a branch, and this pane then shows exactly what landing them would
+          merge into your branch.
+        </p>
+      </div>
+    )
+  }
 
   return (
     <div class="cockpit-changes">

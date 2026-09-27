@@ -55,6 +55,8 @@ export type StageProps = {
    * the keyboard, so returning to it focuses its pane again.
    */
   shown?: boolean
+  /** The focused session's Changes pane is open: the toggle shows it pressed. */
+  changesOpen?: boolean
 }
 
 function paneLabel(pane: PaneRef, names: ReadonlyMap<string, string>, titles: ReadonlyMap<string, string>): string {
@@ -301,7 +303,9 @@ export function Stage(props: StageProps) {
             </div>
           ) : null}
         </div>
-        <button type="button" class="cockpit-iconbtn" title="Changes of the focused session" aria-label="Changes" onClick={props.onToggleChanges}>
+        <button type="button" class={`cockpit-iconbtn${props.changesOpen ? ' is-on' : ''}`} aria-pressed={props.changesOpen === true}
+          title={props.changesOpen ? 'Hide Changes' : 'Changes — what landing the focused session would merge into your branch'}
+          aria-label="Changes" onClick={props.onToggleChanges}>
           <PanelRightIcon />
         </button>
       </div>
