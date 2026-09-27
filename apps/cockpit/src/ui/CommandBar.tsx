@@ -95,7 +95,7 @@ export function CommandBar({ context, history, onRun, onClose }: CommandBarProps
           <input
             ref={inputRef}
             aria-label="Command"
-            placeholder="new api claude -- --model opus · start · land · diff · help"
+            placeholder="new api claude · start · land · diff · help"
             value={line}
             spellcheck={false}
             disabled={busy}

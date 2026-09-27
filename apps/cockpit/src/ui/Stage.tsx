@@ -325,7 +325,7 @@ export function Stage(props: StageProps) {
         <div class="cockpit-placeholder cockpit-placeholder--error" role="alert">
           <p>Could not reach the crossweave daemon.</p>
           {error ? <p class="cockpit-muted">{error}</p> : null}
-          <button type="button" onClick={props.onRetry}>Retry</button>
+          <button type="button" class="cockpit-btn" onClick={props.onRetry}>Retry</button>
         </div>
       ) : null}
       {status !== 'loading' && status !== 'error' && stage.tabs.length === 0 ? (

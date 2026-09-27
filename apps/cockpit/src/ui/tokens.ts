@@ -13,6 +13,11 @@
  *   list.hoverBackground          -> --cw-surface-hover
  *   list.focusBackground          -> --cw-surface-active
  *   button.background             -> --cw-surface-control
+ *   button.hoverBackground        -> --cw-surface-control-hover
+ *   editorWidget.background / menu.background
+ *                                 -> --cw-surface-overlay (menus, popovers, dialogs, toasts)
+ *   widget.shadow                 -> --cw-shadow
+ *   input.border (hover)          -> --cw-border-hover
  *   badge.background              -> --cw-surface-badge
  *   sideBar.border                -> --cw-border
  *   panel.border                  -> --cw-border-strong
@@ -48,6 +53,13 @@ export const COCKPIT_TOKENS = {
   '--cw-surface-hover': '#2c313a',
   '--cw-surface-active': '#323842',
   '--cw-surface-control': '#404754',
+  '--cw-surface-control-hover': '#4b5363',
+  // What floats above the chrome — menus, popovers, dialogs, toasts — is one step
+  // lighter and casts the theme's widget shadow, as the editor's own widgets do.
+  '--cw-surface-overlay': '#21252b',
+  '--cw-shadow': '#00000080',
+  // The dim layer under a dialog: the stage stays visible, the dialog is the focus.
+  '--cw-scrim': '#0000004d',
   '--cw-surface-badge': '#23272e',
   // The sidebar sits one step above the stage, as in Deck: the rail reads as a place,
   // the stage as the work.
@@ -55,6 +67,7 @@ export const COCKPIT_TOKENS = {
 
   '--cw-border': '#37393d',
   '--cw-border-strong': '#3e4452',
+  '--cw-border-hover': '#4e5666',
 
   // Text, brightest to dimmest. Nothing dimmer than --cw-text-dim is allowed to
   // carry words at this size: the theme's comment colour is 2.5:1 on a badge.
@@ -63,6 +76,9 @@ export const COCKPIT_TOKENS = {
   '--cw-text-dim': '#9da5b4',
 
   '--cw-accent': '#61afef',
+  // Primary and danger buttons lighten one step on hover, like button.hoverBackground.
+  '--cw-accent-hover': '#7dbdf3',
+  '--cw-danger-hover': '#ff7a85',
   '--cw-cursor': '#528bff',
   '--cw-selection': '#67769660',
 
@@ -102,6 +118,11 @@ export const COCKPIT_TOKENS = {
   '--cw-hairline': '1px',
   '--cw-bar-w': '2px', // the selection bar inside a focused rail row
   '--cw-control-pad-y': '2px', // vertical padding shared by buttons and selects
+  // Every push button and every field is this tall: 26px is the editor's own input
+  // and button height, so a dialog reads like the editor's widgets.
+  '--cw-control-h': '26px',
+  '--cw-check': '14px', // checkbox and radio size
+  '--cw-chevron': '4px', // the select's drawn chevron (two 4px triangles)
   '--cw-tracking-label': '0.08em', // the uppercase micro labels' letter-spacing
   '--cw-scrollbar-w': '10px',
   '--cw-scrollbar-inset': '2px', // transparent border that insets the thumb
@@ -119,10 +140,14 @@ export const COCKPIT_TOKENS = {
   '--cw-titlebar-h': '44px',
   '--cw-traffic-w': '78px',
 
-  // Motion. Editors move background and border only, over ~0.1s, without overshoot
-  // and without transforms — the restraint is the feel.
+  // Motion. Controls move background and border only, over ~0.1s, without overshoot.
+  // What appears and goes away — menus, popovers, dialogs, toasts — fades in over
+  // 120ms while travelling `--cw-lift`, as the editor's context menus and quick input
+  // do; rows and tabs still change instantly. Reduced motion collapses all of it.
   '--cw-dur-fast': '90ms',
   '--cw-dur': '140ms',
+  '--cw-dur-enter': '120ms',
+  '--cw-lift': '4px',
   // One turn of the working ring: slow enough to read as "busy", not as an alarm.
   '--cw-dur-spin': '1600ms',
   '--cw-ease': 'cubic-bezier(0.2, 0, 0.2, 1)',

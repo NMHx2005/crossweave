@@ -42,11 +42,11 @@ export function ConfirmDialog({ title, body, confirmLabel, danger = false, onCon
         <h2 class="cockpit-picker__title">{title}</h2>
         {body ? <p class="cockpit-confirm__body">{body}</p> : null}
         <div class="cockpit-picker__actions">
-          <button ref={cancelRef} type="button" onClick={onCancel}>Cancel</button>
+          <button ref={cancelRef} type="button" class="cockpit-btn" onClick={onCancel}>Cancel</button>
           <button
             ref={confirmRef}
             type="button"
-            class={danger ? 'is-danger' : 'is-primary'}
+            class={`cockpit-btn ${danger ? 'cockpit-btn--danger' : 'cockpit-btn--primary'}`}
             onClick={onConfirm}
           >
             {confirmLabel}

@@ -121,8 +121,8 @@ export function FilePane({ sessionId, path, focused }: { sessionId: string; path
         {status.kind === 'conflict' ? (
           <span class="cockpit-file__conflict">
             Changed on disk since you opened it.
-            <button type="button" onClick={() => { void load() }}>Reload (drop my edits)</button>
-            <button type="button" onClick={() => { void save(true) }}>Overwrite</button>
+            <button type="button" class="cockpit-btn cockpit-btn--sm" onClick={() => { void load() }}>Reload (drop my edits)</button>
+            <button type="button" class="cockpit-btn cockpit-btn--sm" onClick={() => { void save(true) }}>Overwrite</button>
           </span>
         ) : null}
         {dirty && status.kind === 'ready' ? <span class="cockpit-muted">⌘S to save</span> : null}

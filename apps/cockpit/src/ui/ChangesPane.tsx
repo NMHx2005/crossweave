@@ -60,7 +60,7 @@ export function ChangesPane({ sessionName, verdict, revision, loadDiff, onLand, 
             <span class="cockpit-muted"> · conflicts with {verdict.conflictsWith.join(', ')}</span>
           ) : null}
         </div>
-        <button type="button" class="cockpit-changes__land" disabled={!canLand || landBusy} onClick={onLand}
+        <button type="button" class="cockpit-btn cockpit-btn--sm cockpit-btn--primary cockpit-changes__land" disabled={!canLand || landBusy} onClick={onLand}
           title={canLand ? `Merge ${sessionName} into the base` : VERDICT_TEXT[verdict.kind]}>
           Land {sessionName}
         </button>

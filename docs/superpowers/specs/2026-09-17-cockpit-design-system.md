@@ -39,6 +39,11 @@ and not a new visual concept:
 | `--cw-surface-hover` | `#2c313a` | `list.hoverBackground` |
 | `--cw-surface-active` | `#323842` | `list.focusBackground` |
 | `--cw-surface-control` | `#404754` | `button.background` |
+| `--cw-surface-control-hover` | `#4b5363` | `button.hoverBackground` |
+| `--cw-surface-overlay` | `#21252b` | `editorWidget.background` / `menu.background` — menus, popovers, dialogs, toasts |
+| `--cw-shadow` / `--cw-scrim` | `#00000080` / `#0000004d` | `widget.shadow`; the dim layer under a dialog |
+| `--cw-border-hover` | `#4e5666` | a field's border under the pointer |
+| `--cw-accent-hover` / `--cw-danger-hover` | `#7dbdf3` / `#ff7a85` | primary / danger buttons, hovered |
 | `--cw-surface-badge` | `#23272e` | `badge.background` |
 | `--cw-border` | `#37393d` | `sideBar.border` |
 | `--cw-border-strong` | `#3e4452` | `panel.border` |
@@ -88,15 +93,43 @@ Two measured decisions, not taste:
    action now and because a wash fails for them: red text on a 20% red wash measures
    3.9:1. Filled measures 4.66:1.
 
-## 4. Motion
+## 4. Controls
 
-Borrowed restraint: only `background-color`, `border-color` and `box-shadow`
-transition; 90ms for hover/press, 140ms for selection and pane focus; standard easing,
-**no overshoot, no transform, no scale**. Rail rows highlight **instantly** (no fade),
-the way list rows do in the editor this material comes from. `prefers-reduced-motion`
-switches every duration to ~0.
+One control layer at the top of `app.css` (added 2026-09-27; before it, components
+styled their own — fifteen button and field variants, three field backgrounds, two
+radii, push buttons with no hover state, the platform's light select arrow):
 
-## 5. Accessibility rules
+- **`.cockpit-btn`**, 26px (`--cw-control-h`, the editor's own control height), with
+  `--primary`, `--danger`, `--ghost` and `--sm` (24px). Every state is defined: hover,
+  active, disabled (dim label on the control surface, never lowered opacity — §6).
+- **Fields** (`input`, `select`, `textarea` inside the shell) get one look from a
+  zero-specificity `:where()` rule: input background, strong border, a lighter border
+  on hover, the **accent border as the focus ring** (no second outline), a red border
+  when `aria-invalid`. Selects draw their chevron from two gradient triangles in the
+  text colour; checkboxes and radios are native, tinted with `accent-color`.
+  `.cockpit-field--mono` is for what is typed like code (session names, branches,
+  commands); display names stay in the UI font.
+- **What floats** — context menus, popovers, dialogs, toasts — sits on
+  `--cw-surface-overlay` with the widget shadow and the large radius; menu items are
+  24px rows with their own radius, highlighted with the selection surface.
+
+## 5. Motion
+
+Borrowed restraint, revised 2026-09-27 at the user's request for motion that feels
+like the editor's rather than none:
+
+- Controls transition `background-color`, `border-color` and `color` over 90ms;
+  selection and pane focus over 140ms; standard easing, **no overshoot, no scale**.
+- **What appears fades in over 120ms (`--cw-dur-enter`) while travelling 4px
+  (`--cw-lift`)**: menus and popovers drop from above, toasts rise from below,
+  dialogs drop in over a fading scrim — the editor's context menu and quick input.
+  Nothing animates on the way out: a dismissed menu is gone at once.
+- The project twisty rotates over 140ms. Rail rows and menu items still highlight
+  **instantly**, the way list rows do in the editor.
+- No layout animation (a project folding open does not slide), no scroll effects.
+- `prefers-reduced-motion` collapses every transition and animation to ~0.
+
+## 6. Accessibility rules
 
 - Every text/background pair the UI paints is asserted ≥ 4.5:1 in
   `tests/tokens.test.ts` — including the six badge treatments, computed with the same
@@ -113,7 +146,7 @@ Keyboard focus uses a 1px `--cw-accent` outline, **deliberately overriding** the
   does not get to win over focus visibility.
 - No colour is the only carrier of meaning: badges carry a word, panes carry a name.
 
-## 6. Guards (the part that keeps this true)
+## 7. Guards (the part that keeps this true)
 
 `apps/cockpit/tests/tokens.test.ts`:
 
@@ -125,12 +158,17 @@ Keyboard focus uses a 1px `--cw-accent` outline, **deliberately overriding** the
 5. the mix weights in CSS equal the constants the contrast test measures;
 6. no dimensional literal beyond that three-item structural allowlist;
 7. all contrast assertions above.
+8. the control layer's pairs: labels on every button state (resting and hovered
+   primary/danger included), text on fields, and body/dim/danger text on the overlay.
 
-## 7. Deliberately not done
+## 8. Deliberately not done
 
 - **Light theme.** `color-scheme: dark` only; the borrowed theme is dark.
 - **Component library / CSS framework.** 388 lines of plain CSS with tokens is smaller
   than any dependency would be.
 - **Mimicking Cursor's anatomy** (title bar, editor tabs, status bar) — see §1.
-- **Motion beyond state changes.** No entrance animations, no layout animation, no
-  scroll effects: this is a tool people keep open all day.
+- **Motion beyond §5.** No exit animations, no layout animation, no scroll effects:
+  this is a tool people keep open all day.
+- **Custom-drawn checkboxes.** Chromium draws no `::after` on a checkbox, so a custom
+  one needs extra markup at every use; the native one tinted with `accent-color` is
+  the editor-like result for none of that.

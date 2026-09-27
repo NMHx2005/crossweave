@@ -61,6 +61,189 @@ body {
   outline-offset: calc(var(--cw-hairline) * -1);
 }
 
+/* ---------- Controls: one look for every button, field, menu and dialog ----------
+   Components used to style their own buttons and inputs — fifteen variants with three
+   field backgrounds, two radii and no hover state on push buttons. Everything
+   interactive now starts here; a component only adds what is truly its own. */
+
+.cockpit-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--cw-space-1);
+  height: var(--cw-control-h);
+  padding: 0 var(--cw-space-3);
+  background: var(--cw-surface-control);
+  border: var(--cw-hairline) solid transparent;
+  border-radius: var(--cw-radius-sm);
+  color: var(--cw-text-bright);
+  font: inherit;
+  font-size: var(--cw-fs-sm);
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color var(--cw-dur-fast) var(--cw-ease),
+    border-color var(--cw-dur-fast) var(--cw-ease),
+    color var(--cw-dur-fast) var(--cw-ease);
+}
+
+.cockpit-btn:hover {
+  background: var(--cw-surface-control-hover);
+}
+
+.cockpit-btn:active {
+  background: var(--cw-surface-active);
+}
+
+.cockpit-btn--primary {
+  background: var(--cw-accent);
+  color: var(--cw-surface);
+}
+
+.cockpit-btn--primary:hover {
+  background: var(--cw-accent-hover);
+}
+
+.cockpit-btn--primary:active {
+  background: var(--cw-accent);
+}
+
+.cockpit-btn--danger {
+  background: var(--cw-blocked);
+  color: var(--cw-surface);
+}
+
+.cockpit-btn--danger:hover {
+  background: var(--cw-danger-hover);
+}
+
+.cockpit-btn--danger:active {
+  background: var(--cw-blocked);
+}
+
+.cockpit-btn--ghost {
+  background: transparent;
+  color: var(--cw-text);
+}
+
+.cockpit-btn--ghost:hover {
+  background: var(--cw-surface-hover);
+  color: var(--cw-text-bright);
+}
+
+.cockpit-btn--sm {
+  height: var(--cw-row-h);
+  padding: 0 var(--cw-space-2);
+}
+
+.cockpit-btn:disabled,
+.cockpit-btn:disabled:hover {
+  background: var(--cw-surface-control);
+  color: var(--cw-text-dim);
+  cursor: default;
+}
+
+.cockpit-btn--ghost:disabled,
+.cockpit-btn--ghost:disabled:hover {
+  background: transparent;
+}
+
+/* Fields: zero specificity (:where), so a component that needs a different field — the
+   rename box, the launch line, the command bar's input — only has to say so. */
+:where(.cockpit-shell) :where(input:not([type='checkbox'], [type='radio']), select, textarea) {
+  height: var(--cw-control-h);
+  padding: 0 var(--cw-space-2);
+  background: var(--cw-surface-input);
+  border: var(--cw-hairline) solid var(--cw-border-strong);
+  border-radius: var(--cw-radius-sm);
+  color: var(--cw-text-bright);
+  font: inherit;
+  font-size: var(--cw-fs-sm);
+  transition: border-color var(--cw-dur-fast) var(--cw-ease);
+}
+
+:where(.cockpit-shell) :where(input:not([type='checkbox'], [type='radio']), select, textarea):hover {
+  border-color: var(--cw-border-hover);
+}
+
+/* The field's own border is its focus ring, as in the editor: an outline on top of it
+   drew two rings. */
+:where(.cockpit-shell) :where(input:not([type='checkbox'], [type='radio']), select, textarea):focus {
+  border-color: var(--cw-accent);
+  outline: none;
+}
+
+:where(.cockpit-shell) :where(input, textarea)::placeholder {
+  color: var(--cw-text-dim);
+}
+
+:where(.cockpit-shell) :where(input:not([type='checkbox'], [type='radio']), select, textarea):disabled {
+  border-color: var(--cw-border);
+  background-color: var(--cw-surface);
+  color: var(--cw-text-dim);
+  cursor: default;
+}
+
+:where(.cockpit-shell) :where(input, select, textarea)[aria-invalid='true'] {
+  border-color: var(--cw-blocked);
+}
+
+:where(.cockpit-shell) :where(textarea) {
+  height: auto;
+  padding: var(--cw-space-1) var(--cw-space-2);
+  line-height: 1.5;
+  resize: vertical;
+}
+
+/* The platform's select arrow is a light-theme bitmap; this one is drawn in the
+   text colour from two triangles. */
+:where(.cockpit-shell) :where(select) {
+  appearance: none;
+  padding-right: calc(var(--cw-space-3) * 2);
+  background-image:
+    linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position:
+    calc(100% - var(--cw-space-3) - var(--cw-chevron)) 50%,
+    calc(100% - var(--cw-space-3)) 50%;
+  background-size: var(--cw-chevron) var(--cw-chevron);
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+
+:where(.cockpit-shell) :where(input[type='checkbox'], input[type='radio']) {
+  flex: none;
+  width: var(--cw-check);
+  height: var(--cw-check);
+  margin: 0;
+  accent-color: var(--cw-accent);
+  cursor: pointer;
+}
+
+/* Menus and popovers: the editor's context menu — overlay surface, widget shadow,
+   rows with their own radius, and a short fade in. */
+@keyframes cockpit-enter {
+  from {
+    opacity: 0;
+    transform: translateY(calc(var(--cw-lift) * -1));
+  }
+}
+
+@keyframes cockpit-rise {
+  from {
+    opacity: 0;
+    transform: translateY(var(--cw-lift));
+  }
+}
+
+@keyframes cockpit-fade {
+  from {
+    opacity: 0;
+  }
+}
+
 html,
 body,
 #app,
@@ -82,34 +265,6 @@ body,
 }.cockpit-stage {
   min-height: 0;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 /* ---------- stage ---------- */
@@ -214,13 +369,20 @@ body,
 .cockpit-layouts__toggle,
 .cockpit-layouts__apply,
 .cockpit-layouts__delete {
+  height: var(--cw-row-h);
+  padding: 0 var(--cw-space-2);
   background: none;
   border: none;
+  border-radius: var(--cw-radius-sm);
   color: var(--cw-text);
   font: inherit;
   font-size: var(--cw-fs-sm);
+  text-align: left;
   cursor: pointer;
-  padding: var(--cw-control-pad-y) var(--cw-space-2);
+}
+
+.cockpit-layouts__apply {
+  flex: 1;
 }
 
 .cockpit-layouts__menu {
@@ -232,10 +394,16 @@ body,
   display: flex;
   flex-direction: column;
   gap: var(--cw-space-1);
-  padding: var(--cw-space-2);
-  background: var(--cw-surface-input);
+  padding: var(--cw-space-1);
+  background: var(--cw-surface-overlay);
   border: var(--cw-hairline) solid var(--cw-border-strong);
-  border-radius: var(--cw-radius-sm);
+  border-radius: var(--cw-radius-lg);
+  box-shadow: 0 var(--cw-space-1) var(--cw-space-4) var(--cw-shadow);
+  animation: cockpit-enter var(--cw-dur-enter) var(--cw-ease);
+}
+
+.cockpit-layouts__save input {
+  width: 100%;
 }
 
 .cockpit-layouts__row {
@@ -246,19 +414,9 @@ body,
 .cockpit-layouts__apply:hover,
 .cockpit-layouts__delete:hover {
   color: var(--cw-text-bright);
-  background: var(--cw-surface-hover);
+  background: var(--cw-surface-active);
 }
 
-.cockpit-layouts__save input {
-  width: 100%;
-  padding: var(--cw-control-pad-y) var(--cw-space-2);
-  background: var(--cw-surface);
-  border: var(--cw-hairline) solid var(--cw-border-strong);
-  border-radius: var(--cw-radius-sm);
-  color: var(--cw-text-bright);
-  font: inherit;
-  font-size: var(--cw-fs-sm);
-}
 
 /* Right-click tab menu. */
 .cockpit-menu {
@@ -267,18 +425,23 @@ body,
   display: flex;
   flex-direction: column;
   padding: var(--cw-space-1);
-  background: var(--cw-surface-input);
+  background: var(--cw-surface-overlay);
   border: var(--cw-hairline) solid var(--cw-border-strong);
-  border-radius: var(--cw-radius-sm);
+  border-radius: var(--cw-radius-lg);
+  box-shadow: 0 var(--cw-space-1) var(--cw-space-4) var(--cw-shadow);
+  animation: cockpit-enter var(--cw-dur-enter) var(--cw-ease);
 }
 
+/* Items highlight at once, as editor menus do; only the menu itself fades in. */
 .cockpit-menu button {
   display: flex;
   align-items: center;
   gap: var(--cw-space-4);
-  padding: var(--cw-control-pad-y) var(--cw-space-3);
+  height: var(--cw-row-h);
+  padding: 0 var(--cw-space-3);
   background: none;
   border: none;
+  border-radius: var(--cw-radius-sm);
   color: var(--cw-text);
   font: inherit;
   font-size: var(--cw-fs-sm);
@@ -286,9 +449,11 @@ body,
   cursor: pointer;
 }
 
-.cockpit-menu button:hover {
-  background: var(--cw-surface-hover);
+.cockpit-menu button:hover,
+.cockpit-menu button:focus-visible {
+  background: var(--cw-surface-active);
   color: var(--cw-text-bright);
+  outline: none;
 }
 
 /* The active tab's split tree. */
@@ -360,8 +525,6 @@ body,
 }
 
 
-
-
 .xterm-pane {
   flex: 1;
   min-height: 0;
@@ -373,7 +536,6 @@ body,
 .xterm-pane .xterm {
   height: 100%;
 }
-
 
 
 /* ---------- text ---------- */
@@ -440,10 +602,6 @@ body,
 }
 
 
-
-
-
-
 /* ⌘T agent picker. */
 .cockpit-picker__backdrop {
   position: fixed;
@@ -455,27 +613,31 @@ body,
   align-items: flex-start;
   justify-content: center;
   padding-top: calc(var(--cw-row-h) * 4);
-  background: color-mix(in srgb, var(--cw-surface) 70%, transparent);
+  background: var(--cw-scrim);
   z-index: 10;
+  animation: cockpit-fade var(--cw-dur-enter) var(--cw-ease);
 }
 
 .cockpit-picker {
   /* Dialogs sit above the stage; a flat panel on a dimmed backdrop read as part of it. */
-  box-shadow: 0 var(--cw-space-2) calc(var(--cw-space-3) * 3) color-mix(in srgb, var(--cw-surface) 85%, transparent);
+  box-shadow: 0 var(--cw-space-2) calc(var(--cw-space-3) * 3) var(--cw-shadow);
   width: calc(var(--cw-row-h) * 16);
+  max-width: calc(100% - var(--cw-space-4) * 2);
   display: flex;
   flex-direction: column;
-  gap: var(--cw-space-2);
-  padding: var(--cw-space-3);
-  background: var(--cw-surface-input);
+  gap: var(--cw-space-3);
+  padding: var(--cw-space-4);
+  background: var(--cw-surface-overlay);
   border: var(--cw-hairline) solid var(--cw-border-strong);
-  border-radius: var(--cw-radius-sm);
+  border-radius: var(--cw-radius-lg);
   color: var(--cw-text);
+  animation: cockpit-enter var(--cw-dur-enter) var(--cw-ease);
 }
 
 .cockpit-picker__title {
   margin: 0;
   font-size: var(--cw-fs);
+  font-weight: 600;
   color: var(--cw-text-bright);
 }
 
@@ -519,43 +681,19 @@ body,
   font-size: var(--cw-fs-sm);
 }
 
-.cockpit-picker__field input {
-  padding: var(--cw-control-pad-y) var(--cw-space-2);
-  background: var(--cw-surface);
-  border: var(--cw-hairline) solid var(--cw-border-strong);
-  border-radius: var(--cw-radius-sm);
-  color: var(--cw-text-bright);
+/* Session names, commands, branches and paths are typed the way they are used: in the
+   terminal's face. Display names and labels stay in the UI font. */
+.cockpit-field--mono {
   font-family: var(--cw-font-mono);
-  font-size: var(--cw-fs-sm);
 }
 
 .cockpit-picker__actions {
   display: flex;
   justify-content: flex-end;
   gap: var(--cw-space-2);
+  margin-top: var(--cw-space-1);
 }
 
-.cockpit-picker__actions button {
-  padding: var(--cw-control-pad-y) var(--cw-space-3);
-  background: var(--cw-surface-control);
-  border: none;
-  border-radius: var(--cw-radius-sm);
-  color: var(--cw-text-bright);
-  font: inherit;
-  font-size: var(--cw-fs-sm);
-  cursor: pointer;
-}
-
-.cockpit-picker__actions button.is-primary {
-  background: var(--cw-accent);
-  color: var(--cw-surface);
-}
-
-.cockpit-picker__actions button:disabled {
-  color: var(--cw-text-dim);
-  background: var(--cw-surface-control);
-  cursor: default;
-}
 
 /* Session color dot (rail, tabs) and its picker. */
 .cockpit-dot {
@@ -579,22 +717,21 @@ body,
   padding: 0;
   border-radius: 50%;
   border: var(--cw-hairline) solid var(--cw-border-strong);
+  transition: box-shadow var(--cw-dur-fast) var(--cw-ease);
 }
 
-.cockpit-picker__field select {
-  padding: var(--cw-control-pad-y) var(--cw-space-2);
-  background: var(--cw-surface);
-  border: var(--cw-hairline) solid var(--cw-border-strong);
-  border-radius: var(--cw-radius-sm);
-  color: var(--cw-text-bright);
-  font: inherit;
-  font-size: var(--cw-fs-sm);
+.cockpit-menu .cockpit-swatch:hover,
+.cockpit-menu .cockpit-swatch:focus-visible {
+  box-shadow: 0 0 0 var(--cw-hairline) var(--cw-text-bright);
 }
+
 
 .cockpit-picker__check {
   display: flex;
   align-items: flex-start;
   gap: var(--cw-space-2);
+  line-height: var(--cw-check);
+  cursor: pointer;
   font-size: var(--cw-fs-sm);
   color: var(--cw-text);
 }
@@ -633,21 +770,6 @@ body,
   color: var(--cw-needs-you);
 }
 
-.cockpit-file__conflict button,
-.cockpit-browser__bar button {
-  padding: 0 var(--cw-space-2);
-  background: var(--cw-surface-control);
-  border: none;
-  border-radius: var(--cw-radius-sm);
-  color: var(--cw-text-bright);
-  font: inherit;
-  cursor: pointer;
-}
-
-.cockpit-browser__bar button:disabled {
-  color: var(--cw-text-dim);
-  cursor: default;
-}
 
 .cockpit-file__editor {
   flex: 1;
@@ -665,19 +787,15 @@ body,
 
 .cockpit-browser__bar {
   display: flex;
+  align-items: center;
   gap: var(--cw-space-1);
   padding: var(--cw-space-1) var(--cw-space-2);
 }
 
 .cockpit-browser__bar input {
   flex: 1;
-  padding: var(--cw-control-pad-y) var(--cw-space-2);
-  background: var(--cw-surface-input);
-  border: var(--cw-hairline) solid var(--cw-border-strong);
-  border-radius: var(--cw-radius-sm);
-  color: var(--cw-text-bright);
+  height: var(--cw-row-h);
   font-family: var(--cw-font-mono);
-  font-size: var(--cw-fs-sm);
 }
 
 .cockpit-browser__error {
@@ -717,40 +835,19 @@ body,
   font-size: var(--cw-fs-sm);
 }
 
-.cockpit-settings__agent input,
-.cockpit-settings .cockpit-picker__field input {
-  padding: var(--cw-control-pad-y) var(--cw-space-2);
-  background: var(--cw-surface);
-  border: var(--cw-hairline) solid var(--cw-border-strong);
-  border-radius: var(--cw-radius-sm);
-  color: var(--cw-text-bright);
-  font: inherit;
-  font-size: var(--cw-fs-sm);
-}
-
-.cockpit-settings__agent input[type='checkbox'] {
-  padding: 0;
-}
 
 .cockpit-settings__command {
   font-family: var(--cw-font-mono);
 }
 
-.cockpit-settings__agent button {
-  padding: var(--cw-control-pad-y) var(--cw-space-2);
-  background: var(--cw-surface-control);
-  border: none;
-  border-radius: var(--cw-radius-sm);
-  color: var(--cw-text-bright);
-  font: inherit;
-  cursor: pointer;
-}
 
 .cockpit-settings__toggle {
   display: flex;
   align-items: center;
-  gap: var(--cw-space-1);
+  gap: var(--cw-space-2);
   color: var(--cw-text);
+  font-size: var(--cw-fs-sm);
+  cursor: pointer;
 }
 
 .cockpit-settings__editors {
@@ -783,10 +880,16 @@ body,
   display: flex;
   align-items: center;
   gap: var(--cw-space-2);
-  padding: var(--cw-control-pad-y) var(--cw-space-2);
-  background: var(--cw-surface);
+  height: var(--cw-control-h);
+  padding: 0 var(--cw-space-2);
+  background: var(--cw-surface-input);
   border: var(--cw-hairline) solid var(--cw-border-strong);
   border-radius: var(--cw-radius-sm);
+  transition: border-color var(--cw-dur-fast) var(--cw-ease);
+}
+
+.cockpit-launch__line:hover {
+  border-color: var(--cw-border-hover);
 }
 
 .cockpit-launch__line:focus-within {
@@ -801,6 +904,7 @@ body,
 .cockpit-launch__line input {
   flex: 1;
   min-width: 0;
+  height: auto;
   padding: 0;
   background: transparent;
   border: none;
@@ -815,10 +919,6 @@ body,
   color: var(--cw-blocked);
 }
 
-.cockpit-picker__actions button.is-danger {
-  background: var(--cw-blocked);
-  color: var(--cw-surface);
-}
 
 .cockpit-confirm__body {
   margin: 0;
@@ -856,21 +956,6 @@ body,
 .cockpit-changes__verdict.is-empty,
 .cockpit-changes__verdict.is-none { color: var(--cw-text-dim); }
 
-.cockpit-changes__land {
-  padding: var(--cw-control-pad-y) var(--cw-space-3);
-  background: var(--cw-accent);
-  border: none;
-  border-radius: var(--cw-radius-sm);
-  color: var(--cw-surface);
-  font: inherit;
-  cursor: pointer;
-}
-
-.cockpit-changes__land:disabled {
-  background: var(--cw-surface-control);
-  color: var(--cw-text-dim);
-  cursor: default;
-}
 
 .cockpit-changes__note { margin: var(--cw-space-2) var(--cw-space-3); }
 
@@ -925,8 +1010,6 @@ body,
 .cockpit-diff-line.is-meta { color: var(--cw-text-dim); }
 
 
-
-
 .cockpit-command code {
   font-family: var(--cw-font-mono);
   color: var(--cw-text-bright);
@@ -967,23 +1050,6 @@ body,
 }
 
 .cockpit-command__hint { margin: 0; font-size: var(--cw-fs-micro); }
-
-.cockpit-launch__start {
-  padding: var(--cw-control-pad-y) var(--cw-space-3);
-  background: var(--cw-accent);
-  border: none;
-  border-radius: var(--cw-radius-sm);
-  color: var(--cw-surface);
-  font: inherit;
-  font-size: var(--cw-fs-sm);
-  cursor: pointer;
-}
-
-.cockpit-launch__start:disabled {
-  background: var(--cw-surface-control);
-  color: var(--cw-text-dim);
-  cursor: default;
-}
 
 
 /* ---------- Deck-grade chrome: sidebar, rows, status, toast ---------- */
@@ -1178,7 +1244,6 @@ body,
   font-size: var(--cw-fs-rail);
   cursor: pointer;
   user-select: none;
-  transition: background-color var(--cw-dur-fast) var(--cw-ease);
 }
 
 .cockpit-row:hover {
@@ -1299,7 +1364,8 @@ body,
   font-size: var(--cw-fs-micro);
 }
 
-.cockpit-menu button.is-danger {
+.cockpit-menu button.is-danger,
+.cockpit-menu button.is-danger:hover {
   color: var(--cw-blocked);
 }
 
@@ -1323,12 +1389,13 @@ body,
   gap: var(--cw-space-2);
   max-width: calc(var(--cw-rail-w) * 1.6);
   padding: var(--cw-space-2) var(--cw-space-2) var(--cw-space-2) var(--cw-space-3);
-  background: var(--cw-surface-input);
+  background: var(--cw-surface-overlay);
   border: var(--cw-hairline) solid var(--cw-border-strong);
   border-radius: var(--cw-radius-lg);
-  box-shadow: 0 var(--cw-space-2) calc(var(--cw-space-3) * 3) color-mix(in srgb, var(--cw-surface) 85%, transparent);
+  box-shadow: 0 var(--cw-space-2) calc(var(--cw-space-3) * 3) var(--cw-shadow);
   color: var(--cw-text-bright);
   font-size: var(--cw-fs);
+  animation: cockpit-rise var(--cw-dur-enter) var(--cw-ease);
 }
 
 .cockpit-toast--error {
@@ -1432,23 +1499,6 @@ body,
   color: var(--cw-ready);
 }
 
-.cockpit-launcher__edit,
-.cockpit-launcher__actions button,
-.cockpit-launchers__add {
-  padding: var(--cw-control-pad-y) var(--cw-space-3);
-  background: var(--cw-surface-control);
-  border: none;
-  border-radius: var(--cw-radius-sm);
-  color: var(--cw-text-bright);
-  font: inherit;
-  font-size: var(--cw-fs-sm);
-  cursor: pointer;
-}
-
-.cockpit-launcher__actions button.is-danger {
-  background: var(--cw-blocked);
-  color: var(--cw-surface);
-}
 
 .cockpit-launchers__add {
   align-self: flex-start;
@@ -1467,14 +1517,7 @@ body,
 }
 
 .cockpit-settings__env {
-  padding: var(--cw-control-pad-y) var(--cw-space-2);
-  background: var(--cw-surface-input);
-  border: var(--cw-hairline) solid var(--cw-border-strong);
-  border-radius: var(--cw-radius-sm);
-  color: var(--cw-text-bright);
   font-family: var(--cw-font-mono);
-  font-size: var(--cw-fs-sm);
-  resize: vertical;
 }
 
 .cockpit-settings code {
@@ -1519,15 +1562,11 @@ body,
   font-size: var(--cw-fs);
 }
 
+/* The welcome's one call to action is the primary button, a size up. */
 .cockpit-welcome__open {
-  padding: var(--cw-space-2) var(--cw-space-4);
-  background: var(--cw-accent);
-  border: none;
-  border-radius: var(--cw-radius);
-  color: var(--cw-surface);
-  font: inherit;
-  font-size: var(--cw-fs-rail);
-  cursor: pointer;
+  height: calc(var(--cw-control-h) + var(--cw-space-2));
+  padding: 0 var(--cw-space-4);
+  font-size: var(--cw-fs);
 }
 
 .cockpit-welcome__recent {
@@ -1556,4 +1595,155 @@ body,
 
 .cockpit-welcome__recent button:hover {
   background: var(--cw-surface-hover);
+}
+
+/* The filter box under the title row: narrows every project's rows as you type. */
+.cockpit-sidebar__filter {
+  flex: none;
+  padding: 0 var(--cw-space-2) var(--cw-space-1);
+}
+
+.cockpit-sidebar__filter input {
+  width: 100%;
+  font-size: var(--cw-fs);
+}
+
+.cockpit-sidebar__nomatch {
+  margin: var(--cw-space-3) var(--cw-space-2);
+  color: var(--cw-text-dim);
+  font-size: var(--cw-fs);
+}
+
+.cockpit-project__icon {
+  display: inline-flex;
+  flex: none;
+}
+
+/* The editor's twisty: points right when folded, down when open. */
+.cockpit-project__twisty {
+  width: var(--cw-space-3);
+  height: var(--cw-space-3);
+  color: var(--cw-text-dim);
+  transform: rotate(90deg);
+  transition: transform var(--cw-dur) var(--cw-ease);
+}
+
+.cockpit-project__name[aria-expanded='false'] .cockpit-project__twisty {
+  transform: none;
+}
+
+/* Where a dragged project will land. */
+.cockpit-project.is-drop .cockpit-project__head {
+  box-shadow: inset 0 calc(var(--cw-hairline) * 2) 0 var(--cw-accent);
+}
+
+.cockpit-project__head[draggable='true'] {
+  cursor: grab;
+}
+
+.cockpit-project__name.is-editing {
+  cursor: text;
+}
+
+/* Git on the row: files not committed, then commits to land. */
+.cockpit-row__git {
+  flex: none;
+  display: inline-flex;
+  gap: var(--cw-space-1);
+  font-family: var(--cw-font-mono);
+  font-size: var(--cw-fs-micro);
+}
+
+.cockpit-row__changed {
+  color: var(--cw-needs-you);
+}
+
+.cockpit-row__ahead {
+  color: var(--cw-ready);
+}
+
+/* A name edited in place, on the row or the project heading. */
+.cockpit-rename {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.cockpit-rename input {
+  width: 100%;
+  height: var(--cw-row-h);
+  padding: 0 var(--cw-space-1);
+  font-size: var(--cw-fs-rail);
+}
+
+.cockpit-rename__error {
+  animation: cockpit-enter var(--cw-dur-enter) var(--cw-ease);
+  position: absolute;
+  top: var(--cw-row-h);
+  left: 0;
+  z-index: 25;
+  padding: var(--cw-space-1) var(--cw-space-2);
+  background: var(--cw-surface-input);
+  border: var(--cw-hairline) solid var(--cw-blocked);
+  border-radius: var(--cw-radius-sm);
+  color: var(--cw-text-bright);
+  font-size: var(--cw-fs-sm);
+  white-space: normal;
+  max-width: var(--cw-rail-w);
+}
+
+.cockpit-menu__sep {
+  height: var(--cw-hairline);
+  margin: var(--cw-space-1) calc(var(--cw-space-1) * -1);
+  background: var(--cw-border);
+}
+
+.cockpit-menu button:disabled,
+.cockpit-menu button:disabled:hover {
+  background: none;
+  color: var(--cw-text-dim);
+  cursor: default;
+}
+
+.cockpit-menu {
+  min-width: calc(var(--cw-rail-w) * 0.75);
+  max-height: 90%;
+  overflow: auto;
+}
+
+/* A long menu scrolls; its items (separators included) never shrink to make it fit. */
+.cockpit-menu > * {
+  flex: none;
+}
+
+.cockpit-project-settings .cockpit-swatch {
+  width: calc(var(--cw-space-4) + var(--cw-space-1));
+  height: calc(var(--cw-space-4) + var(--cw-space-1));
+  padding: 0;
+  border-radius: 50%;
+  border: var(--cw-hairline) solid var(--cw-border-strong);
+  cursor: pointer;
+}
+
+.cockpit-project-settings .cockpit-swatch--none {
+  background: transparent;
+}
+
+.cockpit-project-settings .cockpit-menu__swatches {
+  padding: var(--cw-space-1) 0;
+}
+
+.cockpit-project-settings .cockpit-swatch.is-selected {
+  box-shadow: 0 0 0 calc(var(--cw-hairline) * 2) var(--cw-text-bright);
+}
+
+.cockpit-project-settings__path {
+  margin: 0 0 var(--cw-space-2);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: var(--cw-font-mono);
+  font-size: var(--cw-fs-sm);
 }

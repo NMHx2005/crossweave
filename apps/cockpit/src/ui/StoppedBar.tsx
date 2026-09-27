@@ -33,7 +33,7 @@ export function StoppedBar({ sessionName, focused, onStart }: StoppedBarProps) {
     <div class="cockpit-launch" onMouseDown={(e) => e.stopPropagation()}>
       <div class="cockpit-launch__head">
         <span><strong>{sessionName}</strong>'s shell is closed.</span>
-        <button ref={buttonRef} type="button" class="cockpit-launch__start" disabled={busy} onClick={() => void start()}>
+        <button ref={buttonRef} type="button" class="cockpit-btn cockpit-btn--sm cockpit-btn--primary cockpit-launch__start" disabled={busy} onClick={() => void start()}>
           Open shell ⏎
         </button>
       </div>

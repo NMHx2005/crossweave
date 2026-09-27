@@ -65,9 +65,9 @@ export function BrowserPane({ url, onNavigate }: { url: string; onNavigate: (url
   return (
     <div class="cockpit-browser">
       <form class="cockpit-browser__bar" onSubmit={(e) => { e.preventDefault(); go(address) }}>
-        <button type="button" disabled={!nav.back} onClick={() => ref.current?.goBack()} aria-label="Back">‹</button>
-        <button type="button" disabled={!nav.forward} onClick={() => ref.current?.goForward()} aria-label="Forward">›</button>
-        <button type="button" onClick={() => ref.current?.reload()} aria-label="Reload">↻</button>
+        <button type="button" class="cockpit-btn cockpit-btn--sm cockpit-btn--ghost" disabled={!nav.back} onClick={() => ref.current?.goBack()} aria-label="Back">‹</button>
+        <button type="button" class="cockpit-btn cockpit-btn--sm cockpit-btn--ghost" disabled={!nav.forward} onClick={() => ref.current?.goForward()} aria-label="Forward">›</button>
+        <button type="button" class="cockpit-btn cockpit-btn--sm cockpit-btn--ghost" onClick={() => ref.current?.reload()} aria-label="Reload">↻</button>
         <input
           value={address}
           placeholder="localhost:3000 or a URL"

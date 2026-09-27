@@ -128,6 +128,21 @@ describe('cockpit design tokens — legibility (WCAG AA)', () => {
     expect(contrast(T['--cw-text-bright'], T['--cw-surface-control'])).toBeGreaterThanOrEqual(AA_NORMAL)
   })
 
+  it('the control layer: buttons in every state, fields, and what floats', () => {
+    expect(contrast(T['--cw-text-bright'], T['--cw-surface-control-hover'])).toBeGreaterThanOrEqual(AA_NORMAL)
+    // Primary and danger buttons carry dark text on the hue, resting and hovered.
+    for (const bg of ['--cw-accent', '--cw-accent-hover', '--cw-blocked', '--cw-danger-hover'] as const) {
+      expect(contrast(T['--cw-surface'], T[bg])).toBeGreaterThanOrEqual(AA_NORMAL)
+    }
+    expect(contrast(T['--cw-text-bright'], T['--cw-surface-input'])).toBeGreaterThanOrEqual(AA_NORMAL)
+    expect(contrast(T['--cw-text-dim'], T['--cw-surface-input'])).toBeGreaterThanOrEqual(AA_NORMAL)
+    // Menus and dialogs: body, dim and danger text on the overlay, and a hovered item.
+    for (const fg of ['--cw-text', '--cw-text-dim', '--cw-text-bright', '--cw-blocked'] as const) {
+      expect(contrast(T[fg], T['--cw-surface-overlay'])).toBeGreaterThanOrEqual(AA_NORMAL)
+    }
+    expect(contrast(T['--cw-text-bright'], T['--cw-surface-active'])).toBeGreaterThanOrEqual(AA_NORMAL)
+  })
+
   it('disabled labels stay readable on the control surface', () => {
     // WCAG exempts disabled controls, and this system used that exemption to go down
     // to ~1.15:1 — which is not "quiet", it is invisible (see the design-system

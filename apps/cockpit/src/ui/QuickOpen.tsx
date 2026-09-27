@@ -39,6 +39,7 @@ export function QuickOpen({ sessionName, files, onOpen, onCancel }: {
         <label class="cockpit-picker__field">
           <input
             ref={inputRef}
+            class="cockpit-field--mono"
             value={query}
             placeholder="Type to search the worktree"
             spellcheck={false}
