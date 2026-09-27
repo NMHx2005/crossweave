@@ -33,3 +33,13 @@
 - **A log over 64 MB is read from its last 64 MB** on the first read.
 - **All tabs' terminals stay in memory** (each keeps its scrollback).
 - **⌘F reaches terminal panes only**; in the file editor it does nothing yet.
+
+## Test note
+
+- **`tests/convergence/land.test.ts` › "a successful land still returns the real
+  LandResult…" timed out once (10 s) in the stop-gate's full parallel run**, next to a
+  "killed 1 dangling process". It does not touch this phase's code (no session.list),
+  passes alone in ~0.55 s (3/3) and in two further full default-concurrency runs
+  (947/947 each). Treated as load-sensitive, not fixed by raising its timeout; if it
+  recurs, look for what the dangling process was waiting on (a git lock in the
+  fixture is the first suspect).
