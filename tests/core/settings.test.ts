@@ -92,3 +92,49 @@ describe('launchers', () => {
     }
   });
 });
+
+describe('terminal appearance', () => {
+  const ansi = Array.from({ length: 16 }, (_, i) => `#${i.toString(16).padStart(2, '0').repeat(3)}`);
+  const imported = {
+    fontFamily: 'JetBrainsMono Nerd Font Mono',
+    fontSize: 12,
+    cursorStyle: 'bar' as const,
+    cursorBlink: false,
+    optionAsMeta: true,
+    colors: { background: '#1e1e2e', foreground: '#cdd6f4', cursor: '#f5e0dc', cursorText: '#1e1e2e', selection: '#585b70', ansi },
+    importedFrom: 'ghostty' as const,
+  };
+
+  it('is absent by default: panes keep the cockpit palette', () => {
+    expect(loadSettings(home).terminal).toBeUndefined();
+  });
+
+  it('round-trips through save and load', () => {
+    saveSettings({ ...loadSettings(home), terminal: imported }, home);
+    expect(loadSettings(home).terminal).toEqual(imported);
+  });
+
+  // The family reaches xterm's font string: nothing that could close the quotes or
+  // start another declaration.
+  it('refuses what is not a font family, size, color or palette', () => {
+    const base = loadSettings(home);
+    for (const bad of [
+      { fontFamily: 'Menlo"; x: y' },
+      { fontFamily: '' },
+      { fontSize: 7 },
+      { fontSize: 12.5 },
+      { cursorStyle: 'beam' },
+      { colors: { ...imported.colors, background: 'red' } },
+      { colors: { ...imported.colors, ansi: ansi.slice(0, 8) } },
+      { importedFrom: 'kitty' },
+    ]) {
+      expect(() => saveSettings({ ...base, terminal: { ...imported, ...bad } as never }, home)).toThrow(/terminal/i);
+    }
+  });
+
+  it('a bad saved value is dropped on load, not fatal', () => {
+    mkdirSync(join(home, '.crossweave'), { recursive: true });
+    writeFileSync(file(), JSON.stringify({ terminal: { fontFamily: 'Menlo"; x', fontSize: 14, colors: { background: 'nope' } } }));
+    expect(loadSettings(home).terminal).toEqual({ fontSize: 14 });
+  });
+});

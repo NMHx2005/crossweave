@@ -52,11 +52,93 @@ export interface EditorSetting {
   command?: string;
 }
 
+export interface TerminalColors {
+  background: string;
+  foreground: string;
+  cursor?: string;
+  cursorText?: string;
+  selection?: string;
+  /** ANSI 0-15, or none to keep the cockpit's. */
+  ansi?: string[];
+}
+
+/**
+ * How the cockpit's terminal panes look, usually imported from the user's own
+ * terminal (Ghostty, iTerm2). Absent: the cockpit's palette and font.
+ */
+export interface TerminalAppearance {
+  fontFamily?: string;
+  fontSize?: number;
+  cursorStyle?: 'block' | 'bar' | 'underline';
+  cursorBlink?: boolean;
+  /** Option sends Meta (Esc+), as in the terminal it came from. */
+  optionAsMeta?: boolean;
+  colors?: TerminalColors;
+  importedFrom?: 'ghostty' | 'iterm2';
+}
+
 export interface UserSettings {
   launchers: LauncherDef[];
   editor: EditorSetting;
   /** Named cockpit layouts, opaque to the daemon. */
   layouts: Record<string, unknown>;
+  terminal?: TerminalAppearance;
+}
+
+/** A font family as it reaches xterm's CSS font string: nothing that could end the quotes. */
+const FONT_FAMILY = /^[A-Za-z0-9][A-Za-z0-9 ._+-]{0,79}$/;
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
+const CURSOR_STYLES: ReadonlySet<string> = new Set(['block', 'bar', 'underline']);
+const TERMINAL_SOURCES: ReadonlySet<string> = new Set(['ghostty', 'iterm2']);
+
+/**
+ * `raw` reduced to what is valid, and what was not. Load keeps the valid part (a bad
+ * file must not cost the rest); save refuses on any problem.
+ */
+export function cleanTerminal(raw: unknown): { terminal: TerminalAppearance | undefined; problems: string[] } {
+  const problems: string[] = [];
+  if (raw === undefined || raw === null) return { terminal: undefined, problems };
+  if (typeof raw !== 'object' || Array.isArray(raw)) return { terminal: undefined, problems: ['terminal must be an object'] };
+  const r = raw as Record<string, unknown>;
+  const out: TerminalAppearance = {};
+  if (r.fontFamily !== undefined) {
+    if (typeof r.fontFamily === 'string' && FONT_FAMILY.test(r.fontFamily)) out.fontFamily = r.fontFamily;
+    else problems.push('terminal font family: letters, digits, spaces and ._+- only, up to 80 characters');
+  }
+  if (r.fontSize !== undefined) {
+    if (typeof r.fontSize === 'number' && Number.isInteger(r.fontSize) && r.fontSize >= 8 && r.fontSize <= 32) out.fontSize = r.fontSize;
+    else problems.push('terminal font size: a whole number from 8 to 32');
+  }
+  if (r.cursorStyle !== undefined) {
+    if (typeof r.cursorStyle === 'string' && CURSOR_STYLES.has(r.cursorStyle)) out.cursorStyle = r.cursorStyle as TerminalAppearance['cursorStyle'];
+    else problems.push('terminal cursor: block, bar or underline');
+  }
+  for (const key of ['cursorBlink', 'optionAsMeta'] as const) {
+    if (r[key] === undefined) continue;
+    if (typeof r[key] === 'boolean') out[key] = r[key] as boolean;
+    else problems.push(`terminal ${key} must be true or false`);
+  }
+  if (r.importedFrom !== undefined) {
+    if (typeof r.importedFrom === 'string' && TERMINAL_SOURCES.has(r.importedFrom)) out.importedFrom = r.importedFrom as TerminalAppearance['importedFrom'];
+    else problems.push('terminal importedFrom: ghostty or iterm2');
+  }
+  if (r.colors !== undefined) {
+    const c = r.colors as Record<string, unknown> | null;
+    const hex = (v: unknown): v is string => typeof v === 'string' && HEX_COLOR.test(v);
+    const ok = c !== null && typeof c === 'object' && !Array.isArray(c)
+      && hex(c.background) && hex(c.foreground)
+      && ['cursor', 'cursorText', 'selection'].every((k) => c[k] === undefined || hex(c[k]))
+      && (c.ansi === undefined || (Array.isArray(c.ansi) && c.ansi.length === 16 && c.ansi.every(hex)));
+    if (ok) {
+      const colors: TerminalColors = { background: c.background as string, foreground: c.foreground as string };
+      for (const k of ['cursor', 'cursorText', 'selection'] as const) if (c[k] !== undefined) colors[k] = c[k] as string;
+      if (c.ansi !== undefined) colors.ansi = [...(c.ansi as string[])];
+      out.colors = colors;
+    } else {
+      problems.push('terminal colors: #rrggbb values, and 16 ANSI colors or none');
+    }
+  }
+  return { terminal: Object.keys(out).length === 0 ? undefined : out, problems };
 }
 
 const EDITORS: ReadonlySet<string> = new Set(['vscode', 'cursor', 'zed', 'custom', 'cockpit']);
@@ -118,6 +200,8 @@ function validate(settings: UserSettings): void {
     if (typeof settings.editor.command !== 'string') throw new CrossweaveError('INVALID_SETTINGS', 'A custom editor needs a command');
     splitCommand(settings.editor.command);
   }
+  const { problems } = cleanTerminal(settings.terminal);
+  if (problems.length > 0) invalid(problems[0] as string);
 }
 
 /**
@@ -136,7 +220,8 @@ export function loadSettings(homeDir?: string): UserSettings {
   }
   const editor = saved.editor && EDITORS.has(saved.editor.kind) ? saved.editor : { kind: 'vscode' as const };
   const layouts = saved.layouts && typeof saved.layouts === 'object' ? saved.layouts : {};
-  return { launchers: mergeLaunchers(saved.launchers), editor, layouts };
+  const { terminal } = cleanTerminal(saved.terminal);
+  return { launchers: mergeLaunchers(saved.launchers), editor, layouts, ...(terminal === undefined ? {} : { terminal }) };
 }
 
 function stringEnv(value: unknown): Record<string, string> {
@@ -191,6 +276,7 @@ export function saveSettings(settings: UserSettings, homeDir?: string): void {
     launchers: settings.launchers.map(({ id, label, command, env, enabled, builtin }) => ({ id, label, command, env, enabled, builtin })),
     editor: settings.editor,
     layouts: settings.layouts ?? {},
+    ...(settings.terminal === undefined ? {} : { terminal: cleanTerminal(settings.terminal).terminal }),
   };
   writeFileSync(tmp, `${JSON.stringify(normalized, null, 2)}\n`, { mode: 0o600 });
   chmodSync(tmp, 0o600);
