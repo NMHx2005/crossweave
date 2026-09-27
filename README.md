@@ -112,10 +112,13 @@ subcommand.
 ## Cockpit (desktop)
 
 For daily use, **crossweave Cockpit** is an Electron thin client over
-`cwd`: ⌘T or ⌘K `new <name>` opens a session's shell at once; tabs, split panes,
-extra shells, a file editor, a browser pane, a Changes pane (the diff landing would
-bring in) and land / land all. Same daemon and evidence gate as the CLI; the app
-never spawns anything itself.
+`cwd`, laid out like SpaceVibe Deck: one sidebar lists every open project and its
+sessions, each row saying what is happening (working, waiting for you, failed, closed),
+what the agent last said, how long ago and which agent runs — all inferred from the
+session's shell, nothing to configure. ⌘T or ⌘K `new <name>` opens a session's shell
+at once; ⌘D / ⌘⇧D split, ⌘W closes a pane; tabs hold shells, files, web pages and the
+Changes pane (the diff landing would bring in); a ready session carries a Land chip.
+Same daemon and evidence gate as the CLI; the app never spawns anything itself.
 On macOS arm64 the standard installer includes it when the selected release
 carries the app asset, and bare `cw` opens it
 for the current repository. If the app is absent or cannot launch, `cw`

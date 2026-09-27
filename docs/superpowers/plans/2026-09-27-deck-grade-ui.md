@@ -6,7 +6,7 @@ an AI; (2) a rail whose rows say what is happening; (3) several projects in one 
 (4) Deck-like chrome; (5) keep Land / Changes / ⌘K but put them where they are seen.
 **Tier:** Large — daemon status inference, a multi-daemon bridge, the cockpit's layout.
 **Branch:** `feat/deck-grade-ui`.
-**Status:** in progress.
+**Status:** done (2026-09-27), phases A–D. Gaps: `2026-09-27-deck-grade-ui-known-limitations.md`.
 
 ## Decisions
 
