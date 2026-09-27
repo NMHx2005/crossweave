@@ -223,3 +223,20 @@ describe('starting with a saved launcher', () => {
     } finally { db.close(); }
   });
 });
+
+describe('session.list git counts', () => {
+  test('a worktree session gains its uncommitted-file count once the background read lands', async () => {
+    const { db, call } = await harness();
+    try {
+      const created = await call('session.new', { name: 'api' }) as { worktreePath: string };
+      await Bun.write(join(created.worktreePath, 'new-file.txt'), 'x');
+      await call('session.list');
+      let git: unknown;
+      for (let i = 0; i < 50 && git === undefined; i++) {
+        await Bun.sleep(20);
+        git = (await call('session.list') as Array<{ name: string; git?: unknown }>).find((s) => s.name === 'api')?.git;
+      }
+      expect(git).toEqual({ changed: 1, ahead: 0 });
+    } finally { db.close(); }
+  });
+});

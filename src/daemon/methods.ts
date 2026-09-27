@@ -40,6 +40,7 @@ import { listWorktreeFiles, readWorktreeFile, writeWorktreeFile } from '../domai
 import { BUILTIN_LAUNCHERS, loadSettings, saveSettings, type LauncherDef, type UserSettings } from '../core/settings.js';
 import { TerminalRegistry } from './terminals.js';
 import { ActivityTracker, detectAgents } from './session-status.js';
+import { GitCounter } from './git-counts.js';
 import { launcherProgram } from '../core/launcher-program.js';
 import { loginShellPath, mergePaths } from '../core/login-path.js';
 
@@ -244,6 +245,7 @@ export function buildMethods(
    * working keeps its state and costs no broadcast.
    */
   const STATUS_SWEEP_MS = 1500;
+  const gitCounts = new GitCounter();
   let sweeping = false;
   async function sweepStatus(): Promise<void> {
     if (sweeping) return;
@@ -482,8 +484,19 @@ export function buildMethods(
       broadcastRegistry.broadcast('tui.invalidate', {});
       return row;
     },
-    'session.list': (p) =>
-      sessions.list(str(p, 'workspaceId')).map((session) => {
+    'session.list': (p) => {
+      const listed = sessions.list(str(p, 'workspaceId'));
+      // Read in the background; a change is announced like any other, and the next
+      // list carries it.
+      void gitCounts.refresh(() => {
+        const baseHead = readBaseHead(projectRoot);
+        return listed
+          .filter((s) => s.worktreePath !== null && s.status !== 'landed' && existsSync(s.worktreePath))
+          .map((s) => ({ id: s.id, folder: s.worktreePath as string, baseHead: s.worktreePath === projectRoot ? null : baseHead }));
+      }).then((changed) => {
+        if (changed) broadcastRegistry.broadcast('tui.invalidate', {});
+      });
+      return listed.map((session) => {
         // Whatever the user ran in this worktree last said, read from its own log
         // (Claude Code, Codex), found by the worktree path, not by what launched it.
         const words = session.worktreePath !== null && session.worktreePath !== projectRoot
@@ -491,9 +504,11 @@ export function buildMethods(
           : undefined;
         const agent = agents.get(session.id) ?? null;
         const status = activity.status(session.id, agent);
+        const git = gitCounts.get(session.id);
         const withWords = {
           ...session,
           ...(words === undefined ? {} : { latestWords: words }),
+          ...(git === undefined ? {} : { git }),
           agent,
           activity: status.activity,
           lastActivityAt: status.lastActivityAt,
@@ -515,7 +530,8 @@ export function buildMethods(
             dbValue: value('db'),
           },
         };
-      }),
+      });
+    },
     'session.rename': (p) =>
       sessions.rename(str(p, 'workspaceId'), str(p, 'idOrName'), str(p, 'newName')),
     'session.kill': async (p) => {
