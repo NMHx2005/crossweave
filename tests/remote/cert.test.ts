@@ -36,6 +36,13 @@ describe('local TLS certificates', () => {
     expect(tls.caDer.equals(ca.raw)).toBe(true);
   });
 
+  it('limits the CA: it can vouch for no real domain, and signs no other CA', () => {
+    const tls = ensureTls('192.168.1.20', { home, now: at(T0) });
+    const ca = new X509Certificate(tls.ca);
+    // nameConstraints (2.5.29.30) present in the CA's DER.
+    expect(ca.raw.includes(Buffer.from([0x06, 0x03, 0x55, 0x1d, 0x1e]))).toBe(true);
+  });
+
   it('keeps its files readable by the user only', () => {
     ensureTls('192.168.1.20', { home, now: at(T0) });
     const dir = tlsDir(home);

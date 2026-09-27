@@ -66,8 +66,20 @@ const OID = {
   subjectAltName: '2.5.29.17',
   subjectKeyId: '2.5.29.14',
   authorityKeyId: '2.5.29.35',
+  nameConstraints: '2.5.29.30',
   serverAuth: '1.3.6.1.5.5.7.3.1',
 };
+
+/**
+ * What the local CA may vouch for: no real DNS name (only `*.invalid`), so a user who
+ * trusts it on the phone does not thereby let whoever reads `ca.key` intercept the
+ * sites the phone visits. IP ranges are deliberately not constrained: BoringSSL (Bun's
+ * TLS) refuses a chain whose CA carries iPAddress constraints ("unsupported name
+ * constraint type"), and a phone that did the same could never pair.
+ */
+const CA_CONSTRAINTS = seq(tlv(0xa0, seq(tlv(0x82, Buffer.from('invalid', 'ascii')))));
+/** DER of the nameConstraints OID, to recognise a CA made before it had them. */
+const NAME_CONSTRAINTS_OID = oid('2.5.29.30');
 
 const dn = (cn: string): Buffer => seq(
   set(seq(oid(OID.organization), utf8('crossweave'))),
@@ -104,12 +116,14 @@ function certificate(o: Issue): string {
   const issuerName = o.issuer === 'self' ? o.subject : o.issuer.name;
   const authorityId = o.issuer === 'self' ? ownId : o.issuer.keyId;
   const exts: Buffer[] = [
-    extension(OID.basicConstraints, true, o.ca ? seq(bool(true)) : seq()),
+    // pathLen 0: this CA signs leaves only, never another CA.
+    extension(OID.basicConstraints, true, o.ca ? seq(bool(true), integer(Buffer.from([0]))) : seq()),
     // keyCertSign + cRLSign (0x06, one unused bit) for the CA; digitalSignature (0x80, seven) for the leaf.
     extension(OID.keyUsage, true, o.ca ? bits(Buffer.from([0x06]), 1) : bits(Buffer.from([0x80]), 7)),
     extension(OID.subjectKeyId, false, octets(ownId)),
     extension(OID.authorityKeyId, false, seq(tlv(0x80, authorityId))),
   ];
+  if (o.ca) exts.push(extension(OID.nameConstraints, true, CA_CONSTRAINTS));
   if (!o.ca) {
     exts.push(extension(OID.extKeyUsage, false, seq(oid(OID.serverAuth))));
     const ip = parseIPv4(o.ip ?? '');
@@ -194,7 +208,7 @@ export function ensureTls(address: string, opts: { home?: string; now?: () => Da
   let caPem = read(paths.ca);
   let caKeyPem = read(paths.caKey);
   let caCert = caKeyPem === undefined ? undefined : parse(caPem);
-  if (caCert === undefined || !caCert.ca || !fresh(caCert, now)) {
+  if (caCert === undefined || !caCert.ca || !fresh(caCert, now) || !caCert.raw.includes(NAME_CONSTRAINTS_OID)) {
     const { publicKey, privateKey } = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
     caPem = certificate({
       subject: CA_NAME, publicKey, issuer: 'self', signingKey: privateKey, ca: true,

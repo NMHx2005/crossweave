@@ -9,8 +9,8 @@ import { qrTerminal } from './qr.js';
 import { RemoteService, type ServiceEvent } from './service.js';
 
 /**
- * `cwd remote`: the remote server as its own process. The cockpit starts it with
- * `--control stdio` and drives it with JSON lines (below); it exits when that pipe
+ * `cwd remote`: the remote server as its own process. The cockpit starts it and
+ * drives it with JSON lines over stdio (below); it exits when that pipe
  * closes, so it can never outlive the app. `cw remote serve` runs it in the
  * foreground for a Mac without the cockpit.
  *

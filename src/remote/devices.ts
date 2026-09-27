@@ -28,6 +28,25 @@ export function devicesPath(home?: string): string {
   return join(remoteDir(home), 'devices.json');
 }
 
+/**
+ * Last-seen times live apart from the device list. The server touches them while the
+ * cockpit or `cw remote revoke` may be removing a device; had it rewritten the list,
+ * a removal landing between its read and its write would have been undone.
+ */
+function seenPath(home?: string): string {
+  return join(remoteDir(home), 'seen.json');
+}
+
+function loadSeen(home?: string): Record<string, string> {
+  try {
+    const raw = JSON.parse(readFileSync(seenPath(home), 'utf8')) as unknown;
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return {};
+    return Object.fromEntries(Object.entries(raw).filter(([, v]) => typeof v === 'string')) as Record<string, string>;
+  } catch {
+    return {};
+  }
+}
+
 function ensureDir(home?: string): void {
   const dir = remoteDir(home);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -50,13 +69,16 @@ function load(home?: string): Stored[] {
     && typeof d.tokenHash === 'string' && /^[0-9a-f]{64}$/.test(d.tokenHash));
 }
 
-function save(list: Stored[], home?: string): void {
-  ensureDir(home);
-  const path = devicesPath(home);
+function writeAtomic(path: string, content: string): void {
   const tmp = `${path}.${process.pid}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify({ version: 1, devices: list }, null, 2)}\n`, { mode: 0o600 });
+  writeFileSync(tmp, content, { mode: 0o600 });
   chmodSync(tmp, 0o600);
   renameSync(tmp, path);
+}
+
+function save(list: Stored[], home?: string): void {
+  ensureDir(home);
+  writeAtomic(devicesPath(home), `${JSON.stringify({ version: 1, devices: list }, null, 2)}\n`);
 }
 
 const publicOf = ({ id, name, createdAt, lastSeenAt }: Stored): Device => ({ id, name, createdAt, lastSeenAt });
@@ -71,7 +93,8 @@ function cleanName(name: string): string {
 }
 
 export function listDevices(home?: string): Device[] {
-  return load(home).map(publicOf);
+  const seen = loadSeen(home);
+  return load(home).map((d) => ({ ...publicOf(d), lastSeenAt: seen[d.id] ?? d.lastSeenAt }));
 }
 
 export function addDevice(name: string, opts: { home?: string; now?: () => Date } = {}): { device: Device; token: string } {
@@ -111,12 +134,15 @@ export function removeDevice(id: string, home?: string): boolean {
 }
 
 export function touchDevice(id: string, at: Date, home?: string): void {
-  const list = load(home);
-  const d = list.find((x) => x.id === id);
-  if (d === undefined) return;
-  if (d.lastSeenAt !== null && at.getTime() - Date.parse(d.lastSeenAt) < TOUCH_EVERY_MS) return;
-  d.lastSeenAt = at.toISOString();
-  save(list, home);
+  const ids = new Set(load(home).map((d) => d.id));
+  if (!ids.has(id)) return;
+  const seen = loadSeen(home);
+  const last = seen[id];
+  if (last !== undefined && at.getTime() - Date.parse(last) < TOUCH_EVERY_MS) return;
+  // Only devices still listed are kept: a removed one's time goes with it.
+  const next = Object.fromEntries(Object.entries({ ...seen, [id]: at.toISOString() }).filter(([k]) => ids.has(k)));
+  ensureDir(home);
+  writeAtomic(seenPath(home), `${JSON.stringify(next)}\n`);
 }
 
 /** Changes whenever the file does; the server polls it to drop a removed phone at once. */

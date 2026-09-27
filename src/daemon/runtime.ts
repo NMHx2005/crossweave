@@ -148,8 +148,12 @@ export class SessionRuntime {
 
   subscribe(sessionId: string, name: string, ctx: MethodContext): void {
     const entry = this.require(sessionId, name);
-    entry.subscribers.add(ctx);
-    ctx.onClose(() => entry.subscribers.delete(ctx));
+    // Attaching again (a phone re-opening a session) replays the scrollback but must
+    // not stack another close handler on the same connection each time.
+    if (!entry.subscribers.has(ctx)) {
+      entry.subscribers.add(ctx);
+      ctx.onClose(() => entry.subscribers.delete(ctx));
+    }
     if (entry.scrollback.length > 0) {
       const payload = this.dataPayload(entry.session, entry.scrollback);
       if (payload !== undefined) ctx.notify('session.data', payload);

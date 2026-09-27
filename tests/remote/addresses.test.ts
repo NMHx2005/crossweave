@@ -18,6 +18,12 @@ describe('addresses', () => {
     expect(tailscaleAddress({ en0: [v4('192.168.1.2')] })).toBeUndefined();
   });
 
+  it('never takes a 100.64/10 address a Wi-Fi handed out for Tailscale', () => {
+    expect(tailscaleAddress({ en0: [v4('100.70.1.2')] })).toBeUndefined();
+    expect(tailscaleAddress({ en0: [v4('100.70.1.2')], utun4: [v4('100.101.2.3')] })).toBe('100.101.2.3');
+    expect(tailscaleAddress({ tailscale0: [v4('100.101.2.3')] })).toBe('100.101.2.3');
+  });
+
   it('offers private addresses with en0 first, never a VM bridge, loopback or tunnel', () => {
     expect(wifiCandidates(mac)).toEqual([
       { address: '192.168.137.101', interface: 'en0' },

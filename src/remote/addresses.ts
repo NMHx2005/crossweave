@@ -23,8 +23,13 @@ function ipv4s(ifaces: Interfaces): Array<{ address: string; interface: string }
   return out;
 }
 
+/**
+ * The Tailscale address: in 100.64/10 AND on a tunnel interface (`utun*` on macOS,
+ * `tailscale*` on Linux). Some hotel, office and carrier networks hand out that same
+ * range on the Wi-Fi itself, and serving plain HTTP there would be serving it to them.
+ */
 export function tailscaleAddress(ifaces: Interfaces): string | undefined {
-  return ipv4s(ifaces).find((a) => isTailscaleIPv4(a.address))?.address;
+  return ipv4s(ifaces).find((a) => isTailscaleIPv4(a.address) && /^(utun|tailscale)/.test(a.interface))?.address;
 }
 
 /** Private addresses a phone on the same network could reach, the built-in Wi-Fi first. */

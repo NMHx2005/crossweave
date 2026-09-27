@@ -9,6 +9,7 @@ import { ensureTls } from '../../src/remote/cert.js';
 import { Hub, type DaemonConn } from '../../src/remote/hub.js';
 import { FailureLimiter } from '../../src/remote/limiter.js';
 import { Pairing } from '../../src/remote/pairing.js';
+import { CrossweaveError } from '../../src/core/errors.js';
 import { startRemoteServer, type RunningRemote } from '../../src/remote/server.js';
 
 let home: string;
@@ -250,5 +251,49 @@ describe('remote server — the socket', () => {
     await running?.close();
     running = undefined;
     expect((await c.closed).code).toBe(4000);
+  });
+
+  it('holds at most four sockets per address that have not signed in', async () => {
+    const { origin } = await start();
+    const waiting = await Promise.all([1, 2, 3, 4].map(() => connect(origin)));
+    const fifth = await connect(origin);
+    expect((await fifth.closed).code).toBe(1013);
+    for (const w of waiting) w.ws.close();
+  });
+
+  it('keeps a phone to four sockets, closing its oldest', async () => {
+    const { origin } = await start();
+    const { token } = addDevice('iPhone', { home });
+    const socks: Client[] = [];
+    for (let i = 0; i < 5; i++) {
+      const c = await connect(origin);
+      await c.call('hello', { token });
+      socks.push(c);
+    }
+    expect((await socks[0]!.closed).code).toBe(4009);
+    for (const c of socks.slice(1)) c.ws.close();
+  });
+
+  it('passes on only daemon errors fit for a phone; the rest say nothing of the Mac', async () => {
+    const failing = (code: string, message: string): DaemonConn => ({
+      call: async () => { throw new CrossweaveError(code, message); },
+      onNotification: () => undefined, onClose: () => undefined, close: () => undefined,
+    });
+    let next: DaemonConn = failing('WORKTREE_FAILED', 'fatal: /Users/someone/secret/repo: permission denied');
+    const hub = new Hub({ connect: async () => ({ conn: next, workspaceId: 'w' }) });
+    hub.setProjects([{ root: '/repo/a', name: 'a' }]);
+    running = await startRemoteServer({ listen: [{ reach: 'tailscale', address: '127.0.0.1' }], port: 0, hub, pairing: new Pairing(), home });
+    const origin = (running.urls[0]?.url as string).replace(/\/$/, '');
+    const { token } = addDevice('iPhone', { home });
+    const c = await connect(origin);
+    await c.call('hello', { token });
+    const hidden = await c.call('sessions', { project: '/repo/a' });
+    expect(hidden.error).toEqual({ code: 'INTERNAL', message: 'Something went wrong on the Mac' });
+    next = failing('SESSION_NOT_FOUND', 'No such session: s_9');
+    c.ws.close();
+    const d = await connect(origin);
+    await d.call('hello', { token });
+    expect((await d.call('sessions', { project: '/repo/a' })).error).toEqual({ code: 'SESSION_NOT_FOUND', message: 'No such session: s_9' });
+    d.ws.close();
   });
 });

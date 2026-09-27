@@ -59,6 +59,18 @@ describe('paired devices', () => {
     expect(listDevices(home)[0]?.lastSeenAt).toBe('2026-09-27T10:01:01.000Z');
   });
 
+  it('records last-seen without rewriting the device list, so a removal is never undone', () => {
+    const { device } = addDevice('A', { home });
+    const stamp = devicesStamp(home);
+    touchDevice(device.id, new Date('2026-09-27T10:00:00Z'), home);
+    expect(devicesStamp(home)).toBe(stamp);
+    expect(listDevices(home)[0]?.lastSeenAt).toBe('2026-09-27T10:00:00.000Z');
+    removeDevice(device.id, home);
+    touchDevice(device.id, new Date('2026-09-27T11:00:00Z'), home);
+    expect(listDevices(home)).toEqual([]);
+    expect(statSync(join(home, '.crossweave', 'remote', 'seen.json')).mode & 0o777).toBe(0o600);
+  });
+
   it('changes its stamp when the file changes', () => {
     expect(devicesStamp(home)).toBe('none');
     const { device } = addDevice('A', { home });

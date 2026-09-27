@@ -2327,3 +2327,7 @@ body,
   padding: var(--cw-space-1) var(--cw-space-3);
   cursor: pointer;
 }
+
+.cockpit-pair__trust {
+  max-width: calc(var(--cw-qr-size) * 2);
+}

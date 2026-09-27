@@ -47,6 +47,7 @@ export function closeMessage(code: number): { text: string; retry: boolean; unpa
   switch (code) {
     case 4000: return { text: 'Remote access was turned off on the Mac.', retry: true, unpair: false };
     case 4003: return { text: 'This phone is not paired any more. Pair it again from the Mac.', retry: false, unpair: true };
+    case 4009: return { text: 'This page was opened again on this phone; this copy stopped.', retry: false, unpair: false };
     case 4029: return { text: 'Too many failed attempts from this network. Try again in a few minutes.', retry: true, unpair: false };
     case 1008: return { text: 'The Mac refused this page’s address.', retry: false, unpair: false };
     case 1013: return { text: 'The connection could not keep up with the output. Reconnecting…', retry: true, unpair: false };

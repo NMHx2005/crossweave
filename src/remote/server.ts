@@ -6,7 +6,7 @@ import { CrossweaveError } from '../core/errors.js';
 import type { Listen } from './addresses.js';
 import { ensureTls, type TlsMaterial } from './cert.js';
 import { addDevice, devicesStamp, listDevices, touchDevice, verifyDevice, type Device } from './devices.js';
-import type { Hub } from './hub.js';
+import { RemoteError, type Hub } from './hub.js';
 import { FailureLimiter } from './limiter.js';
 import type { Pairing } from './pairing.js';
 import pageHtml from './web/index.htm' with { type: 'text' };
@@ -48,7 +48,28 @@ export type RunningRemote = {
 };
 
 /** Close codes the page explains in words (src/remote/web/app.ts). */
-export const CLOSE = { off: 4000, signIn: 4001, notPaired: 4003, blocked: 4029 } as const;
+export const CLOSE = { off: 4000, signIn: 4001, notPaired: 4003, replaced: 4009, blocked: 4029 } as const;
+
+/**
+ * Daemon errors whose words are fit for a phone: they name only a session or a
+ * launcher. Anything else (a git failure, an ENOENT, SQLite) carries paths and
+ * internals and reaches the phone as a generic sentence.
+ */
+const PHONE_SAFE_CODES = new Set([
+  'SESSION_NOT_FOUND', 'SESSION_NOT_RUNNING', 'SESSION_ALREADY_RUNNING', 'SESSION_NAME_TAKEN', 'INVALID_SESSION_NAME',
+  'INVALID_NOTE', 'UNKNOWN_LAUNCHER', 'LAUNCHER_DISABLED', 'BRANCH_EXISTS', 'DISK_LIMIT_EXCEEDED',
+]);
+
+/**
+ * Sockets that have not signed in yet, per address and in all. Bun's ws buffers a
+ * whole frame (up to ~16 MB) before this code can refuse it, so the only bound on what
+ * strangers can make the Mac hold is how many such sockets it lets them keep.
+ */
+const MAX_UNAUTHED_PER_ADDRESS = 4;
+const MAX_UNAUTHED = 16;
+/** A phone's newest connections win; one left behind by a reload is closed. */
+const MAX_SOCKETS_PER_DEVICE = 4;
+const BODY_TIMEOUT_MS = 5000;
 
 const MAX_FRAME = 64 * 1024;
 const MAX_PAIR_BODY = 2048;
@@ -127,6 +148,8 @@ function readBody(req: IncomingMessage, max: number): Promise<string | undefined
     let size = 0;
     const chunks: Buffer[] = [];
     let done = false;
+    // A body that trickles in is treated as too large: a slow client holds nothing for long.
+    setTimeout(() => { if (!done) { done = true; resolve(undefined); } }, BODY_TIMEOUT_MS).unref?.();
     req.on('data', (c: Buffer) => {
       if (done) return;
       size += c.length;
@@ -161,6 +184,8 @@ export async function startRemoteServer(opts: RemoteServerOptions): Promise<Runn
   let caFingerprint: string | undefined;
   /** Every authenticated socket, by peer id, with the device it belongs to. */
   const sockets = new Map<string, { ws: WsSocket; device: Device }>();
+  const unauthed = new Map<string, number>();
+  let unauthedTotal = 0;
 
   const reportPeers = (): void => {
     opts.onPeers?.([...sockets.values()].map((s) => ({ id: s.device.id, name: s.device.name })));
@@ -177,6 +202,9 @@ export async function startRemoteServer(opts: RemoteServerOptions): Promise<Runn
       server.once('error', reject);
       server.listen(opts.port, l.address, () => { server.off('error', reject); resolve(); });
     });
+    // Headers must arrive promptly and a request must finish: no slowloris.
+    (server as Server & { headersTimeout: number; requestTimeout: number }).headersTimeout = 10_000;
+    (server as Server & { headersTimeout: number; requestTimeout: number }).requestTimeout = 15_000;
     servers.push(server);
     const port = (server.address() as AddressInfo).port;
     const host = `${l.address}:${port}`;
@@ -284,6 +312,21 @@ export async function startRemoteServer(opts: RemoteServerOptions): Promise<Runn
   }
 
   function serveSocket(ws: WsSocket, address: string): void {
+    if ((unauthed.get(address) ?? 0) >= MAX_UNAUTHED_PER_ADDRESS || unauthedTotal >= MAX_UNAUTHED) {
+      ws.close(1013, 'Too many connections waiting to sign in');
+      return;
+    }
+    unauthed.set(address, (unauthed.get(address) ?? 0) + 1);
+    unauthedTotal += 1;
+    let counted = true;
+    const signedIn = (): void => {
+      if (!counted) return;
+      counted = false;
+      unauthedTotal -= 1;
+      const n = (unauthed.get(address) ?? 1) - 1;
+      if (n <= 0) unauthed.delete(address);
+      else unauthed.set(address, n);
+    };
     const peerId = randomUUID();
     let device: Device | undefined;
     const send = (msg: unknown): void => {
@@ -326,6 +369,11 @@ export async function startRemoteServer(opts: RemoteServerOptions): Promise<Runn
         }
         device = found;
         clearTimeout(helloTimer);
+        signedIn();
+        const own = [...sockets.values()].filter((x) => x.device.id === found.id);
+        for (const old of own.slice(0, Math.max(0, own.length - MAX_SOCKETS_PER_DEVICE + 1))) {
+          old.ws.close(CLOSE.replaced, 'Opened again on this phone');
+        }
         touchDevice(found.id, new Date(), opts.home);
         sockets.set(peerId, { ws, device: found });
         opts.hub.addPeer({ id: peerId, deviceId: found.id, deviceName: found.name, send: (method, params) => send({ method, params }) });
@@ -338,7 +386,7 @@ export async function startRemoteServer(opts: RemoteServerOptions): Promise<Runn
         (err: unknown) => send({
           id,
           // A CrossweaveError carries user-facing copy; anything else stays on the Mac.
-          error: err instanceof CrossweaveError
+          error: err instanceof RemoteError || (err instanceof CrossweaveError && PHONE_SAFE_CODES.has(err.code))
             ? { code: err.code, message: err.message }
             : { code: 'INTERNAL', message: 'Something went wrong on the Mac' },
         }),
@@ -346,6 +394,7 @@ export async function startRemoteServer(opts: RemoteServerOptions): Promise<Runn
     });
     const gone = (): void => {
       clearTimeout(helloTimer);
+      signedIn();
       if (sockets.delete(peerId)) {
         opts.hub.removePeer(peerId);
         reportPeers();

@@ -145,6 +145,22 @@ describe('SessionRuntime subscriber isolation', () => {
     await runtime.stop(row.id, 200);
   }, 15_000);
 
+  it('attaching the same connection again replays without stacking close handlers', async () => {
+    const runtime = new SessionRuntime(() => undefined);
+    const row = await sessions.create({ workspaceId, name: 'reattach', worktree: true });
+    runtime.start(row, argvAdapter(['sh', '-c', 'echo hi; sleep 2']));
+    let closers = 0;
+    let data = 0;
+    const ctx: MethodContext = { notify: (m) => { if (m === 'session.data') data++; }, onClose: () => { closers++; } };
+    runtime.subscribe(row.id, row.name, ctx);
+    await waitFor(() => data > 0);
+    const before = data;
+    runtime.subscribe(row.id, row.name, ctx);
+    expect(data).toBe(before + 1);
+    expect(closers).toBe(1);
+    await runtime.stop(row.id, 200);
+  }, 15_000);
+
   it('a throwing EXIT subscriber does not starve the others, nor block cleanup', async () => {
     const exits: string[] = [];
     const runtime = new SessionRuntime((id) => exits.push(id));

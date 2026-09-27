@@ -155,6 +155,14 @@ export function PairDialog({ state, onRenew, onClose }: { state: RemoteState | n
             ) : null}
             <p class="cockpit-muted">Scan with the phone's camera{link?.reach === 'tailscale' ? ' (Tailscale must be on there too)' : ''}, or open <code>{link?.url.replace(/#.*$/, '')}</code> and type</p>
             <p class="cockpit-pair__code">{pair.display}</p>
+            {link?.reach === 'wifi' ? (
+              // Trust on first use: someone on the same network could stand in for the Mac at
+              // this moment. The fingerprint is how the user can tell.
+              <p class="cockpit-muted cockpit-pair__trust">
+                Pair over Wi-Fi only on a network you trust{links.some((l) => l.reach === 'tailscale') ? ' — Tailscale is safer' : ''}.
+                {state?.caFingerprint !== undefined ? <> The certificate the phone warns about should read <code>{state.caFingerprint.slice(0, 23)}…</code></> : null}
+              </p>
+            ) : null}
             <p class="cockpit-muted">Valid for {left} s, once.</p>
           </>
         )}
