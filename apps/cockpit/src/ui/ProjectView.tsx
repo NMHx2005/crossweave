@@ -33,8 +33,16 @@ import {
   type LandResult,
 } from '../lib/land-actions'
 import {
+  applyPreset,
   closeOthers,
   closePane,
+  equalize,
+  movePane,
+  neighbourPane,
+  paneToTab,
+  swapNext,
+  toggleZoom,
+  type DropSide,
   closeTab,
   closeToRight,
   emptyStage,
@@ -122,6 +130,8 @@ export type ViewHost = {
   register: (projectRoot: string, handle: ViewHandle | null) => void
   /** Actions asked for before this view existed or had loaded. */
   takePending: (projectRoot: string) => ViewAction[]
+  /** A command's current shortcut, formatted (Settings → Keyboard). */
+  shortcut: (commandId: string) => string
 }
 
 /**
@@ -409,6 +419,24 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
     else if (command === 'open-terminal') void handleTerminal()
     else if (command === 'open-file') void handleOpenFile()
     else if (command === 'open-browser') handleOpenBrowser()
+    else if (command === 'zoom-pane') onFocusedPane((tabId, paneId) => setStage((s) => toggleZoom(s, tabId, paneId)))
+    else if (command.startsWith('focus-')) {
+      const dir = command.slice('focus-'.length) as 'left' | 'right' | 'up' | 'down'
+      onFocusedPane((tabId, paneId) => setStage((s) => {
+        const tab = s.tabs.find((t) => t.id === tabId)
+        const next = tab ? neighbourPane(tab, paneId, dir) : undefined
+        return next ? focusPane(s, tabId, next) : s
+      }))
+    }
+    else if (command === 'equalize-panes') onFocusedPane((tabId) => setStage((s) => equalize(s, tabId)))
+    else if (command.startsWith('layout-')) {
+      const preset = command.slice('layout-'.length) as 'even-horizontal' | 'even-vertical' | 'main-left' | 'tiled'
+      onFocusedPane((tabId) => setStage((s) => applyPreset(s, tabId, preset)))
+    }
+    else if (command === 'swap-next') onFocusedPane((tabId, paneId) => setStage((s) => swapNext(s, tabId, paneId)))
+    else if (command === 'pane-to-tab') {
+      onFocusedPane((tabId, paneId, pane) => setStage((s) => paneToTab(s, tabId, paneId, paneTitle(pane))))
+    }
     // The focused terminal pane (of this view, its tab shown) takes it.
     else if (command === 'find' || command === 'find-next' || command === 'find-prev') {
       const action = command === 'find' ? 'open' : command === 'find-next' ? 'next' : 'prev'
@@ -432,6 +460,22 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
     })
     return () => hostRef.current.register(projectRoot, null)
   }, [projectRoot])
+
+  /** Run `act` on the active tab's focused pane, if there is one. */
+  function onFocusedPane(act: (tabId: string, paneId: string, pane: PaneRef) => void): void {
+    const at = focusedPaneAt()
+    if (at) act(at.tabId, at.paneId, at.pane)
+  }
+
+  /** A tab title for a pane broken out of its tab. */
+  function paneTitle(pane: PaneRef): string {
+    if (pane.kind === 'browser') return 'browser'
+    const name = sessionsRef.current.find((x) => x.id === pane.sessionId)?.name ?? pane.sessionId
+    if (pane.kind === 'terminal') return `${name} · shell`
+    if (pane.kind === 'changes') return `${name} · changes`
+    if (pane.kind === 'file') return pane.path.split('/').pop() ?? pane.path
+    return name
+  }
 
   /** The focused pane of the active tab, for ⌘D / ⌘⇧D / ⌘W. */
   function focusedPaneAt(): { tabId: string; paneId: string; pane: PaneRef } | null {
@@ -866,6 +910,10 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
             if (pane.kind !== 'browser') void openShell(pane.sessionId, { tabId, paneId, dir })
           }}
           onResize={(tabId, splitId, index, delta) => setStage((s) => resizeSplit(s, tabId, splitId, index, delta))}
+          onMovePane={(tabId, fromId, toId, side: DropSide) => setStage((s) => movePane(s, tabId, fromId, toId, side))}
+          onZoomPane={(tabId, paneId) => setStage((s) => toggleZoom(s, tabId, paneId))}
+          onPaneToTab={(tabId, paneId, pane) => setStage((s) => paneToTab(s, tabId, paneId, paneTitle(pane)))}
+          shortcut={host.shortcut}
           onMoveTab={(tabId, toIndex) => setStage((s) => moveTab(s, tabId, toIndex))}
           onPinTab={(tabId, pinned) => setStage((s) => setPinned(s, tabId, pinned))}
           onCloseTab={(tabId) => setStage((s) => closeTab(s, tabId))}

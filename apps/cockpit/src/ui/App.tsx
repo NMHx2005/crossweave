@@ -14,6 +14,8 @@ import { mountedViews, touchRecent } from '../lib/mounted-views'
 import { ProjectView, type ViewAction, type ViewHandle, type ViewHost, type ViewReport } from './ProjectView'
 import { baseName, readFlag, readString, writeFlag, writeString } from './storage'
 import { TerminalLookContext } from './terminal-look-context'
+import { ShortcutsDialog } from './ShortcutsPanel'
+import { effectiveKeys, formatAccelerator } from '../lib/keymap'
 import type { InterfaceAppearance, TerminalAppearance, UsageSettings } from '../../../../src/core/settings.js'
 import { applyAppearance } from '../lib/appearance'
 
@@ -79,6 +81,9 @@ export function App() {
   const loadFonts = useCallback(() => cockpitApi.listFonts(), [])
   /** Settings → Usage: the rail's token / cost figures and the user's prices. */
   const [usageSettings, setUsageSettings] = useState<UsageSettings | undefined>(undefined)
+  /** Settings → Keyboard, for Help → Keyboard Shortcuts. */
+  const [keybindings, setKeybindings] = useState<Record<string, string | null> | undefined>(undefined)
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const lookLoaded = useRef(false)
   /** Read once, through the first project a daemon answers for (Settings are per user). */
   const loadLook = useCallback((root: string): void => {
@@ -86,10 +91,11 @@ export function App() {
     lookLoaded.current = true
     void projectApi(root).getSettings()
       .then((s) => {
-        const saved = s as { terminal?: TerminalAppearance; appearance?: InterfaceAppearance; usage?: UsageSettings } | null
+        const saved = s as { terminal?: TerminalAppearance; appearance?: InterfaceAppearance; usage?: UsageSettings; keybindings?: Record<string, string | null> } | null
         setTerminalLook(saved?.terminal)
         setAppearance(saved?.appearance)
         setUsageSettings(saved?.usage)
+        setKeybindings(saved?.keybindings)
       })
       .catch(() => { lookLoaded.current = false })
   }, [])
@@ -361,6 +367,17 @@ export function App() {
     return null
   }
 
+  /** A session's note, in whichever open project it lives; its view refreshes on the daemon's word. */
+  async function setNoteIn(root: string, sessionId: string, note: string): Promise<string | null> {
+    try {
+      await projectApi(root).setNote(sessionId, note)
+    } catch (err) {
+      return plainErrorMessage(err)
+    }
+    if (!reportsRef.current[root]) await refreshProjects(root)
+    return null
+  }
+
   async function onFolder(root: string, sessionId: string | null, how: FolderHow): Promise<void> {
     if (how === 'copy') {
       const path = sessionId === null ? root : sessionsOf(root).find((s) => s.id === sessionId)?.worktreePath
@@ -423,9 +440,12 @@ export function App() {
     const root = activeRef.current ?? openRoots[0]
     if (root === undefined) return 'Open a project first'
     try {
-      const saved = await projectApi(root).setSettings(next) as { terminal?: TerminalAppearance; appearance?: InterfaceAppearance; usage?: UsageSettings }
+      const saved = await projectApi(root).setSettings(next) as { terminal?: TerminalAppearance; appearance?: InterfaceAppearance; usage?: UsageSettings; keybindings?: Record<string, string | null> }
       setTerminalLook(saved?.terminal)
       setUsageSettings(saved?.usage)
+      setKeybindings(saved?.keybindings)
+      // The menu owns the accelerators: rebuild it from the file just written.
+      void cockpitApi.refreshMenu().catch(() => undefined)
       setAppearance(saved?.appearance)
       savedAppearance.current = saved?.appearance
       // Unchanged state does not re-run the effect; the preview may still be showing.
@@ -479,6 +499,7 @@ export function App() {
     if (command === 'toggle-sidebar') toggleSidebar()
     else if (command === 'open-project') void openProject()
     else if (command === 'open-settings') void handleOpenSettings()
+    else if (command === 'show-shortcuts') setShortcutsOpen(true)
     else if (/^jump-[1-9]$/.test(command)) jumpTo(Number(command.slice('jump-'.length)))
     else if (activeRef.current === null) {
       if (command === 'new-agent') void openProject()
@@ -524,6 +545,7 @@ export function App() {
         if (handle === null) handles.current.delete(r)
         else handles.current.set(r, handle)
       },
+      shortcut: (id) => formatAccelerator(effectiveKeys(keybindings)[id] ?? null),
       takePending: (r) => {
         const actions = pending.current.get(r) ?? []
         pending.current.delete(r)
@@ -568,6 +590,10 @@ export function App() {
           }}
         />
       ) : null}
+      {shortcutsOpen ? (
+        <ShortcutsDialog keybindings={keybindings} onClose={() => setShortcutsOpen(false)}
+          onEdit={() => { setShortcutsOpen(false); void handleOpenSettings() }} />
+      ) : null}
       {projectSettings !== null ? (
         <ProjectSettings
           projectRoot={projectSettings.projectRoot}
@@ -603,6 +629,7 @@ export function App() {
           onProjectColor={(root, color) => updatePrefs(root, { color: color ?? undefined })}
           onRenameProject={(root, label) => updatePrefs(root, { label: label === '' ? undefined : label })}
           onRenameSession={renameSessionIn}
+          onSetNote={setNoteIn}
           onReorder={onReorder}
           onFolder={(root, id, how) => { void onFolder(root, id, how) }}
           showUsage={usageSettings?.show ?? true}

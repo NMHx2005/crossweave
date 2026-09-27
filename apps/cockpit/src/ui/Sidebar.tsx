@@ -32,7 +32,11 @@ export type ProjectAction =
 export type FolderHow = 'reveal' | 'editor' | 'copy'
 
 /** What is being renamed in place; lifted to the app so a menu or a switch can start it. */
-export type Renaming = { kind: 'project'; projectRoot: string } | { kind: 'session'; projectRoot: string; sessionId: string }
+export type Renaming =
+  | { kind: 'project'; projectRoot: string }
+  | { kind: 'session'; projectRoot: string; sessionId: string }
+  /** The session's one-line note, edited in place. */
+  | { kind: 'note'; projectRoot: string; sessionId: string }
 
 export type SidebarProps = {
   projects: ProjectGroup[]
@@ -59,6 +63,8 @@ export type SidebarProps = {
   onRenameProject: (projectRoot: string, label: string) => void
   /** Resolves to the daemon's refusal, or null once renamed. */
   onRenameSession: (projectRoot: string, sessionId: string, name: string) => Promise<string | null>
+  /** '' clears it. Resolves to the daemon's refusal, or null. */
+  onSetNote: (projectRoot: string, sessionId: string, note: string) => Promise<string | null>
   /** Drag and drop: `from` goes where `to` is. */
   onReorder: (from: string, to: string) => void
   onFolder: (projectRoot: string, sessionId: string | null, how: FolderHow) => void
@@ -266,6 +272,7 @@ export function Sidebar(props: SidebarProps) {
                     const used = props.showUsage && !session.usage?.folder ? usageLabel(session.usage, props.prices) : undefined
                     const n = numbers.get(session.id)
                     const renamingRow = renaming?.kind === 'session' && renaming.sessionId === session.id
+                    const notingRow = renaming?.kind === 'note' && renaming.sessionId === session.id
                     return (
                       <li key={session.id}>
                         <div
@@ -273,10 +280,10 @@ export function Sidebar(props: SidebarProps) {
                           tabIndex={0}
                           class={`cockpit-row${session.id === focusedId ? ' is-focused' : ''} is-${state}`}
                           title={`${session.name} — ${ROW_STATE_LABEL[state]} · ${agentName(session.agent)}${meta ? ` · ${meta}` : ''}${git ? ` · ${git.title}` : ''}${n ? ` · ⌘${n}` : ''}`}
-                          onClick={() => { if (!renamingRow) props.onSelect(project.projectRoot, session.id) }}
+                          onClick={() => { if (!renamingRow && !notingRow) props.onSelect(project.projectRoot, session.id) }}
                           onDblClick={() => props.onRenaming({ kind: 'session', projectRoot: project.projectRoot, sessionId: session.id })}
                           onKeyDown={(e) => {
-                            if (renamingRow) return
+                            if (renamingRow || notingRow) return
                             if (e.key === 'Enter' || e.key === ' ') {
                               e.preventDefault()
                               props.onSelect(project.projectRoot, session.id)
@@ -305,8 +312,21 @@ export function Sidebar(props: SidebarProps) {
                               }}
                               onCancel={() => props.onRenaming(null)}
                             />
+                          ) : notingRow ? (
+                            <InlineRename
+                              initial={session.note ?? ''}
+                              label={`Note for ${session.name}`}
+                              validate={(v) => (v.length > 120 ? 'At most 120 characters' : null)}
+                              onCommit={async (v) => {
+                                if (v === (session.note ?? '')) { props.onRenaming(null); return null }
+                                const problem = await props.onSetNote(project.projectRoot, session.id, v)
+                                if (problem === null) props.onRenaming(null)
+                                return problem
+                              }}
+                              onCancel={() => props.onRenaming(null)}
+                            />
                           ) : (
-                            <span class="cockpit-row__title">{rowTitle(session)}</span>
+                            <span class={`cockpit-row__title${session.note ? ' is-note' : ''}`}>{rowTitle(session)}</span>
                           )}
                           {chip === 'ready' ? (
                             <button type="button" class="cockpit-chip cockpit-chip--ready" title={`Land ${session.name}`}
@@ -365,6 +385,16 @@ export function Sidebar(props: SidebarProps) {
             if (menu.kind === 'row') props.onRenaming({ kind: 'session', projectRoot: menu.projectRoot, sessionId: menu.session.id })
             setMenu(null)
           }}>Rename…<kbd>F2</kbd></button>
+          <button type="button" role="menuitem" onClick={() => {
+            if (menu.kind === 'row') props.onRenaming({ kind: 'note', projectRoot: menu.projectRoot, sessionId: menu.session.id })
+            setMenu(null)
+          }}>{menu.session.note ? 'Edit note…' : 'Set note…'}</button>
+          {menu.session.note ? (
+            <button type="button" role="menuitem" onClick={() => {
+              if (menu.kind === 'row') void props.onSetNote(menu.projectRoot, menu.session.id, '')
+              setMenu(null)
+            }}>Clear note</button>
+          ) : null}
           {/* A session in the project folder has no branch: nothing to diff or land. */}
           {menu.session.branch !== null ? (
             <>

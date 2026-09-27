@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from 'preact/hooks'
 import { useDismiss } from './useDismiss'
 import type { ListedSession } from '../host/cockpit-api'
-import { liveTabs, type LayoutNode, type PaneRef, type SplitDir, type StageState, type Tab } from '../lib/layout'
+import { liveTabs, type DropSide, type LayoutNode, type PaneRef, type SplitDir, type StageState, type Tab } from '../lib/layout'
 import { sessionSource, terminalSource, type InAppOpener } from '../lib/pane-source'
 import type { SessionColor } from '../lib/colors'
 import { XtermPane } from './XtermPane'
@@ -57,6 +57,12 @@ export type StageProps = {
   shown?: boolean
   /** The focused session's Changes pane is open: the toggle shows it pressed. */
   changesOpen?: boolean
+  /** Drag a pane by its grip onto another pane's side (same tab). */
+  onMovePane?: (tabId: string, fromPaneId: string, toPaneId: string, side: DropSide) => void
+  onZoomPane?: (tabId: string, paneId: string) => void
+  onPaneToTab?: (tabId: string, paneId: string, pane: PaneRef) => void
+  /** A command's current shortcut, as shown in menus (Settings → Keyboard). */
+  shortcut?: (commandId: string) => string
 }
 
 function paneLabel(pane: PaneRef, names: ReadonlyMap<string, string>, titles: ReadonlyMap<string, string>): string {
@@ -105,6 +111,10 @@ export function Stage(props: StageProps) {
   const [layoutsOpen, setLayoutsOpen] = useState(false)
   const [layoutName, setLayoutName] = useState('')
   const dragTab = useRef<string | null>(null)
+  /** The pane being dragged by its grip, and where a drop would put it. */
+  const dragPane = useRef<{ tabId: string; paneId: string } | null>(null)
+  const [dropAt, setDropAt] = useState<{ paneId: string; side: DropSide } | null>(null)
+  const key = (id: string): string => props.shortcut?.(id) ?? ''
 
   const tabLabel = (tab: Tab): string => {
     const n = paneCount(tab.root)
@@ -133,12 +143,36 @@ export function Stage(props: StageProps) {
     const { pane } = node
     // Only a pane of the shown tab (in a shown view) takes the keyboard.
     const focused = tab.focusedPaneId === node.id && tab.id === shownTabId && props.shown !== false
+    const zoomed = tab.zoomedPaneId === node.id
+    const drop = dropAt?.paneId === node.id ? dropAt.side : null
     return (
       <div
         key={node.id}
-        class={focused ? 'cockpit-pane is-focused' : 'cockpit-pane'}
+        class={`cockpit-pane${focused ? ' is-focused' : ''}${zoomed ? ' is-zoomed' : ''}${drop ? ` is-drop-${drop}` : ''}`}
         aria-label={paneLabel(pane, names, titles)}
         onMouseDown={() => { if (!focused) props.onFocusPane(tab.id, node.id) }}
+        onDragOver={(e) => {
+          const from = dragPane.current
+          if (!from || from.tabId !== tab.id || from.paneId === node.id) return
+          e.preventDefault()
+          // The nearest edge of this pane decides where the dragged one goes.
+          const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+          const dx = (e.clientX - r.left) / r.width
+          const dy = (e.clientY - r.top) / r.height
+          const side: DropSide = Math.min(dx, 1 - dx) < Math.min(dy, 1 - dy) ? (dx < 0.5 ? 'left' : 'right') : (dy < 0.5 ? 'top' : 'bottom')
+          if (dropAt?.paneId !== node.id || dropAt.side !== side) setDropAt({ paneId: node.id, side })
+        }}
+        onDragLeave={(e) => {
+          if (!(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node | null)) setDropAt((d) => (d?.paneId === node.id ? null : d))
+        }}
+        onDrop={(e) => {
+          e.preventDefault()
+          const from = dragPane.current
+          dragPane.current = null
+          const side = dropAt?.paneId === node.id ? dropAt.side : null
+          setDropAt(null)
+          if (from && side && from.tabId === tab.id && from.paneId !== node.id) props.onMovePane?.(tab.id, from.paneId, node.id, side)
+        }}
         // No title bar on a pane, as in Deck: split and close live here and on ⌘D,
         // ⌘⇧D and ⌘W.
         onContextMenu={(e) => {
@@ -146,6 +180,14 @@ export function Stage(props: StageProps) {
           setPaneMenu({ tabId: tab.id, paneId: node.id, pane, x: e.clientX, y: e.clientY })
         }}
       >
+        {props.onMovePane && paneCount(tab.root) > 1 ? (
+          <div class="cockpit-pane__grip" draggable title="Drag onto another pane's side to move it" aria-hidden="true"
+            onDragStart={(e) => {
+              dragPane.current = { tabId: tab.id, paneId: node.id }
+              e.dataTransfer?.setData('text/plain', node.id)
+            }}
+            onDragEnd={() => { dragPane.current = null; setDropAt(null) }} />
+        ) : null}
         {pane.kind === 'session' ? (() => {
           const launch = props.launchFor?.(pane.sessionId, focused) ?? null
           return (
@@ -317,13 +359,24 @@ export function Stage(props: StageProps) {
           {paneMenu.pane.kind !== 'browser' ? (
             <>
               <button type="button" role="menuitem"
-                onClick={() => { props.onSplit(paneMenu.tabId, paneMenu.paneId, 'row', paneMenu.pane); setPaneMenu(null) }}>Split right<kbd>⌘D</kbd></button>
+                onClick={() => { props.onSplit(paneMenu.tabId, paneMenu.paneId, 'row', paneMenu.pane); setPaneMenu(null) }}>Split right<kbd>{key('split-right')}</kbd></button>
               <button type="button" role="menuitem"
-                onClick={() => { props.onSplit(paneMenu.tabId, paneMenu.paneId, 'column', paneMenu.pane); setPaneMenu(null) }}>Split down<kbd>⌘⇧D</kbd></button>
+                onClick={() => { props.onSplit(paneMenu.tabId, paneMenu.paneId, 'column', paneMenu.pane); setPaneMenu(null) }}>Split down<kbd>{key('split-down')}</kbd></button>
             </>
           ) : null}
+          {props.onZoomPane ? (
+            <button type="button" role="menuitem"
+              onClick={() => { props.onZoomPane?.(paneMenu.tabId, paneMenu.paneId); setPaneMenu(null) }}>
+              {stage.tabs.find((t) => t.id === paneMenu.tabId)?.zoomedPaneId === paneMenu.paneId ? 'Unzoom pane' : 'Zoom pane'}<kbd>{key('zoom-pane')}</kbd>
+            </button>
+          ) : null}
+          {props.onPaneToTab && paneCount(stage.tabs.find((t) => t.id === paneMenu.tabId)?.root ?? { type: 'pane', id: '', pane: paneMenu.pane }) > 1 ? (
+            <button type="button" role="menuitem"
+              onClick={() => { props.onPaneToTab?.(paneMenu.tabId, paneMenu.paneId, paneMenu.pane); setPaneMenu(null) }}>Move to new tab<kbd>{key('pane-to-tab')}</kbd></button>
+          ) : null}
+          <div class="cockpit-menu__sep" role="separator" />
           <button type="button" role="menuitem"
-            onClick={() => { props.onClosePane(paneMenu.tabId, paneMenu.paneId, paneMenu.pane); setPaneMenu(null) }}>Close pane<kbd>⌘W</kbd></button>
+            onClick={() => { props.onClosePane(paneMenu.tabId, paneMenu.paneId, paneMenu.pane); setPaneMenu(null) }}>Close pane<kbd>{key('close-pane')}</kbd></button>
         </div>
       ) : null}
       {menu !== null ? (
@@ -348,7 +401,7 @@ export function Stage(props: StageProps) {
         </p>
       ) : null}
       {tabs.map(({ tab, shown }) => (
-        <div key={tab.id} class="cockpit-stage__body" hidden={!shown}>{renderNode(tab, tab.root)}</div>
+        <div key={tab.id} class={`cockpit-stage__body${tab.zoomedPaneId ? ' is-zoomed' : ''}`} hidden={!shown}>{renderNode(tab, tab.root)}</div>
       ))}
     </main>
   )

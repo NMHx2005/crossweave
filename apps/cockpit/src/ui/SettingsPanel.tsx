@@ -3,6 +3,8 @@ import { formatEnvLines, launcherIdFor, parseEnvLines } from '../lib/launchers'
 import { AgentMark } from './icons'
 import type { InterfaceAppearance, ModelPrice, TerminalAppearance, UsageSettings } from '../../../../src/core/settings.js'
 import { FontPicker, type InstalledFont } from './FontPicker'
+import { ShortcutList } from './ShortcutsPanel'
+import { effectiveKeys, keyConflicts } from '../lib/keymap'
 import type { TerminalImport } from '../host/cockpit-api'
 import { xtermLook } from '../lib/terminal-look'
 
@@ -22,6 +24,7 @@ export type UserSettings = {
   terminal?: TerminalAppearance
   appearance?: InterfaceAppearance
   usage?: UsageSettings
+  keybindings?: Record<string, string | null>
 }
 
 const EDITORS: Array<{ kind: EditorSetting['kind']; label: string }> = [
@@ -162,6 +165,11 @@ export function SettingsPanel({ initial, availability, defaults, notify, onNotif
   }
 
   const save = async (): Promise<void> => {
+    // Two commands on one chord: the menu would silently keep only one of them.
+    if (keyConflicts(effectiveKeys(draft.keybindings)).length > 0) {
+      setError('Two commands share a shortcut — change one of them under Keyboard')
+      return
+    }
     // Every env box must parse before anything is sent.
     for (const [id, text] of Object.entries(envText)) {
       const parsed = parseEnvLines(text)
@@ -385,6 +393,11 @@ export function SettingsPanel({ initial, availability, defaults, notify, onNotif
           <button type="button" class="cockpit-btn cockpit-btn--sm" disabled={newModel === '' || newModel in prices}
             onClick={() => { setPrice(newModel, 'input', '0'); setNewModel('') }}>Add model</button>
         </div>
+
+        <h3 class="cockpit-settings__heading">Keyboard</h3>
+        <p class="cockpit-muted">Every command's shortcut. Change records the next keys you press; the menu updates on Save.</p>
+        <ShortcutList keybindings={draft.keybindings}
+          onChange={(next) => setDraft((d) => ({ ...d, keybindings: Object.keys(next).length === 0 ? undefined : next }))} />
 
         <h3 class="cockpit-settings__heading">Cmd+click opens files in</h3>
         <div class="cockpit-settings__editors" role="radiogroup" aria-label="Editor">
