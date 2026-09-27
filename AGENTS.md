@@ -94,6 +94,13 @@ instead of fighting it.
   stay (forward-only migrations) and are unused. Do not reintroduce a picker that
   chooses an AI: the user types their own command in the shell. Rationale:
   `docs/superpowers/plans/2026-09-27-shell-sessions.md`.
+- **No browser remote control (2026-09-27).** `cw gateway` (per-project tokens, a web
+  page, E2E sealing of output, the relay design) and the phone web page built on it
+  (Settings → Remote, `cw remote`) were removed; the last version with them is tag
+  `v0.4-remote-web`, and the security review of it is in that tag's
+  `docs/superpowers/specs/2026-09-27-remote-phone-known-limitations.md`. Remote control
+  comes back as a native iOS app, designed from scratch. Nothing in the daemon listens
+  beyond its unix socket until then.
 - **Leases are cooperative, not a sandbox.** They inject per-session port/docker/cache/
   db values; a process that ignores them still collides.
 - **Toolchain stays reversible**: only three seams touch Bun — the session pty, the

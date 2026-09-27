@@ -146,3 +146,12 @@ Proposed shape (to confirm before code):
 
 A → report → B → report → C → report → D design → **user's OK** → D build → security
 review → report. Each item is its own commit (Conventional Commits, what + why).
+
+## Phase D outcome (2026-09-27)
+
+Phase D (phone access from a browser, over Tailscale / Wi-Fi) was built, reviewed and
+then removed at the user's request: remote control will be a native iOS app instead.
+The work is kept at tag `v0.4-remote-web`; the old `cw gateway` went with it. Kept on
+this branch: `session.list` reports each running session's pty size, and re-attaching
+a connection no longer stacks close handlers in the daemon.
+

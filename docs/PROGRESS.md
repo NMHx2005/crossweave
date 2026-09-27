@@ -36,6 +36,7 @@
 | 2026-09-24 | Web workspace.listFiles + explorer tree | `3003a73` | listFiles 2 pass + listFiles web client + explorer tree |
 | 2026-09-24 | Web Monaco + drag reorder | `2501ff9` | openMonaco + drag reorder + typecheck + build |
 | 2026-09-24 | Gateway relay Worker routing | `d418545` | extractWorkspaceId 3 pass + handleRelayUpgrade |
+| 2026-09-27 | Gateway, E2E sealing and browser phone access removed (for a native iOS app later; tag `v0.4-remote-web`) | this branch | typecheck + full suite |
 
 ## Nợ kỹ thuật
 

@@ -152,3 +152,4 @@ work closed these previously recorded gaps:
 - `2026-09-27-cockpit-phase-a-known-limitations.md` — live tabs, ⌘F in terminals, finished vs asking by the bell, tokens/cost per session (Claude, Codex; prices user-set; project folder counted once)
 - `2026-09-27-cockpit-phase-b-known-limitations.md` — session notes (schema v13, CLI + rail), rebindable menu shortcuts + list, tmux-like panes (zoom, focus by direction, layouts, swap, break-out, drag); layouts re-attach terminals, moves within a tab only
 - `2026-09-27-cockpit-phase-c-known-limitations.md` — app themes System / Dark / Light / From terminal, every theme AA-checked; dark first frame, agent marks unchecked, Dark blocked lightened to #ff7580
+- `2026-09-27-gateway-removal-known-limitations.md` — `cw gateway`, E2E output sealing and browser phone access removed (tag `v0.4-remote-web`) for a native iOS app later; leftover gateway token files unused, restart old daemons
