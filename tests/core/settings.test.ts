@@ -199,3 +199,36 @@ describe('keybindings', () => {
     }
   });
 });
+
+describe('remote settings', () => {
+  it('is off, with no reach chosen, until the user turns it on', () => {
+    expect(loadSettings(home).remote).toBeUndefined();
+  });
+
+  it('round-trips the switch, both reaches, the Wi-Fi address and the port', () => {
+    const remote = { enabled: true, tailscale: true, wifi: true, wifiAddress: '192.168.1.20', port: 7788 };
+    saveSettings({ ...loadSettings(home), remote }, home);
+    expect(loadSettings(home).remote).toEqual(remote);
+  });
+
+  it('refuses a port or address it could not listen on safely', () => {
+    const base = loadSettings(home);
+    for (const bad of [
+      { port: 80 },
+      { port: 70000 },
+      { port: 7788.5 },
+      { wifiAddress: '0.0.0.0' },
+      { wifiAddress: '8.8.8.8' },
+      { wifiAddress: 'wlan0; rm' },
+      { enabled: 'yes' },
+    ]) {
+      expect(() => saveSettings({ ...base, remote: bad as never }, home)).toThrow(/remote/i);
+    }
+  });
+
+  it('keeps the valid part of a hand-edited file and drops unknown keys', () => {
+    mkdirSync(join(home, '.crossweave'), { recursive: true });
+    writeFileSync(file(), JSON.stringify({ remote: { enabled: true, port: 1, extra: 'x' } }));
+    expect(loadSettings(home).remote).toEqual({ enabled: true });
+  });
+});

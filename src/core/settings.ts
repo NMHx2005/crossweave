@@ -2,6 +2,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSy
 import { join } from 'node:path';
 import { splitCommand } from './argv.js';
 import { CrossweaveError } from './errors.js';
+import { isPrivateIPv4 } from './ip.js';
 import { globalCrossweaveDir } from './paths.js';
 
 /**
@@ -118,6 +119,22 @@ export interface UserSettings {
    * null to unbind. The cockpit checks the grammar and conflicts; this checks shape.
    */
   keybindings?: Record<string, string | null>;
+  remote?: RemoteSettings;
+}
+
+/**
+ * Reaching the cockpit from a phone (src/remote). Off unless `enabled`; each reach is
+ * its own switch, and nothing ever listens on a wildcard address.
+ */
+export interface RemoteSettings {
+  enabled?: boolean;
+  /** Listen on this Mac's Tailscale address (plain HTTP inside the tailnet). */
+  tailscale?: boolean;
+  /** Listen on a Wi-Fi address (HTTPS with a certificate made on this Mac). */
+  wifi?: boolean;
+  /** Which private address, when the Mac has several; the first Wi-Fi one otherwise. */
+  wifiAddress?: string;
+  port?: number;
 }
 
 /** A font family as it reaches xterm's CSS font string: nothing that could end the quotes. */
@@ -254,6 +271,32 @@ export function cleanKeybindings(raw: unknown): { keybindings: Record<string, st
   return { keybindings: Object.keys(out).length === 0 ? undefined : out, problems };
 }
 
+/** Unprivileged ports only: the server never runs as root. */
+const MIN_PORT = 1024;
+const MAX_PORT = 65535;
+
+export function cleanRemote(raw: unknown): { remote: RemoteSettings | undefined; problems: string[] } {
+  const problems: string[] = [];
+  if (raw === undefined || raw === null) return { remote: undefined, problems };
+  if (typeof raw !== 'object' || Array.isArray(raw)) return { remote: undefined, problems: ['remote must be an object'] };
+  const r = raw as Record<string, unknown>;
+  const out: RemoteSettings = {};
+  for (const key of ['enabled', 'tailscale', 'wifi'] as const) {
+    if (r[key] === undefined) continue;
+    if (typeof r[key] === 'boolean') out[key] = r[key] as boolean;
+    else problems.push(`remote ${key} must be true or false`);
+  }
+  if (r.wifiAddress !== undefined) {
+    if (typeof r.wifiAddress === 'string' && isPrivateIPv4(r.wifiAddress)) out.wifiAddress = r.wifiAddress;
+    else problems.push('remote Wi-Fi address: a private IPv4 address (10.x, 172.16–31.x or 192.168.x)');
+  }
+  if (r.port !== undefined) {
+    if (typeof r.port === 'number' && Number.isInteger(r.port) && r.port >= MIN_PORT && r.port <= MAX_PORT) out.port = r.port;
+    else problems.push(`remote port: a whole number from ${MIN_PORT} to ${MAX_PORT}`);
+  }
+  return { remote: Object.keys(out).length === 0 ? undefined : out, problems };
+}
+
 const EDITORS: ReadonlySet<string> = new Set(['vscode', 'cursor', 'zed', 'custom', 'cockpit']);
 const LAUNCHER_ID = /^[a-z0-9][a-z0-9-]{0,31}$/;
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -318,6 +361,7 @@ function validate(settings: UserSettings): void {
     ...cleanAppearance(settings.appearance).problems,
     ...cleanUsage(settings.usage).problems,
     ...cleanKeybindings(settings.keybindings).problems,
+    ...cleanRemote(settings.remote).problems,
   ];
   if (problems.length > 0) invalid(problems[0] as string);
 }
@@ -342,12 +386,14 @@ export function loadSettings(homeDir?: string): UserSettings {
   const { appearance } = cleanAppearance(saved.appearance);
   const { usage } = cleanUsage(saved.usage);
   const { keybindings } = cleanKeybindings(saved.keybindings);
+  const { remote } = cleanRemote(saved.remote);
   return {
     launchers: mergeLaunchers(saved.launchers), editor, layouts,
     ...(terminal === undefined ? {} : { terminal }),
     ...(appearance === undefined ? {} : { appearance }),
     ...(usage === undefined ? {} : { usage }),
     ...(keybindings === undefined ? {} : { keybindings }),
+    ...(remote === undefined ? {} : { remote }),
   };
 }
 
@@ -407,6 +453,7 @@ export function saveSettings(settings: UserSettings, homeDir?: string): void {
     ...(settings.appearance === undefined ? {} : { appearance: cleanAppearance(settings.appearance).appearance }),
     ...(settings.usage === undefined ? {} : { usage: cleanUsage(settings.usage).usage }),
     ...(settings.keybindings === undefined ? {} : { keybindings: cleanKeybindings(settings.keybindings).keybindings }),
+    ...(settings.remote === undefined ? {} : { remote: cleanRemote(settings.remote).remote }),
   };
   writeFileSync(tmp, `${JSON.stringify(normalized, null, 2)}\n`, { mode: 0o600 });
   chmodSync(tmp, 0o600);
