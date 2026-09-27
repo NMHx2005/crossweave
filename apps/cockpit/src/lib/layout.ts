@@ -367,3 +367,13 @@ export function placeBeside(state: StageState, pane: PaneRef, title: string): St
   if (tab && tab.root.type === 'pane') return splitPane(state, tab.id, tab.focusedPaneId, 'row', pane)
   return openInNewTab(state, pane, title)
 }
+
+/**
+ * Every tab, each marked shown or not. The stage renders all of them and hides the
+ * rest, so a tab's terminals stay attached while another tab is shown — switching tabs
+ * used to unmount every pane and replay it on the way back.
+ */
+export function liveTabs(state: StageState): Array<{ tab: Tab; shown: boolean }> {
+  const active = state.tabs.some((t) => t.id === state.activeTabId) ? state.activeTabId : state.tabs[0]?.id
+  return state.tabs.map((tab) => ({ tab, shown: tab.id === active }))
+}

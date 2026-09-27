@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from 'preact/hooks'
 import { useDismiss } from './useDismiss'
 import type { ListedSession } from '../host/cockpit-api'
-import type { LayoutNode, PaneRef, SplitDir, StageState, Tab } from '../lib/layout'
+import { liveTabs, type LayoutNode, type PaneRef, type SplitDir, type StageState, type Tab } from '../lib/layout'
 import { sessionSource, terminalSource, type InAppOpener } from '../lib/pane-source'
 import type { SessionColor } from '../lib/colors'
 import { XtermPane } from './XtermPane'
@@ -99,6 +99,8 @@ export function Stage(props: StageProps) {
   const agents = new Map(sessions.map((s) => [s.id, s.agent]))
   const [paneMenu, setPaneMenu] = useState<PaneMenu | null>(null)
   const active = stage.tabs.find((t) => t.id === stage.activeTabId) ?? null
+  const tabs = liveTabs(stage)
+  const shownTabId = tabs.find((t) => t.shown)?.tab.id
   const [menu, setMenu] = useState<TabMenu | null>(null)
   const [layoutsOpen, setLayoutsOpen] = useState(false)
   const [layoutName, setLayoutName] = useState('')
@@ -129,7 +131,8 @@ export function Stage(props: StageProps) {
       )
     }
     const { pane } = node
-    const focused = tab.focusedPaneId === node.id && props.shown !== false
+    // Only a pane of the shown tab (in a shown view) takes the keyboard.
+    const focused = tab.focusedPaneId === node.id && tab.id === shownTabId && props.shown !== false
     return (
       <div
         key={node.id}
@@ -344,7 +347,9 @@ export function Stage(props: StageProps) {
           No open tabs. Press <strong>⌘T</strong> for a new session, or pick one in the rail.
         </p>
       ) : null}
-      {active ? <div class="cockpit-stage__body">{renderNode(active, active.root)}</div> : null}
+      {tabs.map(({ tab, shown }) => (
+        <div key={tab.id} class="cockpit-stage__body" hidden={!shown}>{renderNode(tab, tab.root)}</div>
+      ))}
     </main>
   )
 }

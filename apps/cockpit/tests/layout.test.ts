@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
   closeOthers, closePane, closeTab, closeToRight, emptyStage, findPane, focusPane, moveTab,
-  openInNewTab, paneKey, paneKeys, reconcile, resizeSplit, setPinned, splitPane, toSavedLayout, type PaneRef, type StageState,
+  liveTabs, openInNewTab, paneKey, paneKeys, reconcile, resizeSplit, setPinned, splitPane, toSavedLayout, type PaneRef, type StageState,
 } from '../src/lib/layout'
 
 const session = (sessionId: string): PaneRef => ({ kind: 'session', sessionId })
@@ -207,5 +207,21 @@ describe('changes panes', () => {
     const stage = openInNewTab(emptyStage(), pane, 'a · changes')
     expect(reconcile(stage, { sessionIds: new Set(), terminalIds: new Set() }).tabs).toEqual([])
     expect(toSavedLayout(stage, new Map([['s1', 'a']])).tabs).toEqual([])
+  })
+})
+
+describe('liveTabs', () => {
+  test('every tab is rendered; only the active one is shown', () => {
+    let s = openInNewTab(emptyStage(), { kind: 'session', sessionId: 'a' }, 'a')
+    s = openInNewTab(s, { kind: 'session', sessionId: 'b' }, 'b')
+    const first = s.tabs[0]!.id
+    s = { ...s, activeTabId: first }
+    expect(liveTabs(s).map((t) => [t.tab.id, t.shown])).toEqual([[first, true], [s.tabs[1]!.id, false]])
+  })
+
+  test('an active id that names no tab shows the first; no tabs, nothing', () => {
+    const s = openInNewTab(emptyStage(), { kind: 'session', sessionId: 'a' }, 'a')
+    expect(liveTabs({ ...s, activeTabId: 'gone' })[0]?.shown).toBe(true)
+    expect(liveTabs(emptyStage())).toEqual([])
   })
 })
