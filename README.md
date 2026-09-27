@@ -120,8 +120,15 @@ welcome, or on a project with `cw`. ⌘T asks which project, and whether to star
 Terminal or one of your **launchers** — Claude Code, Codex, Gemini CLI, OpenCode, Cursor
 Agent, Copilot CLI, Aider, Amp, Qwen Code, or your own (`cx`); the ones not installed are
 greyed out, and each launcher's command and environment are edited in Settings (⌘,). The
-shell opens in the session's worktree and the launcher's line is typed into it; ⌘D / ⌘⇧D split, ⌘W closes a pane; tabs hold shells, files, web pages and the
-Changes pane (the diff landing would bring in); a ready session carries a Land chip.
+shell opens in the project folder — or in a worktree of its own, per session or as a
+project's default — and the launcher's line is typed into it; ⌘D / ⌘⇧D split, ⌘W closes
+a pane, ⌘1…⌘9 jump down the rail; tabs hold shells, files, web pages and the Changes
+pane (the diff landing would bring in); a ready session carries a Land chip, and every
+row shows its uncommitted files and commits to land. Right-click a project to rename it
+(in the app only), color, reorder or close it, open it in Finder or your editor, start a
+terminal in its folder, land everything ready, clean up ended sessions, or set its
+defaults; right-click a session for the same folder actions and rename (or double-click
+it). A filter box narrows the rail; the Dock counts sessions waiting for you.
 Same daemon and evidence gate as the CLI; the app never spawns anything itself.
 On macOS arm64 the standard installer includes it when the selected release
 carries the app asset, and bare `cw` opens it
