@@ -24,6 +24,7 @@
     "@xterm/addon-fit": "0.11.0",
     "@xterm/xterm": "6.0.0",
     "citty": "^0.2.2",
+    "qrcode-generator": "2.0.4",
     "simple-git": "^3.36.0",
     "web-tree-sitter": "0.26.12"
   },
