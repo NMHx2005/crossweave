@@ -338,3 +338,17 @@ describe('SessionManager name reclamation', () => {
     expect(sessions.list(workspaceId)).toHaveLength(1);
   });
 });
+
+describe('SessionManager.setNote', () => {
+  it('keeps one trimmed line; an empty note clears it', async () => {
+    await sessions.create({ workspaceId, name: 'auth', worktree: true });
+    expect(sessions.setNote(workspaceId, 'auth', '  fix the login redirect  ').note).toBe('fix the login redirect');
+    expect(sessions.setNote(workspaceId, 'auth', '   ').note ?? null).toBeNull();
+  });
+
+  it('refuses a note on several lines or longer than 120 characters', async () => {
+    await sessions.create({ workspaceId, name: 'auth', worktree: true });
+    expect(() => sessions.setNote(workspaceId, 'auth', 'one\ntwo')).toThrow(expect.objectContaining({ code: 'INVALID_NOTE' }));
+    expect(() => sessions.setNote(workspaceId, 'auth', 'x'.repeat(121))).toThrow(expect.objectContaining({ code: 'INVALID_NOTE' }));
+  });
+});

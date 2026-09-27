@@ -548,6 +548,11 @@ export function buildMethods(
         };
       });
     },
+    'session.note': (p) => {
+      const row = sessions.setNote(str(p, 'workspaceId'), str(p, 'idOrName'), str(p, 'note'));
+      broadcastRegistry.broadcast('tui.invalidate', {});
+      return row;
+    },
     'session.rename': (p) =>
       sessions.rename(str(p, 'workspaceId'), str(p, 'idOrName'), str(p, 'newName')),
     'session.kill': async (p) => {

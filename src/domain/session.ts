@@ -199,6 +199,20 @@ export class SessionManager {
     return found;
   }
 
+  /**
+   * The user's one-line note on a session (what it is for); blank clears it. One line
+   * because the rail shows it in one, and a line break in a stored note would read as
+   * two sessions' worth of text in `cw session list`.
+   */
+  setNote(workspaceId: string, idOrName: string, note: string): SessionRow {
+    const row = this.resolve(workspaceId, idOrName);
+    const text = note.trim();
+    if (/[\r\n\0]/.test(text)) throw new CrossweaveError('INVALID_NOTE', 'A note is one line');
+    if (text.length > 120) throw new CrossweaveError('INVALID_NOTE', 'A note is at most 120 characters');
+    this.sessions.setNote(row.id, text === '' ? null : text);
+    return this.resolve(workspaceId, row.id);
+  }
+
   rename(workspaceId: string, idOrName: string, newName: string): SessionRow {
     assertValidSessionName(newName);
     const row = this.resolve(workspaceId, idOrName);

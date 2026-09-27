@@ -84,10 +84,31 @@ export const sessionCommand = defineCommand({
             const workspaceId = await currentWorkspaceId(client);
             const rows = await client.call<Session[]>('session.list', { workspaceId });
             if (rows.length === 0) { process.stdout.write('no sessions\n'); return; }
-            process.stdout.write('NAME\tSTATUS\tBRANCH\tLEASES\n');
+            // NOTE last: scripts reading the first four columns keep working.
+            process.stdout.write('NAME\tSTATUS\tBRANCH\tLEASES\tNOTE\n');
             for (const s of rows) {
-              process.stdout.write(`${s.name}\t${s.status}\t${s.branch ?? '-'}\t${formatLeaseSummary(s.leases)}\n`);
+              const note = (s as Session & { note?: string | null }).note ?? '';
+              process.stdout.write(`${s.name}\t${s.status}\t${s.branch ?? '-'}\t${formatLeaseSummary(s.leases)}\t${note}\n`);
             }
+          });
+        } catch (err) { fail(err); }
+      },
+    }),
+
+    note: defineCommand({
+      meta: { name: 'note', description: 'Set a one-line note on a session (what it is for); no text clears it' },
+      args: {
+        target: { type: 'positional', description: 'Session name or id' },
+        text: { type: 'positional', description: 'The note (one line, up to 120 characters)', required: false },
+      },
+      async run({ args }) {
+        try {
+          await withClient(async (client) => {
+            const workspaceId = await currentWorkspaceId(client);
+            const s = await client.call<Session & { note?: string | null }>('session.note', {
+              workspaceId, idOrName: args.target, note: args.text ?? '',
+            });
+            process.stdout.write(`${s.name}: ${s.note ?? '(no note)'}\n`);
           });
         } catch (err) { fail(err); }
       },

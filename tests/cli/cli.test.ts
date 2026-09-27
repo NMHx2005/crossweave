@@ -147,6 +147,14 @@ describe('cw CLI', () => {
     expect(listed.stdout).toContain('idle');
     expect(listed.stdout).toContain('cw/auth');
 
+    const noted = await cw(['session', 'note', 'auth', 'fix the login redirect']);
+    expect(noted.exitCode).toBe(0);
+    expect(noted.stdout).toContain('auth: fix the login redirect');
+    expect((await cw(['session', 'list'])).stdout).toContain('fix the login redirect');
+    const badNote = await cw(['session', 'note', 'auth', 'x'.repeat(121)]);
+    expect(badNote.stderr).toContain('INVALID_NOTE');
+    expect((await cw(['session', 'note', 'auth'])).stdout).toContain('(no note)');
+
     const renamed = await cw(['session', 'rename', 'auth', 'auth2']);
     expect(renamed.exitCode).toBe(0);
     expect((await cw(['session', 'list'])).stdout).toContain('auth2');

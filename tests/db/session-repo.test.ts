@@ -167,3 +167,19 @@ describe('SessionRepo', () => {
     expect(repo.findById(row.id)?.worktreePath).toBeNull();
   });
 });
+
+describe('SessionRepo note', () => {
+  // A one-line "what this session is for", kept by the daemon so the CLI and every
+  // window see the same one.
+  it('has none until set; set, replaced and cleared', () => {
+    const row = makeRow();
+    repo.insert(row);
+    expect(repo.findById(row.id)?.note ?? null).toBeNull();
+    repo.setNote(row.id, 'fix the login redirect');
+    expect(repo.findById(row.id)?.note).toBe('fix the login redirect');
+    repo.setNote(row.id, 'review the RSVP flow');
+    expect(repo.findById(row.id)?.note).toBe('review the RSVP flow');
+    repo.setNote(row.id, null);
+    expect(repo.findById(row.id)?.note ?? null).toBeNull();
+  });
+});

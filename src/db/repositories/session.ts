@@ -27,6 +27,8 @@ export interface SessionRow {
   pid: number | null;
   /** The session's own launch flags; null when never given (see migration). */
   launchArgs: string[] | null;
+  /** One line the user keeps on the session; absent or null = none. */
+  note?: string | null;
 }
 
 interface SessionRecord {
@@ -47,12 +49,13 @@ interface SessionRecord {
   enforcement_tier: string;
   pid: number | null;
   launch_args: string | null;
+  note: string | null;
 }
 
 const COLUMNS =
   'id, workspace_id, name, agent_kind, adapter, status, worktree_path, branch, ' +
   'created_at, last_active_at, token_budget, token_spent, enforcement_tier, pid, ' +
-  'cost_budget_usd, cost_spent_usd, launch_args';
+  'cost_budget_usd, cost_spent_usd, launch_args, note';
 
 const LIVE_STATUSES = ['idle', 'running', 'waiting'] as const;
 
@@ -75,6 +78,7 @@ function toRow(r: SessionRecord): SessionRow {
     enforcementTier: r.enforcement_tier as EnforcementTier,
     pid: r.pid,
     launchArgs: parseLaunchArgs(r.launch_args),
+    ...(r.note === null ? {} : { note: r.note }),
   };
 }
 
@@ -93,13 +97,14 @@ export class SessionRepo {
 
   insert(row: SessionRow): void {
     this.db
-      .prepare(`INSERT INTO session (${COLUMNS}) VALUES (${'?, '.repeat(16)}?)`)
+      .prepare(`INSERT INTO session (${COLUMNS}) VALUES (${'?, '.repeat(17)}?)`)
       .run(
         row.id, row.workspaceId, row.name, row.agentKind, row.adapter, row.status,
         row.worktreePath, row.branch, row.createdAt, row.lastActiveAt,
         row.tokenBudget, row.tokenSpent, row.enforcementTier, row.pid,
         row.costBudgetUsd, row.costSpentUsd,
         row.launchArgs == null ? null : JSON.stringify(row.launchArgs),
+        row.note ?? null,
       );
   }
 
@@ -164,6 +169,10 @@ export class SessionRepo {
 
   setLaunchArgs(id: string, args: string[]): void {
     this.db.prepare('UPDATE session SET launch_args = ? WHERE id = ?').run(JSON.stringify(args), id);
+  }
+
+  setNote(id: string, note: string | null): void {
+    this.db.prepare('UPDATE session SET note = ? WHERE id = ?').run(note, id);
   }
 
   rename(id: string, name: string): void {

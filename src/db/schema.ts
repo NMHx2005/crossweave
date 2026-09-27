@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 12;
+export const SCHEMA_VERSION = 13;
 
 /**
  * Each migration is a list of single statements, never one multi-statement blob.
@@ -236,5 +236,10 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
     // the user starts it, reused on every start and resume after. NULL = never given,
     // which is not the same as `[]` (given, and deliberately empty).
     `ALTER TABLE session ADD COLUMN launch_args TEXT`,
+  ],
+  [
+    // A one-line note the user keeps on a session ("fix the login redirect"), shown in
+    // the rail instead of the agent's latest words. NULL = none.
+    `ALTER TABLE session ADD COLUMN note TEXT`,
   ],
 ];
