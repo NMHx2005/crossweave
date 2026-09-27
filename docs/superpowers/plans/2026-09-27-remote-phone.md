@@ -34,7 +34,7 @@ one commit per task or tightly-related pair.
    127.0.0.1 with real sockets (outside the sandbox).
 10. **Phone page** — `src/remote/web/`: projects → sessions → a live session with an
     answer bar and quick keys; pairing screen; no inline script. Pure helpers tested.
-11. **Entry points** — `cwd remote --control stdio` (cockpit), `cw remote serve | pair |
+11. **Entry points** — `cwd remote` driven over stdio (cockpit), `cw remote serve [--pair] |
     devices | revoke`; the stdio control protocol (config, pair, status, paired).
 12. **Cockpit** — `electron/remote-host.ts` (spawn, restart on settings/projects
     change, stop on quit), channels, Settings → Remote (reach, port, status, devices,
