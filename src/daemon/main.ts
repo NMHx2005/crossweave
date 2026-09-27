@@ -46,7 +46,7 @@ process.on('unhandledRejection', (reason) => {
   process.stderr.write(`crossweave: unhandled rejection in daemon: ${String(reason)}\n`);
 });
 
-// `cwd remote --control stdio`: the cockpit's remote access runs from the binary it
+// `cwd remote`: the cockpit's remote access runs from the binary it
 // already ships (src/remote/main.ts), not from a second one.
 if (process.argv[2] === 'remote') {
   void import('../remote/main.js').then((m) => m.runControlled());
