@@ -23,7 +23,7 @@ const CODEX_SCAN_LIMIT = 200;
 const TAIL_BYTES = 256 * 1024;
 const WORDS_MAX = 160;
 
-function canonical(path: string): string {
+export function canonical(path: string): string {
   try {
     return realpathSync(path);
   } catch {
@@ -56,7 +56,7 @@ function claudeLogFile(loc: LogLocation): string | undefined {
   return newestFile(claudeProjectDir(loc.home, loc.cwd), (n) => n.endsWith('.jsonl'));
 }
 
-function readHead(path: string, bytes = 64 * 1024): string {
+export function readHead(path: string, bytes = 64 * 1024): string {
   const fd = openSync(path, 'r');
   try {
     const buf = Buffer.alloc(bytes);
@@ -82,7 +82,7 @@ function readTail(path: string, bytes = TAIL_BYTES): string {
   }
 }
 
-function parseLines(text: string): unknown[] {
+export function parseLines(text: string): unknown[] {
   const out: unknown[] = [];
   for (const line of text.split('\n')) {
     if (line.trim() === '') continue;
@@ -96,7 +96,7 @@ function parseLines(text: string): unknown[] {
 }
 
 /** Newest-first rollout files under ~/.codex/sessions (their names sort by time). */
-function codexRollouts(home: string): string[] {
+export function codexRollouts(home: string): string[] {
   const root = join(home, '.codex', 'sessions');
   if (!existsSync(root)) return [];
   const files: string[] = [];

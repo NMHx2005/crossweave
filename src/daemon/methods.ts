@@ -41,6 +41,7 @@ import { BUILTIN_LAUNCHERS, loadSettings, saveSettings, type LauncherDef, type U
 import { TerminalRegistry } from './terminals.js';
 import { ActivityTracker, detectAgents } from './session-status.js';
 import { GitCounter } from './git-counts.js';
+import { UsageReader, UsageTracker } from '../domain/agent-usage.js';
 import { launcherProgram } from '../core/launcher-program.js';
 import { loginShellPath, mergePaths } from '../core/login-path.js';
 import { loginShellNames } from '../core/shell-names.js';
@@ -247,6 +248,7 @@ export function buildMethods(
    */
   const STATUS_SWEEP_MS = 1500;
   const gitCounts = new GitCounter();
+  const usage = new UsageTracker(new UsageReader(userHome()));
   let sweeping = false;
   async function sweepStatus(): Promise<void> {
     if (sweeping) return;
@@ -497,6 +499,13 @@ export function buildMethods(
       }).then((changed) => {
         if (changed) broadcastRegistry.broadcast('tui.invalidate', {});
       });
+      // Tokens the agents run in each session's folder have used since it was created.
+      void usage.refresh(() => listed
+        .filter((s) => s.worktreePath !== null && s.status !== 'landed')
+        .map((s) => ({ id: s.id, cwd: s.worktreePath as string, since: Date.parse(s.createdAt) || 0 })))
+        .then((changed) => {
+          if (changed) broadcastRegistry.broadcast('tui.invalidate', {});
+        });
       return listed.map((session) => {
         // Whatever the user ran in this worktree last said, read from its own log
         // (Claude Code, Codex), found by the worktree path, not by what launched it.
@@ -506,13 +515,19 @@ export function buildMethods(
         const agent = agents.get(session.id) ?? null;
         const status = activity.status(session.id, agent);
         const git = gitCounts.get(session.id);
+        const tracked = usage.get(session.id);
+        // A session in the project folder shares that folder's logs with every other
+        // one there: its figures are the folder's, counted once by the client.
+        const used = tracked && session.worktreePath === projectRoot ? { ...tracked, folder: true } : tracked;
         const withWords = {
           ...session,
+          ...(used === undefined ? {} : { usage: used }),
           ...(words === undefined ? {} : { latestWords: words }),
           ...(git === undefined ? {} : { git }),
           agent,
           activity: status.activity,
           lastActivityAt: status.lastActivityAt,
+          rang: status.rang,
         };
         const active = leasesRepo
           .listBySession(session.id)

@@ -86,6 +86,23 @@ export interface InterfaceAppearance {
   textSize?: 'small' | 'default' | 'large';
 }
 
+/** USD per million tokens, for one model. */
+export interface ModelPrice {
+  input: number;
+  output: number;
+  cacheWrite: number;
+  cacheRead: number;
+}
+
+/**
+ * Token usage on the rail. The agents' logs carry tokens, not money, and prices change,
+ * so cost is shown only for models the user has priced.
+ */
+export interface UsageSettings {
+  show?: boolean;
+  prices?: Record<string, ModelPrice>;
+}
+
 export interface UserSettings {
   launchers: LauncherDef[];
   editor: EditorSetting;
@@ -93,6 +110,7 @@ export interface UserSettings {
   layouts: Record<string, unknown>;
   terminal?: TerminalAppearance;
   appearance?: InterfaceAppearance;
+  usage?: UsageSettings;
 }
 
 /** A font family as it reaches xterm's CSS font string: nothing that could end the quotes. */
@@ -178,6 +196,37 @@ export function cleanAppearance(raw: unknown): { appearance: InterfaceAppearance
   return { appearance: Object.keys(out).length === 0 ? undefined : out, problems };
 }
 
+const MODEL_NAME = /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,79}$/;
+const PRICE_KINDS = ['input', 'output', 'cacheWrite', 'cacheRead'] as const;
+
+export function cleanUsage(raw: unknown): { usage: UsageSettings | undefined; problems: string[] } {
+  const problems: string[] = [];
+  if (raw === undefined || raw === null) return { usage: undefined, problems };
+  if (typeof raw !== 'object' || Array.isArray(raw)) return { usage: undefined, problems: ['usage must be an object'] };
+  const r = raw as Record<string, unknown>;
+  const out: UsageSettings = {};
+  if (r.show !== undefined) {
+    if (typeof r.show === 'boolean') out.show = r.show;
+    else problems.push('usage show must be true or false');
+  }
+  if (r.prices !== undefined) {
+    if (typeof r.prices !== 'object' || r.prices === null || Array.isArray(r.prices)) {
+      problems.push('usage prices must map a model to its prices');
+    } else {
+      const prices: Record<string, ModelPrice> = {};
+      for (const [model, value] of Object.entries(r.prices as Record<string, unknown>)) {
+        const p = value as Record<string, unknown> | null;
+        const ok = MODEL_NAME.test(model) && p !== null && typeof p === 'object'
+          && PRICE_KINDS.every((k) => typeof p[k] === 'number' && Number.isFinite(p[k]) && (p[k] as number) >= 0 && (p[k] as number) <= 10_000);
+        if (ok) prices[model] = { input: p.input as number, output: p.output as number, cacheWrite: p.cacheWrite as number, cacheRead: p.cacheRead as number };
+        else problems.push(`usage price for "${model}": a model name, and four prices from 0 to 10000 USD per million tokens`);
+      }
+      if (Object.keys(prices).length > 0) out.prices = prices;
+    }
+  }
+  return { usage: Object.keys(out).length === 0 ? undefined : out, problems };
+}
+
 const EDITORS: ReadonlySet<string> = new Set(['vscode', 'cursor', 'zed', 'custom', 'cockpit']);
 const LAUNCHER_ID = /^[a-z0-9][a-z0-9-]{0,31}$/;
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -237,7 +286,11 @@ function validate(settings: UserSettings): void {
     if (typeof settings.editor.command !== 'string') throw new CrossweaveError('INVALID_SETTINGS', 'A custom editor needs a command');
     splitCommand(settings.editor.command);
   }
-  const problems = [...cleanTerminal(settings.terminal).problems, ...cleanAppearance(settings.appearance).problems];
+  const problems = [
+    ...cleanTerminal(settings.terminal).problems,
+    ...cleanAppearance(settings.appearance).problems,
+    ...cleanUsage(settings.usage).problems,
+  ];
   if (problems.length > 0) invalid(problems[0] as string);
 }
 
@@ -259,10 +312,12 @@ export function loadSettings(homeDir?: string): UserSettings {
   const layouts = saved.layouts && typeof saved.layouts === 'object' ? saved.layouts : {};
   const { terminal } = cleanTerminal(saved.terminal);
   const { appearance } = cleanAppearance(saved.appearance);
+  const { usage } = cleanUsage(saved.usage);
   return {
     launchers: mergeLaunchers(saved.launchers), editor, layouts,
     ...(terminal === undefined ? {} : { terminal }),
     ...(appearance === undefined ? {} : { appearance }),
+    ...(usage === undefined ? {} : { usage }),
   };
 }
 
@@ -320,6 +375,7 @@ export function saveSettings(settings: UserSettings, homeDir?: string): void {
     layouts: settings.layouts ?? {},
     ...(settings.terminal === undefined ? {} : { terminal: cleanTerminal(settings.terminal).terminal }),
     ...(settings.appearance === undefined ? {} : { appearance: cleanAppearance(settings.appearance).appearance }),
+    ...(settings.usage === undefined ? {} : { usage: cleanUsage(settings.usage).usage }),
   };
   writeFileSync(tmp, `${JSON.stringify(normalized, null, 2)}\n`, { mode: 0o600 });
   chmodSync(tmp, 0o600);

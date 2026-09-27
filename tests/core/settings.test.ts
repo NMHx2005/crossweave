@@ -164,3 +164,23 @@ describe('interface appearance', () => {
     expect(loadSettings(home).appearance).toEqual({ textSize: 'small' });
   });
 });
+
+describe('usage settings', () => {
+  it('round-trips the rail toggle and per-model prices (USD per million tokens)', () => {
+    const usage = { show: true, prices: { 'claude-opus-5-5': { input: 10, output: 50, cacheWrite: 12.5, cacheRead: 1 } } };
+    saveSettings({ ...loadSettings(home), usage }, home);
+    expect(loadSettings(home).usage).toEqual(usage);
+  });
+
+  it('refuses a model name or price that cannot be one', () => {
+    const base = loadSettings(home);
+    for (const bad of [
+      { prices: { 'a b"': { input: 1, output: 1, cacheWrite: 1, cacheRead: 1 } } },
+      { prices: { m: { input: -1, output: 1, cacheWrite: 1, cacheRead: 1 } } },
+      { prices: { m: { input: 1, output: 'x', cacheWrite: 1, cacheRead: 1 } } },
+      { show: 'yes' },
+    ]) {
+      expect(() => saveSettings({ ...base, usage: bad as never }, home)).toThrow(/usage/i);
+    }
+  });
+});
