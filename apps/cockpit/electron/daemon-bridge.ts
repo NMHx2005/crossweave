@@ -30,12 +30,6 @@ export type DaemonBridgeDeps = {
 
 type Attached = { client: DaemonLike; workspace: WorkspaceSnapshot }
 
-/**
- * What the rail may do to a project that is not on the stage, without switching to it:
- * rename a session, clean up, land. Anything that opens a pane still switches first.
- */
-const ROUTABLE = new Set<string>(['session.rename', 'workspace.gc', 'converge.status', 'land.session'])
-
 const FORWARDED = new Set<string>(['session.data', 'session.exit', 'tui.event', 'tui.invalidate', 'terminal.data', 'terminal.exit'])
 
 export function isForwardedNotification(method: string): method is Exclude<CockpitEvent, 'daemon.gone'> {
@@ -204,20 +198,17 @@ export class DaemonBridge {
     if (pending !== undefined) return pending
     const run = (async (): Promise<Attached> => {
       const client = await this.deps.connect(projectRoot)
+      // Every open project speaks, not only the one on the stage: each keeps its panes
+      // alive in the window, so its output must keep arriving while another is shown.
       client.onNotification((method, params) => {
         if (this.pool.get(projectRoot)?.client !== client) return
-        if (this.client === client) this.forward(method, params)
-        else if (method === 'tui.invalidate') this.deps.send('project.invalidate', { projectRoot })
+        this.forward(method, params, projectRoot)
       })
       client.onClose(() => {
         if (this.pool.get(projectRoot)?.client !== client) return
         this.pool.delete(projectRoot)
-        if (this.client === client) {
-          this.detach(client)
-          this.deps.send('daemon.gone', {})
-        } else {
-          this.deps.send('project.invalidate', { projectRoot })
-        }
+        if (this.client === client) this.detach(client)
+        this.deps.send('daemon.gone', { projectRoot })
       })
       try {
         const workspace = await client.call<WorkspaceSnapshot>('workspace.init', {})
@@ -288,8 +279,9 @@ export class DaemonBridge {
     const { projectRoot: target, ...rest } = asRecord(payload)
     let client = this.client
     let workspace = this.workspace
+    // A project's view names its project on every call; the active one is only the
+    // default for calls that do not. Only projects open in this window are reachable.
     if (typeof target === 'string' && target !== this.projectRoot) {
-      if (!ROUTABLE.has(channel)) throw new Error(`${channel} acts on the active project only`)
       if (!this.openRoots().includes(target)) throw new Error('That project is not open in this window')
       ;({ client, workspace } = await this.attach(target))
     }
@@ -307,11 +299,11 @@ export class DaemonBridge {
     return client.call(channel, params)
   }
 
-  private forward(method: string, params: unknown): void {
+  private forward(method: string, params: unknown, projectRoot: string): void {
     if (!isForwardedNotification(method)) return
     const payload = method === 'session.data'
       ? encodeSessionData(params)
-      : method === 'terminal.data' ? encodeTerminalData(params) : (params ?? {})
-    this.deps.send(method, payload)
+      : method === 'terminal.data' ? encodeTerminalData(params) : asRecord(params)
+    this.deps.send(method, { ...payload, projectRoot })
   }
 }

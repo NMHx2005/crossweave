@@ -73,6 +73,6 @@ describe('DaemonBridge + real DaemonClient socket', () => {
     expect(sock).toBeDefined()
     sock?.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'tui.invalidate', params: {} })}\n`)
     await new Promise((r) => setTimeout(r, 50))
-    expect(events).toEqual([{ event: 'tui.invalidate', payload: {} }])
+    expect(events).toEqual([{ event: 'tui.invalidate', payload: { projectRoot: dir } }])
   })
 })

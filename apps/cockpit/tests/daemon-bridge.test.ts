@@ -173,28 +173,31 @@ describe('DaemonBridge', () => {
     expect(fake.calls).toEqual([])
   })
 
-  test('forwards daemon notifications and drops the rest', async () => {
+  // Every payload says which project it came from: several projects' views listen.
+  test('forwards daemon notifications, tagged with their project, and drops the rest', async () => {
     const { bridge, fake, events } = makeBridge()
     await bridge.handle('workspace.ensure', { projectRoot: '/tmp/given' })
     fake.emit('session.data', { sessionId: 's1', chunk: 'hi' })
     fake.emit('tui.event', { kind: 'blocked' })
     fake.emit('tui.invalidate', {})
     fake.emit('session.exit', { sessionId: 's1', code: 0 })
+    fake.emit('evil', {})
+    const p = '/tmp/given'
     expect(events).toEqual([
-      { event: 'session.data', payload: { sessionId: 's1', chunk: 'hi' } },
-      { event: 'tui.event', payload: { kind: 'blocked' } },
-      { event: 'tui.invalidate', payload: {} },
+      { event: 'session.data', payload: { sessionId: 's1', chunk: 'hi', projectRoot: p } },
+      { event: 'tui.event', payload: { kind: 'blocked', projectRoot: p } },
+      { event: 'tui.invalidate', payload: { projectRoot: p } },
       // Forwarded, so a pane can say the agent ended rather than going silently blank
       // when the terminal restores its (empty) primary buffer.
-      { event: 'session.exit', payload: { sessionId: 's1', code: 0 } },
+      { event: 'session.exit', payload: { sessionId: 's1', code: 0, projectRoot: p } },
     ])
   })
 
-  test('emits daemon.gone when the client closes', async () => {
+  test('emits daemon.gone, with its project, when the client closes', async () => {
     const { bridge, fake, events } = makeBridge()
     await bridge.handle('workspace.ensure', { projectRoot: '/tmp/given' })
     fake.drop()
-    expect(events).toEqual([{ event: 'daemon.gone', payload: {} }])
+    expect(events).toEqual([{ event: 'daemon.gone', payload: { projectRoot: '/tmp/given' } }])
   })
 
   test('RPC channels other than list still go to the daemon', async () => {
@@ -240,7 +243,7 @@ describe('DaemonBridge', () => {
 
     await bridge.handle('workspace.ensure', { projectRoot: '/tmp/given' })
     first.drop()
-    expect(events).toEqual([{ event: 'daemon.gone', payload: {} }])
+    expect(events).toEqual([{ event: 'daemon.gone', payload: { projectRoot: '/tmp/given' } }])
     await expect(bridge.handle('session.list')).rejects.toThrow(/workspace\.ensure/)
 
     const result = await bridge.handle('workspace.ensure', { projectRoot: '/tmp/given' })
@@ -274,7 +277,7 @@ describe('DaemonBridge', () => {
     first.drop()
     expect(events).toEqual([])
     second.drop()
-    expect(events).toEqual([{ event: 'daemon.gone', payload: {} }])
+    expect(events).toEqual([{ event: 'daemon.gone', payload: { projectRoot: '/tmp/given' } }])
   })
 
   test('concurrent workspace.ensure shares one connect', async () => {
@@ -478,15 +481,27 @@ describe('many projects in one window', () => {
     })
   })
 
-  // Output from a project that is not on the stage must not reach its panes; that it
-  // changed must reach the rail.
-  test('a background project raises project.invalidate, never its session output', async () => {
+  // A project off the stage keeps its panes alive in the window: its output and its
+  // changes reach the renderer like the active one's, tagged so the right view takes them.
+  test('a background project still streams, tagged with its root', async () => {
     const { bridge, fakes, events } = multi()
     await bridge.handle('workspace.ensure', { projectRoot: '/w/api' })
     await bridge.handle('workspace.ensure', { projectRoot: '/w/web' })
     fakes.get('/w/api')!.emit('tui.invalidate', {})
     fakes.get('/w/api')!.emit('session.data', { sessionId: 's', chunk: 'x' })
-    expect(events).toEqual([{ event: 'project.invalidate', payload: { projectRoot: '/w/api' } }])
+    expect(events).toEqual([
+      { event: 'tui.invalidate', payload: { projectRoot: '/w/api' } },
+      { event: 'session.data', payload: { sessionId: 's', chunk: 'x', projectRoot: '/w/api' } },
+    ])
+  })
+
+  test('a background daemon going away is reported for that project; the active one stays attached', async () => {
+    const { bridge, fakes, events } = multi()
+    await bridge.handle('workspace.ensure', { projectRoot: '/w/api' })
+    await bridge.handle('workspace.ensure', { projectRoot: '/w/web' })
+    fakes.get('/w/api')!.drop()
+    expect(events).toEqual([{ event: 'daemon.gone', payload: { projectRoot: '/w/api' } }])
+    expect(await bridge.handle('projects.list')).toMatchObject({ active: '/w/web' })
   })
 
   test('closing a project forgets it and drops its connection', async () => {
@@ -511,8 +526,8 @@ describe('many projects in one window', () => {
     await expect(bridge.handle('session.list', {})).rejects.toThrow(/not attached/)
   })
 
-  // Renaming, cleaning up or landing in a project off the stage goes to its own daemon.
-  test('routes rename, gc and land to another open project, and nothing else', async () => {
+  // Any call a project's view makes goes to that project's daemon, stage or not.
+  test('routes any RPC to another open project, and refuses a project that is not open', async () => {
     const { bridge, fakes } = multi()
     await bridge.handle('workspace.ensure', { projectRoot: '/w/api' })
     await bridge.handle('workspace.ensure', { projectRoot: '/w/web' })
@@ -522,7 +537,8 @@ describe('many projects in one window', () => {
     expect(fakes.get('/w/api')!.calls.at(-1)).toMatchObject({ method: 'session.rename', params: { idOrName: 'a', newName: 'b', workspaceId: 'ws_/w/api' } })
     await bridge.handle('workspace.gc', { projectRoot: '/w/api', force: false })
     expect(fakes.get('/w/api')!.calls.at(-1)).toMatchObject({ method: 'workspace.gc', params: { id: 'ws_/w/api', workspaceId: 'ws_/w/api' } })
-    await expect(bridge.handle('session.kill', { projectRoot: '/w/api', idOrName: 'a' })).rejects.toThrow(/active project only/)
+    await bridge.handle('session.input', { projectRoot: '/w/api', idOrName: 'a', data: 'ls\r' })
+    expect(fakes.get('/w/api')!.calls.at(-1)).toMatchObject({ method: 'session.input', params: { idOrName: 'a', data: 'ls\r', workspaceId: 'ws_/w/api' } })
     await expect(bridge.handle('session.rename', { projectRoot: '/etc', idOrName: 'a', newName: 'b' })).rejects.toThrow(/not open/)
     // The active project's own root is just the active project.
     await bridge.handle('session.rename', { projectRoot: '/w/web', idOrName: 'x', newName: 'y' })

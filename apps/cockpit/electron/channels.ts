@@ -66,8 +66,6 @@ export const COCKPIT_EVENTS = [
   'tui.event',
   'tui.invalidate',
   'daemon.gone',
-  // A project that is open but not active changed: its rail group should refresh.
-  'project.invalidate',
   'terminal.data',
   'terminal.exit',
   // A menu accelerator fired (⌘T, ⌘⇧A): the renderer decides what it means.
