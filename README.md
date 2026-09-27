@@ -115,8 +115,12 @@ For daily use, **crossweave Cockpit** is an Electron thin client over
 `cwd`, laid out like SpaceVibe Deck: one sidebar lists every open project and its
 sessions, each row saying what is happening (working, waiting for you, failed, closed),
 what the agent last said, how long ago and which agent runs — all inferred from the
-session's shell, nothing to configure. ⌘T or ⌘K `new <name>` opens a session's shell
-at once; ⌘D / ⌘⇧D split, ⌘W closes a pane; tabs hold shells, files, web pages and the
+session's shell, nothing to configure. It opens on its own (Dock, Spotlight) with a
+welcome, or on a project with `cw`. ⌘T asks which project, and whether to start a plain
+Terminal or one of your **launchers** — Claude Code, Codex, Gemini CLI, OpenCode, Cursor
+Agent, Copilot CLI, Aider, Amp, Qwen Code, or your own (`cx`); the ones not installed are
+greyed out, and each launcher's command and environment are edited in Settings (⌘,). The
+shell opens in the session's worktree and the launcher's line is typed into it; ⌘D / ⌘⇧D split, ⌘W closes a pane; tabs hold shells, files, web pages and the
 Changes pane (the diff landing would bring in); a ready session carries a Land chip.
 Same daemon and evidence gate as the CLI; the app never spawns anything itself.
 On macOS arm64 the standard installer includes it when the selected release
