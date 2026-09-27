@@ -47,6 +47,13 @@ export type NotifyPrefs = { sound: boolean; dockBadge: boolean; finish: boolean 
 const UI_FONTS = ['Inter', 'SF Pro Text', 'SF Pro Display', 'Geist', 'IBM Plex Sans', 'Avenir Next', 'Helvetica Neue', 'JetBrains Mono']
 const CODE_FONTS = ['JetBrains Mono', 'JetBrainsMono Nerd Font Mono', 'Fira Code', 'Cascadia Code', 'Cascadia Code NF', 'Geist Mono', 'SF Mono', 'IBM Plex Mono', 'Iosevka', 'Menlo']
 
+const THEMES: Array<{ id: NonNullable<InterfaceAppearance['theme']>; label: string; title: string }> = [
+  { id: 'system', label: 'System', title: 'Follow macOS (light or dark)' },
+  { id: 'dark', label: 'Dark', title: 'One Dark' },
+  { id: 'light', label: 'Light', title: 'One Light' },
+  { id: 'terminal', label: 'From terminal', title: 'The whole window in the colors imported under Terminal' },
+]
+
 const TEXT_SIZES: Array<{ id: NonNullable<InterfaceAppearance['textSize']>; label: string }> = [
   { id: 'small', label: 'Small' },
   { id: 'default', label: 'Default' },
@@ -58,7 +65,7 @@ const TERMINAL_APPS: Array<{ id: 'ghostty' | 'iterm2'; label: string }> = [
   { id: 'iterm2', label: 'iTerm2' },
 ]
 
-export function SettingsPanel({ initial, availability, defaults, notify, onNotify, importSources, onImport, loadFonts, onPreviewAppearance, seenModels, onSave, onClose }: {
+export function SettingsPanel({ initial, availability, defaults, notify, onNotify, importSources, onImport, loadFonts, onPreviewAppearance, seenModels, hasTerminalColors, onSave, onClose }: {
   initial: UserSettings
   /** Launcher id → whether this machine has its program (from launchers.list). */
   availability: Record<string, boolean>
@@ -72,10 +79,15 @@ export function SettingsPanel({ initial, availability, defaults, notify, onNotif
   onImport: (from: 'ghostty' | 'iterm2') => Promise<TerminalImport>
   /** The fonts installed on this Mac, for the pickers (read on open; ~0.7 s the first time). */
   loadFonts: () => Promise<InstalledFont[]>
-  /** Shows the window in `appearance` now, before Save (the host reverts on Cancel). */
-  onPreviewAppearance: (appearance: InterfaceAppearance | undefined) => void
+  /**
+   * Shows the window in `appearance` now, before Save (the host reverts on Cancel);
+   * `terminalColors` is the draft's, so "From terminal" previews a fresh import too.
+   */
+  onPreviewAppearance: (appearance: InterfaceAppearance | undefined, terminalColors: TerminalAppearance['colors']) => void
   /** Models the agents have used in the open projects, offered for pricing. */
   seenModels: string[]
+  /** Colors were imported under Terminal (the "From terminal" theme needs them). */
+  hasTerminalColors: boolean
   onSave: (next: UserSettings) => Promise<string | null>
   onClose: () => void
 }) {
@@ -101,7 +113,7 @@ export function SettingsPanel({ initial, availability, defaults, notify, onNotif
     for (const key of Object.keys(next) as Array<keyof InterfaceAppearance>) if (next[key] === undefined) delete next[key]
     const appearance = Object.keys(next).length === 0 ? undefined : next
     setDraft({ ...draft, appearance })
-    onPreviewAppearance(appearance)
+    onPreviewAppearance(appearance, draft.terminal?.colors)
   }
 
   const setTerminal = (patch: Partial<TerminalAppearance>): void => {
@@ -210,6 +222,21 @@ export function SettingsPanel({ initial, availability, defaults, notify, onNotif
             <FontPicker label="Code font" value={draft.appearance?.codeFont} fonts={fonts} suggestions={CODE_FONTS} mono
               defaultLabel="Menlo" onChange={(codeFont) => setAppearance({ codeFont })} />
           </div>
+        </div>
+        <div class="cockpit-settings__segmented" role="radiogroup" aria-label="Theme">
+          <span class="cockpit-muted">Theme</span>
+          {THEMES.map((t) => {
+            const disabled = t.id === 'terminal' && !hasTerminalColors && draft.terminal?.colors === undefined
+            const on = (draft.appearance?.theme ?? 'system') === t.id
+            return (
+              <button key={t.id} type="button" role="radio" aria-checked={on} disabled={disabled}
+                title={disabled ? 'Import colors under Terminal first (from Ghostty or iTerm2)' : t.title}
+                class={`cockpit-btn cockpit-btn--sm${on ? ' cockpit-btn--primary' : ''}`}
+                onClick={() => setAppearance({ theme: t.id === 'system' ? undefined : t.id })}>
+                {t.label}
+              </button>
+            )
+          })}
         </div>
         <div class="cockpit-settings__segmented" role="radiogroup" aria-label="Text size">
           <span class="cockpit-muted">Text size</span>

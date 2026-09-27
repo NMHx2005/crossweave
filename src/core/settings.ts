@@ -84,6 +84,8 @@ export interface InterfaceAppearance {
   /** Commands, paths, branches, the file editor. Absent: the cockpit's monospace. */
   codeFont?: string;
   textSize?: 'small' | 'default' | 'large';
+  /** The window's colors: follow macOS, Dark, Light, or derived from the imported terminal colors. */
+  theme?: 'system' | 'dark' | 'light' | 'terminal';
 }
 
 /** USD per million tokens, for one model. */
@@ -180,6 +182,7 @@ export function cleanTerminal(raw: unknown): { terminal: TerminalAppearance | un
 }
 
 const TEXT_SIZES: ReadonlySet<string> = new Set(['small', 'default', 'large']);
+const THEMES: ReadonlySet<string> = new Set(['system', 'dark', 'light', 'terminal']);
 
 /** Like cleanTerminal: the valid part, and what was not. */
 export function cleanAppearance(raw: unknown): { appearance: InterfaceAppearance | undefined; problems: string[] } {
@@ -197,6 +200,10 @@ export function cleanAppearance(raw: unknown): { appearance: InterfaceAppearance
   if (r.textSize !== undefined) {
     if (typeof r.textSize === 'string' && TEXT_SIZES.has(r.textSize)) out.textSize = r.textSize as InterfaceAppearance['textSize'];
     else problems.push('appearance text size: small, default or large');
+  }
+  if (r.theme !== undefined) {
+    if (typeof r.theme === 'string' && THEMES.has(r.theme)) out.theme = r.theme as InterfaceAppearance['theme'];
+    else problems.push('appearance theme: system, dark, light or terminal');
   }
   return { appearance: Object.keys(out).length === 0 ? undefined : out, problems };
 }

@@ -5,14 +5,13 @@ import { FitAddon } from '@xterm/addon-fit'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { SearchAddon, type ISearchOptions } from '@xterm/addon-search'
 import { CLOSED_FIND, findLabel, findReducer, type FindState } from '../lib/find-state'
-import { COCKPIT_TOKENS } from './tokens'
 import '@xterm/xterm/css/xterm.css'
 import type { PaneSource } from '../lib/pane-source'
 import { findFileLinks } from '../lib/file-links'
 import { stripFocusReports, stripTerminalReports } from '../../../../src/client/terminal-reports.js'
 import { clipboardWriteFromOsc52 } from '../../../../src/client/osc52.js'
 import { xtermLook } from '../lib/terminal-look'
-import { useTerminalLook } from './terminal-look-context'
+import { usePaneTheme, useTerminalLook } from './terminal-look-context'
 
 export type XtermPaneProps = {
   source: PaneSource
@@ -24,7 +23,10 @@ export function XtermPane({ source, focused }: XtermPaneProps) {
   const termRef = useRef<Terminal | null>(null)
   const focusedRef = useRef(focused)
   focusedRef.current = focused
-  const look = xtermLook(useTerminalLook())
+  const paneTheme = usePaneTheme()
+  const paneThemeRef = useRef(paneTheme)
+  paneThemeRef.current = paneTheme
+  const look = xtermLook(useTerminalLook(), paneTheme.xterm)
   const lookRef = useRef(look)
   lookRef.current = look
   const fitRef = useRef<FitAddon | null>(null)
@@ -225,13 +227,13 @@ export function XtermPane({ source, focused }: XtermPaneProps) {
       regex: state.regex,
       wholeWord: state.wholeWord,
       incremental,
-      // Hex only (the addon's rule), from the chrome's tokens.
+      // Hex only (the addon's rule), from the current theme's tokens.
       decorations: {
-        matchBackground: COCKPIT_TOKENS['--cw-surface-control'],
-        matchOverviewRuler: COCKPIT_TOKENS['--cw-text-dim'],
-        activeMatchBackground: COCKPIT_TOKENS['--cw-surface-active'],
-        activeMatchBorder: COCKPIT_TOKENS['--cw-needs-you'],
-        activeMatchColorOverviewRuler: COCKPIT_TOKENS['--cw-needs-you'],
+        matchBackground: paneThemeRef.current.colors['--cw-surface-control'] as string,
+        matchOverviewRuler: paneThemeRef.current.colors['--cw-text-dim'] as string,
+        activeMatchBackground: paneThemeRef.current.colors['--cw-surface-active'] as string,
+        activeMatchBorder: paneThemeRef.current.colors['--cw-needs-you'] as string,
+        activeMatchColorOverviewRuler: paneThemeRef.current.colors['--cw-needs-you'] as string,
       },
     }
     try {
@@ -268,7 +270,9 @@ export function XtermPane({ source, focused }: XtermPaneProps) {
 
   return (
     <div class="xterm-pane__wrap">
-      <div class="xterm-pane" ref={containerRef} data-pane-key={source.key} />
+      {/* The pane is painted in the terminal's own background: xterm fills whole rows
+          only, and the strip left under the last one showed its stylesheet's black. */}
+      <div class="xterm-pane" ref={containerRef} data-pane-key={source.key} style={{ background: look.theme.background }} />
       {find.open ? (
         <div class="cockpit-find" role="search" aria-label="Find in terminal">
           <input

@@ -575,6 +575,11 @@ body,
   height: 100%;
 }
 
+/* xterm.css paints the viewport black; the pane behind it carries the theme's color. */
+.xterm-pane .xterm .xterm-viewport {
+  background-color: transparent;
+}
+
 /* The pane and its find bar (⌘F), which floats over the terminal's top-right. */
 .xterm-pane__wrap {
   position: relative;

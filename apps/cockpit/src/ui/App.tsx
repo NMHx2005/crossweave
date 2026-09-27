@@ -13,7 +13,8 @@ import { jumpTargets } from '../lib/rail'
 import { mountedViews, touchRecent } from '../lib/mounted-views'
 import { ProjectView, type ViewAction, type ViewHandle, type ViewHost, type ViewReport } from './ProjectView'
 import { baseName, readFlag, readString, writeFlag, writeString } from './storage'
-import { TerminalLookContext } from './terminal-look-context'
+import { PaneThemeContext, TerminalLookContext } from './terminal-look-context'
+import { applyTheme, resolveTheme, xtermThemeFor, type ResolvedTheme } from './themes'
 import { ShortcutsDialog } from './ShortcutsPanel'
 import { effectiveKeys, formatAccelerator } from '../lib/keymap'
 import type { InterfaceAppearance, TerminalAppearance, UsageSettings } from '../../../../src/core/settings.js'
@@ -75,6 +76,15 @@ export function App() {
   /** Settings → Appearance as saved; a preview while Settings is open may differ until Save or Cancel. */
   const [appearance, setAppearance] = useState<InterfaceAppearance | undefined>(undefined)
   useEffect(() => applyAppearance(appearance), [appearance])
+  /** macOS's appearance, for the System theme; followed live. */
+  const [systemDark, setSystemDark] = useState(() => window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? true)
+  useEffect(() => {
+    const query = window.matchMedia?.('(prefers-color-scheme: dark)')
+    if (!query) return
+    const on = (e: MediaQueryListEvent): void => setSystemDark(e.matches)
+    query.addEventListener('change', on)
+    return () => query.removeEventListener('change', on)
+  }, [])
   // What Cancel returns to — updated by Save before the dialog closes in the same tick.
   const savedAppearance = useRef(appearance)
   savedAppearance.current = appearance
@@ -99,6 +109,12 @@ export function App() {
       })
       .catch(() => { lookLoaded.current = false })
   }, [])
+  const theme: ResolvedTheme = useMemo(
+    () => resolveTheme(appearance?.theme, terminalLook?.colors, systemDark),
+    [appearance?.theme, terminalLook?.colors, systemDark],
+  )
+  useEffect(() => applyTheme(theme), [theme])
+  const paneTheme = useMemo(() => ({ colors: theme.colors, xterm: xtermThemeFor(theme) }), [theme])
   const handles = useRef(new Map<string, ViewHandle>())
   /** Actions for a view that is not mounted (or has not registered) yet. */
   const pending = useRef(new Map<string, ViewAction[]>())
@@ -574,7 +590,11 @@ export function App() {
           onImport={(from) => cockpitApi.importTerminal(from)}
           loadFonts={loadFonts}
           seenModels={[...new Set(groups.flatMap((g) => g.sessions.flatMap((s) => Object.keys(s.usage?.byModel ?? {}))))]}
-          onPreviewAppearance={applyAppearance}
+          onPreviewAppearance={(a, colors) => {
+            applyAppearance(a)
+            applyTheme(resolveTheme(a?.theme, colors ?? terminalLook?.colors, systemDark))
+          }}
+          hasTerminalColors={terminalLook?.colors !== undefined}
           notify={notify}
           onNotify={(next) => {
             setNotify(next)
@@ -586,6 +606,7 @@ export function App() {
           onClose={() => {
             // Cancel (or Save, already applied): back to what is saved.
             applyAppearance(savedAppearance.current)
+            applyTheme(resolveTheme(savedAppearance.current?.theme, terminalLook?.colors, systemDark))
             setSettingsOpen(null)
           }}
         />
@@ -643,6 +664,7 @@ export function App() {
         />
       ) : null}
       <TerminalLookContext.Provider value={terminalLook}>
+      <PaneThemeContext.Provider value={paneTheme}>
       <div class="cockpit-views">
         {booted && activeRoot === null ? (
           <Welcome
@@ -655,6 +677,7 @@ export function App() {
           <ProjectView key={root} projectRoot={root} visible={root === activeRoot} host={viewHost(root)} />
         ))}
       </div>
+      </PaneThemeContext.Provider>
       </TerminalLookContext.Provider>
       <Toast message={toast?.message ?? null} tone={toast?.tone ?? 'info'} onDone={() => setToast(null)} />
     </div>

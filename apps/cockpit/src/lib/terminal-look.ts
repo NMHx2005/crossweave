@@ -22,9 +22,9 @@ export type XtermLook = {
  * iTerm2), over the cockpit's own. Anything the appearance leaves out stays the
  * cockpit's — an imported palette without ANSI colors keeps the cockpit's sixteen.
  */
-export function xtermLook(appearance: TerminalAppearance | undefined): XtermLook {
+export function xtermLook(appearance: TerminalAppearance | undefined, base: XtermTheme = XTERM_THEME): XtermLook {
   const a = appearance ?? {}
-  const theme: XtermTheme = { ...XTERM_THEME }
+  const theme: XtermTheme = { ...base }
   const c = a.colors
   if (c) {
     theme.background = c.background

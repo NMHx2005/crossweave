@@ -145,7 +145,7 @@ describe('interface appearance', () => {
   });
 
   it('round-trips an interface font, a code font and a text size', () => {
-    const appearance = { uiFont: 'Inter', codeFont: 'JetBrains Mono', textSize: 'large' as const };
+    const appearance = { uiFont: 'Inter', codeFont: 'JetBrains Mono', textSize: 'large' as const, theme: 'light' as const };
     saveSettings({ ...loadSettings(home), appearance }, home);
     expect(loadSettings(home).appearance).toEqual(appearance);
   });
@@ -153,7 +153,7 @@ describe('interface appearance', () => {
   // The family becomes a CSS custom property value on the whole window.
   it('refuses what is not a font family or a known size', () => {
     const base = loadSettings(home);
-    for (const bad of [{ uiFont: 'Inter; color: red' }, { codeFont: 'x"' }, { textSize: 'huge' }]) {
+    for (const bad of [{ uiFont: 'Inter; color: red' }, { codeFont: 'x"' }, { textSize: 'huge' }, { theme: 'neon' }]) {
       expect(() => saveSettings({ ...base, appearance: bad as never }, home)).toThrow(/appearance/i);
     }
   });

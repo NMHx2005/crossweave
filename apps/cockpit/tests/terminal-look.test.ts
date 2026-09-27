@@ -30,3 +30,16 @@ describe('xtermLook', () => {
     expect(XTERM_THEME.background).not.toBe('#000000')
   })
 })
+
+describe('the pane follows the window theme', () => {
+  test("light theme: the pane's base is light; imported colors still win", async () => {
+    const { LIGHT_COLORS, xtermThemeFor } = await import('../src/ui/themes')
+    const base = xtermThemeFor({ name: 'light', colors: LIGHT_COLORS, scheme: 'light' })
+    const plain = xtermLook(undefined, base)
+    expect(plain.theme.background).toBe(LIGHT_COLORS['--cw-surface'])
+    expect(plain.theme.foreground).toBe(LIGHT_COLORS['--cw-text'])
+    expect(plain.theme.black).toBe('#383a42')
+    const imported = xtermLook({ colors: { background: '#000000', foreground: '#ffffff' } }, base)
+    expect(imported.theme.background).toBe('#000000')
+  })
+})
