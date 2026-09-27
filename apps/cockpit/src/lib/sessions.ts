@@ -14,13 +14,12 @@ export function parseUsage(v: unknown): SessionUsage | undefined {
   const r = v as { total?: unknown; byModel?: unknown } | null
   const total = tokenUsage(r?.total)
   if (!total || typeof r?.byModel !== 'object' || r.byModel === null) return undefined
-  const folder = (v as { folder?: unknown }).folder === true
   const byModel: Record<string, TokenUsage> = {}
   for (const [model, u] of Object.entries(r.byModel as Record<string, unknown>)) {
     const t = tokenUsage(u)
     if (t) byModel[model] = t
   }
-  return folder ? { total, byModel, folder } : { total, byModel }
+  return { total, byModel }
 }
 
 /** A session as the rail sees it: a worktree and the user's shell in it. */
@@ -43,7 +42,7 @@ export type ListedSession = {
   lastActivityAt?: number | null
   /** Files not yet committed in its folder, and commits not yet landed (null: unknown, e.g. shared). */
   git?: { changed: number; ahead: number | null }
-  /** Tokens the agents run in its folder have used since it was created, by model. */
+  /** Tokens the agents run in its own worktree have used since it was created, by model (none for a session in the project folder). */
   usage?: SessionUsage
   /** It rang the bell since the user last typed: asking, not just finished. */
   rang?: boolean

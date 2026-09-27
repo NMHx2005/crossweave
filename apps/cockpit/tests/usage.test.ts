@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { formatCost, formatTokens, projectUsage, sumUsage, usageCost, usageLabel } from '../src/lib/usage'
+import { formatCost, formatTokens, sumUsage, usageCost, usageLabel } from '../src/lib/usage'
 
 const u = (input: number, output: number, cacheWrite = 0, cacheRead = 0) => ({ input, output, cacheWrite, cacheRead })
 const session = (byModel: Record<string, ReturnType<typeof u>>) => sumUsage([{ total: u(0, 0), byModel }])
@@ -41,12 +41,3 @@ describe('sumUsage', () => {
   })
 })
 
-describe('projectUsage', () => {
-  // Two sessions in the project folder both report the folder's logs: counting both
-  // doubled the project's total.
-  test('the project folder counts once; worktree sessions each count', () => {
-    const folder = { ...session({ opus: u(10, 0) }), folder: true }
-    expect(projectUsage([folder, folder, session({ opus: u(1, 0) })]).byModel.opus).toEqual(u(11, 0))
-    expect(projectUsage([undefined]).byModel).toEqual({})
-  })
-})

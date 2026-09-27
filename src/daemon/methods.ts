@@ -483,9 +483,13 @@ export function buildMethods(
       }).then((changed) => {
         if (changed) broadcastRegistry.broadcast('tui.invalidate', {});
       });
-      // Tokens the agents run in each session's folder have used since it was created.
+      // Tokens the agents run in each session's own worktree have used since it was
+      // created. Not for a session in the project folder: every Claude run there —
+      // one in a terminal outside crossweave too — writes to the same log folder, and
+      // nothing in the logs says which shell ran it. Crediting the folder's logs to such
+      // a session showed 326M tokens on one nobody had used.
       void usage.refresh(() => listed
-        .filter((s) => s.worktreePath !== null && s.status !== 'landed')
+        .filter((s) => s.worktreePath !== null && s.worktreePath !== projectRoot && s.status !== 'landed')
         .map((s) => ({ id: s.id, cwd: s.worktreePath as string, since: Date.parse(s.createdAt) || 0 })))
         .then((changed) => {
           if (changed) broadcastRegistry.broadcast('tui.invalidate', {});
@@ -499,11 +503,8 @@ export function buildMethods(
         const agent = agents.get(session.id) ?? null;
         const status = activity.status(session.id, agent);
         const git = gitCounts.get(session.id);
-        const tracked = usage.get(session.id);
+        const used = session.worktreePath === projectRoot ? undefined : usage.get(session.id);
         const size = runtime.size(session.id);
-        // A session in the project folder shares that folder's logs with every other
-        // one there: its figures are the folder's, counted once by the client.
-        const used = tracked && session.worktreePath === projectRoot ? { ...tracked, folder: true } : tracked;
         const withWords = {
           ...session,
           ...(used === undefined ? {} : { usage: used }),

@@ -5,7 +5,7 @@ import { SESSION_COLORS, type SessionColor } from '../lib/colors'
 import { sessionNameError } from '../lib/quick-picker'
 import { agentName, clampMenu, gitBadge, jumpTargets, landChip, railOrder, relativeTime, rowState, rowTitle, ROW_STATE_LABEL, visibleRows } from '../lib/rail'
 import { formatRailMeta } from '../lib/sessions'
-import { projectUsage, usageLabel } from '../lib/usage'
+import { sumUsage, usageLabel } from '../lib/usage'
 import type { ModelPrice } from '../../../../src/core/settings.js'
 import { AgentMark, ChevronIcon, CloseIcon, FolderIcon, GearIcon, PlusIcon, SearchIcon, SidebarIcon } from './icons'
 import { useDismiss } from './useDismiss'
@@ -190,7 +190,9 @@ export function Sidebar(props: SidebarProps) {
           if (filtering && rows.length === 0) return null
           const isCollapsed = !filtering && collapsed.has(project.projectRoot)
           const renamingThis = renaming?.kind === 'project' && renaming.projectRoot === project.projectRoot
-          const headUsage = props.showUsage ? usageLabel(projectUsage(project.sessions.map((s) => s.usage)), props.prices) : undefined
+          const counted = props.showUsage ? usageLabel(sumUsage(project.sessions.map((s) => s.usage)), props.prices) : undefined
+          // Only worktree sessions carry figures (see the daemon's session.list): say so where the total is read.
+          const headUsage = counted && { ...counted, title: `${counted.title}\nSessions in their own worktree only: the project folder's logs mix in any Claude run there, in crossweave or not.` }
           const folderName = baseName(project.projectRoot)
           return (
             <section
@@ -268,8 +270,7 @@ export function Sidebar(props: SidebarProps) {
                     const color = project.active ? colorById[session.id] : undefined
                     const meta = formatRailMeta(session)
                     const git = gitBadge(session.git)
-                    // The project folder's figures belong to the project heading, not to one row.
-                    const used = props.showUsage && !session.usage?.folder ? usageLabel(session.usage, props.prices) : undefined
+                    const used = props.showUsage ? usageLabel(session.usage, props.prices) : undefined
                     const n = numbers.get(session.id)
                     const renamingRow = renaming?.kind === 'session' && renaming.sessionId === session.id
                     const notingRow = renaming?.kind === 'note' && renaming.sessionId === session.id

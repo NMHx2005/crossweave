@@ -1,5 +1,5 @@
 import { describe, expect, test, beforeEach, afterEach } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DEFAULT_CONFIG } from '../../src/core/config.js';
@@ -8,6 +8,7 @@ import { buildMethods } from '../../src/daemon/methods.js';
 import { WorkspaceManager } from '../../src/domain/workspace.js';
 import type { SpawnOptions } from '../../src/adapters/types.js';
 import { makeGitFixture, type GitFixture } from '../helpers/git-fixture.js';
+import { claudeProjectDir } from '../../src/domain/agent-logs.js';
 
 let home: string;
 let realHome: string | undefined;
@@ -238,5 +239,41 @@ describe('session.list git counts', () => {
       }
       expect(git).toEqual({ changed: 1, ahead: 0 });
     } finally { db.close(); }
+  });
+});
+
+describe('usage on the session list', () => {
+  const claudeLog = (cwd: string, name: string, output: number): void => {
+    const dir = claudeProjectDir(home, cwd);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, `${name}.jsonl`), `${JSON.stringify({
+      type: 'assistant', timestamp: new Date(Date.now() + 1000).toISOString(),
+      message: { id: name, model: 'claude-opus', role: 'assistant', content: [], usage: { input_tokens: 1, output_tokens: output, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } },
+    })}\n`);
+  };
+  type Row = { name: string; usage?: { total: { output: number } } };
+  const listed = async (call: (m: string) => Promise<unknown>): Promise<Row[]> => {
+    await call('session.list');
+    // The figures are read in the background; the next list carries them.
+    await new Promise((r) => setTimeout(r, 100));
+    return await call('session.list') as Row[];
+  };
+
+  // Every Claude run in the project folder writes to the same log folder — one in a
+  // terminal outside crossweave included — so none of it can be told apart and
+  // credited to a session there. Regression: a session nobody had used showed 326M.
+  test('a session in the project folder shows no usage; a worktree session shows its own', async () => {
+    const { db, call } = await harness();
+    try {
+      await call('session.new', { name: 'here', worktree: false });
+      const tree = await call('session.new', { name: 'tree', worktree: true }) as { worktreePath: string };
+      claudeLog(fx.root, 'outside', 500);
+      claudeLog(tree.worktreePath, 'inside', 7);
+      const rows = await listed((m) => call(m));
+      expect(rows.find((r) => r.name === 'here')?.usage).toBeUndefined();
+      expect(rows.find((r) => r.name === 'tree')?.usage?.total.output).toBe(7);
+    } finally {
+      db.close();
+    }
   });
 });

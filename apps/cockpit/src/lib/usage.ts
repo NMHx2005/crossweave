@@ -4,8 +4,6 @@ export type TokenUsage = { input: number; output: number; cacheWrite: number; ca
 export type SessionUsage = {
   total: TokenUsage
   byModel: Record<string, TokenUsage>
-  /** The project folder's logs, shared by every session working there. */
-  folder?: boolean
 }
 
 const ZERO: TokenUsage = { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 }
@@ -45,16 +43,6 @@ export function usageCost(usage: SessionUsage, prices: Record<string, ModelPrice
     usd += (u.input * p.input + u.output * p.output + u.cacheWrite * p.cacheWrite + u.cacheRead * p.cacheRead) / 1_000_000
   }
   return priced ? { usd, complete } : undefined
-}
-
-/**
- * A project's total: each worktree session's own, plus the project folder's once —
- * every session in the folder reports the same folder figures.
- */
-export function projectUsage(list: ReadonlyArray<SessionUsage | undefined>): SessionUsage {
-  const own = list.filter((u) => u !== undefined && !u.folder)
-  const folder = list.find((u) => u?.folder === true)
-  return sumUsage(folder ? [...own, folder] : own)
 }
 
 /** Several sessions' usage as one. */
