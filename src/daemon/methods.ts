@@ -26,7 +26,6 @@ import { classifyLandability } from '../convergence/evidence.js';
 import { landSession } from '../convergence/land.js';
 import { hashTestCommand, isTestCommandTrusted } from '../convergence/trust.js';
 import { emptyJournal, normalizeTabs, readJournal, writeJournal } from '../domain/journal.js';
-import { createChunkSealer } from '../gateway/e2e-sealer.js';
 
 import { NotificationGate } from '../notify/gate.js';
 import { notify, type NotifyDispatcherDeps } from '../notify/dispatcher.js';
@@ -212,22 +211,7 @@ export function buildMethods(
   const DISK_USAGE_CACHE_TTL_MS = 3000;
   const diskUsageCache = new Map<string, { value: { usedBytes: number; limitBytes: number }; computedAt: number }>();
 
-  // E2E: session.data is sealed at source with the workspace's gateway key, so a
-  // relay only ever forwards ciphertext. Resolved per session's workspace, not the
-  // daemon's root, so a multi-workspace daemon uses each workspace's own key.
   const userHome = (): string => process.env.HOME || homedir();
-  // Roots are cached: this runs per output chunk and a workspace's root never moves.
-  const sealRoots = new Map<string, string>();
-  const sealChunk = createChunkSealer((workspaceId) => {
-    let root = sealRoots.get(workspaceId);
-    if (root === undefined) {
-      const ws = workspaces.list().find((w) => w.id === workspaceId);
-      if (ws === undefined) throw new CrossweaveError('WORKSPACE_NOT_FOUND', `Unknown workspace: ${workspaceId}`);
-      root = ws.rootPath;
-      sealRoots.set(workspaceId, root);
-    }
-    return root;
-  });
   // What each session is doing (working / asked / idle / failed) and which agent runs
   // in it, inferred from its shell — see src/daemon/session-status.ts.
   const activity = new ActivityTracker(opts.now);
@@ -238,7 +222,7 @@ export function buildMethods(
     // A shell that exits on its own (`exit`, a crash) is a status change no RPC
     // announced; every client kept showing it `running` until something else redrew.
     broadcastRegistry.broadcast('tui.invalidate', {});
-  }, sealChunk, activity);
+  }, activity);
   sessions.onKill = (id) => runtime.stop(id);
 
   /**
@@ -284,7 +268,7 @@ export function buildMethods(
     shell: opts.shell ?? process.env.SHELL ?? '/bin/sh',
     cwd: row.worktreePath as string,
     env: { CW_SESSION_ID: row.id, CW_SESSION_NAME: row.name },
-  }), sealChunk, () => broadcastRegistry.broadcast('tui.invalidate', {}));
+  }), () => broadcastRegistry.broadcast('tui.invalidate', {}));
 
   /** The worktree of the session a file RPC names; it must still be on disk. */
   function sessionWorktree(p: Record<string, unknown>): string {
@@ -578,7 +562,7 @@ export function buildMethods(
     'session.start': (p) => start(p),
 
     // What landing the session would bring in, for the cockpit's Changes pane. Local
-    // clients only (not in the gateway allowlist): it is the repository's content.
+    // clients only (never to be offered remotely): it is the repository's content.
     'session.diff': (p) => {
       const row = sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName'));
       if (row.branch === null) {
@@ -605,7 +589,7 @@ export function buildMethods(
       });
     },
     'settings.get': () => loadSettings(),
-    // Local clients only: it is the user's own file, never in the gateway's allowlist.
+    // Local clients only: it is the user's own file, never to be offered remotely.
     'settings.set': (p) => {
       const next = p.settings as UserSettings | undefined;
       if (typeof next !== 'object' || next === null) {
@@ -617,7 +601,7 @@ export function buildMethods(
     },
 
     // The in-app editor: files in ONE session's worktree, contained to it (see
-    // domain/worktree-files.ts). Local clients only — never in the gateway allowlist.
+    // domain/worktree-files.ts). Local clients only — never to be offered remotely.
     'file.list': (p) => listWorktreeFiles(sessionWorktree(p)),
     'file.read': (p) => readWorktreeFile(sessionWorktree(p), str(p, 'path')),
     'file.write': (p) => writeWorktreeFile(
@@ -886,8 +870,8 @@ export function buildMethods(
 
     // Horizon B's journal: what a client had open, so a restart can put it back. The
     // daemon owns the file because it owns `.crossweave/` — a renderer writing it directly
-    // would break the one-writer rule AND could not work over the gateway, where the
-    // client has no local filesystem. See src/domain/journal.ts.
+    // would break the one-writer rule AND could not work for a remote client, which has
+    // no local filesystem. See src/domain/journal.ts.
     'journal.get': (p) => {
       const workspaceId = str(p, 'workspaceId');
       const entry = readJournal(projectRoot);

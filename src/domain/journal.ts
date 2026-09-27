@@ -6,8 +6,8 @@ import { crossweaveDir } from '../core/paths.js';
  * What a client had open, so it can come back after a restart.
  *
  * Written only by the daemon (see the `journal.get`/`journal.set` handlers): the file
- * lives under `.crossweave/`, which the daemon owns, and a remote client arriving
- * over the gateway could not write it at all. Clients ask for it, they do not touch it.
+ * lives under `.crossweave/`, which the daemon owns, and a remote client could not
+ * write it at all. Clients ask for it, they do not touch it.
  */
 export interface JournalEntry {
   /**

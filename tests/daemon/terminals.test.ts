@@ -59,7 +59,7 @@ describe('TerminalRegistry', () => {
 
   it('lists terminals per workspace and forgets one whose shell exits, announcing it', async () => {
     const changes: number[] = [];
-    const reg = new TerminalRegistry(shell, undefined, () => changes.push(1));
+    const reg = new TerminalRegistry(shell, () => changes.push(1));
     const a = reg.open(session('s1'));
     reg.open(session('s2', 'w2'));
     expect(reg.list('w1').map((t) => t.terminalId)).toEqual([a.terminalId]);
@@ -85,24 +85,6 @@ describe('TerminalRegistry', () => {
     expect(() => reg.write(b.terminalId, 'x')).toThrow();
     await reg.closeAll();
     expect(reg.list('w1')).toEqual([]);
-  });
-
-  it('seals output with the terminal id, and drops a chunk the sealer refuses', async () => {
-    const sealedFor: string[] = [];
-    const reg = new TerminalRegistry(shell, (chunk, s) => { sealedFor.push(s.id); return chunk.includes('SECRET') ? undefined : `sealed:${chunk}`; });
-    const { terminalId } = reg.open(session('s1'));
-    const ctx = recorder();
-    reg.subscribe(terminalId, ctx);
-    // Separate commands: one chunk holding both lines would be dropped whole, and the
-    // test would then wait forever for `visible`.
-    reg.write(terminalId, 'echo visible\n');
-    await until(() => ctx.text().includes('visible\r\n'));
-    reg.write(terminalId, 'echo SECRET\n');
-    await new Promise((r) => setTimeout(r, 300));
-    expect(sealedFor.every((id) => id === terminalId)).toBe(true);
-    expect(ctx.seen.filter(([m]) => m === 'terminal.data').every(([, p]) => String(p.chunk).startsWith('sealed:'))).toBe(true);
-    expect(ctx.text()).not.toContain('SECRET\r\n');
-    await reg.closeAll();
   });
 
   it('rejects an unknown terminal id', () => {

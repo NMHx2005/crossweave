@@ -3,8 +3,6 @@ import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CrossweaveError } from '../core/errors.js';
 import { crossweaveDir } from '../core/paths.js';
-import { decrypt as e2eDecrypt, deriveKey } from '../gateway/e2e.js';
-import { readGatewayToken } from '../gateway/auth.js';
 import { createFrameDecoder, encodeFrame } from '../daemon/rpc.js';
 import { connectablePath } from './socket-path.js';
 import { unixSocketTransport, type ClientTransport } from './transport.js';
@@ -15,7 +13,6 @@ interface Pending {
 }
 
 export class DaemonClient {
-  private projectRootHint: string | undefined;
   private nextId = 1;
   private gone = false;
   private readonly pending = new Map<number, Pending>();
@@ -24,59 +21,6 @@ export class DaemonClient {
 
   onNotification(cb: (method: string, params: unknown) => void): void {
     this.notificationHandlers.push(cb);
-  }
-
-  setProjectRoot(root: string): void { this.projectRootHint = root; }
-  private workspaceRoots = new Map<string, string>();
-  setWorkspaceRoot(workspaceId: string, root: string): void { this.workspaceRoots.set(workspaceId, root); }
-  setWorkspaceRoots(map: Record<string, string>): void { for (const [k,v] of Object.entries(map)) this.workspaceRoots.set(k, v); }
-  /** Sessions already told their output could not be decrypted — told once, not per chunk. */
-  private readonly undecryptable = new Set<string>();
-
-  /** Roots whose gateway token may have sealed a chunk, most specific first. */
-  private decryptRoots(workspaceId: unknown): string[] {
-    const roots: string[] = [];
-    const add = (r: string | undefined): void => { if (r !== undefined && !roots.includes(r)) roots.push(r); };
-    if (typeof workspaceId === 'string') add(this.workspaceRoots.get(workspaceId));
-    add(this.projectRootHint);
-    try { add(process.cwd()); } catch {}
-    return roots;
-  }
-
-  /**
-   * A session.data payload with its chunk opened, or undefined to drop it.
-   *
-   * A sealed chunk no root here can open becomes ONE visible notice for that
-   * session (flagged `decryptFailed`) and is otherwise dropped. Passing the blob on
-   * made every consumer — which only renders string chunks — lose the output with
-   * no sign anything was wrong.
-   */
-  private openSessionData(raw: unknown, idField: 'sessionId' | 'terminalId' = 'sessionId'): unknown {
-    if (typeof raw !== 'object' || raw === null) return raw;
-    const rec = raw as Record<string, unknown>;
-    const c = rec.chunk as { nonce?: unknown; ct?: unknown; tag?: unknown } | undefined;
-    if (typeof c !== 'object' || c === null || typeof c.nonce !== 'string' || typeof c.ct !== 'string' || typeof c.tag !== 'string') {
-      return raw;
-    }
-    // The AAD the daemon sealed with: the session id, or a terminal's own id.
-    const sessionId = typeof rec[idField] === 'string' ? rec[idField] as string : '';
-    for (const root of this.decryptRoots(rec.workspaceId)) {
-      try {
-        const tok = readGatewayToken(root, 'control');
-        if (!tok) continue;
-        const plain = e2eDecrypt(c as { nonce: string; ct: string; tag: string }, deriveKey(tok, root), sessionId);
-        return { ...rec, chunk: plain };
-      } catch {
-        // Wrong root or tampered blob — try the next candidate.
-      }
-    }
-    if (this.undecryptable.has(sessionId)) return undefined;
-    this.undecryptable.add(sessionId);
-    return {
-      ...rec,
-      chunk: '\r\n[crossweave] could not decrypt this session\'s output — this client has no matching gateway token for its workspace\r\n',
-      decryptFailed: true,
-    };
   }
 
   onClose(cb: () => void): void {
@@ -129,12 +73,7 @@ export class DaemonClient {
     };
     if (typeof r.id !== 'number') {
       if (typeof r.method === 'string') {
-        let params: unknown = r.params;
-        if (r.method === 'session.data' || r.method === 'terminal.data') {
-          params = this.openSessionData(r.params, r.method === 'terminal.data' ? 'terminalId' : 'sessionId');
-          if (params === undefined) return;
-        }
-        for (const h of this.notificationHandlers) h(r.method, params);
+        for (const h of this.notificationHandlers) h(r.method, r.params);
       }
       return;
     }

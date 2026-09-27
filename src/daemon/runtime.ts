@@ -2,7 +2,6 @@ import { CrossweaveError } from '../core/errors.js';
 import type { AgentAdapter, AgentProcess } from '../adapters/types.js';
 import type { SessionRow } from '../db/repositories/session.js';
 import type { MethodContext } from './server.js';
-import type { ChunkSealer } from '../gateway/e2e-sealer.js';
 
 const SCROLLBACK_LIMIT = 64 * 1024;
 
@@ -52,8 +51,6 @@ export class SessionRuntime {
 
   constructor(
     private readonly onExit: (sessionId: string, code: number) => void,
-    /** Seals a chunk for the wire; `undefined` means drop it (see ChunkSealer). */
-    private readonly sealChunk?: ChunkSealer,
     private readonly observer?: RuntimeObserver,
   ) {}
 
@@ -62,11 +59,8 @@ export class SessionRuntime {
     return new Map([...this.running].map(([id, e]) => [id, e.proc.pid]));
   }
 
-  /** The session.data payload for one chunk, or undefined when it must not be sent. */
-  private dataPayload(session: SessionRow, chunk: string): Record<string, unknown> | undefined {
-    const sealed = this.sealChunk ? this.sealChunk(chunk, session) : chunk;
-    if (sealed === undefined) return undefined;
-    return { sessionId: session.id, workspaceId: session.workspaceId, chunk: sealed };
+  private dataPayload(session: SessionRow, chunk: string): Record<string, unknown> {
+    return { sessionId: session.id, workspaceId: session.workspaceId, chunk };
   }
 
   start(

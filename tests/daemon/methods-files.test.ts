@@ -5,7 +5,6 @@ import { $ } from 'bun';
 import { openDatabase } from '../../src/db/open.js';
 import { buildMethods } from '../../src/daemon/methods.js';
 import { WorkspaceManager } from '../../src/domain/workspace.js';
-import { ALLOWED_METHODS } from '../../src/gateway/gateway.js';
 import { makeGitFixture } from '../helpers/git-fixture.js';
 
 async function setup() {
@@ -59,8 +58,4 @@ describe('file RPCs', () => {
       await t.cleanup();
     }
   }, 20_000);
-
-  test('none of it is reachable through the gateway', () => {
-    for (const m of ['file.read', 'file.write', 'file.list', 'git.branches']) expect(ALLOWED_METHODS.has(m)).toBe(false);
-  });
 });

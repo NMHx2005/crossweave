@@ -2,7 +2,6 @@ import { CrossweaveError } from '../core/errors.js';
 import { newId } from '../core/ids.js';
 import type { AgentProcess } from '../adapters/types.js';
 import type { SessionRow } from '../db/repositories/session.js';
-import type { ChunkSealer } from '../gateway/e2e-sealer.js';
 import type { MethodContext } from './server.js';
 
 /** Same budget as a session's replay: enough to redraw a screen or two. */
@@ -42,15 +41,13 @@ function notifyAll(subscribers: Iterable<MethodContext>, method: string, params:
  *
  * Ephemeral by design: nothing is stored. A terminal ends when its shell exits, when
  * it is closed, when its session's worktree is about to be removed
- * (`closeForSession`), or with the daemon (`closeAll`). Output is sealed like
- * session.data, with the terminal id as the AAD.
+ * (`closeForSession`), or with the daemon (`closeAll`).
  */
 export class TerminalRegistry {
   private readonly open_ = new Map<string, OpenTerminal>();
 
   constructor(
     private readonly spawnShell: (session: SessionRow, terminalId: string) => AgentProcess,
-    private readonly seal?: ChunkSealer,
     /** Called whenever the set of terminals changes, so clients can redraw. */
     private readonly onChange?: () => void,
   ) {}
@@ -135,9 +132,7 @@ export class TerminalRegistry {
     return { terminalId: t.terminalId, sessionId: t.sessionId, sessionName: t.sessionName, workspaceId: t.workspaceId };
   }
 
-  private payload(t: OpenTerminal, chunk: string): Record<string, unknown> | undefined {
-    const sealed = this.seal ? this.seal(chunk, { id: t.terminalId, workspaceId: t.workspaceId }) : chunk;
-    if (sealed === undefined) return undefined;
-    return { terminalId: t.terminalId, sessionId: t.sessionId, workspaceId: t.workspaceId, chunk: sealed };
+  private payload(t: OpenTerminal, chunk: string): Record<string, unknown> {
+    return { terminalId: t.terminalId, sessionId: t.sessionId, workspaceId: t.workspaceId, chunk };
   }
 }
