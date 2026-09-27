@@ -15,6 +15,7 @@ import { configCommand } from './commands/config.js';
 import { updateCommand } from './commands/update.js';
 import { tuiCommand } from './commands/tui.js';
 import { gatewayCommand } from './commands/gateway.js';
+import { remoteCommand } from './commands/remote.js';
 import { fail } from './context.js';
 import { openDefaultApp, shouldOpenApp } from './entry-mode.js';
 import { tryOpenCockpit } from './cockpit-launcher.js';
@@ -84,6 +85,7 @@ const main = defineCommand({
     update: updateCommand,
     tui: tuiCommand,
     gateway: gatewayCommand,
+    remote: remoteCommand,
   },
 });
 
