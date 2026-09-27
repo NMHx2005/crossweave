@@ -2,6 +2,7 @@ import type { SessionDiff } from '../lib/patch'
 import type { CockpitChannel, CockpitEvent } from '../../electron/channels'
 import { parseSessionList, type ListedSession } from '../lib/sessions'
 import type { TerminalAppearance } from '../../../../src/core/settings.js'
+import type { RemoteState } from '../../electron/remote-host'
 
 export type { CockpitChannel, CockpitEvent, ListedSession }
 
@@ -206,6 +207,27 @@ function makeApi(invoke: Invoke, listen: Listen) {
     importTerminal(from: 'ghostty' | 'iterm2'): Promise<TerminalImport> {
       return invoke('terminal.import', { from })
     },
+    /** Settings → Remote: what remote access is doing now. */
+    remoteState(): Promise<RemoteState> {
+      return invoke('remote.state')
+    },
+    /** After Save: start, re-plan or stop remote access to match the settings. */
+    applyRemote(): Promise<RemoteState> {
+      return invoke('remote.apply')
+    },
+    /** Show a pairing code; it arrives in the next state. */
+    pairPhone(): Promise<{ ok: boolean; reason?: string }> {
+      return invoke('remote.pair')
+    },
+    cancelPairing(): Promise<unknown> {
+      return invoke('remote.pairCancel')
+    },
+    revokeDevice(id: string): Promise<{ ok: boolean }> {
+      return invoke('remote.revoke', { id })
+    },
+    onRemoteState(cb: (state: RemoteState) => void): () => void {
+      return listen('remote.state', (payload) => cb(payload as RemoteState))
+    },
     /** The Dock's number: sessions waiting for the user (0 clears it). */
     setBadge(count: number): Promise<unknown> {
       return invoke('app.badge', { count })
@@ -237,6 +259,7 @@ const WINDOW_CHANNELS = new Set<CockpitChannel>([
   'workspace.ensure', 'projects.list', 'projects.pick', 'projects.reorder', 'projects.sessions',
   'projects.close', 'app.badge', 'folder.reveal', 'folder.openInEditor',
   'terminal.importSources', 'terminal.import', 'fonts.list', 'menu.refresh',
+  'remote.state', 'remote.apply', 'remote.pair', 'remote.pairCancel', 'remote.revoke',
 ])
 
 /** `payload` with `projectRoot` added, unless the call already names one or is window-wide. */

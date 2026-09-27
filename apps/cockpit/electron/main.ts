@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, join, relative } from 'node:path'
+import { basename, dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { execFile, execFileSync } from 'node:child_process'
+import { execFile, execFileSync, spawn } from 'node:child_process'
+import { networkInterfaces } from 'node:os'
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
 import { connectOrStart } from '../../../src/client/rpc-client.js'
 import { COCKPIT_CHANNELS, isCockpitChannel, type CockpitEvent } from './channels'
@@ -19,6 +20,9 @@ import { badgeCount, folderLaunch, resolveFolder } from './path-target'
 import { importSources, importTerminal, type ImportDeps } from './terminal-import'
 import { listFonts } from './fonts'
 import { loadSettings } from '../../../src/core/settings.js'
+import { tailscaleAddress, wifiCandidates, type Interfaces } from '../../../src/remote/addresses.js'
+import { listDevices, removeDevice } from '../../../src/remote/devices.js'
+import { RemoteHost, type RemoteChild } from './remote-host'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -100,10 +104,66 @@ function buildMenu(): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
 
-function createBridge(): DaemonBridge {
-  const entry = app.isPackaged
+function daemonEntry(): { command: string; args: string[] } {
+  return app.isPackaged
     ? resolveCockpitDaemonEntry('', '', { isPackaged: true })
     : resolveCockpitDaemonEntry(findCrossweaveRoot(__dirname), resolveBunCommand())
+}
+
+/**
+ * `cwd remote`: the same binary as the daemons, in its remote mode. Its environment is
+ * the few variables it needs, not the app's: it is a server facing the network, and
+ * nothing of the session that launched the app belongs in it.
+ */
+function spawnRemote(): RemoteChild {
+  const entry = daemonEntry()
+  const env: Record<string, string> = {}
+  for (const key of ['HOME', 'USER', 'LOGNAME', 'PATH', 'LANG', 'TMPDIR']) {
+    const value = process.env[key]
+    if (value !== undefined) env[key] = value
+  }
+  const child = spawn(entry.command, [...entry.args, 'remote'], { stdio: ['pipe', 'pipe', 'ignore'], env, cwd: app.getPath('home') })
+  let buffer = ''
+  const lines: Array<(line: string) => void> = []
+  child.stdout?.on('data', (chunk: Buffer) => {
+    buffer += chunk.toString('utf8')
+    let nl = buffer.indexOf('\n')
+    while (nl !== -1) {
+      const line = buffer.slice(0, nl)
+      buffer = buffer.slice(nl + 1)
+      for (const cb of lines) cb(line)
+      nl = buffer.indexOf('\n')
+    }
+  })
+  child.stdin?.on('error', () => undefined)
+  return {
+    write: (line) => { if (child.stdin?.writable) child.stdin.write(line) },
+    onLine: (cb) => { lines.push(cb) },
+    onExit: (cb) => { child.on('exit', (code) => cb(code)) },
+    kill: () => { child.kill('SIGTERM') },
+  }
+}
+
+function openProjectsNamed(): Array<{ root: string; name: string }> {
+  return loadOpenProjects().map((root) => ({ root, name: basename(root) }))
+}
+
+const remoteHost = new RemoteHost({
+  spawn: spawnRemote,
+  settings: () => loadSettings().remote,
+  projects: openProjectsNamed,
+  devices: () => listDevices(),
+  removeDevice: (id) => removeDevice(id),
+  addresses: () => {
+    const ifaces = networkInterfaces() as Interfaces
+    const tailscale = tailscaleAddress(ifaces)
+    return { ...(tailscale === undefined ? {} : { tailscale }), wifi: wifiCandidates(ifaces) }
+  },
+  push: (state) => sendToRenderers('remote.state', state),
+})
+
+function createBridge(): DaemonBridge {
+  const entry = daemonEntry()
   return new DaemonBridge({
     connect: (projectRoot) => connectOrStart(projectRoot, entry),
     pickFolder,
@@ -113,7 +173,11 @@ function createBridge(): DaemonBridge {
     exists: existsSync,
     send: sendToRenderers,
     loadOpenRoots: loadOpenProjects,
-    saveOpenRoots: saveOpenProjects,
+    // A project opened or closed here is one a phone can, or can no longer, reach.
+    saveOpenRoots: (roots) => {
+      saveOpenProjects(roots)
+      remoteHost.projectsChanged()
+    },
   })
 }
 
@@ -215,6 +279,17 @@ function registerHandlers(bridge: DaemonBridge): void {
       if (channel === 'app.badge') return setBadge(payload)
       if (channel === 'terminal.importSources') return importSources(importDeps())
       if (channel === 'fonts.list') return listFonts(importDeps().run)
+      if (channel === 'remote.state') return remoteHost.snapshot()
+      if (channel === 'remote.apply') {
+        remoteHost.apply()
+        return remoteHost.snapshot()
+      }
+      if (channel === 'remote.pair') return remoteHost.pair()
+      if (channel === 'remote.pairCancel') {
+        remoteHost.cancelPair()
+        return { ok: true }
+      }
+      if (channel === 'remote.revoke') return remoteHost.revoke((payload as { id?: unknown } | null)?.id)
       if (channel === 'menu.refresh') {
         buildMenu()
         return { ok: true }
@@ -335,6 +410,7 @@ if (!hasSingleInstanceLock) {
     bridge = createBridge()
     registerHandlers(bridge)
     createWindow()
+    remoteHost.apply()
 
     const launchRoot = pendingProjectRoot ?? initialProjectRoot
     pendingProjectRoot = undefined
@@ -361,4 +437,5 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   bridge?.close()
+  remoteHost.stop()
 })

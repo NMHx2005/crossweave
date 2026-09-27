@@ -61,6 +61,13 @@ export const COCKPIT_CHANNELS = [
   'fonts.list',
   // Settings saved new shortcuts: rebuild the menu from the settings file.
   'menu.refresh',
+  // Settings → Remote (main process): the state, re-apply after Save, pair a phone,
+  // stop pairing, remove a paired phone.
+  'remote.state',
+  'remote.apply',
+  'remote.pair',
+  'remote.pairCancel',
+  'remote.revoke',
 ] as const
 
 export type CockpitChannel = (typeof COCKPIT_CHANNELS)[number]
@@ -80,6 +87,8 @@ export const COCKPIT_EVENTS = [
   'terminal.exit',
   // A menu accelerator fired (⌘T, ⌘⇧A): the renderer decides what it means.
   'cockpit.command',
+  // Remote access changed: listening, a pairing code, a phone paired or connected.
+  'remote.state',
 ] as const
 
 export type CockpitEvent = (typeof COCKPIT_EVENTS)[number]
