@@ -11,6 +11,7 @@ import { projectRootFromAdditionalData, projectRootFromArgv, resolveLaunchProjec
 import { switchCockpitWorkspace } from './workspace-switch'
 import { clearRecent, loadRecent, pushRecent } from './recent.js'
 import { recentMenuItems } from './recent-menu'
+import { loadOpenProjects, saveOpenProjects } from './open-projects'
 import { appMenuTemplate } from './app-menu'
 import { editorLaunch, resolveLinkTarget } from './editor-open'
 import { loadSettings } from '../../../src/core/settings.js'
@@ -103,6 +104,8 @@ function createBridge(): DaemonBridge {
     saveRoot,
     exists: existsSync,
     send: sendToRenderers,
+    loadOpenRoots: loadOpenProjects,
+    saveOpenRoots: saveOpenProjects,
   })
 }
 

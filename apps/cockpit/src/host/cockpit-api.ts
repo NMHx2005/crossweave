@@ -149,4 +149,33 @@ export const cockpitApi = {
   onDaemonGone(cb: (payload: unknown) => void): () => void {
     return cockpitListen('daemon.gone', cb)
   },
+  /** Every project open in this window, and which one is on the stage. */
+  listProjects(): Promise<{ active: string | undefined; open: string[] }> {
+    return cockpitInvoke('projects.list')
+  },
+  projectSessions(projectRoot: string): Promise<ProjectSnapshot> {
+    return cockpitInvoke<{ projectRoot: string; name: string; sessions: unknown; converge: unknown }>('projects.sessions', { projectRoot })
+      .then((r) => ({ projectRoot: r.projectRoot, name: r.name, sessions: parseSessionList(r.sessions), converge: r.converge }))
+  },
+  closeProject(projectRoot: string): Promise<unknown> {
+    return cockpitInvoke('projects.close', { projectRoot })
+  },
+  /** The folder picker; null when cancelled. */
+  pickProject(): Promise<string | null> {
+    return cockpitInvoke<{ projectRoot: string | null }>('projects.pick').then((r) => r.projectRoot)
+  },
+  onProjectInvalidate(cb: (projectRoot: string) => void): () => void {
+    return cockpitListen('project.invalidate', (payload) => {
+      const root = (payload as { projectRoot?: unknown } | null)?.projectRoot
+      if (typeof root === 'string') cb(root)
+    })
+  },
+}
+
+/** One open project as the rail shows it. */
+export type ProjectSnapshot = {
+  projectRoot: string
+  name: string
+  sessions: ListedSession[]
+  converge: unknown
 }

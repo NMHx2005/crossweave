@@ -30,6 +30,11 @@ export const COCKPIT_CHANNELS = [
   'file.list',
   // What landing a session would bring in (the Changes pane).
   'session.diff',
+  // Every project open in this window (handled by the bridge itself).
+  'projects.list',
+  'projects.sessions',
+  'projects.close',
+  'projects.pick',
   // The command bar's rename and gc.
   'session.rename',
   'workspace.gc',
@@ -53,6 +58,8 @@ export const COCKPIT_EVENTS = [
   'tui.event',
   'tui.invalidate',
   'daemon.gone',
+  // A project that is open but not active changed: its rail group should refresh.
+  'project.invalidate',
   'terminal.data',
   'terminal.exit',
   // A menu accelerator fired (⌘T, ⌘⇧A): the renderer decides what it means.

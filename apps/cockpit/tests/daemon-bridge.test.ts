@@ -419,3 +419,71 @@ describe('workspace.gc', () => {
     expect(fake.calls.at(-1)).toMatchObject({ method: 'workspace.gc', params: { id: 'ws_1', force: true } })
   })
 })
+
+describe('many projects in one window', () => {
+  function multi() {
+    const fakes = new Map<string, FakeDaemon>()
+    let open: string[] = []
+    const events: Array<{ event: CockpitEvent; payload: unknown }> = []
+    const bridge = new DaemonBridge({
+      connect: async (root) => {
+        const fake = new FakeDaemon()
+        fake.responses['workspace.init'] = { id: `ws_${root}`, name: root.split('/').pop(), rootPath: root }
+        fake.responses['session.list'] = [{ id: `s_${root}`, name: 'main' }]
+        fakes.set(root, fake)
+        return fake
+      },
+      pickFolder: async () => '/tmp/picked',
+      loadSavedRoot: () => undefined,
+      saveRoot: () => undefined,
+      loadOpenRoots: () => open,
+      saveOpenRoots: (roots) => { open = roots },
+      exists: () => true,
+      send: (event, payload) => { events.push({ event, payload }) },
+    })
+    return { bridge, fakes, events, open: () => open }
+  }
+
+  // Switching project used to close the previous daemon connection: a window could
+  // only ever know one repository.
+  test('attaching a second project keeps the first, and both are listed as open', async () => {
+    const { bridge, fakes, open } = multi()
+    await bridge.handle('workspace.ensure', { projectRoot: '/w/api' })
+    await bridge.handle('workspace.ensure', { projectRoot: '/w/web' })
+    expect(fakes.get('/w/api')!.closed).toBe(false)
+    expect(open()).toEqual(['/w/api', '/w/web'])
+    expect(await bridge.handle('projects.list')).toEqual({ active: '/w/web', open: ['/w/api', '/w/web'] })
+    // Everything else still targets the active project.
+    await bridge.handle('session.list', {})
+    expect(fakes.get('/w/web')!.calls.at(-1)).toMatchObject({ method: 'session.list', params: { workspaceId: 'ws_/w/web' } })
+  })
+
+  test('the sessions of any open project, connecting to it if needed', async () => {
+    const { bridge } = multi()
+    await bridge.handle('workspace.ensure', { projectRoot: '/w/api' })
+    expect(await bridge.handle('projects.sessions', { projectRoot: '/w/other' })).toMatchObject({
+      projectRoot: '/w/other', name: 'other', sessions: [{ id: 's_/w/other', name: 'main' }],
+    })
+  })
+
+  // Output from a project that is not on the stage must not reach its panes; that it
+  // changed must reach the rail.
+  test('a background project raises project.invalidate, never its session output', async () => {
+    const { bridge, fakes, events } = multi()
+    await bridge.handle('workspace.ensure', { projectRoot: '/w/api' })
+    await bridge.handle('workspace.ensure', { projectRoot: '/w/web' })
+    fakes.get('/w/api')!.emit('tui.invalidate', {})
+    fakes.get('/w/api')!.emit('session.data', { sessionId: 's', chunk: 'x' })
+    expect(events).toEqual([{ event: 'project.invalidate', payload: { projectRoot: '/w/api' } }])
+  })
+
+  test('closing a project forgets it and drops its connection, but never the active one', async () => {
+    const { bridge, fakes, open } = multi()
+    await bridge.handle('workspace.ensure', { projectRoot: '/w/api' })
+    await bridge.handle('workspace.ensure', { projectRoot: '/w/web' })
+    await bridge.handle('projects.close', { projectRoot: '/w/api' })
+    expect(open()).toEqual(['/w/web'])
+    expect(fakes.get('/w/api')!.closed).toBe(true)
+    await expect(bridge.handle('projects.close', { projectRoot: '/w/web' })).rejects.toThrow(/active/)
+  })
+})

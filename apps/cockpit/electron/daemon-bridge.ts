@@ -21,7 +21,12 @@ export type DaemonBridgeDeps = {
   saveRoot: (root: string) => void
   send: (event: CockpitEvent, payload: unknown) => void
   exists?: (path: string) => boolean
+  /** The projects this window lists in its rail, in the order they were opened. */
+  loadOpenRoots?: () => string[]
+  saveOpenRoots?: (roots: string[]) => void
 }
+
+type Attached = { client: DaemonLike; workspace: WorkspaceSnapshot }
 
 const FORWARDED = new Set<string>(['session.data', 'session.exit', 'tui.event', 'tui.invalidate', 'terminal.data', 'terminal.exit'])
 
@@ -60,10 +65,21 @@ function hasProjectRoot(payload: unknown): boolean {
   return typeof (payload as { projectRoot?: unknown } | null | undefined)?.projectRoot === 'string'
 }
 
+/**
+ * The renderer's one way to the daemons. One project is ACTIVE — its tabs are on the
+ * stage and every channel targets it — but a window keeps a connection to each project
+ * it has open, so the rail can list them all: switching projects used to close the
+ * previous connection, and a window could only ever know one repository.
+ */
 export class DaemonBridge {
   private client: DaemonLike | undefined
   private workspace: WorkspaceSnapshot | undefined
   private projectRoot: string | undefined
+  /** Every attached project, the active one included. */
+  private readonly pool = new Map<string, Attached>()
+  /** Connections being opened, so two callers never start two for one project. */
+  private readonly connecting = new Map<string, Promise<Attached>>()
+  private openRootsFallback: string[] = []
   /** Serializes ensure so main+renderer cannot race the folder picker / double-connect. */
   private ensureTail: Promise<void> = Promise.resolve()
   /** The ensure in flight, which a root-less ensure joins instead of queueing behind. */
@@ -97,13 +113,110 @@ export class DaemonBridge {
     if (channel === 'session.detach') {
       return { ok: true }
     }
+    if (channel === 'projects.list') return { active: this.projectRoot, open: this.openRoots() }
+    if (channel === 'projects.sessions') return this.projectSessions(payload)
+    if (channel === 'projects.close') return this.closeProject(payload)
+    if (channel === 'projects.pick') return { projectRoot: (await this.deps.pickFolder()) ?? null }
     return this.rpc(channel, payload)
   }
 
+  private openRoots(): string[] {
+    const exists = this.deps.exists ?? (() => true)
+    return (this.deps.loadOpenRoots?.() ?? this.openRootsFallback).filter((root) => exists(root))
+  }
+
+  private rememberOpen(root: string): void {
+    const current = this.deps.loadOpenRoots?.() ?? this.openRootsFallback
+    if (current.includes(root)) return
+    const next = [...current, root]
+    if (this.deps.saveOpenRoots) this.deps.saveOpenRoots(next)
+    else this.openRootsFallback = next
+  }
+
+  private rootOf(payload: unknown): string {
+    const root = asRecord(payload).projectRoot
+    if (typeof root !== 'string' || root.length === 0) throw new Error('projectRoot is required')
+    return root
+  }
+
+  /** A project's sessions and land verdicts, for the rail — attaching it if need be. */
+  private async projectSessions(payload: unknown): Promise<unknown> {
+    const projectRoot = this.rootOf(payload)
+    const { client, workspace } = await this.attach(projectRoot)
+    const params = { workspaceId: workspace.id }
+    const sessions = await client.call('session.list', params)
+    const converge = await client.call('converge.status', params).catch(() => undefined)
+    return { projectRoot, name: workspace.name, sessions, converge }
+  }
+
+  private closeProject(payload: unknown): { ok: true } {
+    const projectRoot = this.rootOf(payload)
+    if (projectRoot === this.projectRoot) throw new Error('The active project cannot be closed; switch to another first')
+    const next = (this.deps.loadOpenRoots?.() ?? this.openRootsFallback).filter((r) => r !== projectRoot)
+    if (this.deps.saveOpenRoots) this.deps.saveOpenRoots(next)
+    else this.openRootsFallback = next
+    const attached = this.pool.get(projectRoot)
+    this.pool.delete(projectRoot)
+    attached?.client.close()
+    return { ok: true }
+  }
+
+  /**
+   * A connection to `projectRoot`'s daemon, opened once and kept. Notifications from
+   * it reach the renderer only while it is the active project; otherwise its changes
+   * are announced as `project.invalidate`, and its output — which no pane shows —
+   * goes nowhere.
+   */
+  private attach(projectRoot: string): Promise<Attached> {
+    const existing = this.pool.get(projectRoot)
+    if (existing !== undefined) return Promise.resolve(existing)
+    const pending = this.connecting.get(projectRoot)
+    if (pending !== undefined) return pending
+    const run = (async (): Promise<Attached> => {
+      const client = await this.deps.connect(projectRoot)
+      client.onNotification((method, params) => {
+        if (this.pool.get(projectRoot)?.client !== client) return
+        if (this.client === client) this.forward(method, params)
+        else if (method === 'tui.invalidate') this.deps.send('project.invalidate', { projectRoot })
+      })
+      client.onClose(() => {
+        if (this.pool.get(projectRoot)?.client !== client) return
+        this.pool.delete(projectRoot)
+        if (this.client === client) {
+          this.detach(client)
+          this.deps.send('daemon.gone', {})
+        } else {
+          this.deps.send('project.invalidate', { projectRoot })
+        }
+      })
+      try {
+        const workspace = await client.call<WorkspaceSnapshot>('workspace.init', {})
+        await client.call('daemon.subscribe', {})
+        // E2E hint: let DaemonClient decrypt session.data for this workspace
+        try {
+          const maybe = client as unknown as { setProjectRoot?: (r: string) => void; setWorkspaceRoot?: (id: string, r: string) => void }
+          if (maybe.setProjectRoot) maybe.setProjectRoot(projectRoot)
+          if (maybe.setWorkspaceRoot) maybe.setWorkspaceRoot(workspace.id, projectRoot)
+        } catch {}
+        const attached = { client, workspace }
+        this.pool.set(projectRoot, attached)
+        this.rememberOpen(projectRoot)
+        return attached
+      } catch (err) {
+        client.close()
+        throw err
+      }
+    })()
+    this.connecting.set(projectRoot, run)
+    const settle = (): void => { this.connecting.delete(projectRoot) }
+    run.then(settle, settle)
+    return run
+  }
+
   close(): void {
-    const client = this.client
-    this.detach(client)
-    client?.close()
+    this.detach(this.client)
+    for (const { client } of this.pool.values()) client.close()
+    this.pool.clear()
   }
 
   private detach(client: DaemonLike | undefined): void {
@@ -118,39 +231,12 @@ export class DaemonBridge {
     if (this.client && this.workspace && this.projectRoot === projectRoot) {
       return { projectRoot, workspace: this.workspace }
     }
-
-    const previous = this.client
-    const client = await this.deps.connect(projectRoot)
-
-    client.onNotification((method, params) => {
-      if (this.client !== client) return
-      this.forward(method, params)
-    })
-    client.onClose(() => {
-      if (this.client !== client) return
-      this.detach(client)
-      this.deps.send('daemon.gone', {})
-    })
-
-    try {
-      const workspace = await client.call<WorkspaceSnapshot>('workspace.init', {})
-      await client.call('daemon.subscribe', {})
-      // E2E hint: let DaemonClient decrypt session.data for this workspace
-      try {
-        const maybe = client as unknown as { setProjectRoot?: (r: string) => void; setWorkspaceRoot?: (id: string, r: string) => void };
-        if (maybe.setProjectRoot) maybe.setProjectRoot(projectRoot);
-        if (maybe.setWorkspaceRoot) maybe.setWorkspaceRoot(workspace.id, projectRoot);
-      } catch {}
-      this.client = client
-      this.projectRoot = projectRoot
-      this.workspace = workspace
-      this.deps.saveRoot(projectRoot)
-      previous?.close()
-      return { projectRoot, workspace }
-    } catch (err) {
-      client.close()
-      throw err
-    }
+    const { client, workspace } = await this.attach(projectRoot)
+    this.client = client
+    this.projectRoot = projectRoot
+    this.workspace = workspace
+    this.deps.saveRoot(projectRoot)
+    return { projectRoot, workspace }
   }
 
   private async resolveProjectRoot(payload: unknown): Promise<string> {
