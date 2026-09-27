@@ -25,6 +25,8 @@ export type Tab = {
   pinned: boolean
   root: LayoutNode
   focusedPaneId: string
+  /** tmux's `z`: this pane fills the tab until toggled; the others stay mounted under it. */
+  zoomedPaneId?: string
 }
 
 export type StageState = {
@@ -188,7 +190,9 @@ export function closePane(state: StageState, tabId: string, paneId: string): Sta
     const root = without(tab.root, paneId)
     if (root === null) return null
     const focused = findPane(root, tab.focusedPaneId) ? tab.focusedPaneId : panesOf(root)[0]!.id
-    return { ...tab, root, focusedPaneId: focused }
+    const { zoomedPaneId, ...rest } = tab
+    // Closing the zoomed pane unzooms; closing another keeps the zoom.
+    return { ...rest, root, focusedPaneId: focused, ...(zoomedPaneId !== undefined && zoomedPaneId !== paneId ? { zoomedPaneId } : {}) }
   })
 }
 
@@ -376,4 +380,155 @@ export function placeBeside(state: StageState, pane: PaneRef, title: string): St
 export function liveTabs(state: StageState): Array<{ tab: Tab; shown: boolean }> {
   const active = state.tabs.some((t) => t.id === state.activeTabId) ? state.activeTabId : state.tabs[0]?.id
   return state.tabs.map((tab) => ({ tab, shown: tab.id === active }))
+}
+
+
+// ---------- tmux-like pane operations ----------
+
+/** Zoom `paneId` (fill the tab), or unzoom when it is already zoomed. */
+export function toggleZoom(state: StageState, tabId: string, paneId: string): StageState {
+  return withTab(state, tabId, (tab) => {
+    const { zoomedPaneId, ...rest } = tab
+    if (zoomedPaneId === paneId || !findPane(tab.root, paneId)) return rest
+    return { ...rest, zoomedPaneId: paneId, focusedPaneId: paneId }
+  })
+}
+
+export type Rect = { x: number; y: number; w: number; h: number }
+
+/** Where each pane sits in its tab, as fractions of the tab (0..1). */
+export function paneRects(node: LayoutNode, rect: Rect = { x: 0, y: 0, w: 1, h: 1 }, out = new Map<string, Rect>()): Map<string, Rect> {
+  if (node.type === 'pane') {
+    out.set(node.id, rect)
+    return out
+  }
+  let offset = 0
+  const total = node.sizes.reduce((a, b) => a + b, 0) || 1
+  node.children.forEach((child, i) => {
+    const share = (node.sizes[i] ?? 0) / total
+    const r = node.dir === 'row'
+      ? { x: rect.x + offset * rect.w, y: rect.y, w: share * rect.w, h: rect.h }
+      : { x: rect.x, y: rect.y + offset * rect.h, w: rect.w, h: share * rect.h }
+    offset += share
+    paneRects(child, r, out)
+  })
+  return out
+}
+
+export type Direction = 'left' | 'right' | 'up' | 'down'
+
+/**
+ * The pane beside `paneId` in `dir` (⌘⌥ + arrow): the nearest one across that edge,
+ * preferring the one that overlaps it most along the other axis — as tmux picks.
+ */
+export function neighbourPane(tab: Tab, paneId: string, dir: Direction): string | undefined {
+  const rects = paneRects(tab.root)
+  const from = rects.get(paneId)
+  if (!from) return undefined
+  const eps = 1e-6
+  let best: { id: string; gap: number; overlap: number } | undefined
+  for (const [id, r] of rects) {
+    if (id === paneId) continue
+    const gap = dir === 'left' ? from.x - (r.x + r.w)
+      : dir === 'right' ? r.x - (from.x + from.w)
+        : dir === 'up' ? from.y - (r.y + r.h)
+          : r.y - (from.y + from.h)
+    if (gap < -eps) continue
+    const overlap = dir === 'left' || dir === 'right'
+      ? Math.min(from.y + from.h, r.y + r.h) - Math.max(from.y, r.y)
+      : Math.min(from.x + from.w, r.x + r.w) - Math.max(from.x, r.x)
+    if (overlap <= eps) continue
+    if (!best || gap < best.gap - eps || (Math.abs(gap - best.gap) <= eps && overlap > best.overlap)) best = { id, gap, overlap }
+  }
+  return best?.id
+}
+
+/** Every split in the tab shares its space evenly. */
+export function equalize(state: StageState, tabId: string): StageState {
+  const even = (node: LayoutNode): LayoutNode => (node.type === 'pane'
+    ? node
+    : { ...node, sizes: node.children.map(() => 1 / node.children.length), children: node.children.map(even) })
+  return withTab(state, tabId, (tab) => ({ ...tab, root: even(tab.root) }))
+}
+
+export type LayoutPreset = 'even-horizontal' | 'even-vertical' | 'main-left' | 'tiled'
+
+function split(dir: SplitDir, children: LayoutNode[]): LayoutNode {
+  if (children.length === 1) return children[0]!
+  return { type: 'split', id: uid('s'), dir, sizes: children.map(() => 1 / children.length), children }
+}
+
+/**
+ * The tab's panes rearranged (tmux's select-layout): side by side, stacked, the
+ * focused one large on the left with the rest stacked beside it, or a grid. Panes keep
+ * their ids, so focus and zoom survive; the zoom is dropped (a new layout is meant to
+ * be seen).
+ */
+export function applyPreset(state: StageState, tabId: string, preset: LayoutPreset): StageState {
+  return withTab(state, tabId, (tab) => {
+    const leaves: LayoutNode[] = panesOf(tab.root).map((p) => ({ type: 'pane', id: p.id, pane: p.pane }))
+    const { zoomedPaneId: _dropped, ...rest } = tab
+    if (leaves.length < 2) return rest
+    let root: LayoutNode
+    if (preset === 'even-horizontal') root = split('row', leaves)
+    else if (preset === 'even-vertical') root = split('column', leaves)
+    else if (preset === 'main-left') {
+      const main = leaves.find((l) => l.id === tab.focusedPaneId) ?? leaves[0]!
+      const others = leaves.filter((l) => l !== main)
+      root = { type: 'split', id: uid('s'), dir: 'row', sizes: [0.6, 0.4], children: [main, split('column', others)] }
+    } else {
+      const cols = Math.ceil(Math.sqrt(leaves.length))
+      const rows: LayoutNode[] = []
+      for (let i = 0; i < leaves.length; i += cols) rows.push(split('row', leaves.slice(i, i + cols)))
+      root = split('column', rows)
+    }
+    return { ...rest, root }
+  })
+}
+
+/** Swap the focused pane with the next one in reading order (wrapping); focus follows it. */
+export function swapNext(state: StageState, tabId: string, paneId: string): StageState {
+  return withTab(state, tabId, (tab) => {
+    const leaves = panesOf(tab.root)
+    const at = leaves.findIndex((l) => l.id === paneId)
+    if (at < 0 || leaves.length < 2) return tab
+    const other = leaves[(at + 1) % leaves.length]!
+    const mine = leaves[at]!
+    let root = mapNode(tab.root, mine.id, (n) => ({ ...n, pane: other.pane }) as LayoutNode)
+    root = mapNode(root, other.id, (n) => ({ ...n, pane: mine.pane }) as LayoutNode)
+    return { ...tab, root, focusedPaneId: other.id }
+  })
+}
+
+/** tmux's break-pane: the pane leaves its tab for a tab of its own. */
+export function paneToTab(state: StageState, tabId: string, paneId: string, title: string): StageState {
+  const tab = state.tabs.find((t) => t.id === tabId)
+  const found = tab ? findPane(tab.root, paneId) : undefined
+  if (!tab || !found || panesOf(tab.root).length < 2) return state
+  return openInNewTab(closePane(state, tabId, paneId), found.pane, title)
+}
+
+export type DropSide = 'left' | 'right' | 'top' | 'bottom'
+
+/**
+ * Drag a pane onto another pane's edge: it leaves its place and splits the target on
+ * that side. Same tab only; dropping a pane on itself changes nothing.
+ */
+export function movePane(state: StageState, tabId: string, fromId: string, toId: string, side: DropSide): StageState {
+  if (fromId === toId) return state
+  const tab = state.tabs.find((t) => t.id === tabId)
+  const moving = tab ? findPane(tab.root, fromId) : undefined
+  if (!tab || !moving || !findPane(tab.root, toId)) return state
+  return withTab(state, tabId, (t) => {
+    const root = without(t.root, fromId)
+    if (root === null) return t
+    const node: LayoutNode = { type: 'pane', id: fromId, pane: moving.pane }
+    const dir: SplitDir = side === 'left' || side === 'right' ? 'row' : 'column'
+    const before = side === 'left' || side === 'top'
+    const placed = mapNode(root, toId, (target) => ({
+      type: 'split', id: uid('s'), dir, sizes: [0.5, 0.5], children: before ? [node, target] : [target, node],
+    }))
+    const { zoomedPaneId: _dropped, ...rest } = t
+    return { ...rest, root: placed, focusedPaneId: fromId }
+  })
 }

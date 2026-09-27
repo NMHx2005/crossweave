@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   closeOthers, closePane, closeTab, closeToRight, emptyStage, findPane, focusPane, moveTab,
   liveTabs, openInNewTab, paneKey, paneKeys, reconcile, resizeSplit, setPinned, splitPane, toSavedLayout, type PaneRef, type StageState,
+  applyPreset, equalize, movePane, neighbourPane, paneRects, paneToTab, swapNext, toggleZoom, type LayoutNode,
 } from '../src/lib/layout'
 
 const session = (sessionId: string): PaneRef => ({ kind: 'session', sessionId })
@@ -223,5 +224,95 @@ describe('liveTabs', () => {
     const s = openInNewTab(emptyStage(), { kind: 'session', sessionId: 'a' }, 'a')
     expect(liveTabs({ ...s, activeTabId: 'gone' })[0]?.shown).toBe(true)
     expect(liveTabs(emptyStage())).toEqual([])
+  })
+})
+
+describe('tmux-like panes', () => {
+  // a | (b / c): a on the left, b above c on the right.
+  function three(): { s: StageState; tabId: string; a: string; b: string; c: string } {
+    let s = openInNewTab(emptyStage(), session('a'), 'a')
+    const tabId = s.tabs[0]!.id
+    const a = s.tabs[0]!.focusedPaneId
+    s = splitPane(s, tabId, a, 'row', session('b'))
+    const b = s.tabs[0]!.focusedPaneId
+    s = splitPane(s, tabId, b, 'column', session('c'))
+    const c = s.tabs[0]!.focusedPaneId
+    return { s, tabId, a, b, c }
+  }
+  const keys = (node: LayoutNode): string[] => (node.type === 'pane' ? [paneKey(node.pane)] : node.children.flatMap(keys))
+
+  test('paneRects places panes as fractions of the tab', () => {
+    const { s, a, b, c } = three()
+    const r = paneRects(s.tabs[0]!.root)
+    expect(r.get(a)).toEqual({ x: 0, y: 0, w: 0.5, h: 1 })
+    expect(r.get(b)).toEqual({ x: 0.5, y: 0, w: 0.5, h: 0.5 })
+    expect(r.get(c)).toEqual({ x: 0.5, y: 0.5, w: 0.5, h: 0.5 })
+  })
+
+  test('neighbourPane moves across edges, and nowhere past the tab', () => {
+    const { s, a, b, c } = three()
+    const tab = s.tabs[0]!
+    // b and c both touch a's right edge with equal overlap: the first in reading order wins.
+    expect(neighbourPane(tab, a, 'right')).toBe(b)
+    expect(neighbourPane(tab, b, 'down')).toBe(c)
+    expect(neighbourPane(tab, c, 'up')).toBe(b)
+    expect(neighbourPane(tab, c, 'left')).toBe(a)
+    expect(neighbourPane(tab, a, 'left')).toBeUndefined()
+    expect(neighbourPane(tab, b, 'up')).toBeUndefined()
+  })
+
+  test('zoom toggles, focuses the pane, and survives closing another pane', () => {
+    const { s, tabId, b, c } = three()
+    let z = toggleZoom(s, tabId, b)
+    expect(z.tabs[0]).toMatchObject({ zoomedPaneId: b, focusedPaneId: b })
+    z = closePane(z, tabId, c)
+    expect(z.tabs[0]!.zoomedPaneId).toBe(b)
+    expect(toggleZoom(z, tabId, b).tabs[0]!.zoomedPaneId).toBeUndefined()
+    expect(closePane(toggleZoom(s, tabId, b), tabId, b).tabs[0]!.zoomedPaneId).toBeUndefined()
+  })
+
+  test('equalize evens every split', () => {
+    const { s, tabId } = three()
+    const root = equalize(resizeSplit(s, tabId, (s.tabs[0]!.root as { id: string }).id, 0, 0.3), tabId).tabs[0]!.root
+    expect(root.type === 'split' && root.sizes).toEqual([0.5, 0.5])
+  })
+
+  test('presets keep every pane and its id; main-left puts the focused one first', () => {
+    const { s, tabId, a, b, c } = three()
+    const byIds = (node: LayoutNode): string[] => (node.type === 'pane' ? [node.id] : node.children.flatMap(byIds))
+    const h = applyPreset(s, tabId, 'even-horizontal').tabs[0]!.root
+    expect(h.type === 'split' && h.dir).toBe('row')
+    expect(byIds(h)).toEqual([a, b, c])
+    const v = applyPreset(s, tabId, 'even-vertical').tabs[0]!.root
+    expect(v.type === 'split' && [v.dir, v.children.length]).toEqual(['column', 3])
+    const main = applyPreset({ ...s, tabs: [{ ...s.tabs[0]!, focusedPaneId: c }] }, tabId, 'main-left').tabs[0]!.root
+    expect(byIds(main)[0]).toBe(c)
+    const tiled = applyPreset(s, tabId, 'tiled').tabs[0]!.root
+    expect(tiled.type === 'split' && tiled.dir).toBe('column')
+    expect(byIds(tiled).sort()).toEqual([a, b, c].sort())
+  })
+
+  test('swapNext trades places with the next pane; focus follows the moved pane', () => {
+    const { s, tabId, a, b } = three()
+    const swapped = swapNext(s, tabId, a)
+    expect(keys(swapped.tabs[0]!.root)).toEqual(['session:b', 'session:a', 'session:c'])
+    expect(swapped.tabs[0]!.focusedPaneId).toBe(b)
+  })
+
+  test('paneToTab breaks a pane out into its own tab; a lone pane stays', () => {
+    const { s, tabId, c } = three()
+    const out = paneToTab(s, tabId, c, 'c')
+    expect(out.tabs.map((t) => keys(t.root))).toEqual([['session:a', 'session:b'], ['session:c']])
+    expect(out.activeTabId).toBe(out.tabs[1]!.id)
+    const lone = openInNewTab(emptyStage(), session('x'), 'x')
+    expect(paneToTab(lone, lone.tabs[0]!.id, lone.tabs[0]!.focusedPaneId, 'x')).toBe(lone)
+  })
+
+  test("movePane drops a pane on another pane's side", () => {
+    const { s, tabId, a, c } = three()
+    const moved = movePane(s, tabId, c, a, 'left').tabs[0]!
+    expect(keys(moved.root)).toEqual(['session:c', 'session:a', 'session:b'])
+    expect(moved.focusedPaneId).toBe(c)
+    expect(movePane(s, tabId, a, a, 'top')).toBe(s)
   })
 })
