@@ -72,3 +72,16 @@ export function railOrder(sessions: readonly ListedSession[]): ListedSession[] {
     return (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0)
   })
 }
+
+/**
+ * Sessions that started waiting for the user since the previous list: the moment worth
+ * a desktop notification. One that was already asking is not news; one first seen
+ * asking (a reload) is not either — only a change seen happen.
+ */
+export function newlyAsking(
+  prev: ReadonlyArray<Pick<ListedSession, 'id' | 'activity'>>,
+  next: readonly ListedSession[],
+): ListedSession[] {
+  const before = new Map(prev.map((s) => [s.id, s.activity]))
+  return next.filter((s) => s.activity === 'asked' && before.has(s.id) && before.get(s.id) !== 'asked')
+}

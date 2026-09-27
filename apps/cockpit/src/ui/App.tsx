@@ -66,6 +66,7 @@ import {
 import { Sidebar, type ProjectGroup, type RowAction } from './Sidebar'
 import { Stage, type StageStatus } from './Stage'
 import { sessionsThatStartedRunning } from '../lib/sessions'
+import { agentName, newlyAsking } from '../lib/rail'
 
 const EMPTY_CONVERGE: ConvergeStatus = { ready: [], unknown: [], blocked: [] }
 
@@ -140,6 +141,11 @@ export function App() {
       // shells it had open rather than leave them running with no pane.
       const openTerminals = await cockpitApi.listTerminals().catch(() => [] as TerminalInfo[])
       if (cancelledRef.current) return
+      // A session that just started waiting for you while you look elsewhere is worth
+      // a desktop notification; clicking it brings you to that session.
+      if (knownRef.current !== null && !document.hasFocus()) {
+        for (const s of newlyAsking(sessionsRef.current, loaded.sessions)) notifyAsking(s)
+      }
       setSessions(loaded.sessions)
       setSessionsRevision((n) => n + 1)
       const firstLoad = knownRef.current === null
@@ -236,6 +242,21 @@ export function App() {
     if (typeof command === 'string') commandRef.current(command)
   }), [])
 
+  function notifyAsking(session: ListedSession): void {
+    try {
+      const note = new Notification(`${session.name} is waiting for you`, {
+        body: session.latestWords ?? agentName(session.agent),
+        tag: `cw-asked-${session.id}`,
+      })
+      note.onclick = () => {
+        window.focus()
+        focusSessionRef.current(session.id)
+      }
+    } catch {
+      // notifications unavailable: the rail's amber row still says it
+    }
+  }
+
   /** Every open project and a snapshot of each one not on the stage. */
   const refreshProjects = useCallback(async (only?: string): Promise<void> => {
     try {
@@ -310,7 +331,9 @@ export function App() {
       const name = sessionsRef.current.find((x) => x.id === sessionId)?.name ?? sessionId
       return openInNewTab(s, { kind: 'session', sessionId }, name)
     })
-  }
+  }  const focusSessionRef = useRef(focusSession)
+  focusSessionRef.current = focusSession
+
 
   async function runAction(action: () => Promise<unknown>): Promise<void> {
     const actionError = await runCockpitAction(action, () => load())

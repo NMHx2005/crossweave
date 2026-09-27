@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { agentName, landChip, railOrder, relativeTime, rowState, rowTitle } from '../src/lib/rail'
+import { agentName, landChip, newlyAsking, railOrder, relativeTime, rowState, rowTitle } from '../src/lib/rail'
 import { parseSessionList } from '../src/lib/sessions'
 
 describe('relativeTime', () => {
@@ -65,5 +65,17 @@ describe('parseSessionList status fields', () => {
     expect(parseSessionList([{ id: 's', name: 'a', agent: 'claude', activity: 'working', lastActivityAt: 7 }])[0])
       .toMatchObject({ agent: 'claude', activity: 'working', lastActivityAt: 7 })
     expect(parseSessionList([{ id: 's', name: 'a', agent: null }])[0]?.agent).toBeNull()
+  })
+})
+
+describe('newlyAsking', () => {
+  test('only a session seen turning to asked, not one already asking or first seen', () => {
+    const prev = [{ id: 'a', activity: 'working' }, { id: 'b', activity: 'asked' }]
+    const next = [
+      { id: 'a', name: 'a', activity: 'asked' },
+      { id: 'b', name: 'b', activity: 'asked' },
+      { id: 'c', name: 'c', activity: 'asked' },
+    ]
+    expect(newlyAsking(prev, next).map((s) => s.id)).toEqual(['a'])
   })
 })
