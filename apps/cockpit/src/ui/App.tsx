@@ -16,6 +16,8 @@ import { baseName, readFlag, readString, writeFlag, writeString } from './storag
 import { PaneThemeContext, TerminalLookContext } from './terminal-look-context'
 import { applyTheme, resolveTheme, xtermThemeFor, type ResolvedTheme } from './themes'
 import { ShortcutsDialog } from './ShortcutsPanel'
+import { PairDialog } from './RemotePanel'
+import type { RemoteState } from '../../electron/remote-host'
 import { effectiveKeys, formatAccelerator } from '../lib/keymap'
 import type { InterfaceAppearance, TerminalAppearance, UsageSettings } from '../../../../src/core/settings.js'
 import { applyAppearance } from '../lib/appearance'
@@ -452,6 +454,30 @@ export function App() {
   }
 
   /** Save through the daemon, which validates; its refusal is shown in the form. */
+  /** Remote access as the main process runs it; pushed on every change. */
+  const [remote, setRemote] = useState<RemoteState | null>(null)
+  const [pairing, setPairing] = useState(false)
+  useEffect(() => {
+    void cockpitApi.remoteState().then(setRemote, () => undefined)
+    return cockpitApi.onRemoteState(setRemote)
+  }, [])
+  const pairedSeen = useRef<number>(Date.now())
+  useEffect(() => {
+    const p = remote?.paired
+    if (p === undefined || p.at <= pairedSeen.current) return
+    pairedSeen.current = p.at
+    showToast(`Paired ${p.name}`, 'info')
+  }, [remote?.paired])
+
+  async function startPairing(): Promise<void> {
+    const r = await cockpitApi.pairPhone().catch((err: unknown) => ({ ok: false, reason: plainErrorMessage(err) }))
+    if (!r.ok) {
+      showToast(r.reason ?? 'Could not pair', 'error')
+      return
+    }
+    setPairing(true)
+  }
+
   async function saveSettings(next: UserSettings): Promise<string | null> {
     const root = activeRef.current ?? openRoots[0]
     if (root === undefined) return 'Open a project first'
@@ -462,6 +488,8 @@ export function App() {
       setKeybindings(saved?.keybindings)
       // The menu owns the accelerators: rebuild it from the file just written.
       void cockpitApi.refreshMenu().catch(() => undefined)
+      // Remote access follows the file just written: started, re-planned or stopped.
+      void cockpitApi.applyRemote().then(setRemote, () => undefined)
       setAppearance(saved?.appearance)
       savedAppearance.current = saved?.appearance
       // Unchanged state does not re-run the effect; the preview may still be showing.
@@ -602,6 +630,9 @@ export function App() {
             writeString(DOCK_BADGE_KEY, next.dockBadge ? '1' : '0')
             writeString(NOTIFY_FINISH_KEY, next.finish ? '1' : '0')
           }}
+          remote={remote}
+          onPairPhone={() => { void startPairing() }}
+          onRevokeDevice={(id) => { void cockpitApi.revokeDevice(id).then(() => cockpitApi.remoteState()).then(setRemote, () => undefined) }}
           onSave={saveSettings}
           onClose={() => {
             // Cancel (or Save, already applied): back to what is saved.
@@ -610,6 +641,10 @@ export function App() {
             setSettingsOpen(null)
           }}
         />
+      ) : null}
+      {pairing ? (
+        <PairDialog state={remote} onRenew={() => { void cockpitApi.pairPhone() }}
+          onClose={() => { setPairing(false); void cockpitApi.cancelPairing() }} />
       ) : null}
       {shortcutsOpen ? (
         <ShortcutsDialog keybindings={keybindings} onClose={() => setShortcutsOpen(false)}
@@ -656,6 +691,7 @@ export function App() {
           showUsage={usageSettings?.show ?? true}
           prices={usageSettings?.prices}
           onSettings={() => { void handleOpenSettings() }}
+          remotePeers={remote?.peers.map((p) => p.name)}
           onSelect={(root, id) => onRailAction(root, id, 'focus')}
           onAction={onRailAction}
           onSetColor={(sessionId, color) => {

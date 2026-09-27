@@ -54,6 +54,8 @@ export type SidebarProps = {
   onOpenProject: () => void
   onCommandBar: () => void
   onSettings: () => void
+  /** Phones connected over remote access now: always visible, so a live connection is never silent. */
+  remotePeers?: string[]
   onSelect: (projectRoot: string, sessionId: string) => void
   onAction: (projectRoot: string, sessionId: string, action: RowAction) => void
   onSetColor: (sessionId: string, color: SessionColor | null) => void
@@ -366,6 +368,12 @@ export function Sidebar(props: SidebarProps) {
           <FolderIcon /> Open project…
         </button>
         <span class="cockpit-sidebar__spring" />
+        {props.remotePeers !== undefined && props.remotePeers.length > 0 ? (
+          <button type="button" class="cockpit-remote-chip" title={`Connected from: ${props.remotePeers.join(', ')} — Settings → Remote`} onClick={props.onSettings}>
+            <span class="cockpit-remote__dot" data-on="true" />
+            {props.remotePeers.length === 1 ? props.remotePeers[0] : `${props.remotePeers.length} phones`}
+          </button>
+        ) : null}
         <button type="button" class="cockpit-iconbtn" title="Settings (⌘,)" aria-label="Settings" onClick={props.onSettings}>
           <GearIcon />
         </button>

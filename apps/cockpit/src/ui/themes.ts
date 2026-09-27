@@ -59,6 +59,8 @@ export const LIGHT_COLORS: ColorTokens = {
   '--cw-agent-qwen': '#4450cc',
   '--cw-scrollbar': '#c4c4c8',
   '--cw-scrollbar-hover': '#a0a1a7',
+  '--cw-qr-dark': '#000000',
+  '--cw-qr-light': '#ffffff',
 }
 
 /** `color`, moved away from `away` until `ok` holds (a pair whose background depends on it). */

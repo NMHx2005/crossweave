@@ -2218,3 +2218,112 @@ body,
 .cockpit-row__title.is-note {
   color: var(--cw-text-bright);
 }
+
+/* Settings → Remote, and the pairing dialog. */
+.cockpit-remote__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cw-space-2);
+  padding-left: var(--cw-space-4);
+}
+
+.cockpit-remote__port input {
+  width: calc(var(--cw-row-h) * 4);
+}
+
+.cockpit-remote__status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--cw-space-1);
+  font-size: var(--cw-fs-sm);
+  color: var(--cw-text);
+}
+
+.cockpit-remote__status p {
+  margin: 0;
+}
+
+.cockpit-remote__problem {
+  color: var(--cw-needs-you);
+}
+
+.cockpit-remote__fingerprint code {
+  word-break: break-all;
+}
+
+.cockpit-remote__dot {
+  display: inline-block;
+  width: var(--cw-space-2);
+  height: var(--cw-space-2);
+  border-radius: 50%;
+  background: var(--cw-text-dim);
+}
+
+.cockpit-remote__dot[data-on="true"] {
+  background: var(--cw-ready);
+}
+
+.cockpit-remote__devices {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--cw-space-1);
+  font-size: var(--cw-fs-sm);
+}
+
+.cockpit-remote__devices li {
+  display: flex;
+  align-items: center;
+  gap: var(--cw-space-2);
+}
+
+.cockpit-remote__name {
+  color: var(--cw-text-bright);
+  flex: 1;
+}
+
+.cockpit-pair {
+  align-items: center;
+  text-align: center;
+}
+
+.cockpit-pair__qr {
+  width: var(--cw-qr-size);
+  height: var(--cw-qr-size);
+  border-radius: var(--cw-radius);
+}
+
+.cockpit-pair__qr-bg {
+  fill: var(--cw-qr-light);
+}
+
+.cockpit-pair__qr-fg {
+  fill: var(--cw-qr-dark);
+}
+
+.cockpit-pair__code {
+  margin: 0;
+  font-family: var(--cw-font-mono);
+  font-size: var(--cw-fs-project);
+  letter-spacing: var(--cw-tracking-label);
+  color: var(--cw-text-bright);
+}
+
+.cockpit-pair__done {
+  color: var(--cw-ready);
+}
+
+.cockpit-remote-chip {
+  display: flex;
+  align-items: center;
+  gap: var(--cw-space-2);
+  font-size: var(--cw-fs-micro);
+  color: var(--cw-text-dim);
+  background: none;
+  border: 0;
+  padding: var(--cw-space-1) var(--cw-space-3);
+  cursor: pointer;
+}

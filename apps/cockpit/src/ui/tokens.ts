@@ -106,10 +106,16 @@ export const COCKPIT_TOKENS = {
   '--cw-scrollbar': '#4e5666',
   '--cw-scrollbar-hover': '#5a6375',
 
+  // The pairing QR code: black on white in every theme — a phone camera reads a
+  // light-on-dark code poorly, so these two never follow the theme.
+  '--cw-qr-dark': '#000000',
+  '--cw-qr-light': '#ffffff',
+
   // Density and geometry: the numbers that make an editor chrome read as compact.
   '--cw-font-ui': "'SF Pro Text', system-ui, -apple-system, sans-serif",
   '--cw-font-mono': "Menlo, Monaco, 'Courier New', monospace",
   '--cw-fs-micro': '11px',
+  '--cw-qr-size': '184px',
   '--cw-fs-sm': '12px',
   '--cw-fs': '13px',
   // The rail's rows and project names: Deck-sized, read at a glance, not scanned.

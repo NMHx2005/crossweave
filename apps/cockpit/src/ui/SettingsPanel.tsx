@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'preact/hooks'
 import { formatEnvLines, launcherIdFor, parseEnvLines } from '../lib/launchers'
 import { AgentMark } from './icons'
-import type { InterfaceAppearance, ModelPrice, TerminalAppearance, UsageSettings } from '../../../../src/core/settings.js'
+import type { InterfaceAppearance, ModelPrice, RemoteSettings, TerminalAppearance, UsageSettings } from '../../../../src/core/settings.js'
+import type { RemoteState } from '../../electron/remote-host'
+import { RemoteSection } from './RemotePanel'
 import { FontPicker, type InstalledFont } from './FontPicker'
 import { ShortcutList } from './ShortcutsPanel'
 import { effectiveKeys, keyConflicts } from '../lib/keymap'
@@ -25,6 +27,7 @@ export type UserSettings = {
   appearance?: InterfaceAppearance
   usage?: UsageSettings
   keybindings?: Record<string, string | null>
+  remote?: RemoteSettings
 }
 
 const EDITORS: Array<{ kind: EditorSetting['kind']; label: string }> = [
@@ -65,7 +68,7 @@ const TERMINAL_APPS: Array<{ id: 'ghostty' | 'iterm2'; label: string }> = [
   { id: 'iterm2', label: 'iTerm2' },
 ]
 
-export function SettingsPanel({ initial, availability, defaults, notify, onNotify, importSources, onImport, loadFonts, onPreviewAppearance, seenModels, hasTerminalColors, onSave, onClose }: {
+export function SettingsPanel({ initial, availability, defaults, notify, onNotify, importSources, onImport, loadFonts, onPreviewAppearance, seenModels, hasTerminalColors, remote, onPairPhone, onRevokeDevice, onSave, onClose }: {
   initial: UserSettings
   /** Launcher id → whether this machine has its program (from launchers.list). */
   availability: Record<string, boolean>
@@ -88,6 +91,10 @@ export function SettingsPanel({ initial, availability, defaults, notify, onNotif
   seenModels: string[]
   /** Colors were imported under Terminal (the "From terminal" theme needs them). */
   hasTerminalColors: boolean
+  /** Remote access as it runs now (the switches below are the draft, applied on Save). */
+  remote: RemoteState | null
+  onPairPhone: () => void
+  onRevokeDevice: (id: string) => void
   onSave: (next: UserSettings) => Promise<string | null>
   onClose: () => void
 }) {
@@ -451,6 +458,9 @@ export function SettingsPanel({ initial, availability, defaults, notify, onNotif
             />
           </label>
         ) : null}
+
+        <RemoteSection draft={draft.remote} state={remote} onPair={onPairPhone} onRevoke={onRevokeDevice}
+          onChange={(next) => setDraft((d) => ({ ...d, remote: next }))} />
 
         <h3 class="cockpit-settings__heading">Notifications</h3>
         <p class="cockpit-muted">When a session waits for you, or its agent finishes, while you look elsewhere (another app, project or tab). These apply right away.</p>
