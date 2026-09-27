@@ -3,8 +3,8 @@
  * Smoke-check a macOS arm64 Cockpit package: bundled cwd exists and session.list works.
  * Run after `bun run dist:mac` from apps/cockpit.
  */
-import { existsSync } from 'node:fs'
-import { chmodSync } from 'node:fs'
+import { chmodSync, existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawn, spawnSync } from 'node:child_process'
 import { connectOrStart } from '../../../src/client/rpc-client.js'
@@ -30,6 +30,9 @@ if (!existsSync(cwBin)) fail(`Missing cw binary for fixture init: ${cwBin}`)
 
 chmodSync(cwdBin, 0o755)
 
+// Its own profile: run against the real one, the smoke test saved its throwaway
+// fixture as the user's last project and added it to their open projects.
+const userData = mkdtempSync(join(tmpdir(), 'cw-smoke-profile-'))
 const fx = await makeGitFixture()
 try {
   const initWs = spawnSync(cwBin, ['init'], { cwd: fx.root, encoding: 'utf8' })
@@ -41,7 +44,7 @@ try {
   client.close()
   if (!Array.isArray(sessions)) fail(`session.list returned unexpected payload: ${JSON.stringify(sessions)}`)
 
-  const app = spawn(execBin, [], {
+  const app = spawn(execBin, [`--user-data-dir=${userData}`], {
     cwd: fx.root,
     env: { ...process.env, COCKPIT_PROJECT_ROOT: fx.root },
     stdio: 'ignore',
@@ -58,4 +61,5 @@ try {
 } finally {
   spawnSync(cwBin, ['daemon', 'stop'], { cwd: fx.root, stdio: 'ignore' })
   await fx.cleanup()
+  rmSync(userData, { recursive: true, force: true })
 }
