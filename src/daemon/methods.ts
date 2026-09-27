@@ -39,6 +39,7 @@ import { latestWords } from '../domain/agent-logs.js';
 import { listWorktreeFiles, readWorktreeFile, writeWorktreeFile } from '../domain/worktree-files.js';
 import { loadSettings, saveSettings, type UserSettings } from '../core/settings.js';
 import { TerminalRegistry } from './terminals.js';
+import { ActivityTracker, detectAgents } from './session-status.js';
 
 function str(params: Record<string, unknown>, key: string): string {
   const v = params[key];
@@ -134,6 +135,8 @@ export function buildMethods(
     notifySend?: (title: string, message: string, clickCommand: string[] | undefined) => void;
     /** The Terminal pane's shell; defaults to $SHELL. Injected so tests run /bin/sh. */
     shell?: string;
+    /** The status tracker's clock, injected so tests never wait on real time. */
+    now?: () => number;
   } = {},
 ): Record<string, MethodHandler> {
   const workspaces = new WorkspaceManager(db);
@@ -220,14 +223,54 @@ export function buildMethods(
     }
     return root;
   });
+  // What each session is doing (working / asked / idle / failed) and which agent runs
+  // in it, inferred from its shell — see src/daemon/session-status.ts.
+  const activity = new ActivityTracker(opts.now);
+  const agents = new Map<string, string | null>();
   const runtime = new SessionRuntime((sessionId) => {
     sessions.clearRunning(sessionId);
     leaseManager.release(sessionId);
     // A shell that exits on its own (`exit`, a crash) is a status change no RPC
     // announced; every client kept showing it `running` until something else redrew.
     broadcastRegistry.broadcast('tui.invalidate', {});
-  }, sealChunk);
+  }, sealChunk, activity);
   sessions.onKill = (id) => runtime.stop(id);
+
+  /**
+   * One sweep: which agent runs under each shell (a single `ps` for all of them), then
+   * whose activity changed. Clients redraw on a change only — a session that keeps
+   * working keeps its state and costs no broadcast.
+   */
+  const STATUS_SWEEP_MS = 1500;
+  let sweeping = false;
+  async function sweepStatus(): Promise<void> {
+    if (sweeping) return;
+    sweeping = true;
+    try {
+      const pids = runtime.pids();
+      let agentsChanged = false;
+      if (pids.size > 0) {
+        const ps = await new Promise<string>((resolve) => {
+          execFile('ps', ['-A', '-o', 'pid=,ppid=,args='], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 },
+            (err, stdout) => resolve(err ? '' : String(stdout)));
+        });
+        for (const [id, agent] of detectAgents(ps, pids)) {
+          if (agents.get(id) !== agent) {
+            agents.set(id, agent);
+            agentsChanged = true;
+          }
+        }
+      }
+      for (const id of [...agents.keys()]) if (!pids.has(id)) agents.delete(id);
+      const changed = activity.sweep((id) => agents.get(id) ?? null);
+      if (agentsChanged || changed.length > 0) broadcastRegistry.broadcast('tui.invalidate', {});
+    } finally {
+      sweeping = false;
+    }
+  }
+  const statusTimer = opts.startBackgroundJobs === true
+    ? setInterval(() => { void sweepStatus(); }, STATUS_SWEEP_MS)
+    : undefined;
 
   // Extra shells in a session's worktree (split panes), beside the session's own.
   const terminals = new TerminalRegistry((row) => spawnShell({
@@ -409,7 +452,15 @@ export function buildMethods(
         const words = session.worktreePath !== null && session.worktreePath !== projectRoot
           ? latestWords({ home: userHome(), cwd: session.worktreePath })
           : undefined;
-        const withWords = { ...session, ...(words === undefined ? {} : { latestWords: words }) };
+        const agent = agents.get(session.id) ?? null;
+        const status = activity.status(session.id, agent);
+        const withWords = {
+          ...session,
+          ...(words === undefined ? {} : { latestWords: words }),
+          agent,
+          activity: status.activity,
+          lastActivityAt: status.lastActivityAt,
+        };
         const active = leasesRepo
           .listBySession(session.id)
           .filter((lease) => lease.releasedAt === null);
@@ -781,6 +832,7 @@ export function buildMethods(
 
     'daemon.shutdown': async () => {
       convergenceScheduler.stop();
+      if (statusTimer !== undefined) clearInterval(statusTimer);
       await terminals.closeAll();
       await runtime.stopAll();
       setTimeout(() => process.exit(0), 10);

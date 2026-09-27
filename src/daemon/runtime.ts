@@ -32,6 +32,16 @@ interface RunningSession {
   scrollback: string;
   subscribers: Set<MethodContext>;
   session: SessionRow;
+  /** stop() was asked for, so the exit that follows is no failure. */
+  stopping: boolean;
+}
+
+/** What the runtime tells the status tracker; see src/daemon/session-status.ts. */
+export interface RuntimeObserver {
+  started(sessionId: string): void;
+  output(sessionId: string, chunk: string): void;
+  input(sessionId: string): void;
+  exited(sessionId: string, code: number, requested: boolean): void;
 }
 
 export class SessionRuntime {
@@ -41,7 +51,13 @@ export class SessionRuntime {
     private readonly onExit: (sessionId: string, code: number) => void,
     /** Seals a chunk for the wire; `undefined` means drop it (see ChunkSealer). */
     private readonly sealChunk?: ChunkSealer,
+    private readonly observer?: RuntimeObserver,
   ) {}
+
+  /** The shell pid of every running session, for the process-tree agent sweep. */
+  pids(): Map<string, number> {
+    return new Map([...this.running].map(([id, e]) => [id, e.proc.pid]));
+  }
 
   /** The session.data payload for one chunk, or undefined when it must not be sent. */
   private dataPayload(session: SessionRow, chunk: string): Record<string, unknown> | undefined {
@@ -71,11 +87,13 @@ export class SessionRuntime {
       rows: 24,
     });
 
-    const entry: RunningSession = { proc, scrollback: '', subscribers: new Set(), session };
+    const entry: RunningSession = { proc, scrollback: '', subscribers: new Set(), session, stopping: false };
 
     this.running.set(session.id, entry);
+    this.observer?.started(session.id);
 
     proc.onData((chunk) => {
+      this.observer?.output(session.id, chunk);
       entry.scrollback = (entry.scrollback + chunk).slice(-SCROLLBACK_LIMIT);
       const payload = this.dataPayload(session, chunk);
       if (payload !== undefined) notifyAll(entry.subscribers, 'session.data', payload);
@@ -88,6 +106,7 @@ export class SessionRuntime {
       // be started again. Task 7 isolated the ADAPTER's fan-out; this loop is a
       // second one and needed the same treatment.
       this.running.delete(session.id);
+      this.observer?.exited(session.id, code, entry.stopping);
       this.onExit(session.id, code);
       notifyAll(entry.subscribers, 'session.exit', { sessionId: session.id, code });
     });
@@ -109,6 +128,7 @@ export class SessionRuntime {
 
   write(sessionId: string, name: string, data: string): void {
     this.require(sessionId, name).proc.write(data);
+    this.observer?.input(sessionId);
   }
 
   resize(sessionId: string, name: string, cols: number, rows: number): void {
@@ -147,6 +167,7 @@ export class SessionRuntime {
       entry.proc.onExit(() => resolve());
     });
 
+    entry.stopping = true;
     entry.proc.kill('SIGHUP');
     const escalate = setTimeout(() => entry.proc.kill('SIGKILL'), graceMs);
     try {

@@ -100,3 +100,44 @@ describe('session.diff', () => {
     } finally { db.close(); }
   });
 });
+
+describe('session status on session.list', () => {
+  // Inferred from the shell, since crossweave no longer launches agents: typing makes
+  // output, output is work, and quiet is idle for a plain shell.
+  test('a shell that is producing output is working; quiet again, it is idle', async () => {
+    let now = 1_000_000;
+    let emit: (chunk: string) => void = () => undefined;
+    const factory = (kind: string) => ({
+      kind, enforcementTier: 'T3' as const,
+      spawn() {
+        const data: Array<(c: string) => void> = [];
+        const exits: Array<(c: number) => void> = [];
+        emit = (c) => { for (const cb of data) cb(c); };
+        return {
+          pid: 4242, onData: (cb: (c: string) => void) => { data.push(cb); }, onExit: (cb: (c: number) => void) => { exits.push(cb); },
+          write: () => { emit('output\r\n'); }, resize: () => undefined, kill: () => { for (const cb of exits) cb(129); },
+        };
+      },
+    });
+    const db = openDatabase(join(fx.root, '.crossweave', 'state.db'));
+    try {
+      const ws = new WorkspaceManager(db).init(fx.root);
+      const methods = buildMethods(db, fx.root, factory, DEFAULT_CONFIG, { now: () => now });
+      const ctx = { notify: () => undefined, onClose: () => undefined };
+      const call = async (m: string, p: Record<string, unknown> = {}): Promise<unknown> => methods[m]!({ workspaceId: ws.id, ...p }, ctx);
+      const status = async () => (await call('session.list') as Array<{ name: string; activity: string; agent: string | null; lastActivityAt: number | null }>)
+        .find((s) => s.name === 'api')!;
+
+      await call('session.new', { name: 'api' });
+      await call('session.start', { idOrName: 'api' });
+      expect(await status()).toMatchObject({ activity: 'idle', agent: null, lastActivityAt: null });
+      await call('session.input', { idOrName: 'api', data: 'ls\r' });
+      expect(await status()).toMatchObject({ activity: 'working', lastActivityAt: now });
+      now += 5000;
+      expect((await status()).activity).toBe('idle');
+      // Stopping it is not a failure, even though a hung-up shell exits 129.
+      await call('session.stop', { idOrName: 'api' });
+      expect((await status()).activity).toBe('idle');
+    } finally { db.close(); }
+  });
+});
