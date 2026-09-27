@@ -77,17 +77,32 @@ export interface TerminalAppearance {
   importedFrom?: 'ghostty' | 'iterm2';
 }
 
+/** The cockpit window's own fonts and text size (the terminal panes have `terminal`). */
+export interface InterfaceAppearance {
+  /** Sidebar, menus, dialogs. Absent: the system font. */
+  uiFont?: string;
+  /** Commands, paths, branches, the file editor. Absent: the cockpit's monospace. */
+  codeFont?: string;
+  textSize?: 'small' | 'default' | 'large';
+}
+
 export interface UserSettings {
   launchers: LauncherDef[];
   editor: EditorSetting;
   /** Named cockpit layouts, opaque to the daemon. */
   layouts: Record<string, unknown>;
   terminal?: TerminalAppearance;
+  appearance?: InterfaceAppearance;
 }
 
 /** A font family as it reaches xterm's CSS font string: nothing that could end the quotes. */
 const FONT_FAMILY = /^[A-Za-z0-9][A-Za-z0-9 ._+-]{0,79}$/;
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
+
+/** Whether `name` can be stored as a font family (see FONT_FAMILY). */
+export function isFontFamilyName(name: string): boolean {
+  return FONT_FAMILY.test(name);
+}
 const CURSOR_STYLES: ReadonlySet<string> = new Set(['block', 'bar', 'underline']);
 const TERMINAL_SOURCES: ReadonlySet<string> = new Set(['ghostty', 'iterm2']);
 
@@ -139,6 +154,28 @@ export function cleanTerminal(raw: unknown): { terminal: TerminalAppearance | un
     }
   }
   return { terminal: Object.keys(out).length === 0 ? undefined : out, problems };
+}
+
+const TEXT_SIZES: ReadonlySet<string> = new Set(['small', 'default', 'large']);
+
+/** Like cleanTerminal: the valid part, and what was not. */
+export function cleanAppearance(raw: unknown): { appearance: InterfaceAppearance | undefined; problems: string[] } {
+  const problems: string[] = [];
+  if (raw === undefined || raw === null) return { appearance: undefined, problems };
+  if (typeof raw !== 'object' || Array.isArray(raw)) return { appearance: undefined, problems: ['appearance must be an object'] };
+  const r = raw as Record<string, unknown>;
+  const out: InterfaceAppearance = {};
+  for (const key of ['uiFont', 'codeFont'] as const) {
+    if (r[key] === undefined) continue;
+    // Set as a CSS custom property on the whole window: nothing that ends a value.
+    if (typeof r[key] === 'string' && FONT_FAMILY.test(r[key] as string)) out[key] = r[key] as string;
+    else problems.push(`appearance ${key === 'uiFont' ? 'interface' : 'code'} font: letters, digits, spaces and ._+- only, up to 80 characters`);
+  }
+  if (r.textSize !== undefined) {
+    if (typeof r.textSize === 'string' && TEXT_SIZES.has(r.textSize)) out.textSize = r.textSize as InterfaceAppearance['textSize'];
+    else problems.push('appearance text size: small, default or large');
+  }
+  return { appearance: Object.keys(out).length === 0 ? undefined : out, problems };
 }
 
 const EDITORS: ReadonlySet<string> = new Set(['vscode', 'cursor', 'zed', 'custom', 'cockpit']);
@@ -200,7 +237,7 @@ function validate(settings: UserSettings): void {
     if (typeof settings.editor.command !== 'string') throw new CrossweaveError('INVALID_SETTINGS', 'A custom editor needs a command');
     splitCommand(settings.editor.command);
   }
-  const { problems } = cleanTerminal(settings.terminal);
+  const problems = [...cleanTerminal(settings.terminal).problems, ...cleanAppearance(settings.appearance).problems];
   if (problems.length > 0) invalid(problems[0] as string);
 }
 
@@ -221,7 +258,12 @@ export function loadSettings(homeDir?: string): UserSettings {
   const editor = saved.editor && EDITORS.has(saved.editor.kind) ? saved.editor : { kind: 'vscode' as const };
   const layouts = saved.layouts && typeof saved.layouts === 'object' ? saved.layouts : {};
   const { terminal } = cleanTerminal(saved.terminal);
-  return { launchers: mergeLaunchers(saved.launchers), editor, layouts, ...(terminal === undefined ? {} : { terminal }) };
+  const { appearance } = cleanAppearance(saved.appearance);
+  return {
+    launchers: mergeLaunchers(saved.launchers), editor, layouts,
+    ...(terminal === undefined ? {} : { terminal }),
+    ...(appearance === undefined ? {} : { appearance }),
+  };
 }
 
 function stringEnv(value: unknown): Record<string, string> {
@@ -277,6 +319,7 @@ export function saveSettings(settings: UserSettings, homeDir?: string): void {
     editor: settings.editor,
     layouts: settings.layouts ?? {},
     ...(settings.terminal === undefined ? {} : { terminal: cleanTerminal(settings.terminal).terminal }),
+    ...(settings.appearance === undefined ? {} : { appearance: cleanAppearance(settings.appearance).appearance }),
   };
   writeFileSync(tmp, `${JSON.stringify(normalized, null, 2)}\n`, { mode: 0o600 });
   chmodSync(tmp, 0o600);

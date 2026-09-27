@@ -1,7 +1,8 @@
-import { useState } from 'preact/hooks'
+import { useEffect, useState } from 'preact/hooks'
 import { formatEnvLines, launcherIdFor, parseEnvLines } from '../lib/launchers'
 import { AgentMark } from './icons'
-import type { TerminalAppearance } from '../../../../src/core/settings.js'
+import type { InterfaceAppearance, TerminalAppearance } from '../../../../src/core/settings.js'
+import { FontPicker, type InstalledFont } from './FontPicker'
 import type { TerminalImport } from '../host/cockpit-api'
 import { xtermLook } from '../lib/terminal-look'
 
@@ -14,7 +15,13 @@ export type LauncherSetting = {
   enabled: boolean
   builtin: boolean
 }
-export type UserSettings = { launchers: LauncherSetting[]; editor: EditorSetting; layouts: Record<string, unknown>; terminal?: TerminalAppearance }
+export type UserSettings = {
+  launchers: LauncherSetting[]
+  editor: EditorSetting
+  layouts: Record<string, unknown>
+  terminal?: TerminalAppearance
+  appearance?: InterfaceAppearance
+}
 
 const EDITORS: Array<{ kind: EditorSetting['kind']; label: string }> = [
   { kind: 'vscode', label: 'VS Code' },
@@ -32,12 +39,22 @@ const EDITORS: Array<{ kind: EditorSetting['kind']; label: string }> = [
  */
 export type NotifyPrefs = { sound: boolean; dockBadge: boolean }
 
+/** Offered first in the pickers when installed; everything else installed follows. */
+const UI_FONTS = ['Inter', 'SF Pro Text', 'SF Pro Display', 'Geist', 'IBM Plex Sans', 'Avenir Next', 'Helvetica Neue', 'JetBrains Mono']
+const CODE_FONTS = ['JetBrains Mono', 'JetBrainsMono Nerd Font Mono', 'Fira Code', 'Cascadia Code', 'Cascadia Code NF', 'Geist Mono', 'SF Mono', 'IBM Plex Mono', 'Iosevka', 'Menlo']
+
+const TEXT_SIZES: Array<{ id: NonNullable<InterfaceAppearance['textSize']>; label: string }> = [
+  { id: 'small', label: 'Small' },
+  { id: 'default', label: 'Default' },
+  { id: 'large', label: 'Large' },
+]
+
 const TERMINAL_APPS: Array<{ id: 'ghostty' | 'iterm2'; label: string }> = [
   { id: 'ghostty', label: 'Ghostty' },
   { id: 'iterm2', label: 'iTerm2' },
 ]
 
-export function SettingsPanel({ initial, availability, defaults, notify, onNotify, importSources, onImport, onSave, onClose }: {
+export function SettingsPanel({ initial, availability, defaults, notify, onNotify, importSources, onImport, loadFonts, onPreviewAppearance, onSave, onClose }: {
   initial: UserSettings
   /** Launcher id → whether this machine has its program (from launchers.list). */
   availability: Record<string, boolean>
@@ -49,6 +66,10 @@ export function SettingsPanel({ initial, availability, defaults, notify, onNotif
   /** Which terminals have settings on this machine (Settings → Terminal's import buttons). */
   importSources: { ghostty: boolean; iterm2: boolean }
   onImport: (from: 'ghostty' | 'iterm2') => Promise<TerminalImport>
+  /** The fonts installed on this Mac, for the pickers (read on open; ~0.7 s the first time). */
+  loadFonts: () => Promise<InstalledFont[]>
+  /** Shows the window in `appearance` now, before Save (the host reverts on Cancel). */
+  onPreviewAppearance: (appearance: InterfaceAppearance | undefined) => void
   onSave: (next: UserSettings) => Promise<string | null>
   onClose: () => void
 }) {
@@ -61,6 +82,21 @@ export function SettingsPanel({ initial, availability, defaults, notify, onNotif
   /** What the last import said (a font not installed, a theme not found), or why it failed. */
   const [importNote, setImportNote] = useState<{ text: string; error: boolean } | null>(null)
   const [importing, setImporting] = useState<string | null>(null)
+  const [fonts, setFonts] = useState<InstalledFont[]>([])
+
+  useEffect(() => {
+    let live = true
+    void loadFonts().then((list) => { if (live) setFonts(list) }).catch(() => undefined)
+    return () => { live = false }
+  }, [loadFonts])
+
+  const setAppearance = (patch: Partial<InterfaceAppearance>): void => {
+    const next: InterfaceAppearance = { ...draft.appearance, ...patch }
+    for (const key of Object.keys(next) as Array<keyof InterfaceAppearance>) if (next[key] === undefined) delete next[key]
+    const appearance = Object.keys(next).length === 0 ? undefined : next
+    setDraft({ ...draft, appearance })
+    onPreviewAppearance(appearance)
+  }
 
   const setTerminal = (patch: Partial<TerminalAppearance>): void => {
     const next: TerminalAppearance = { ...draft.terminal, ...patch }
@@ -128,6 +164,31 @@ export function SettingsPanel({ initial, availability, defaults, notify, onNotif
         onKeyDown={(e) => { if (e.key === 'Escape') onClose() }}
       >
         <h2 class="cockpit-picker__title">Settings</h2>
+
+        <h3 class="cockpit-settings__heading">Appearance</h3>
+        <p class="cockpit-muted">The window's fonts and text size — shown as you choose, kept when you Save.</p>
+        <div class="cockpit-settings__fonts">
+          <div class="cockpit-picker__field">
+            <span class="cockpit-muted">Interface font</span>
+            <FontPicker label="Interface font" value={draft.appearance?.uiFont} fonts={fonts} suggestions={UI_FONTS}
+              defaultLabel="System (SF Pro)" onChange={(uiFont) => setAppearance({ uiFont })} />
+          </div>
+          <div class="cockpit-picker__field">
+            <span class="cockpit-muted" title="Commands, paths, branches and the file editor">Code font</span>
+            <FontPicker label="Code font" value={draft.appearance?.codeFont} fonts={fonts} suggestions={CODE_FONTS} mono
+              defaultLabel="Menlo" onChange={(codeFont) => setAppearance({ codeFont })} />
+          </div>
+        </div>
+        <div class="cockpit-settings__segmented" role="radiogroup" aria-label="Text size">
+          <span class="cockpit-muted">Text size</span>
+          {TEXT_SIZES.map((size) => (
+            <button key={size.id} type="button" role="radio" aria-checked={(draft.appearance?.textSize ?? 'default') === size.id}
+              class={`cockpit-btn cockpit-btn--sm${(draft.appearance?.textSize ?? 'default') === size.id ? ' cockpit-btn--primary' : ''}`}
+              onClick={() => setAppearance({ textSize: size.id === 'default' ? undefined : size.id })}>
+              {size.label}
+            </button>
+          ))}
+        </div>
 
         <h3 class="cockpit-settings__heading">Launchers</h3>
         <p class="cockpit-muted">
@@ -233,11 +294,11 @@ export function SettingsPanel({ initial, availability, defaults, notify, onNotif
           </div>
         </div>
         <div class="cockpit-term__fields">
-          <label class="cockpit-picker__field">
+          <div class="cockpit-picker__field">
             <span class="cockpit-muted">Font</span>
-            <input class="cockpit-field--mono" value={draft.terminal?.fontFamily ?? ''} placeholder="the cockpit's (Menlo)" spellcheck={false}
-              onInput={(e) => setTerminal({ fontFamily: (e.target as HTMLInputElement).value.trim() || undefined })} />
-          </label>
+            <FontPicker label="Terminal font" value={draft.terminal?.fontFamily} fonts={fonts} suggestions={CODE_FONTS} mono
+              defaultLabel="Menlo" onChange={(fontFamily) => setTerminal({ fontFamily })} />
+          </div>
           <label class="cockpit-picker__field">
             <span class="cockpit-muted">Size</span>
             <input type="number" min={8} max={32} value={draft.terminal?.fontSize ?? ''} placeholder="13"

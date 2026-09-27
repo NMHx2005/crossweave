@@ -186,6 +186,10 @@ function makeApi(invoke: Invoke, listen: Listen) {
     openFolderInEditor(projectRoot: string, sessionId?: string): Promise<{ ok: boolean }> {
       return invoke('folder.openInEditor', { projectRoot, ...(sessionId === undefined ? {} : { sessionId }) })
     },
+    /** The font families installed on this Mac, for the font pickers. */
+    listFonts(): Promise<Array<{ family: string; mono: boolean }>> {
+      return invoke('fonts.list')
+    },
     /** Settings → Terminal: which terminals have settings on this machine. */
     terminalImportSources(): Promise<{ ghostty: boolean; iterm2: boolean }> {
       return invoke('terminal.importSources')
@@ -224,7 +228,7 @@ export const cockpitApi: CockpitApi = makeApi(cockpitInvoke, cockpitListen)
 const WINDOW_CHANNELS = new Set<CockpitChannel>([
   'workspace.ensure', 'projects.list', 'projects.pick', 'projects.reorder', 'projects.sessions',
   'projects.close', 'app.badge', 'folder.reveal', 'folder.openInEditor',
-  'terminal.importSources', 'terminal.import',
+  'terminal.importSources', 'terminal.import', 'fonts.list',
 ])
 
 /** `payload` with `projectRoot` added, unless the call already names one or is window-wide. */

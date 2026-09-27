@@ -14,7 +14,8 @@ import { mountedViews, touchRecent } from '../lib/mounted-views'
 import { ProjectView, type ViewAction, type ViewHandle, type ViewHost, type ViewReport } from './ProjectView'
 import { baseName, readFlag, readString, writeFlag, writeString } from './storage'
 import { TerminalLookContext } from './terminal-look-context'
-import type { TerminalAppearance } from '../../../../src/core/settings.js'
+import type { InterfaceAppearance, TerminalAppearance } from '../../../../src/core/settings.js'
+import { applyAppearance } from '../lib/appearance'
 
 const SIDEBAR_HIDDEN_KEY = 'cw.sidebar-hidden.v1'
 /** Notification choices ('0' off; on unless turned off). */
@@ -67,13 +68,24 @@ export function App() {
   }))
   /** Settings → Terminal, applied to every pane; undefined is the cockpit's own look. */
   const [terminalLook, setTerminalLook] = useState<TerminalAppearance | undefined>(undefined)
+  /** Settings → Appearance as saved; a preview while Settings is open may differ until Save or Cancel. */
+  const [appearance, setAppearance] = useState<InterfaceAppearance | undefined>(undefined)
+  useEffect(() => applyAppearance(appearance), [appearance])
+  // What Cancel returns to — updated by Save before the dialog closes in the same tick.
+  const savedAppearance = useRef(appearance)
+  savedAppearance.current = appearance
+  const loadFonts = useCallback(() => cockpitApi.listFonts(), [])
   const lookLoaded = useRef(false)
   /** Read once, through the first project a daemon answers for (Settings are per user). */
   const loadLook = useCallback((root: string): void => {
     if (lookLoaded.current) return
     lookLoaded.current = true
     void projectApi(root).getSettings()
-      .then((s) => setTerminalLook((s as { terminal?: TerminalAppearance } | null)?.terminal))
+      .then((s) => {
+        const saved = s as { terminal?: TerminalAppearance; appearance?: InterfaceAppearance } | null
+        setTerminalLook(saved?.terminal)
+        setAppearance(saved?.appearance)
+      })
       .catch(() => { lookLoaded.current = false })
   }, [])
   const handles = useRef(new Map<string, ViewHandle>())
@@ -406,8 +418,12 @@ export function App() {
     const root = activeRef.current ?? openRoots[0]
     if (root === undefined) return 'Open a project first'
     try {
-      const saved = await projectApi(root).setSettings(next) as { terminal?: TerminalAppearance }
+      const saved = await projectApi(root).setSettings(next) as { terminal?: TerminalAppearance; appearance?: InterfaceAppearance }
       setTerminalLook(saved?.terminal)
+      setAppearance(saved?.appearance)
+      savedAppearance.current = saved?.appearance
+      // Unchanged state does not re-run the effect; the preview may still be showing.
+      applyAppearance(saved?.appearance)
       return null
     } catch (err) {
       // Only the daemon's sentence: not the IPC wrapper or the error class in front of it.
@@ -528,6 +544,8 @@ export function App() {
           defaults={settingsOpen.defaults}
           importSources={settingsOpen.importSources}
           onImport={(from) => cockpitApi.importTerminal(from)}
+          loadFonts={loadFonts}
+          onPreviewAppearance={applyAppearance}
           notify={notify}
           onNotify={(next) => {
             setNotify(next)
@@ -535,7 +553,11 @@ export function App() {
             writeString(DOCK_BADGE_KEY, next.dockBadge ? '1' : '0')
           }}
           onSave={saveSettings}
-          onClose={() => setSettingsOpen(null)}
+          onClose={() => {
+            // Cancel (or Save, already applied): back to what is saved.
+            applyAppearance(savedAppearance.current)
+            setSettingsOpen(null)
+          }}
         />
       ) : null}
       {projectSettings !== null ? (

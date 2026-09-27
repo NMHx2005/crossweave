@@ -55,6 +55,8 @@ export const COCKPIT_CHANNELS = [
   // import of one (the renderer saves it through settings.set).
   'terminal.importSources',
   'terminal.import',
+  // Settings → Appearance / Terminal: the font families installed on this Mac.
+  'fonts.list',
 ] as const
 
 export type CockpitChannel = (typeof COCKPIT_CHANNELS)[number]

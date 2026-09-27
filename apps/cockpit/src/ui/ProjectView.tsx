@@ -462,6 +462,15 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
     )
   }
 
+  /** The toggle beside the tabs: the focused session's Changes pane, open or closed. */
+  function toggleChanges(): void {
+    const target = sessionById(undefined)
+    if (!target) return
+    const at = locatePane(stage, `changes:${target.id}`)
+    if (at) setStage((s) => closePane(s, at.tabId, at.paneId))
+    else openChanges(target.id)
+  }
+
   /** The Changes pane for a session: beside the focused pane, or focused if open. */
   function openChanges(targetId?: string): void {
     const target = sessionById(targetId)
@@ -837,6 +846,7 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
                   loadDiff={() => api.sessionDiff(session.id)}
                   onLand={() => void handleLand(session.id)}
                   landBusy={landBusy}
+                  shared={session.branch === null || session.worktreePath === projectRoot}
                 />
               )
             }
@@ -868,7 +878,8 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
           sidebarHidden={host.sidebarHidden}
           onToggleSidebar={host.onToggleSidebar}
           onNewTab={() => { void handleNew() }}
-          onToggleChanges={() => openChanges()}
+          onToggleChanges={toggleChanges}
+          changesOpen={focusedId !== null && Boolean(locatePane(stage, `changes:${focusedId}`))}
         />
       </div>
     </ProjectApiContext.Provider>

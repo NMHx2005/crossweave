@@ -1114,6 +1114,12 @@ body,
   color: var(--cw-text-bright);
 }
 
+/* A toggle that is on (the Changes pane beside the tabs). */
+.cockpit-iconbtn.is-on {
+  background: var(--cw-surface-active);
+  color: var(--cw-text-bright);
+}
+
 .cockpit-sidebar {
   min-height: 0;
   display: flex;
@@ -1840,4 +1846,128 @@ body,
   display: grid;
   grid-template-columns: 1fr calc(var(--cw-row-h) * 3) calc(var(--cw-row-h) * 5);
   gap: var(--cw-space-2);
+}
+
+/* Settings → Appearance. */
+.cockpit-settings__fonts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--cw-space-2);
+}
+
+.cockpit-settings__segmented {
+  display: flex;
+  align-items: center;
+  gap: var(--cw-space-1);
+  font-size: var(--cw-fs-sm);
+}
+
+.cockpit-settings__segmented > .cockpit-muted {
+  margin-right: var(--cw-space-2);
+}
+
+/* The font picker: a field-like button, and a searchable list drawn in each font. */
+.cockpit-fontpick {
+  position: relative;
+}
+
+.cockpit-fontpick__button {
+  width: 100%;
+  height: var(--cw-control-h);
+  padding: 0 calc(var(--cw-space-3) * 2) 0 var(--cw-space-2);
+  background-color: var(--cw-surface-input);
+  background-image:
+    linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position:
+    calc(100% - var(--cw-space-3) - var(--cw-chevron)) 50%,
+    calc(100% - var(--cw-space-3)) 50%;
+  background-size: var(--cw-chevron) var(--cw-chevron);
+  background-repeat: no-repeat;
+  border: var(--cw-hairline) solid var(--cw-border-strong);
+  border-radius: var(--cw-radius-sm);
+  color: var(--cw-text-bright);
+  font-size: var(--cw-fs);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--cw-dur-fast) var(--cw-ease);
+}
+
+.cockpit-fontpick__button span {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.cockpit-fontpick__button:hover {
+  border-color: var(--cw-border-hover);
+}
+
+.cockpit-fontpick__button[aria-expanded='true'] {
+  border-color: var(--cw-accent);
+}
+
+.cockpit-fontpick__popover {
+  position: absolute;
+  top: calc(100% + var(--cw-space-1));
+  left: 0;
+  right: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: var(--cw-space-1);
+  padding: var(--cw-space-1);
+  background: var(--cw-surface-overlay);
+  border: var(--cw-hairline) solid var(--cw-border-strong);
+  border-radius: var(--cw-radius-lg);
+  box-shadow: 0 var(--cw-space-1) var(--cw-space-4) var(--cw-shadow);
+  animation: cockpit-enter var(--cw-dur-enter) var(--cw-ease);
+}
+
+.cockpit-fontpick__list {
+  max-height: calc(var(--cw-row-h) * 9);
+  overflow: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cockpit-fontpick__group {
+  padding: var(--cw-space-2) var(--cw-space-2) var(--cw-space-1);
+  color: var(--cw-text-dim);
+  font-family: var(--cw-font-ui);
+  font-size: var(--cw-fs-micro);
+  text-transform: uppercase;
+  letter-spacing: var(--cw-tracking-label);
+}
+
+.cockpit-fontpick__option {
+  width: 100%;
+  height: var(--cw-row-h);
+  padding: 0 var(--cw-space-2);
+  background: none;
+  border: none;
+  border-radius: var(--cw-radius-sm);
+  color: var(--cw-text);
+  font-size: var(--cw-fs);
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.cockpit-fontpick__option.is-active {
+  background: var(--cw-surface-active);
+  color: var(--cw-text-bright);
+}
+
+.cockpit-fontpick__option[aria-selected='true'] {
+  color: var(--cw-accent);
+}
+
+.cockpit-fontpick__empty {
+  padding: var(--cw-space-2);
+  font-size: var(--cw-fs-sm);
 }

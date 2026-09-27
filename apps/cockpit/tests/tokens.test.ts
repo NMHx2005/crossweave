@@ -141,6 +141,9 @@ describe('cockpit design tokens — legibility (WCAG AA)', () => {
       expect(contrast(T[fg], T['--cw-surface-overlay'])).toBeGreaterThanOrEqual(AA_NORMAL)
     }
     expect(contrast(T['--cw-text-bright'], T['--cw-surface-active'])).toBeGreaterThanOrEqual(AA_NORMAL)
+    // The font picker marks the font in use in the accent, on the list and on a hovered row.
+    expect(contrast(T['--cw-accent'], T['--cw-surface-overlay'])).toBeGreaterThanOrEqual(AA_NORMAL)
+    expect(contrast(T['--cw-accent'], T['--cw-surface-active'])).toBeGreaterThanOrEqual(AA_NORMAL)
   })
 
   it('disabled labels stay readable on the control surface', () => {

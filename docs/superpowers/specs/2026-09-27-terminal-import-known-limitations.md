@@ -29,3 +29,27 @@
 - **A one-time import**: later changes in Ghostty or iTerm2 need another Import.
 - **Font availability is checked on this Mac at import time**; a settings file copied to
   another machine may name a font that is not installed there (xterm then falls back).
+
+## Follow-up (2026-09-27): the window's fonts, split characters, the Changes toggle
+
+- **Settings → Appearance**: interface font, code font (commands, paths, branches, the
+  file editor) and text size (small / default / large, a pixel on every step of the
+  type scale), chosen from the fonts installed on this Mac (read through NSFont, each
+  drawn in its own face, searchable, good ones first). Shown live while choosing;
+  Cancel puts the saved look back. The terminal font uses the same picker.
+- **Split characters no longer turn into `�`.** The pty's output was decoded chunk by
+  chunk; a character cut between chunks (Claude Code's `─` rules, Vietnamese letters)
+  became U+FFFD and every such line wrapped a cell off. Decoded as one stream now.
+- **The Changes button toggles**, shows when it is on, and a session in the project
+  folder gets an explanation (no branch, nothing to land) instead of the daemon's error.
+
+### Gaps
+
+- **Font names with characters outside `A-Za-z0-9 ._+-`** (an apostrophe, accents) are
+  not offered — the family is written into CSS and xterm's font string.
+- **The font list is read once per app run**; a font installed meanwhile shows after a
+  restart. SF Pro (the system face) is offered as "System", not by name.
+- **Text size moves the type scale only**; row heights and spacing stay, so "large" is
+  one pixel, not a zoom.
+- **A daemon started before the split-character fix keeps decoding the old way** until
+  it restarts.

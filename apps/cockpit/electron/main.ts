@@ -17,6 +17,7 @@ import { appMenuTemplate } from './app-menu'
 import { editorLaunch, resolveLinkTarget } from './editor-open'
 import { badgeCount, folderLaunch, resolveFolder } from './path-target'
 import { importSources, importTerminal, type ImportDeps } from './terminal-import'
+import { listFonts } from './fonts'
 import { loadSettings } from '../../../src/core/settings.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -211,6 +212,7 @@ function registerHandlers(bridge: DaemonBridge): void {
       if (channel === 'folder.openInEditor') return openFolder(bridge, payload, 'editor')
       if (channel === 'app.badge') return setBadge(payload)
       if (channel === 'terminal.importSources') return importSources(importDeps())
+      if (channel === 'fonts.list') return listFonts(importDeps().run)
       if (channel === 'terminal.import') {
         const from = (payload as { from?: unknown } | null)?.from
         if (from !== 'ghostty' && from !== 'iterm2') return { ok: false, reason: 'Import from ghostty or iterm2' }

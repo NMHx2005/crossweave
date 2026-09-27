@@ -138,3 +138,29 @@ describe('terminal appearance', () => {
     expect(loadSettings(home).terminal).toEqual({ fontSize: 14 });
   });
 });
+
+describe('interface appearance', () => {
+  it('is absent by default: the cockpit fonts and sizes', () => {
+    expect(loadSettings(home).appearance).toBeUndefined();
+  });
+
+  it('round-trips an interface font, a code font and a text size', () => {
+    const appearance = { uiFont: 'Inter', codeFont: 'JetBrains Mono', textSize: 'large' as const };
+    saveSettings({ ...loadSettings(home), appearance }, home);
+    expect(loadSettings(home).appearance).toEqual(appearance);
+  });
+
+  // The family becomes a CSS custom property value on the whole window.
+  it('refuses what is not a font family or a known size', () => {
+    const base = loadSettings(home);
+    for (const bad of [{ uiFont: 'Inter; color: red' }, { codeFont: 'x"' }, { textSize: 'huge' }]) {
+      expect(() => saveSettings({ ...base, appearance: bad as never }, home)).toThrow(/appearance/i);
+    }
+  });
+
+  it('a bad saved value is dropped on load', () => {
+    mkdirSync(join(home, '.crossweave'), { recursive: true });
+    writeFileSync(file(), JSON.stringify({ appearance: { uiFont: 'Inter; x', textSize: 'small' } }));
+    expect(loadSettings(home).appearance).toEqual({ textSize: 'small' });
+  });
+});
