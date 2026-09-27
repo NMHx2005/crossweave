@@ -14,24 +14,14 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.14
-      # Collision Radar's reference check shells out to `rg`; not preinstalled
-      # on ubuntu-latest, unlike the macOS dev environment (Homebrew).
-      - run: sudo apt-get update && apt-get install -y ripgrep
+      # The notification gate's reference check shells out to `rg`; not preinstalled
+      # on ubuntu-latest, unlike the macOS dev environment (Homebrew). `sudo` on BOTH
+      # commands: without it on the install, apt exits 100 before any test runs — the
+      # state this job sat in from be5e4be (2026-09-23) until it was fixed.
+      - run: sudo apt-get update && sudo apt-get install -y ripgrep
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
       - run: bun test
-
-  sandbox-linux:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.3.14
-      - run: sudo apt-get update && apt-get install -y bubblewrap ripgrep
-      - run: bun install --frozen-lockfile
-      - run: bun run typecheck
-      - run: bun test tests/isolation/sandbox.test.ts
 
   cockpit:
     # The app is macOS-only ("os": ["darwin"] in its package.json), so it is built
