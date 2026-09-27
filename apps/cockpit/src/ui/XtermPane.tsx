@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'preact/hooks'
 import { Terminal } from '@xterm/xterm'
 import { describeAttachFailure } from '../lib/attach-message'
 import { FitAddon } from '@xterm/addon-fit'
+import { Unicode11Addon } from '@xterm/addon-unicode11'
 import '@xterm/xterm/css/xterm.css'
 import type { PaneSource } from '../lib/pane-source'
 import { findFileLinks } from '../lib/file-links'
@@ -38,9 +39,17 @@ export function XtermPane({ source, focused }: XtermPaneProps) {
       // text unless this is on. With it, Option+drag selects (as in iTerm2), so a
       // pane's output can be copied with Cmd+C.
       macOptionClickForcesSelection: true,
+      // For `term.unicode` below — xterm still marks it experimental.
+      allowProposedApi: true,
     })
     const fit = new FitAddon()
     term.loadAddon(fit)
+    // xterm's built-in width table is Unicode 6: an emoji is one cell, where Claude
+    // Code (and every current terminal) counts two. Its status line (📂, 🟢, …) then
+    // overran its line by a cell per emoji, wrapped, and the redraw left doubled or cut
+    // lines ("17:1") until the next full repaint. Unicode 11 widths agree with it.
+    term.loadAddon(new Unicode11Addon())
+    term.unicode.activeVersion = '11'
     term.open(container)
     termRef.current = term
 
