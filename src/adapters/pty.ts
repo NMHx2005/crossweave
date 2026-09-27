@@ -71,6 +71,17 @@ class PtyProcess implements AgentProcess {
 }
 
 /**
+ * A decoder for one output stream. The pty hands over bytes cut anywhere, including
+ * inside a character; a fresh decoder per chunk turned both halves into U+FFFD — the
+ * `───` rules Claude Code draws ended in "���", Vietnamese lost letters, and each such
+ * line wrapped a cell off. `stream: true` holds an incomplete tail for the next chunk.
+ */
+export function utf8Stream(): (chunk: string | Uint8Array) => string {
+  const decoder = new TextDecoder('utf-8');
+  return (chunk) => (typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true }));
+}
+
+/**
  * Spawn `argv` in a fresh pty and wrap it as an AgentProcess: a session's shell and
  * every extra Terminal pane.
  */
@@ -79,6 +90,7 @@ export function spawnInPty(
   opts: Pick<SpawnOptions, 'cwd' | 'env' | 'cols' | 'rows'>,
 ): AgentProcess {
   let wrapper: PtyProcess | undefined;
+  const decode = utf8Stream();
   const proc = Bun.spawn(argv, {
     cwd: opts.cwd,
     env: shellEnv(process.env, opts.env),
@@ -86,7 +98,7 @@ export function spawnInPty(
       cols: opts.cols,
       rows: opts.rows,
       data(_terminal: unknown, chunk: string | Uint8Array) {
-        const text = typeof chunk === 'string' ? chunk : new TextDecoder().decode(chunk);
+        const text = decode(chunk);
         wrapper?.emit(text);
       },
     },
