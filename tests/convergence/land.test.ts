@@ -11,6 +11,8 @@ import { EventRepo } from '../../src/db/repositories/event.js';
 import { MergeTrialRepo } from '../../src/db/repositories/merge-trial.js';
 import { ConfigTrustRepo } from '../../src/db/repositories/config-trust.js';
 import { LeaseManager } from '../../src/isolation/leases/manager.js';
+import { LeaseRepo } from '../../src/db/repositories/lease.js';
+import { createWorktree } from '../../src/isolation/worktree.js';
 import { EventLedger } from '../../src/domain/ledger.js';
 import { DEFAULT_CONFIG, type CrossweaveConfig } from '../../src/core/config.js';
 import { gitFailureText, landSession, type LandResult } from '../../src/convergence/land.js';
@@ -584,6 +586,33 @@ describe('landSession', () => {
       // land for the same workspace must succeed normally.
       const retry = await landSession(deps, 'ws_1', 's_b', { force: false });
       expect(retry.status).toBe('landed');
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
+  test('leases stay held while onBeforeRemoveWorktree (the teardown hook) runs — released only after', async () => {
+    const fixture = await makeGitFixture();
+    try {
+      const { db, sessions, leaseManager, ledger, config, configTrust } = await setup(fixture);
+      const worktree = await createWorktree(fixture.root, 's_a', 'cw/a');
+      await commitFile(worktree.path, 'a.txt', 'a\n', 'add a');
+      insertSession(sessions, { id: 's_a', worktreePath: worktree.path, branch: 'cw/a' });
+      await leaseManager.acquire('s_a');
+
+      let leaseHeldDuringTeardown: boolean | undefined;
+      const deps = {
+        db, projectRoot: fixture.root, sessions, leaseManager, ledger, config, configTrust,
+        onBeforeRemoveWorktree: async () => {
+          const leases = new LeaseRepo(db).listBySession('s_a');
+          leaseHeldDuringTeardown = leases.length > 0 && leases.every((l) => l.releasedAt === null);
+          return [];
+        },
+      };
+
+      await landSession(deps, 'ws_1', 's_a', { force: false });
+
+      expect(leaseHeldDuringTeardown).toBe(true);
     } finally {
       await fixture.cleanup();
     }

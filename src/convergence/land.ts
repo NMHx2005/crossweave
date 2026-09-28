@@ -350,11 +350,13 @@ export async function landSession(
       return { tested, baseBranch };
     });
 
-    deps.leaseManager.release(sessionId);
     const warnings: string[] = [];
     const ownWorktree = row.worktreePath !== null && row.worktreePath !== deps.projectRoot ? row.worktreePath : null;
     if (ownWorktree !== null) {
-      // The teardown needs the worktree landing is about to remove, so it runs first.
+      // The teardown needs the worktree landing is about to remove, so it runs first —
+      // and, like session rm/kill and gc, before the leases are released: a hook that
+      // stops a process bound to the session's port must still find that port held,
+      // not just freed for a concurrently-starting session to grab.
       if (deps.onBeforeRemoveWorktree !== undefined) {
         warnings.push(...(await deps.onBeforeRemoveWorktree(row)));
       }
@@ -364,6 +366,7 @@ export async function landSession(
         warnings.push(`Could not remove worktree ${ownWorktree}: ${(cause as Error).message}`);
       }
     }
+    deps.leaseManager.release(sessionId);
     try {
       await deleteBranch(deps.projectRoot, row.branch);
     } catch (cause) {
