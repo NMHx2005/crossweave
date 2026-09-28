@@ -10,6 +10,7 @@ import { checkForUpdate } from '../update/checker.js';
 import { initCommand, workspaceCommand, gcCommand } from './commands/workspace.js';
 import { sessionCommand } from './commands/session.js';
 import { convergeCommand } from './commands/converge.js';
+import { overlapCommand } from './commands/overlap.js';
 import { landCommand } from './commands/land.js';
 import { configCommand } from './commands/config.js';
 import { updateCommand } from './commands/update.js';
@@ -78,6 +79,7 @@ const main = defineCommand({
     daemon: daemonCommand,
     gc: gcCommand,
     converge: convergeCommand,
+    overlap: overlapCommand,
     land: landCommand,
     config: configCommand,
     update: updateCommand,

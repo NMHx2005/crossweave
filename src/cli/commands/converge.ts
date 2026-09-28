@@ -1,5 +1,6 @@
 import { defineCommand } from 'citty';
 import { withClient, fail, currentWorkspaceId } from '../context.js';
+import { formatOverlapPairs, type OverlapPair } from './overlap.js';
 
 interface ConvergeStatus {
   pairwise: { a: string; b: string; result: string }[];
@@ -49,6 +50,17 @@ const statusCommand = defineCommand({
         }
         if (status.empty !== undefined && status.empty.length > 0) {
           process.stdout.write(`nothing to land yet: ${status.empty.join(', ')}\n`);
+        }
+        // The early warning beside the hard verdict, from its own RPC: the converge
+        // status itself must stay cheap (the cockpit polls it), so the overlap scan
+        // happens only when a one-shot CLI command asks for it. Printed only when
+        // there is something to say, so the common all-clear stays as short as it was.
+        const { pairs } = await client.call<{ pairs: OverlapPair[] }>('overlap.list', { workspaceId });
+        if (pairs.length > 0) {
+          process.stdout.write('overlaps:\n');
+          for (const line of formatOverlapPairs(pairs).split('\n')) {
+            process.stdout.write(`  ${line}\n`);
+          }
         }
       });
     } catch (err) { fail(err); }
