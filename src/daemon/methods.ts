@@ -733,10 +733,11 @@ export function buildMethods(
       await terminals.closeForSession(row.id);
       // Teardown is run by `remove`, AFTER its liveness refusal: a live session's
       // `rm` must be refused without a teardown's side effects (see SessionManager.remove).
+      // No explicit sessionSetup.clear here: session_setup.session_id is
+      // ON DELETE CASCADE (schema.ts) and sessions.remove() deletes the row.
       const warnings = await sessions.remove(str(p, 'workspaceId'), str(p, 'idOrName'), {
         onBeforeRemove: (r) => teardownFor(r),
       });
-      sessionSetup.clear(row.id);
       broadcastRegistry.broadcast('tui.invalidate', {});
       return { ok: true, warnings };
     },
