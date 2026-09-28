@@ -21,10 +21,20 @@
 
 ## Gaps
 
-- **"Finished" rests on the bell.** An agent that asks without ringing (Claude Code
-  rings only when its terminal-bell notifications are on) is reported as finished; one
-  that rings on completion is reported as asking. The rail's colors are unchanged
-  (quiet agent = amber).
+- **Agent status is read from its screen** (changed 2026-09-28). Output alone kept a
+  finished Claude Code "working" for hours (it redraws its status line while it waits),
+  so the daemon replays each session into a headless xterm (`@xterm/headless`) and reads
+  the rows around the cursor: Claude Code's spinner line ("✢ Crunching…"; "…ed for Ns"
+  once done), Codex's and older Claude's "esc to interrupt", Gemini's "(esc to cancel,
+  5s)" mean working; a permission prompt, "Enter to confirm" or the trust dialog mean
+  asking. The rail: spinner = working, green = finished (your turn), amber = asking you,
+  red = failed, grey dot = plain shell, ring = shell closed. These words are each
+  agent's UI, not an API: a version that changes them falls back to "working while
+  output flows" until the patterns are updated. Verified live against Claude Code
+  2.1.283; Codex and Gemini against their documented lines only. Any other agent is
+  judged by its output, as before.
+- **An agent that rings on completion is reported as asking** (the bell still means
+  "look at me").
 - **Only Claude Code and Codex logs are read**; other agents show no usage.
 - **No usage for sessions in the project folder** (changed 2026-09-28): every Claude run
   there — in crossweave or in a terminal outside it — writes to the same log folder, and

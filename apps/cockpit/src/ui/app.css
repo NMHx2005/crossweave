@@ -1412,8 +1412,9 @@ body,
 .cockpit-agent--qwen { color: var(--cw-agent-qwen); }
 .cockpit-agent--shell { color: var(--cw-text-dim); }
 
-/* Status glyphs: a turning ring while it works, a solid dot when it wants you or failed,
-   a quiet dot when idle, a hollow ring when its shell is closed. */
+/* Status glyphs: a turning ring while the agent works, green when it finished its turn,
+   amber when it asks you something, red when it failed, a quiet dot for a plain shell,
+   a hollow ring when the shell is closed. */
 .cockpit-status {
   flex: none;
   width: calc(var(--cw-space-3) + var(--cw-hairline) * 2);
@@ -1427,8 +1428,13 @@ body,
   animation: cockpit-spin var(--cw-dur-spin) linear infinite;
 }
 
+.cockpit-status--done {
+  background: var(--cw-ready);
+}
+
 .cockpit-status--asked {
   background: var(--cw-needs-you);
+  box-shadow: 0 0 0 var(--cw-hairline) color-mix(in srgb, var(--cw-needs-you) 45%, transparent);
 }
 
 .cockpit-status--failed {

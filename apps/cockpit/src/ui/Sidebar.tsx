@@ -355,7 +355,7 @@ export function Sidebar(props: SidebarProps) {
                             setMenu({ kind: 'row', projectRoot: project.projectRoot, session, x: e.clientX, y: e.clientY })
                           }}
                         >
-                          <span class={`cockpit-status cockpit-status--${state}`} aria-label={ROW_STATE_LABEL[state]} />
+                          <span class={`cockpit-status cockpit-status--${state}`} role="img" aria-label={ROW_STATE_LABEL[state]} title={ROW_STATE_LABEL[state]} />
                           {color ? <span class="cockpit-dot" style={{ background: `var(--cw-${color})` }} aria-hidden="true" /> : null}
                           {renamingRow ? (
                             <InlineRename

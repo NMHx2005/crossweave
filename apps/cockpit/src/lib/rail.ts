@@ -25,25 +25,33 @@ export function rowTitle(session: Pick<ListedSession, 'name' | 'latestWords' | '
   return session.note ?? session.latestWords ?? session.name
 }
 
-export type RowState = 'working' | 'asked' | 'failed' | 'idle' | 'stopped' | 'ended'
+export type RowState = 'working' | 'done' | 'asked' | 'failed' | 'idle' | 'stopped' | 'ended'
 
-/** The glyph: live activity when the shell is open, else why it is not. */
-export function rowState(session: Pick<ListedSession, 'status' | 'activity'>): RowState {
+/**
+ * The glyph: live activity when the shell is open, else why it is not. The daemon's
+ * 'asked' is two things — an agent that asks you something (it rang, or a permission
+ * prompt is up: `rang`) and one that simply finished its turn — shown apart: amber for
+ * the first, green for the second.
+ */
+export function rowState(session: Pick<ListedSession, 'status' | 'activity' | 'rang'>): RowState {
   if (session.status === 'dead' || session.status === 'landed') return 'ended'
   if (session.status !== 'running' && session.status !== 'waiting') {
     return session.activity === 'failed' ? 'failed' : 'stopped'
   }
-  if (session.activity === 'working' || session.activity === 'asked' || session.activity === 'failed') return session.activity
+  if (session.activity === 'asked') return session.rang === true ? 'asked' : 'done'
+  if (session.activity === 'working' || session.activity === 'failed') return session.activity
   return 'idle'
 }
 
+/** What each glyph means, in the row's tooltip and to a screen reader. */
 export const ROW_STATE_LABEL: Record<RowState, string> = {
-  working: 'working',
-  asked: 'waiting for you',
-  failed: 'failed',
-  idle: 'idle',
+  working: 'agent working',
+  done: 'agent finished — your turn',
+  asked: 'agent is asking you something',
+  failed: 'exited with an error',
+  idle: 'shell open, nothing running',
   stopped: 'shell closed',
-  ended: 'ended',
+  ended: 'ended (landed or killed)',
 }
 
 /** The land chip: only the two verdicts worth acting on from the rail. */
@@ -68,9 +76,9 @@ export function agentName(agent: string | null | undefined): string {
   return agent ? AGENT_NAMES[agent] ?? agent : 'Shell'
 }
 
-/** Rows most in need of the user first: asking, failed, working, then the rest. */
+/** Rows most in need of the user first: asking, failed, finished, working, then the rest. */
 export function railOrder(sessions: readonly ListedSession[]): ListedSession[] {
-  const rank: Record<RowState, number> = { asked: 0, failed: 1, working: 2, idle: 3, stopped: 4, ended: 5 }
+  const rank: Record<RowState, number> = { asked: 0, failed: 1, done: 2, working: 3, idle: 4, stopped: 5, ended: 6 }
   return [...sessions].sort((a, b) => {
     const r = rank[rowState(a)] - rank[rowState(b)]
     if (r !== 0) return r

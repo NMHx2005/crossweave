@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { agentName, gitBadge, landChip, newlyAsking, railOrder, relativeTime, rowState, rowTitle, visibleRows, jumpTargets, clampMenu, newlyFinished, recentToOffer, submenuPosition } from '../src/lib/rail'
+import { agentName, gitBadge, landChip, newlyAsking, railOrder, relativeTime, rowState, ROW_STATE_LABEL, rowTitle, visibleRows, jumpTargets, clampMenu, newlyFinished, recentToOffer, submenuPosition } from '../src/lib/rail'
 import { parseSessionList } from '../src/lib/sessions'
 
 describe('relativeTime', () => {
@@ -22,9 +22,23 @@ describe('rowTitle', () => {
 })
 
 describe('rowState', () => {
+  // Spinning while the agent works, green when it finished its turn, amber only when it
+  // asks you something (a permission prompt, a question: it rang, or its prompt is up).
+  test('done and asking are told apart by whether it asked', () => {
+    expect(rowState({ status: 'running', activity: 'asked', rang: false })).toBe('done')
+    expect(rowState({ status: 'running', activity: 'asked', rang: true })).toBe('asked')
+    expect(rowState({ status: 'running', activity: 'asked' })).toBe('done')
+  })
+
+  test('every state has words that say what it means', () => {
+    for (const state of ['working', 'done', 'asked', 'failed', 'idle', 'stopped', 'ended'] as const) {
+      expect(ROW_STATE_LABEL[state].length).toBeGreaterThan(8)
+    }
+  })
+
   test('an open shell shows its activity; a closed one says why', () => {
     expect(rowState({ status: 'running', activity: 'working' })).toBe('working')
-    expect(rowState({ status: 'running', activity: 'asked' })).toBe('asked')
+    expect(rowState({ status: 'running', activity: 'asked', rang: true })).toBe('asked')
     expect(rowState({ status: 'running' })).toBe('idle')
     expect(rowState({ status: 'idle' })).toBe('stopped')
     expect(rowState({ status: 'idle', activity: 'failed' })).toBe('failed')
