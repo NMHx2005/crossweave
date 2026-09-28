@@ -6,6 +6,7 @@ import { ConfigTrustRepo } from '../../src/db/repositories/config-trust.js';
 import { SessionSetupRepo } from '../../src/db/repositories/session-setup.js';
 import { WorkspaceManager } from '../../src/domain/workspace.js';
 import { hashHooks } from '../../src/convergence/trust.js';
+import { wrapWithSentinel } from '../../src/domain/session-setup.js';
 import type { AgentAdapter } from '../../src/adapters/types.js';
 import { DEFAULT_CONFIG } from '../../src/core/config.js';
 import { makeGitFixture } from '../helpers/git-fixture.js';
@@ -57,7 +58,7 @@ describe('session.setup RPC', () => {
 
       const setup = (await methods['session.setup']!({ workspaceId: ws.id, idOrName: 'a' }, ctx)) as { typed: boolean };
       expect(setup.typed).toBe(true);
-      expect(typed).toEqual(['bun install\r']);
+      expect(typed).toEqual([`${wrapWithSentinel('bun install')}\r`]);
       expect(new SessionSetupRepo(db).has(row.id)).toBe(true);
     } finally {
       db.close();

@@ -8,7 +8,7 @@ import { SessionManager, type AdapterFactory } from '../domain/session.js';
 import { CrossweaveError } from '../core/errors.js';
 import { BridgeRegistry } from './bridge-registry.js';
 import { daemonLog } from '../core/log.js';
-import { SessionRuntime } from './runtime.js';
+import { SessionRuntime, combineObservers } from './runtime.js';
 import type { MethodHandler } from './server.js';
 import { SessionRepo, type SessionRow } from '../db/repositories/session.js';
 import { LeaseManager } from '../isolation/leases/manager.js';
@@ -23,7 +23,8 @@ import { baseConflictFiles, commitsAhead } from '../convergence/trial.js';
 import { sessionDiff } from '../domain/session-diff.js';
 import { ConfigTrustRepo } from '../db/repositories/config-trust.js';
 import { SessionSetupRepo } from '../db/repositories/session-setup.js';
-import { decideSetup, runTeardown, SETUP_UNTRUSTED_NOTICE, withSetup } from '../domain/session-setup.js';
+import { decideSetup, runTeardown, SETUP_UNTRUSTED_NOTICE, withSetup, wrapWithSentinel } from '../domain/session-setup.js';
+import { SetupExitWatcher } from './setup-exit-watcher.js';
 import { NotifyConfigRepo, type NotifyEventKind } from '../db/repositories/notify-config.js';
 import { buildConflictGraph, recommendOrder } from '../convergence/graph.js';
 import { classifyLandability } from '../convergence/evidence.js';
@@ -240,13 +241,20 @@ export function buildMethods(
   // in it, inferred from its shell — see src/daemon/session-status.ts.
   const activity = new ActivityTracker(opts.now);
   const agents = new Map<string, string | null>();
+  // The only way to learn hooks.sessionSetup's exit code: it is typed into the shell,
+  // not spawned, so its OSC sentinel in the pty output (see wrapWithSentinel) is the
+  // one channel back. Fanned out alongside activity tracking — both read every chunk.
+  const setupExitWatcher = new SetupExitWatcher((sessionId, code) => {
+    sessionSetup.recordExitCode(sessionId, code);
+    broadcastRegistry.broadcast('tui.invalidate', {});
+  });
   const runtime = new SessionRuntime((sessionId) => {
     sessions.clearRunning(sessionId);
     leaseManager.release(sessionId);
     // A shell that exits on its own (`exit`, a crash) is a status change no RPC
     // announced; every client kept showing it `running` until something else redrew.
     broadcastRegistry.broadcast('tui.invalidate', {});
-  }, activity);
+  }, combineObservers(activity, setupExitWatcher));
   sessions.onKill = (id) => runtime.stop(id);
 
   /**
@@ -499,7 +507,7 @@ export function buildMethods(
       });
       if (setup.command !== undefined) {
         sessionSetup.mark(row.id);
-        runtime.write(row.id, row.name, `${withSetup(setup.command, run)}\r`);
+        runtime.write(row.id, row.name, `${withSetup(wrapWithSentinel(setup.command), run)}\r`);
       } else {
         if (setup.skipped === 'untrusted') runtime.write(row.id, row.name, `${SETUP_UNTRUSTED_NOTICE}\r`);
         if (run !== undefined) runtime.write(row.id, row.name, `${run}\r`);
@@ -610,6 +618,7 @@ export function buildMethods(
       const hooksTrusted = hooksForList?.sessionSetup !== undefined && isHooksTrusted(hooksForList, configTrust, workspaceId);
       // Read once for the whole list, not once per row: this runs on every redraw.
       const setupRan = hooksTrusted ? sessionSetup.markedIds() : undefined;
+      const setupFailed = hooksTrusted ? sessionSetup.failedIds() : undefined;
       // Read in the background; a change is announced like any other, and the next
       // list carries it.
       if (hasGit) void gitCounts.refresh(() => {
@@ -647,9 +656,11 @@ export function buildMethods(
         const status = activity.status(session.id, agent);
         const git = gitCounts.get(session.id);
         const overlaps = overlap.get(session.id);
-        const setupPending = setupRan !== undefined
-          && session.worktreePath !== null && session.worktreePath !== projectRoot
-          && !setupRan.has(session.id);
+        const ownWorktree = session.worktreePath !== null && session.worktreePath !== projectRoot;
+        const setupPending = setupRan !== undefined && ownWorktree && !setupRan.has(session.id);
+        // Typed does not mean it succeeded — a marked session whose sentinel reported a
+        // nonzero exit code failed, and outranks 'pending' (it is no longer pending).
+        const setupFailedFlag = !setupPending && setupFailed !== undefined && ownWorktree && setupFailed.has(session.id);
         const used = session.worktreePath === projectRoot ? undefined : usage.get(session.id);
         const size = runtime.size(session.id);
         const checkOf = checks.get(session.id, git ?? null, status.lastActivityAt);
@@ -659,7 +670,7 @@ export function buildMethods(
           ...(words === undefined ? {} : { latestWords: words }),
           ...(git === undefined ? {} : { git }),
           ...(overlaps === undefined ? {} : { overlaps }),
-          ...(setupPending ? { setup: 'pending' as const } : {}),
+          ...(setupPending ? { setup: 'pending' as const } : setupFailedFlag ? { setup: 'failed' as const } : {}),
           ...(size === undefined ? {} : size),
           agent,
           activity: status.activity,
@@ -761,7 +772,7 @@ export function buildMethods(
       sessionSetup.clear(row.id);
       const typed = runtime.isRunning(row.id);
       if (typed) {
-        runtime.write(row.id, row.name, `${command}\r`);
+        runtime.write(row.id, row.name, `${wrapWithSentinel(command)}\r`);
         sessionSetup.mark(row.id);
       }
       broadcastRegistry.broadcast('tui.invalidate', {});
