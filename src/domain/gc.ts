@@ -4,6 +4,8 @@ import { isAbsolute } from 'node:path';
 import { SessionRepo, type SessionRow } from '../db/repositories/session.js';
 import { WorkspaceRepo, type WorkspaceRow } from '../db/repositories/workspace.js';
 import { LeaseRepo } from '../db/repositories/lease.js';
+import { SessionHistoryRepo } from '../db/repositories/session-history.js';
+import { newId } from '../core/ids.js';
 import { CrossweaveError } from '../core/errors.js';
 import { assertContained, crossweaveDir } from '../core/paths.js';
 import { removeWorktree, deleteBranch, hasUnlandedWork, listWorktreePaths, isCrossweaveWorktree } from '../isolation/worktree.js';
@@ -101,6 +103,7 @@ async function reclaimEnded(
 ): Promise<GcResult & { disposedPaths: Set<string> }> {
   const repo = new SessionRepo(db);
   const leases = new LeaseRepo(db);
+  const history = new SessionHistoryRepo(db);
   const sizes = new Map(measureWorktrees(db, workspace.id).map((u) => [u.sessionId, u.bytes]));
   const ended = repo
     .listByWorkspace(workspace.id)
@@ -140,6 +143,20 @@ async function reclaimEnded(
       await deleteBranch(workspace.rootPath, session.branch).catch(() => undefined);
     }
     disposeLeasedPaths(leases, workspace, session.id);
+    history.record({
+      id: newId('hist'),
+      workspaceId: session.workspaceId,
+      sessionId: session.id,
+      name: session.name,
+      agentKind: session.agentKind,
+      branch: session.branch,
+      finalStatus: session.status as 'landed' | 'dead',
+      createdAt: session.createdAt,
+      endedAt: new Date().toISOString(),
+      tokenSpent: session.tokenSpent,
+      costSpentUsd: session.costSpentUsd,
+      note: session.note ?? null,
+    });
     repo.delete(session.id);
     removed.push(session.name);
     reclaimedBytes += sizes.get(session.id) ?? 0;

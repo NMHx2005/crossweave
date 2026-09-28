@@ -7,6 +7,7 @@ import { openDatabase } from '../../src/db/open.js';
 import { newId } from '../../src/core/ids.js';
 import { LeaseRepo } from '../../src/db/repositories/lease.js';
 import { SessionRepo } from '../../src/db/repositories/session.js';
+import { SessionHistoryRepo } from '../../src/db/repositories/session-history.js';
 import { WorkspaceManager } from '../../src/domain/workspace.js';
 import { SessionManager } from '../../src/domain/session.js';
 import { listWorktreePaths } from '../../src/isolation/worktree.js';
@@ -350,5 +351,45 @@ describe('SessionManager.setNote', () => {
     await sessions.create({ workspaceId, name: 'auth', worktree: true });
     expect(() => sessions.setNote(workspaceId, 'auth', 'one\ntwo')).toThrow(expect.objectContaining({ code: 'INVALID_NOTE' }));
     expect(() => sessions.setNote(workspaceId, 'auth', 'x'.repeat(121))).toThrow(expect.objectContaining({ code: 'INVALID_NOTE' }));
+  });
+});
+
+describe('SessionManager records session history', () => {
+  it('kill({removeWorktree: true}) records a "dead" history row before deleting it', async () => {
+    const s = await sessions.create({ workspaceId, name: 'auth', worktree: true });
+    await sessions.kill(workspaceId, 'auth', { removeWorktree: true });
+
+    const history = new SessionHistoryRepo(db).listByWorkspace(workspaceId);
+    expect(history).toHaveLength(1);
+    expect(history[0]).toMatchObject({
+      sessionId: s.id, name: 'auth', agentKind: s.agentKind, branch: 'cw/auth', finalStatus: 'dead',
+    });
+  });
+
+  it('kill without removeWorktree records nothing — the row (and its work) is kept', async () => {
+    await sessions.create({ workspaceId, name: 'auth', worktree: true });
+    await sessions.kill(workspaceId, 'auth', { removeWorktree: false });
+    expect(new SessionHistoryRepo(db).listByWorkspace(workspaceId)).toHaveLength(0);
+  });
+
+  it('remove() records the row\'s actual final status ("landed"), not just "dead"', async () => {
+    const s = await sessions.create({ workspaceId, name: 'auth', worktree: true });
+    await sessions.kill(workspaceId, 'auth', { removeWorktree: false });
+    new SessionRepo(db).updateStatus(s.id, 'landed', null);
+
+    await sessions.remove(workspaceId, 'auth');
+
+    const history = new SessionHistoryRepo(db).listByWorkspace(workspaceId);
+    expect(history).toHaveLength(1);
+    expect(history[0]).toMatchObject({ sessionId: s.id, name: 'auth', finalStatus: 'landed' });
+  });
+
+  it('remove() records a "dead" row for a killed-but-not-landed session', async () => {
+    await sessions.create({ workspaceId, name: 'auth', worktree: true });
+    await sessions.kill(workspaceId, 'auth', { removeWorktree: false });
+    await sessions.remove(workspaceId, 'auth');
+
+    const history = new SessionHistoryRepo(db).listByWorkspace(workspaceId);
+    expect(history[0]).toMatchObject({ finalStatus: 'dead' });
   });
 });

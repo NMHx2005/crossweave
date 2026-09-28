@@ -5,6 +5,7 @@ import { WorkspaceRepo } from '../db/repositories/workspace.js';
 import { SessionRepo, type SessionRow } from '../db/repositories/session.js';
 import { EventRepo } from '../db/repositories/event.js';
 import { LeaseRepo } from '../db/repositories/lease.js';
+import { SessionHistoryRepo } from '../db/repositories/session-history.js';
 import { createWorktree, deleteBranch, removeWorktree } from '../isolation/worktree.js';
 import { assertDiskAvailable } from '../isolation/disk-guard.js';
 import { disposeLeasedPaths } from './gc.js';
@@ -61,6 +62,7 @@ export class SessionManager {
   private readonly workspaces: WorkspaceRepo;
   private readonly events: EventRepo;
   private readonly leases: LeaseRepo;
+  private readonly history: SessionHistoryRepo;
 
   /** Set by the daemon so kill() can stop a live pty it does not own. */
   onKill?: (sessionId: string) => Promise<void>;
@@ -74,6 +76,29 @@ export class SessionManager {
     this.workspaces = new WorkspaceRepo(db);
     this.events = new EventRepo(db);
     this.leases = new LeaseRepo(db);
+    this.history = new SessionHistoryRepo(db);
+  }
+
+  /**
+   * A durable snapshot of `row`, written just before its row is deleted — `remove()`
+   * and `kill({removeWorktree: true})` are the only two paths that ever delete a
+   * session row, so this is the one place either needs to call.
+   */
+  private recordHistory(row: SessionRow, finalStatus: 'landed' | 'dead'): void {
+    this.history.record({
+      id: newId('hist'),
+      workspaceId: row.workspaceId,
+      sessionId: row.id,
+      name: row.name,
+      agentKind: row.agentKind,
+      branch: row.branch,
+      finalStatus,
+      createdAt: row.createdAt,
+      endedAt: new Date().toISOString(),
+      tokenSpent: row.tokenSpent,
+      costSpentUsd: row.costSpentUsd,
+      note: row.note ?? null,
+    });
   }
 
   private projectRoot(workspaceId: string): string {
@@ -259,6 +284,9 @@ export class SessionManager {
       // UNIQUE(workspace_id, name) with no way to reclaim it.
       const workspace = this.workspaces.findById(workspaceId);
       if (workspace) disposeLeasedPaths(this.leases, workspace, row.id);
+      // Killing (as opposed to landing) never leaves a session 'landed', whatever its
+      // in-flight status was — its work is being deleted, not merged.
+      this.recordHistory(row, 'dead');
       this.sessions.delete(row.id);
       return warnings;
     }
@@ -304,6 +332,8 @@ export class SessionManager {
     if (row.branch !== null) await deleteBranch(root, row.branch).catch(() => undefined);
     const workspace = this.workspaces.findById(workspaceId);
     if (workspace) disposeLeasedPaths(this.leases, workspace, row.id);
+    // row.status is already 'dead' or 'landed' (checked above) — carried through as-is.
+    this.recordHistory(row, row.status as 'landed' | 'dead');
     this.sessions.delete(row.id);
     return warnings;
   }

@@ -9,6 +9,7 @@ import { SessionManager } from '../../src/domain/session.js';
 import { collectGarbage, collectOrphans } from '../../src/domain/gc.js';
 import { buildMethods } from '../../src/daemon/methods.js';
 import { SessionRepo } from '../../src/db/repositories/session.js';
+import { SessionHistoryRepo } from '../../src/db/repositories/session-history.js';
 import { LeaseRepo } from '../../src/db/repositories/lease.js';
 import { LeaseManager } from '../../src/isolation/leases/manager.js';
 import { DEFAULT_CONFIG } from '../../src/core/config.js';
@@ -44,6 +45,17 @@ describe('collectGarbage', () => {
     expect(existsSync(dead.worktreePath ?? '')).toBe(false);
     expect(existsSync(live.worktreePath ?? '')).toBe(true);
     expect(sessions.list(workspaceId).map((s) => s.name)).toEqual(['live']);
+  }, 30_000);
+
+  it('records a history row for each session it reclaims, before deleting it', async () => {
+    const dead = await sessions.create({ workspaceId, name: 'dead', worktree: true });
+    await sessions.kill(workspaceId, 'dead', { removeWorktree: false });
+
+    await collectGarbage(db, workspaceId);
+
+    const history = new SessionHistoryRepo(db).listByWorkspace(workspaceId);
+    expect(history).toHaveLength(1);
+    expect(history[0]).toMatchObject({ sessionId: dead.id, name: 'dead', finalStatus: 'dead' });
   }, 30_000);
 
   // `kill` leaves a dead session's worktree and branch on disk precisely so it can
