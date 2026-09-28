@@ -118,7 +118,7 @@ describe('DaemonBridge', () => {
     await expect(bridge.handle('workspace.ensure')).rejects.toThrow(/NO_PROJECT/)
     expect(picked).toEqual([])
     // What the welcome needs works before any project is attached.
-    expect(await bridge.handle('projects.list')).toEqual({ active: undefined, open: [] })
+    expect(await bridge.handle('projects.list')).toEqual({ active: undefined, open: [], plain: [] })
   })
 
   test('workspace.ensure skips the picker when a projectRoot is given', async () => {
@@ -434,7 +434,7 @@ describe('workspace.gc', () => {
 })
 
 describe('many projects in one window', () => {
-  function multi() {
+  function multi(isPlain?: (root: string) => boolean) {
     const fakes = new Map<string, FakeDaemon>()
     let open: string[] = []
     let forgot = 0
@@ -452,12 +452,24 @@ describe('many projects in one window', () => {
       saveRoot: () => undefined,
       loadOpenRoots: () => open,
       saveOpenRoots: (roots) => { open = roots },
+      ...(isPlain ? { isPlain } : {}),
       forgetSavedRoot: () => { forgot += 1 },
       exists: () => true,
       send: (event, payload) => { events.push({ event, payload }) },
     })
     return { bridge, fakes, events, open: () => open, forgotten: () => forgot }
   }
+
+  // A plain folder (no git) is marked, so the rail and the new-session picker know it
+  // has no worktrees; and a plain project's snapshot says it has no git.
+  test('lists which open projects are plain folders, and a plain project has no git', async () => {
+    const { bridge, fakes } = multi((root) => root === '/w/notes')
+    await bridge.handle('workspace.ensure', { projectRoot: '/w/api' })
+    await bridge.handle('workspace.ensure', { projectRoot: '/w/notes' })
+    expect(await bridge.handle('projects.list')).toMatchObject({ open: ['/w/api', '/w/notes'], plain: ['/w/notes'] })
+    fakes.get('/w/notes')!.responses['workspace.init'] = { id: 'ws_n', name: 'notes', rootPath: '/w/notes', git: false }
+    expect(await bridge.handle('projects.sessions', { projectRoot: '/w/api' })).toMatchObject({ git: true })
+  })
 
   // Switching project used to close the previous daemon connection: a window could
   // only ever know one repository.
@@ -467,7 +479,7 @@ describe('many projects in one window', () => {
     await bridge.handle('workspace.ensure', { projectRoot: '/w/web' })
     expect(fakes.get('/w/api')!.closed).toBe(false)
     expect(open()).toEqual(['/w/api', '/w/web'])
-    expect(await bridge.handle('projects.list')).toEqual({ active: '/w/web', open: ['/w/api', '/w/web'] })
+    expect(await bridge.handle('projects.list')).toEqual({ active: '/w/web', open: ['/w/api', '/w/web'], plain: [] })
     // Everything else still targets the active project.
     await bridge.handle('session.list', {})
     expect(fakes.get('/w/web')!.calls.at(-1)).toMatchObject({ method: 'session.list', params: { workspaceId: 'ws_/w/web' } })
@@ -522,7 +534,7 @@ describe('many projects in one window', () => {
     expect(open()).toEqual([])
     expect(fakes.get('/w/api')!.closed).toBe(true)
     expect(forgotten()).toBe(1)
-    expect(await bridge.handle('projects.list')).toEqual({ active: undefined, open: [] })
+    expect(await bridge.handle('projects.list')).toEqual({ active: undefined, open: [], plain: [] })
     await expect(bridge.handle('session.list', {})).rejects.toThrow(/not attached/)
   })
 

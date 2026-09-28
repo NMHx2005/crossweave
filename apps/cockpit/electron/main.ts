@@ -11,7 +11,7 @@ import { projectRootFromAdditionalData, projectRootFromArgv, resolveLaunchProjec
 import { switchCockpitWorkspace } from './workspace-switch'
 import { clearRecent, loadRecent, pushRecent } from './recent.js'
 import { recentMenuItems } from './recent-menu'
-import { loadOpenProjects, saveOpenProjects } from './open-projects'
+import { addPlainProject, loadOpenProjects, loadPlainProjects, saveOpenProjects } from './open-projects'
 import { COCKPIT_TOKENS } from '../src/ui/tokens'
 import { appMenuTemplate } from './app-menu'
 import { editorLaunch, resolveLinkTarget } from './editor-open'
@@ -107,7 +107,8 @@ function createBridge(): DaemonBridge {
     ? resolveCockpitDaemonEntry('', '', { isPackaged: true })
     : resolveCockpitDaemonEntry(findCrossweaveRoot(__dirname), resolveBunCommand())
   return new DaemonBridge({
-    connect: (projectRoot) => connectOrStart(projectRoot, entry),
+    // A folder the user opened as a plain folder gets a daemon that serves it without git.
+    connect: (projectRoot) => connectOrStart(projectRoot, loadPlainProjects().includes(projectRoot) ? { ...entry, env: { CW_PLAIN: '1' } } : entry),
     pickFolder,
     loadSavedRoot,
     saveRoot,
@@ -116,6 +117,7 @@ function createBridge(): DaemonBridge {
     send: sendToRenderers,
     loadOpenRoots: loadOpenProjects,
     saveOpenRoots: saveOpenProjects,
+    isPlain: (root) => loadPlainProjects().includes(root),
   })
 }
 
@@ -217,7 +219,16 @@ function registerHandlers(bridge: DaemonBridge): void {
       if (channel === 'app.badge') return setBadge(payload)
       if (channel === 'terminal.importSources') return importSources(importDeps())
       if (channel === 'fonts.list') return listFonts(importDeps().run)
-      if (channel === 'folder.inspect') return inspectFolder((payload as { path?: unknown } | null)?.path, { kind: folderKind, findRepos })
+      if (channel === 'folder.inspect') {
+        return inspectFolder((payload as { path?: unknown } | null)?.path, { kind: folderKind, findRepos, plainChosen: (p) => loadPlainProjects().includes(p) })
+      }
+      if (channel === 'folder.openPlain') {
+        const path = (payload as { path?: unknown } | null)?.path
+        // Only a folder that really has no git: a repository opens as one.
+        if (typeof path !== 'string' || inspectFolder(path, { kind: folderKind, findRepos: () => [] }).kind !== 'plain') return { ok: false }
+        addPlainProject(path)
+        return { ok: true }
+      }
       if (channel === 'folder.initGit') {
         return initGit((payload as { path?: unknown } | null)?.path, {
           kind: folderKind,
@@ -315,7 +326,7 @@ async function switchWorkspace(projectRoot: string): Promise<void> {
 
   // Not a repository's top level (`cw` run in a plain folder, Open Recent on one): the
   // window's Open folder dialog explains it — starting a daemon there cannot work.
-  if (folderKind(projectRoot).kind !== 'repo') {
+  if (folderKind(projectRoot).kind !== 'repo' && !loadPlainProjects().includes(projectRoot)) {
     const existing = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed())
     if (existing) {
       existing.webContents.send('cockpit.command', { command: 'show-project', projectRoot })

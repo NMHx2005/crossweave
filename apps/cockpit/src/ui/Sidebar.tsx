@@ -22,6 +22,8 @@ export type ProjectGroup = {
   hideEnded?: boolean
   /** Sessions whose agent finished and that the user has not looked at since. */
   doneIds?: readonly string[]
+  /** A plain folder (no git): no worktrees, branches or Land. */
+  plain?: boolean
 }
 
 export type RowAction = 'open' | 'stop' | 'changes' | 'land' | 'kill' | 'delete' | 'terminal'
@@ -301,6 +303,7 @@ export function Sidebar(props: SidebarProps) {
                     <ChevronIcon class="cockpit-project__twisty" />
                     <span class="cockpit-project__icon" style={project.color ? { color: `var(--cw-${project.color})` } : undefined}><FolderIcon /></span>
                     <span>{project.name}</span>
+                    {project.plain ? <span class="cockpit-project__tag" title="A plain folder: no git, so sessions run in the folder itself (no worktrees, Land or diff)">folder</span> : null}
                     {headUsage ? <span class="cockpit-project__usage" title={headUsage.title}>{headUsage.text}</span> : null}
                   </button>
                 )}
@@ -544,7 +547,7 @@ export function Sidebar(props: SidebarProps) {
           <button type="button" role="menuitem" onClick={() => folder(menu.project.projectRoot, null, 'reveal')}>Reveal in Finder</button>
           <button type="button" role="menuitem" onClick={() => folder(menu.project.projectRoot, null, 'copy')}>Copy path</button>
           <div class="cockpit-menu__sep" role="separator" />
-          <button type="button" role="menuitem" onClick={() => projectMenu('land-all')}>Land all ready</button>
+          {menu.project.plain ? null : <button type="button" role="menuitem" onClick={() => projectMenu('land-all')}>Land all ready</button>}
           <button type="button" role="menuitem" onClick={() => projectMenu('gc')}>Clean up ended sessions…</button>
           <button type="button" role="menuitem" onClick={() => projectMenu('toggle-ended')}>
             {menu.project.hideEnded ? 'Show ended sessions' : 'Hide ended sessions'}

@@ -23,6 +23,35 @@ export function loadOpenProjects(): string[] {
   return []
 }
 
+function plainProjectsPath(): string {
+  return join(app.getPath('userData'), 'plain-projects.json')
+}
+
+/**
+ * Folders without git the user chose to open as plain folders: only their daemons are
+ * started with CW_PLAIN=1, so no other folder ever becomes a project by accident.
+ */
+export function loadPlainProjects(): string[] {
+  try {
+    const parsed = JSON.parse(readFileSync(plainProjectsPath(), 'utf8')) as { plain?: unknown }
+    if (Array.isArray(parsed.plain)) return parsed.plain.filter((x): x is string => typeof x === 'string' && isAbsolute(x))
+  } catch {
+    // none yet
+  }
+  return []
+}
+
+export function addPlainProject(root: string): void {
+  const list = loadPlainProjects()
+  if (list.includes(root)) return
+  try {
+    mkdirSync(dirname(plainProjectsPath()), { recursive: true })
+    writeFileSync(plainProjectsPath(), `${JSON.stringify({ plain: [...list, root] }, null, 2)}\n`)
+  } catch {
+    // best effort: the dialog is shown again next time
+  }
+}
+
 export function saveOpenProjects(roots: string[]): void {
   try {
     mkdirSync(dirname(openProjectsPath()), { recursive: true })

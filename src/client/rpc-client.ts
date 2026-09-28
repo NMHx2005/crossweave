@@ -174,7 +174,7 @@ export function resolveDaemonEntry(): { command: string; args: string[] } {
 
 export async function connectOrStart(
   projectRoot: string,
-  entry = resolveDaemonEntry(),
+  entry: { command: string; args: string[]; env?: Record<string, string> } = resolveDaemonEntry(),
 ): Promise<DaemonClient> {
   const socketPath = join(crossweaveDir(projectRoot), 'daemon.sock');
   // Outside the try: a path that cannot be made connectable is an error to report,
@@ -191,6 +191,7 @@ export async function connectOrStart(
     cwd: projectRoot,
     detached: true,
     stdio: 'ignore',
+    ...(entry.env === undefined ? {} : { env: { ...process.env, ...entry.env } }),
   });
   // Node reports a spawn failure asynchronously as an 'error' event, and an 'error'
   // with no listener is thrown — an uncaught exception carrying a raw stack trace and

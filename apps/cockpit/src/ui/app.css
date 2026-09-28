@@ -2287,3 +2287,13 @@ body,
   font-size: var(--cw-fs-micro);
   color: var(--cw-ready);
 }
+
+/* A plain folder (no git) in the rail: said once, beside its name. */
+.cockpit-project__tag {
+  flex: none;
+  padding: 0 var(--cw-space-1);
+  border: var(--cw-hairline) solid var(--cw-border-strong);
+  border-radius: var(--cw-radius-sm);
+  font-size: var(--cw-fs-micro);
+  color: var(--cw-text-dim);
+}

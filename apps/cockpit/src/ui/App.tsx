@@ -130,8 +130,9 @@ export function App() {
   /** Every open project, and a snapshot of each one without a live view. */
   const refreshProjects = useCallback(async (only?: string): Promise<void> => {
     try {
-      const { open } = await cockpitApi.listProjects()
+      const { open, plain } = await cockpitApi.listProjects()
       setOpenRoots(open)
+      setPlainRoots(plain ?? [])
       const wanted = open.filter((root) => !reportsRef.current[root] && (only === undefined || root === only))
       const fetched = await Promise.all(wanted.map((root) => cockpitApi.projectSessions(root).catch(() => null)))
       setSnapshots((prev) => {
@@ -227,7 +228,7 @@ export function App() {
       // have a daemon; anything else gets the Open folder dialog instead of a timeout.
       if (!openRoots.includes(root)) {
         const info = await cockpitApi.inspectFolder(root).catch(() => null)
-        if (info !== null && info.kind !== 'repo') {
+        if (info !== null && info.kind !== 'repo' && info.plainChosen !== true) {
           setFolderDialog({ path: root, info })
           return
         }
@@ -278,8 +279,10 @@ export function App() {
   }
 
   /** What a new session in `root` starts as, unless the picker or a flag says otherwise. */
-  const defaultsFor = (root: string): { launcher?: string; worktree: boolean; base?: string } => {
+  const defaultsFor = (root: string): { launcher?: string; worktree: boolean; base?: string; plain?: boolean } => {
     const p = prefs[root]
+    // A plain folder has no worktrees: its sessions can only run in the folder.
+    if (plainRoots.includes(root)) return { worktree: false, plain: true, ...(p?.launcher === undefined ? {} : { launcher: p.launcher }) }
     return {
       worktree: p?.worktree === true,
       ...(p?.launcher === undefined ? {} : { launcher: p.launcher }),
@@ -349,6 +352,20 @@ export function App() {
       case 'move-up': void reorderProjects(moveProject(openRoots, root, -1)); return
       case 'move-down': void reorderProjects(moveProject(openRoots, root, 1)); return
     }
+  }
+
+  /** Open projects that are plain folders (no git): no worktrees, Land or branches. */
+  const [plainRoots, setPlainRoots] = useState<string[]>([])
+
+  async function openPlain(path: string): Promise<void> {
+    const r = await cockpitApi.openPlainFolder(path).catch(() => ({ ok: false }))
+    if (!r.ok) {
+      showToast('That folder cannot be opened as a plain folder', 'error')
+      return
+    }
+    setFolderDialog(null)
+    setPlainRoots((list) => (list.includes(path) ? list : [...list, path]))
+    await activate(path)
   }
 
   /** A folder chosen to open that is not a repository's top level (OpenFolderDialog). */
@@ -515,12 +532,12 @@ export function App() {
       const active = root === activeRoot
       const live = reports[root]
       if (live) {
-        groups.push({ projectRoot: root, name: projectLabel(p, baseName(root)), active, sessions: live.sessions, attentionById: live.attentionById, doneIds: live.doneIds, ...view })
+        groups.push({ projectRoot: root, name: projectLabel(p, baseName(root)), active, sessions: live.sessions, attentionById: live.attentionById, doneIds: live.doneIds, ...view, ...(plainRoots.includes(root) ? { plain: true } : {}) })
         continue
       }
       const snap = snapshots[root]
       if (!snap) {
-        groups.push({ projectRoot: root, name: projectLabel(p, baseName(root)), active, sessions: [], attentionById: {}, ...view })
+        groups.push({ projectRoot: root, name: projectLabel(p, baseName(root)), active, sessions: [], attentionById: {}, ...view, ...(plainRoots.includes(root) ? { plain: true } : {}) })
         continue
       }
       const landability = parseLandabilityByName(snap.converge)
@@ -528,7 +545,7 @@ export function App() {
       for (const session of snap.sessions) {
         attention[session.id] = deriveAttention({ status: session.status ?? '', landability: landability.get(session.name) })
       }
-      groups.push({ projectRoot: root, name: projectLabel(p, snap.name), active, sessions: snap.sessions, attentionById: attention, ...view })
+      groups.push({ projectRoot: root, name: projectLabel(p, snap.name), active, sessions: snap.sessions, attentionById: attention, ...view, ...(plainRoots.includes(root) ? { plain: true } : {}) })
     }
     return groups
   }
@@ -610,6 +627,7 @@ export function App() {
           info={folderDialog.info}
           onOpen={(root) => activate(root)}
           onInitGit={() => initGitIn(folderDialog.path)}
+          {...(folderDialog.info.kind === 'plain' ? { onOpenPlain: () => { void openPlain(folderDialog.path) } } : {})}
           onClose={() => setFolderDialog(null)}
         />
       ) : null}

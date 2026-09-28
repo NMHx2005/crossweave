@@ -2,11 +2,13 @@ import { isAbsolute } from 'node:path'
 import type { FolderKind } from '../../../src/core/folder-kind.js'
 
 /** What the Open folder dialog is told about a folder that is not a repository's top level. */
-export type FolderInfo = FolderKind & { repos: string[] }
+export type FolderInfo = FolderKind & { repos: string[]; plainChosen?: boolean }
 
 export type FolderDeps = {
   kind: (path: string) => FolderKind
   findRepos: (path: string) => string[]
+  /** The user chose to open this folder as a plain folder before. */
+  plainChosen?: (path: string) => boolean
 }
 
 /**
@@ -17,6 +19,7 @@ export type FolderDeps = {
 export function inspectFolder(path: unknown, deps: FolderDeps): FolderInfo {
   if (typeof path !== 'string' || !isAbsolute(path)) return { kind: 'missing', repos: [] }
   const kind = deps.kind(path)
+  if (kind.kind === 'plain' && deps.plainChosen?.(path) === true) return { ...kind, repos: [], plainChosen: true }
   return { ...kind, repos: kind.kind === 'plain' ? deps.findRepos(path) : [] }
 }
 

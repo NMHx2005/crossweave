@@ -14,6 +14,12 @@ describe('inspectFolder', () => {
     expect(info).toEqual({ kind: 'inside-repo', repoRoot: '/r', repos: [] })
     expect(searched).toBe(false)
   })
+  test('a plain folder chosen before opens without the dialog, and is not searched', () => {
+    let searched = false
+    const info = inspectFolder('/notes', { kind: () => ({ kind: 'plain' }), findRepos: () => { searched = true; return [] }, plainChosen: (p) => p === '/notes' })
+    expect(info).toEqual({ kind: 'plain', repos: [], plainChosen: true })
+    expect(searched).toBe(false)
+  })
   test('refuses what is not an absolute path', () => {
     for (const bad of [undefined, 12, 'relative/dir', '']) expect(inspectFolder(bad, deps({ kind: 'repo' })).kind).toBe('missing')
   })

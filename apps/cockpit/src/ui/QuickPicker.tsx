@@ -29,7 +29,7 @@ export type QuickPickerProps = {
   /** The launcher chosen last time, preselected when it is still usable. */
   lastLauncher: string | undefined
   /** A project's own defaults (Project settings): launcher, own worktree or not, base. */
-  defaultsFor: (projectRoot: string) => { launcher?: string; worktree: boolean; base?: string }
+  defaultsFor: (projectRoot: string) => { launcher?: string; worktree: boolean; base?: string; plain?: boolean }
   onCreate: (request: NewSessionRequest) => void
   onCancel: () => void
 }
@@ -67,6 +67,8 @@ export function QuickPicker(props: QuickPickerProps) {
   const [isolated, setIsolated] = useState(preferred.worktree)
   const inputRef = useRef<HTMLInputElement>(null)
   const otherProject = projectRoot !== activeRoot
+  /** A plain folder (no git): its sessions run in the folder; there is no worktree to choose. */
+  const plain = props.defaultsFor(projectRoot).plain === true
 
   useEffect(() => {
     inputRef.current?.focus()
@@ -176,6 +178,9 @@ export function QuickPicker(props: QuickPickerProps) {
             spellcheck={false}
           />
         </label>
+        {plain ? (
+          <p class="cockpit-muted">A plain folder (no git): the session runs in the folder itself.</p>
+        ) : (<>
         <label class="cockpit-picker__field">
           <span class="cockpit-muted">Start from</span>
           <select value={base} disabled={!isolated || otherProject} onChange={(e) => setBase((e.target as HTMLSelectElement).value)}>
@@ -189,6 +194,7 @@ export function QuickPicker(props: QuickPickerProps) {
           <input type="checkbox" checked={isolated} onChange={(e) => setIsolated((e.target as HTMLInputElement).checked)} />
           <span>Own worktree (isolated). Off: works in the project folder itself, shared with you.</span>
         </label>
+        </>)}
         {error ? <p class="cockpit-error" role="alert">{error}</p> : null}
         <div class="cockpit-picker__actions">
           <button type="button" class="cockpit-btn" onClick={props.onCancel}>Cancel</button>

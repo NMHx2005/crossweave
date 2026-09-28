@@ -12,6 +12,8 @@ export type WorkspaceSnapshot = {
   id: string
   name: string
   rootPath: string
+  /** False for a plain folder (no git): see the daemon's workspace.init. */
+  git?: boolean
 }
 
 export type DaemonBridgeDeps = {
@@ -26,6 +28,8 @@ export type DaemonBridgeDeps = {
   /** The projects this window lists in its rail, in the order they were opened. */
   loadOpenRoots?: () => string[]
   saveOpenRoots?: (roots: string[]) => void
+  /** Folders opened as plain folders (no git): the rail marks them, and they have no worktrees. */
+  isPlain?: (root: string) => boolean
 }
 
 type Attached = { client: DaemonLike; workspace: WorkspaceSnapshot }
@@ -107,7 +111,10 @@ export class DaemonBridge {
       return run
     }
     // The welcome (no project attached yet) still lists and picks projects.
-    if (channel === 'projects.list') return { active: this.projectRoot, open: this.openRoots() }
+    if (channel === 'projects.list') {
+      const open = this.openRoots()
+      return { active: this.projectRoot, open, plain: open.filter((root) => this.deps.isPlain?.(root) === true) }
+    }
     if (channel === 'projects.pick') return { projectRoot: (await this.deps.pickFolder()) ?? null }
     // The window exists before main's first ensure finishes; a call made in that gap
     // waits for it rather than failing "not attached".
@@ -150,7 +157,7 @@ export class DaemonBridge {
     const params = { workspaceId: workspace.id }
     const sessions = await client.call('session.list', params)
     const converge = await client.call('converge.status', params).catch(() => undefined)
-    return { projectRoot, name: workspace.name, sessions, converge }
+    return { projectRoot, name: workspace.name, git: workspace.git !== false, sessions, converge }
   }
 
   /**

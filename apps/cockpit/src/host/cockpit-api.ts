@@ -169,7 +169,7 @@ function makeApi(invoke: Invoke, listen: Listen) {
       return listen('daemon.gone', cb)
     },
     /** Every project open in this window, and which one is on the stage. */
-    listProjects(): Promise<{ active: string | undefined; open: string[] }> {
+    listProjects(): Promise<{ active: string | undefined; open: string[]; plain?: string[] }> {
       return invoke('projects.list')
     },
     projectSessions(projectRoot: string): Promise<ProjectSnapshot> {
@@ -219,6 +219,10 @@ function makeApi(invoke: Invoke, listen: Listen) {
     initGit(path: string): Promise<{ ok: boolean; committed: boolean; message: string }> {
       return invoke('folder.initGit', { path })
     },
+    /** The Open folder dialog's "Open as a plain folder": remembered, so its daemon serves it without git. */
+    openPlainFolder(path: string): Promise<{ ok: boolean }> {
+      return invoke('folder.openPlain', { path })
+    },
     /** Recently opened project folders that still exist, newest first. */
     recentProjects(): Promise<string[]> {
       return invoke('projects.recent')
@@ -248,7 +252,7 @@ export const cockpitApi: CockpitApi = makeApi(cockpitInvoke, cockpitListen)
  */
 const WINDOW_CHANNELS = new Set<CockpitChannel>([
   'workspace.ensure', 'projects.list', 'projects.pick', 'projects.reorder', 'projects.recent', 'projects.sessions',
-  'folder.inspect', 'folder.initGit',
+  'folder.inspect', 'folder.initGit', 'folder.openPlain',
   'projects.close', 'app.badge', 'folder.reveal', 'folder.openInEditor',
   'terminal.importSources', 'terminal.import', 'fonts.list', 'menu.refresh',
 ])

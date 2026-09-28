@@ -45,6 +45,8 @@ export const COCKPIT_CHANNELS = [
   'folder.inspect',
   // The Open folder dialog's "Initialize git here", after the user confirmed.
   'folder.initGit',
+  // The Open folder dialog's "Open as a plain folder": remember the choice (main process).
+  'folder.openPlain',
   // The command bar's rename and gc.
   'session.rename',
   // A session's one-line note (shown in the rail instead of the agent's last words).

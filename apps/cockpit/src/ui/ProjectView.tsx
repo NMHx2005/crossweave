@@ -121,7 +121,7 @@ export type ViewHost = {
   activate: () => void
   /** The ⌘T picker chose another project: create it there. */
   createElsewhere: (request: NewSessionRequest) => void
-  defaultsFor: (projectRoot: string) => { launcher?: string; worktree: boolean; base?: string }
+  defaultsFor: (projectRoot: string) => { launcher?: string; worktree: boolean; base?: string; plain?: boolean }
   projects: Array<{ projectRoot: string; name: string }>
   notify: NotifyPrefs
   sidebarHidden: boolean
