@@ -41,6 +41,10 @@ export const COCKPIT_CHANNELS = [
   'projects.reorder',
   // The Open Recent history (main process), for the rail's empty-area menu.
   'projects.recent',
+  // Before opening a folder: is it a repository? (main process; see folder-open.ts)
+  'folder.inspect',
+  // The Open folder dialog's "Initialize git here", after the user confirmed.
+  'folder.initGit',
   // The command bar's rename and gc.
   'session.rename',
   // A session's one-line note (shown in the rail instead of the agent's last words).

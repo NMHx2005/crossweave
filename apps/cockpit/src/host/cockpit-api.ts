@@ -2,6 +2,7 @@ import type { SessionDiff } from '../lib/patch'
 import type { CockpitChannel, CockpitEvent } from '../../electron/channels'
 import { parseSessionList, type ListedSession } from '../lib/sessions'
 import type { TerminalAppearance } from '../../../../src/core/settings.js'
+import type { FolderInfo } from '../../electron/folder-open'
 
 export type { CockpitChannel, CockpitEvent, ListedSession }
 
@@ -210,6 +211,14 @@ function makeApi(invoke: Invoke, listen: Listen) {
     setBadge(count: number): Promise<unknown> {
       return invoke('app.badge', { count })
     },
+    /** What a folder is before it is opened: a repository, a subfolder of one, or plain (with the repositories inside). */
+    inspectFolder(path: string): Promise<FolderInfo> {
+      return invoke('folder.inspect', { path })
+    },
+    /** `git init` (and an empty first commit when git knows the user) in a plain folder. */
+    initGit(path: string): Promise<{ ok: boolean; committed: boolean; message: string }> {
+      return invoke('folder.initGit', { path })
+    },
     /** Recently opened project folders that still exist, newest first. */
     recentProjects(): Promise<string[]> {
       return invoke('projects.recent')
@@ -239,6 +248,7 @@ export const cockpitApi: CockpitApi = makeApi(cockpitInvoke, cockpitListen)
  */
 const WINDOW_CHANNELS = new Set<CockpitChannel>([
   'workspace.ensure', 'projects.list', 'projects.pick', 'projects.reorder', 'projects.recent', 'projects.sessions',
+  'folder.inspect', 'folder.initGit',
   'projects.close', 'app.badge', 'folder.reveal', 'folder.openInEditor',
   'terminal.importSources', 'terminal.import', 'fonts.list', 'menu.refresh',
 ])

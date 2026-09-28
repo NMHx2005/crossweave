@@ -18,6 +18,8 @@ import { editorLaunch, resolveLinkTarget } from './editor-open'
 import { badgeCount, folderLaunch, resolveFolder } from './path-target'
 import { importSources, importTerminal, type ImportDeps } from './terminal-import'
 import { listFonts } from './fonts'
+import { findRepos, folderKind } from '../../../src/core/folder-kind.js'
+import { initGit, inspectFolder } from './folder-open'
 import { loadSettings } from '../../../src/core/settings.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -215,6 +217,16 @@ function registerHandlers(bridge: DaemonBridge): void {
       if (channel === 'app.badge') return setBadge(payload)
       if (channel === 'terminal.importSources') return importSources(importDeps())
       if (channel === 'fonts.list') return listFonts(importDeps().run)
+      if (channel === 'folder.inspect') return inspectFolder((payload as { path?: unknown } | null)?.path, { kind: folderKind, findRepos })
+      if (channel === 'folder.initGit') {
+        return initGit((payload as { path?: unknown } | null)?.path, {
+          kind: folderKind,
+          findRepos,
+          run: (command, args, cwd) => new Promise((resolve) => {
+            execFile(command, args, { cwd, timeout: 10_000, encoding: 'utf8' }, (err, stdout) => resolve({ ok: !err, out: String(stdout ?? '') }))
+          }),
+        })
+      }
       // Only folders that still exist: a deleted project must not be offered.
       if (channel === 'projects.recent') return loadRecent().filter((root) => existsSync(root))
       if (channel === 'menu.refresh') {
@@ -301,6 +313,17 @@ async function switchWorkspace(projectRoot: string): Promise<void> {
     return
   }
 
+  // Not a repository's top level (`cw` run in a plain folder, Open Recent on one): the
+  // window's Open folder dialog explains it — starting a daemon there cannot work.
+  if (folderKind(projectRoot).kind !== 'repo') {
+    const existing = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed())
+    if (existing) {
+      existing.webContents.send('cockpit.command', { command: 'show-project', projectRoot })
+      existing.show()
+      existing.focus()
+    }
+    return
+  }
   try {
     await switchCockpitWorkspace(projectRoot, {
       ensure: async (root) => {

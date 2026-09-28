@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { cockpitApi, projectApi, type LauncherOption, type ListedSession, type ProjectSnapshot } from '../host/cockpit-api'
 import { ConfirmDialog, type ConfirmRequest } from './ConfirmDialog'
+import { OpenFolderDialog } from './OpenFolderDialog'
+import type { FolderInfo } from '../../electron/folder-open'
 import type { NewSessionRequest } from './QuickPicker'
 import { SettingsPanel, type NotifyPrefs, type UserSettings } from './SettingsPanel'
 import { ProjectSettings } from './ProjectSettings'
@@ -221,6 +223,15 @@ export function App() {
    */
   async function activate(root: string, then?: ViewAction): Promise<void> {
     if (root !== activeRef.current) {
+      // A folder not open yet is looked at first: only a repository's top level can
+      // have a daemon; anything else gets the Open folder dialog instead of a timeout.
+      if (!openRoots.includes(root)) {
+        const info = await cockpitApi.inspectFolder(root).catch(() => null)
+        if (info !== null && info.kind !== 'repo') {
+          setFolderDialog({ path: root, info })
+          return
+        }
+      }
       try {
         await cockpitApi.ensureWorkspace(root)
       } catch (err) {
@@ -338,6 +349,25 @@ export function App() {
       case 'move-up': void reorderProjects(moveProject(openRoots, root, -1)); return
       case 'move-down': void reorderProjects(moveProject(openRoots, root, 1)); return
     }
+  }
+
+  /** A folder chosen to open that is not a repository's top level (OpenFolderDialog). */
+  const [folderDialog, setFolderDialog] = useState<{ path: string; info: FolderInfo } | null>(null)
+
+  async function initGitIn(path: string): Promise<string | null> {
+    const ok = await askConfirm({
+      title: `Initialize git in “${baseName(path)}”?`,
+      body: 'Runs git init there — and an empty first commit when your git name and email are set. Nothing else in the folder changes.',
+      confirmLabel: 'Initialize git',
+    })
+    if (!ok) return null
+    const result = await cockpitApi.initGit(path).catch((err: unknown) => ({ ok: false, committed: false, message: plainErrorMessage(err) }))
+    if (!result.ok) return result.message
+    // A repository now: open it like any other.
+    setFolderDialog(null)
+    showToast(result.message, 'info')
+    await activate(path)
+    return result.message
   }
 
   /** Resolves to the user's answer; only one confirmation is ever open. */
@@ -574,6 +604,15 @@ export function App() {
 
   return (
     <div class={`cockpit-shell${sidebarHidden ? ' is-sidebar-hidden' : ''}`}>
+      {folderDialog !== null ? (
+        <OpenFolderDialog
+          path={folderDialog.path}
+          info={folderDialog.info}
+          onOpen={(root) => activate(root)}
+          onInitGit={() => initGitIn(folderDialog.path)}
+          onClose={() => setFolderDialog(null)}
+        />
+      ) : null}
       {confirmState !== null ? (
         <ConfirmDialog
           {...confirmState}
