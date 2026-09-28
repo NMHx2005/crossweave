@@ -1,28 +1,11 @@
-import { execFile } from 'node:child_process';
+import { readRepoScan } from './repo-scan.js';
 
 /** What the rail shows for a session's folder: files not yet committed, commits not yet landed. */
 export type GitCounts = { changed: number; ahead: number | null };
 
-/**
- * Changed paths in `git status --porcelain` output (one per line, renames included
- * once). crossweave's own `.crossweave/` — the state and the worktrees, untracked in
- * the project folder unless the user ignores it — is not the user's change: a shared
- * session showed "1 file changed" the moment it was created.
- */
-export function countChanged(porcelain: string): number {
-  return porcelain.split('\n').filter((line) => {
-    if (line.trim() === '') return false;
-    const path = line.slice(3).replace(/^"/, '');
-    return path !== '.crossweave/' && !path.startsWith('.crossweave/');
-  }).length;
-}
-
-function git(cwd: string, args: string[]): Promise<string | null> {
-  return new Promise((resolve) => {
-    execFile('git', args, { cwd, encoding: 'utf8', maxBuffer: 4 * 1024 * 1024 },
-      (err, stdout) => resolve(err ? null : String(stdout)));
-  });
-}
+// Re-exported (not duplicated) so the many readers of `countChanged` keep importing it
+// from here, while the status parsing itself lives with the rest of the folder scan.
+export { countChanged } from './repo-scan.js';
 
 /**
  * The counts for one folder. `baseHead` null (or a shared session, which IS the base)
@@ -30,15 +13,8 @@ function git(cwd: string, args: string[]): Promise<string | null> {
  * nothing to land, only uncommitted files.
  */
 export async function readGitCounts(folder: string, baseHead: string | null): Promise<GitCounts | null> {
-  const status = await git(folder, ['status', '--porcelain']);
-  if (status === null) return null;
-  let ahead: number | null = null;
-  if (baseHead !== null) {
-    const out = await git(folder, ['rev-list', '--count', `${baseHead}..HEAD`]);
-    const n = out === null ? NaN : Number(out.trim());
-    ahead = Number.isInteger(n) ? n : null;
-  }
-  return { changed: countChanged(status), ahead };
+  const scan = await readRepoScan(folder, baseHead);
+  return scan === null ? null : { changed: scan.changed, ahead: scan.ahead };
 }
 
 /**
