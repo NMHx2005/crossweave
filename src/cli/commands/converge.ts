@@ -1,6 +1,7 @@
 import { defineCommand } from 'citty';
 import { withClient, fail, currentWorkspaceId } from '../context.js';
 import { formatOverlapPairs, type OverlapPair } from './overlap.js';
+import { CrossweaveError } from '../../core/errors.js';
 
 type OverlapCaller = (method: string, params: Record<string, unknown>) => Promise<{ pairs: OverlapPair[] }>;
 
@@ -20,8 +21,11 @@ export async function printOverlaps(
     if (pairs.length === 0) return;
     out('overlaps:\n');
     for (const line of formatOverlapPairs(pairs).split('\n')) out(`  ${line}\n`);
-  } catch {
+  } catch (cause) {
     // Older daemon without `overlap.list`; the hard verdict already printed stands.
+    // Anything else (a real daemon-side failure) must still reach the caller.
+    if (cause instanceof CrossweaveError && cause.code === 'METHOD_NOT_FOUND') return;
+    throw cause;
   }
 }
 

@@ -58,6 +58,20 @@ describe('DaemonClient', () => {
     client.close();
   });
 
+  // Regression: an unknown method and an internal daemon exception both surfaced as
+  // the same generic 'RPC_ERROR' code, so a caller meaning to tolerate "older daemon,
+  // method doesn't exist yet" (e.g. `printOverlaps`) could only do so by swallowing
+  // every other error too.
+  it('rejects with METHOD_NOT_FOUND, distinct from other RPC errors, for an unknown method', async () => {
+    daemon = createDaemon({ socketPath, methods: buildMethods(db, fx.root) });
+    await daemon.listen();
+    const client = await DaemonClient.connect(socketPath);
+    await expect(client.call('not.a.real.method')).rejects.toMatchObject({
+      code: 'METHOD_NOT_FOUND',
+    });
+    client.close();
+  });
+
   it('fails to connect when nothing is listening', async () => {
     await expect(DaemonClient.connect(socketPath)).rejects.toBeTruthy();
   });

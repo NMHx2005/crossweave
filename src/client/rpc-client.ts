@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { CrossweaveError } from '../core/errors.js';
 import { DAEMON_EXIT_ALREADY_RUNNING } from '../core/exit-codes.js';
 import { crossweaveDir } from '../core/paths.js';
-import { createFrameDecoder, encodeFrame } from '../daemon/rpc.js';
+import { createFrameDecoder, encodeFrame, RPC_ERROR_CODES } from '../daemon/rpc.js';
 import { connectablePath } from './socket-path.js';
 import { unixSocketTransport, type ClientTransport } from './transport.js';
 
@@ -71,7 +71,7 @@ export class DaemonClient {
       method?: string;
       params?: unknown;
       result?: unknown;
-      error?: { message: string; data?: { code?: string } };
+      error?: { code: number; message: string; data?: { code?: string } };
     };
     if (typeof r.id !== 'number') {
       if (typeof r.method === 'string') {
@@ -83,7 +83,13 @@ export class DaemonClient {
     if (!p) return;
     this.pending.delete(r.id);
     if (r.error) {
-      p.reject(new CrossweaveError(r.error.data?.code ?? 'RPC_ERROR', r.error.message));
+      // `data.code` carries an application-level CrossweaveError code; the wire-level
+      // JSON-RPC `code` is the only signal for a daemon-side transport error such as
+      // METHOD_NOT_FOUND (an old daemon missing a newer RPC), which callers like
+      // `printOverlaps` need to tell apart from a genuine internal failure.
+      const code = r.error.data?.code
+        ?? (r.error.code === RPC_ERROR_CODES.METHOD_NOT_FOUND ? 'METHOD_NOT_FOUND' : 'RPC_ERROR');
+      p.reject(new CrossweaveError(code, r.error.message));
     } else {
       p.resolve(r.result);
     }
