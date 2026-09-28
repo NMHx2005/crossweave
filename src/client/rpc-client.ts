@@ -199,6 +199,9 @@ export async function connectOrStart(
   // correct because the polling loop below is what decides the outcome, and it ends
   // in a proper DAEMON_START_FAILED.
   child.on('error', () => undefined);
+  // A daemon that exits before it listens will never answer: stop waiting at once.
+  let exitCode: number | null | undefined;
+  child.on('exit', (code) => { exitCode = code; });
   child.unref();
 
   const deadline = Date.now() + DAEMON_START_TIMEOUT_MS;
@@ -206,6 +209,12 @@ export async function connectOrStart(
     try {
       return await DaemonClient.connect(socketPath);
     } catch {
+      if (exitCode !== undefined) {
+        throw new CrossweaveError(
+          'DAEMON_START_FAILED',
+          `crossweave stopped as it started in ${projectRoot} (exit code ${exitCode ?? 'none'})`,
+        );
+      }
       await new Promise((r) => setTimeout(r, DAEMON_POLL_INTERVAL_MS));
     }
   }

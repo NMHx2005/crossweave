@@ -157,4 +157,14 @@ describe('connectOrStart', () => {
     await client.call('daemon.shutdown').catch(() => undefined);
     client.close();
   }, 30_000);
+
+  // A daemon that exits as it starts (a folder that is not a repository, a broken
+  // install) used to be noticed only when the 10 s wait ran out.
+  it('says at once when the daemon exits before listening', async () => {
+    const started = Date.now();
+    const err = await connectOrStart(fx.root, { command: 'sh', args: ['-c', 'exit 3'] }).catch((e: Error) => e) as Error & { code?: string };
+    expect(err.code).toBe('DAEMON_START_FAILED');
+    expect(err.message).toMatch(/stopped as it started/);
+    expect(Date.now() - started).toBeLessThan(3000);
+  }, 15_000);
 });
