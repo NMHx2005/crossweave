@@ -1,7 +1,7 @@
 import type { Database } from 'bun:sqlite';
 import { rmSync, statSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
-import { SessionRepo } from '../db/repositories/session.js';
+import { SessionRepo, type SessionRow } from '../db/repositories/session.js';
 import { WorkspaceRepo, type WorkspaceRow } from '../db/repositories/workspace.js';
 import { LeaseRepo } from '../db/repositories/lease.js';
 import { CrossweaveError } from '../core/errors.js';
@@ -14,11 +14,19 @@ export interface GcResult {
   reclaimedBytes: number;
   /** Dead sessions left alone because they still hold unlanded work. */
   kept: string[];
+  /** Best-effort hook failures (a `sessionTeardown` that did not clean up) to surface. */
+  warnings: string[];
 }
 
 export interface GcOptions {
   /** Reclaim dead sessions even when they hold unlanded work. */
   force?: boolean;
+  /**
+   * Called for a session that is about to lose its OWN worktree — the last moment
+   * `hooks.sessionTeardown` can still run inside it. Returns warning lines to report;
+   * a rejected promise is the caller's to handle, not this sweep's.
+   */
+  onBeforeRemove?: (session: SessionRow) => Promise<string[]>;
 }
 
 /**
@@ -100,6 +108,7 @@ async function reclaimEnded(
 
   const removed: string[] = [];
   const kept: string[] = [];
+  const warnings: string[] = [];
   let reclaimedBytes = 0;
   // Paths handled by this loop, whether or not their `removeWorktree` actually
   // succeeded — a failed removal here still deletes the row (best effort, does not
@@ -123,6 +132,7 @@ async function reclaimEnded(
         ? session.worktreePath
         : null;
     if (own !== null) {
+      if (opts.onBeforeRemove !== undefined) warnings.push(...(await opts.onBeforeRemove(session)));
       disposedPaths.add(own);
       await removeWorktree(workspace.rootPath, own).catch(() => undefined);
     }
@@ -135,7 +145,7 @@ async function reclaimEnded(
     reclaimedBytes += sizes.get(session.id) ?? 0;
   }
 
-  return { removed, reclaimedBytes, kept, disposedPaths };
+  return { removed, reclaimedBytes, kept, warnings, disposedPaths };
 }
 
 /**
@@ -179,7 +189,7 @@ async function sweepOrphans(
     removed.push(path.split('/').pop() ?? path);
   }
 
-  return { removed, reclaimedBytes, kept: [] };
+  return { removed, reclaimedBytes, kept: [], warnings: [] };
 }
 
 /**
@@ -207,5 +217,6 @@ export async function collectGarbage(
     removed: [...ended.removed, ...orphans.removed],
     reclaimedBytes: ended.reclaimedBytes + orphans.reclaimedBytes,
     kept: ended.kept,
+    warnings: ended.warnings,
   };
 }

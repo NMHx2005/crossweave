@@ -20,11 +20,13 @@ import { MergeTrialRepo, isPairwiseTrial } from '../db/repositories/merge-trial.
 import { baseConflictFiles, commitsAhead } from '../convergence/trial.js';
 import { sessionDiff } from '../domain/session-diff.js';
 import { ConfigTrustRepo } from '../db/repositories/config-trust.js';
+import { SessionSetupRepo } from '../db/repositories/session-setup.js';
+import { decideSetup, runTeardown, SETUP_UNTRUSTED_NOTICE, withSetup } from '../domain/session-setup.js';
 import { NotifyConfigRepo, type NotifyEventKind } from '../db/repositories/notify-config.js';
 import { buildConflictGraph, recommendOrder } from '../convergence/graph.js';
 import { classifyLandability } from '../convergence/evidence.js';
 import { landSession } from '../convergence/land.js';
-import { hashTestCommand, isTestCommandTrusted } from '../convergence/trust.js';
+import { hashHooks, hashTestCommand, isHooksTrusted, isTestCommandTrusted } from '../convergence/trust.js';
 import { emptyJournal, normalizeTabs, readJournal, writeJournal } from '../domain/journal.js';
 import { overlapPairs, type SessionPaths } from '../domain/overlap.js';
 
@@ -169,6 +171,7 @@ export function buildMethods(
   const ledger = new EventLedger(db);
   const notifyGate = new NotificationGate();
   const configTrust = new ConfigTrustRepo(db);
+  const sessionSetup = new SessionSetupRepo(db);
   const notifyConfig = new NotifyConfigRepo(db);
   const notifyDeps: NotifyDispatcherDeps = {
     gate: notifyGate,
@@ -292,6 +295,24 @@ export function buildMethods(
       throw new CrossweaveError('SESSION_NO_WORKDIR', `Session has no working directory: ${row.name}`);
     }
     return row.worktreePath;
+  }
+
+  /**
+   * `hooks.sessionTeardown`, run best effort in the session's own worktree just before
+   * that worktree is removed. Unlike `sessionSetup` there is no shell left to type into
+   * at this point, so the daemon spawns it. Untrusted hooks are skipped with a warning
+   * rather than run, and a failure is a warning — the removal must never be blocked.
+   */
+  async function teardownFor(row: SessionRow): Promise<string[]> {
+    const hooks = config.hooks;
+    const command = hooks?.sessionTeardown;
+    if (command === undefined) return [];
+    if (row.worktreePath === null || row.worktreePath === projectRoot || !existsSync(row.worktreePath)) return [];
+    if (!isHooksTrusted(hooks ?? {}, configTrust, row.workspaceId)) {
+      return [`hooks.sessionTeardown is not trusted; skipped for ${row.name}`];
+    }
+    const warning = await runTeardown(command, row.worktreePath, {});
+    return warning === undefined ? [] : [warning];
   }
 
   /**
@@ -430,8 +451,24 @@ export function buildMethods(
       }
       sessions.markStatus(row.id, 'running', pid);
       // Typed, not exec'd: the shell reads it once its rc files have run, and when the
-      // agent exits the user is back at a prompt in the worktree.
-      if (run !== undefined) runtime.write(row.id, row.name, `${run}\r`);
+      // agent exits the user is back at a prompt in the worktree. The setup hook rides
+      // the same path — typed once, at this session's first start, ahead of the launcher
+      // and `&&`-chained with it so a failed setup does not start an agent on a
+      // half-installed tree. Its output lands in the very pty the user is looking at.
+      const hasWorktree = row.worktreePath !== null && row.worktreePath !== projectRoot && existsSync(row.worktreePath);
+      const setup = decideSetup({
+        hooks: config.hooks,
+        trusted: config.hooks !== undefined && isHooksTrusted(config.hooks, configTrust, row.workspaceId),
+        alreadyRan: sessionSetup.has(row.id),
+        hasWorktree,
+      });
+      if (setup.command !== undefined) {
+        sessionSetup.mark(row.id);
+        runtime.write(row.id, row.name, `${withSetup(setup.command, run)}\r`);
+      } else {
+        if (setup.skipped === 'untrusted') runtime.write(row.id, row.name, `${SETUP_UNTRUSTED_NOTICE}\r`);
+        if (run !== undefined) runtime.write(row.id, row.name, `${run}\r`);
+      }
       ledger.append({ sessionId: row.id, workspaceId: row.workspaceId, kind: 'session.started', payload: '{}' });
       // Every client redraws on this. Without it, a session started by ANOTHER client
       // (the CLI while the cockpit is open) stayed `stopped` on every other screen.
@@ -501,7 +538,12 @@ export function buildMethods(
     },
     'workspace.gc': async (p) => {
       const id = str(p, 'id');
-      const result = await collectGarbage(db, id, { force: bool(p, 'force', false) });
+      // `onBeforeRemove` is where `hooks.sessionTeardown` runs: gc owns the removal, so it
+      // is the only place that knows which worktrees are actually about to go.
+      const result = await collectGarbage(db, id, {
+        force: bool(p, 'force', false),
+        onBeforeRemove: (session) => teardownFor(session),
+      });
       await closeOrphanTerminals(id);
       // Otherwise `workspace.info`'s disk figure (Important 3's TTL cache) can keep
       // showing pre-gc usage for up to `DISK_USAGE_CACHE_TTL_MS` after a gc, even
@@ -525,7 +567,12 @@ export function buildMethods(
       return row;
     },
     'session.list': (p) => {
-      const listed = sessions.list(str(p, 'workspaceId'));
+      const workspaceId = str(p, 'workspaceId');
+      const listed = sessions.list(workspaceId);
+      // Per-workspace, so read once rather than per row: a worktree session that has not
+      // had its (trusted) setup hook typed yet carries `setup: 'pending'` to the rail.
+      const hooksForList = config.hooks;
+      const hooksTrusted = hooksForList?.sessionSetup !== undefined && isHooksTrusted(hooksForList, configTrust, workspaceId);
       // Read in the background; a change is announced like any other, and the next
       // list carries it.
       if (hasGit) void gitCounts.refresh(() => {
@@ -563,6 +610,9 @@ export function buildMethods(
         const status = activity.status(session.id, agent);
         const git = gitCounts.get(session.id);
         const overlaps = overlap.get(session.id);
+        const setupPending = hooksTrusted
+          && session.worktreePath !== null && session.worktreePath !== projectRoot
+          && !sessionSetup.has(session.id);
         const used = session.worktreePath === projectRoot ? undefined : usage.get(session.id);
         const size = runtime.size(session.id);
         const withWords = {
@@ -571,6 +621,7 @@ export function buildMethods(
           ...(words === undefined ? {} : { latestWords: words }),
           ...(git === undefined ? {} : { git }),
           ...(overlaps === undefined ? {} : { overlaps }),
+          ...(setupPending ? { setup: 'pending' as const } : {}),
           ...(size === undefined ? {} : size),
           agent,
           activity: status.activity,
@@ -615,10 +666,40 @@ export function buildMethods(
       return { ok: true };
     },
     'session.rm': async (p) => {
-      await terminals.closeForSession(sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName')).id);
+      const row = sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName'));
+      // Teardown first: it needs the worktree that `remove` is about to delete.
+      const warnings = await teardownFor(row);
+      await terminals.closeForSession(row.id);
       await sessions.remove(str(p, 'workspaceId'), str(p, 'idOrName'));
+      sessionSetup.clear(row.id);
       broadcastRegistry.broadcast('tui.invalidate', {});
-      return { ok: true };
+      return { ok: true, warnings };
+    },
+
+    // Run `hooks.sessionSetup` again by hand. With the hook typed into the shell, that
+    // means: clear the once-marker so the next start types it — and, when the shell is
+    // already open, type it into that shell right now.
+    'session.setup': (p) => {
+      const row = sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName'));
+      const hooks = config.hooks;
+      const command = hooks?.sessionSetup;
+      if (command === undefined) {
+        throw new CrossweaveError('CONFIG_NO_HOOKS', 'hooks.sessionSetup is not set in crossweave.config.json.');
+      }
+      if (!isHooksTrusted(hooks ?? {}, configTrust, row.workspaceId)) {
+        throw new CrossweaveError('HOOKS_UNTRUSTED', 'hooks.sessionSetup is not trusted for this workspace. Review crossweave.config.json, then run `cw config trust hooks`.');
+      }
+      if (row.worktreePath === null || row.worktreePath === projectRoot || !existsSync(row.worktreePath)) {
+        throw new CrossweaveError('SESSION_NO_WORKDIR', `Session has no worktree of its own to set up: ${row.name}`);
+      }
+      sessionSetup.clear(row.id);
+      const typed = runtime.isRunning(row.id);
+      if (typed) {
+        runtime.write(row.id, row.name, `${command}\r`);
+        sessionSetup.mark(row.id);
+      }
+      broadcastRegistry.broadcast('tui.invalidate', {});
+      return { typed };
     },
 
     'session.start': (p) => start(p),
@@ -891,20 +972,38 @@ export function buildMethods(
       }
     },
 
+    // Two separate trusts, deliberately (see src/convergence/trust.ts): the test command
+    // runs only on an explicit `cw land --yes`, the hooks run automatically on a
+    // session's first start, so trusting one must never arm the other. `target` picks.
     'config.trust': (p) => {
       const workspaceId = str(p, 'workspaceId');
+      const target = optionalStr(p, 'target') ?? 'testCommand';
+      if (target === 'hooks') {
+        const hooks = config.hooks;
+        if (hooks === undefined || (hooks.sessionSetup === undefined && hooks.sessionTeardown === undefined)) {
+          throw new CrossweaveError('CONFIG_NO_HOOKS', 'hooks are not set in crossweave.config.json; nothing to trust.');
+        }
+        configTrust.setHooks(workspaceId, hashHooks(hooks), new Date().toISOString());
+        return { trusted: true, target: 'hooks' };
+      }
+      if (target !== 'testCommand') {
+        throw new CrossweaveError('INVALID_PARAMS', `Unknown trust target: ${target} (expected testCommand or hooks)`);
+      }
       const testCommand = config.converge.testCommand;
       if (testCommand === undefined) {
         throw new CrossweaveError('CONFIG_NO_TEST_COMMAND', 'converge.testCommand is not set; nothing to trust.');
       }
       configTrust.upsert({ workspaceId, testCommandHash: hashTestCommand(testCommand), trustedAt: new Date().toISOString() });
-      return { trusted: true, testCommand };
+      return { trusted: true, target: 'testCommand', testCommand };
     },
 
     'config.status': (p) => {
       const workspaceId = str(p, 'workspaceId');
       const testCommand = config.converge.testCommand;
       const trusted = testCommand !== undefined && isTestCommandTrusted(testCommand, configTrust, workspaceId);
+      const hooks = config.hooks;
+      const hasHooks = hooks !== undefined && (hooks.sessionSetup !== undefined || hooks.sessionTeardown !== undefined);
+      const hooksTrusted = hasHooks && isHooksTrusted(hooks, configTrust, workspaceId);
       const n = notifyConfig.get(workspaceId);
       // Explicit field list rather than spreading `n` directly, so the shape is
       // identical whether or not a row exists yet — `n` also carries `workspaceId`,
@@ -912,6 +1011,11 @@ export function buildMethods(
       return {
         testCommand: testCommand ?? null,
         trusted,
+        hooks: {
+          sessionSetup: hooks?.sessionSetup ?? null,
+          sessionTeardown: hooks?.sessionTeardown ?? null,
+          trusted: hooksTrusted,
+        },
         notify: {
           enabled: n?.enabled ?? true,
           land: n?.land ?? true,
