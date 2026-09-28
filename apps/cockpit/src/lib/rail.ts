@@ -120,6 +120,19 @@ export function visibleRows(sessions: readonly ListedSession[], opts: { hideEnde
   })
 }
 
+/**
+ * The overlap badge: which other sessions share paths with this one — the passive early
+ * warning shown while the work is still cheap to move, before a trial merge can turn it
+ * into a conflict. `⇄ name` (or `⇄ name +N`), with the shared paths in the title.
+ */
+export function overlapBadge(overlaps: ListedSession['overlaps']): { label: string; title: string } | undefined {
+  if (overlaps === undefined || overlaps.length === 0) return undefined
+  const names = overlaps.map((o) => o.session)
+  const label = names.length === 1 ? `⇄ ${names[0]}` : `⇄ ${names[0]} +${names.length - 1}`
+  const title = overlaps.map((o) => `${o.session}: ${o.paths.join(', ')}`).join(' · ')
+  return { label, title }
+}
+
 /** The git counts as the row shows them: `3` files changed, `↑2` commits to land. */
 export function gitBadge(git: ListedSession['git']): { changed?: string; ahead?: string; title: string } | undefined {
   if (git === undefined) return undefined

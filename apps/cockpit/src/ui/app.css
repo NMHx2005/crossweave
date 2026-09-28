@@ -1792,6 +1792,15 @@ body,
   color: var(--cw-ready);
 }
 
+/* A session touching files another session is also touching: the passive early warning,
+   shown while the work is still cheap to move, before a trial merge can conflict. */
+.cockpit-row__overlap {
+  flex: none;
+  color: var(--cw-accent);
+  font-size: var(--cw-fs-micro);
+  white-space: nowrap;
+}
+
 /* A name edited in place, on the row or the project heading. */
 .cockpit-rename {
   position: relative;

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { agentName, gitBadge, landChip, newlyAsking, railOrder, relativeTime, rowState, ROW_STATE_LABEL, rowTitle, visibleRows, jumpTargets, clampMenu, newlyFinished, recentToOffer, submenuPosition } from '../src/lib/rail'
+import { agentName, gitBadge, landChip, newlyAsking, overlapBadge, railOrder, relativeTime, rowState, ROW_STATE_LABEL, rowTitle, visibleRows, jumpTargets, clampMenu, newlyFinished, recentToOffer, submenuPosition } from '../src/lib/rail'
 import { parseSessionList } from '../src/lib/sessions'
 
 describe('relativeTime', () => {
@@ -123,6 +123,34 @@ describe('visibleRows', () => {
     expect(ids(visibleRows(rows, { query: 'cw/' }))).toEqual(['a', 'b'])
     expect(ids(visibleRows(rows, { query: '   ' }))).toEqual(['a', 'b'])
     expect(visibleRows(rows, { query: 'nothing' })).toEqual([])
+  })
+})
+
+describe('overlapBadge', () => {
+  test('names the other session(s), with the shared paths in the title', () => {
+    expect(overlapBadge([{ session: 'bob', paths: ['a.ts', 'b.ts'] }]))
+      .toEqual({ label: '⇄ bob', title: 'bob: a.ts, b.ts' })
+  })
+  test('collapses extra sessions into a count', () => {
+    expect(overlapBadge([
+      { session: 'bob', paths: ['a.ts'] },
+      { session: 'carol', paths: ['b.ts'] },
+      { session: 'dave', paths: ['c.ts'] },
+    ])).toEqual({ label: '⇄ bob +2', title: 'bob: a.ts · carol: b.ts · dave: c.ts' })
+  })
+  test('nothing when there is no overlap', () => {
+    expect(overlapBadge(undefined)).toBeUndefined()
+    expect(overlapBadge([])).toBeUndefined()
+  })
+})
+
+describe('parseSessionList overlaps', () => {
+  test('keeps well-formed overlaps and drops malformed ones', () => {
+    expect(parseSessionList([{ id: 'a', name: 'a', overlaps: [{ session: 'bob', paths: ['x.ts'] }] }])[0]?.overlaps)
+      .toEqual([{ session: 'bob', paths: ['x.ts'] }])
+    expect(parseSessionList([{ id: 'a', name: 'a', overlaps: [{ paths: ['x.ts'] }] }])[0]?.overlaps).toBeUndefined()
+    expect(parseSessionList([{ id: 'a', name: 'a', overlaps: 'nope' }])[0]?.overlaps).toBeUndefined()
+    expect(parseSessionList([{ id: 'a', name: 'a' }])[0]?.overlaps).toBeUndefined()
   })
 })
 

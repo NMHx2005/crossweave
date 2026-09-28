@@ -3,7 +3,7 @@ import type { ListedSession } from '../host/cockpit-api'
 import type { AttentionKind } from '../lib/attention'
 import { SESSION_COLORS, type SessionColor } from '../lib/colors'
 import { sessionNameError } from '../lib/quick-picker'
-import { agentName, clampMenu, gitBadge, jumpTargets, landChip, railOrder, relativeTime, rowState, rowTitle, ROW_STATE_LABEL, recentToOffer, submenuPosition, visibleRows } from '../lib/rail'
+import { agentName, clampMenu, gitBadge, jumpTargets, landChip, overlapBadge, railOrder, relativeTime, rowState, rowTitle, ROW_STATE_LABEL, recentToOffer, submenuPosition, visibleRows } from '../lib/rail'
 import { formatRailMeta } from '../lib/sessions'
 import { sumUsage, usageLabel } from '../lib/usage'
 import type { ModelPrice } from '../../../../src/core/settings.js'
@@ -330,6 +330,7 @@ export function Sidebar(props: SidebarProps) {
                     const color = project.active ? colorById[session.id] : undefined
                     const meta = formatRailMeta(session)
                     const git = gitBadge(session.git)
+                    const overlap = overlapBadge(session.overlaps)
                     const used = props.showUsage ? usageLabel(session.usage, props.prices) : undefined
                     const n = numbers.get(session.id)
                     const renamingRow = renaming?.kind === 'session' && renaming.sessionId === session.id
@@ -404,6 +405,9 @@ export function Sidebar(props: SidebarProps) {
                               {git.changed ? <span class="cockpit-row__changed">{git.changed}</span> : null}
                               {git.ahead ? <span class="cockpit-row__ahead">{git.ahead}</span> : null}
                             </span>
+                          ) : null}
+                          {overlap ? (
+                            <span class="cockpit-row__overlap" aria-label={`overlaps ${overlap.title}`} title={`Overlaps — ${overlap.title}`}>{overlap.label}</span>
                           ) : null}
                           {used ? <span class="cockpit-row__usage" title={used.title}>{used.text}</span> : null}
                           {when ? <span class="cockpit-row__when">{when}</span> : null}

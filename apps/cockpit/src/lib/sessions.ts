@@ -48,6 +48,8 @@ export type ListedSession = {
   rang?: boolean
   /** The user's one-line note on it, shown in the rail instead of the agent's words. */
   note?: string
+  /** Other sessions touching the same files, and which paths — the early warning before a trial merge. */
+  overlaps?: { session: string; paths: string[] }[]
 }
 
 export function parseSessionList(value: unknown): ListedSession[] {
@@ -77,6 +79,15 @@ export function parseSessionList(value: unknown): ListedSession[] {
     }
     if (typeof record.rang === 'boolean') row.rang = record.rang
     if (typeof record.note === 'string' && record.note.trim() !== '') row.note = record.note
+    const overlaps = record.overlaps
+    if (Array.isArray(overlaps)) {
+      const parsed = overlaps.flatMap((entry) => {
+        const o = entry as { session?: unknown; paths?: unknown } | null
+        if (o === null || typeof o !== 'object' || typeof o.session !== 'string' || !Array.isArray(o.paths)) return []
+        return [{ session: o.session, paths: o.paths.filter((p): p is string => typeof p === 'string') }]
+      })
+      if (parsed.length > 0) row.overlaps = parsed
+    }
     const usage = parseUsage(record.usage)
     if (usage) row.usage = usage
     out.push(row)
