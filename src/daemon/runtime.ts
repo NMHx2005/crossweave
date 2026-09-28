@@ -50,6 +50,31 @@ export interface RuntimeObserver {
   exited(sessionId: string, code: number, requested: boolean): void;
 }
 
+/**
+ * Fans every `RuntimeObserver` call out to several observers — `SessionRuntime` takes
+ * only one, but activity tracking and the setup-sentinel watcher are independent
+ * concerns that both need to see the same output stream. Mirrors `notifyAll` above: one
+ * observer throwing must not stop the others from seeing the event.
+ */
+export function combineObservers(...observers: RuntimeObserver[]): RuntimeObserver {
+  const forEach = (fn: (o: RuntimeObserver) => void): void => {
+    for (const o of observers) {
+      try {
+        fn(o);
+      } catch {
+        // Same contract as notifyAll: one observer's failure does not starve the rest.
+      }
+    }
+  };
+  return {
+    started: (id, cols, rows) => forEach((o) => o.started(id, cols, rows)),
+    resized: (id, cols, rows) => forEach((o) => o.resized?.(id, cols, rows)),
+    output: (id, chunk) => forEach((o) => o.output(id, chunk)),
+    input: (id) => forEach((o) => o.input(id)),
+    exited: (id, code, requested) => forEach((o) => o.exited(id, code, requested)),
+  };
+}
+
 export class SessionRuntime {
   private readonly running = new Map<string, RunningSession>();
 
