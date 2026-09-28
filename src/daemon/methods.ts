@@ -26,6 +26,7 @@ import { classifyLandability } from '../convergence/evidence.js';
 import { landSession } from '../convergence/land.js';
 import { hashTestCommand, isTestCommandTrusted } from '../convergence/trust.js';
 import { emptyJournal, normalizeTabs, readJournal, writeJournal } from '../domain/journal.js';
+import { overlapPairs, type SessionPaths } from '../domain/overlap.js';
 
 import { NotificationGate } from '../notify/gate.js';
 import { notify, type NotifyDispatcherDeps } from '../notify/dispatcher.js';
@@ -40,6 +41,8 @@ import { BUILTIN_LAUNCHERS, loadSettings, saveSettings, type LauncherDef, type U
 import { TerminalRegistry } from './terminals.js';
 import { ActivityTracker, detectAgents } from './session-status.js';
 import { GitCounter } from './git-counts.js';
+import { RepoScanner } from './repo-scan.js';
+import { OverlapTracker } from './overlap.js';
 import { UsageReader, UsageTracker } from '../domain/agent-usage.js';
 import { launcherProgram } from '../core/launcher-program.js';
 import { loginShellPath, mergePaths } from '../core/login-path.js';
@@ -239,7 +242,11 @@ export function buildMethods(
    * working keeps its state and costs no broadcast.
    */
   const STATUS_SWEEP_MS = 1500;
-  const gitCounts = new GitCounter();
+  // One scan per folder feeds both counters (see RepoScanner): the overlap signal must
+  // not cost a second `git status` the git badge already ran.
+  const scanner = new RepoScanner();
+  const gitCounts = new GitCounter((folder, baseHead) => scanner.counts(folder, baseHead));
+  const overlap = new OverlapTracker((folder, baseHead) => scanner.scan(folder, baseHead));
   const usage = new UsageTracker(new UsageReader(userHome()));
   let sweeping = false;
   async function sweepStatus(): Promise<void> {
@@ -285,6 +292,43 @@ export function buildMethods(
       throw new CrossweaveError('SESSION_NO_WORKDIR', `Session has no working directory: ${row.name}`);
     }
     return row.worktreePath;
+  }
+
+  /**
+   * The sessions the overlap signal covers: worktree sessions, not the shared checkout
+   * (no branch of its own) and not a plain folder (no git), and not finished ones.
+   */
+  function overlapTargets(listed: SessionRow[]): Array<{ id: string; name: string; folder: string; baseHead: string | null }> {
+    const baseHead = readBaseHead(projectRoot);
+    return listed
+      .filter((s) => s.worktreePath !== null && s.worktreePath !== projectRoot && s.status !== 'landed' && existsSync(s.worktreePath))
+      .map((s) => ({ id: s.id, name: s.name, folder: s.worktreePath as string, baseHead }));
+  }
+
+  /**
+   * Overlap pairs computed NOW, not from the rail's background tracker: a one-shot CLI
+   * answer must be fresh, and the tracker only catches up on the next `session.list`
+   * redraw. Read-only; the scans are the ones the shared `RepoScanner` already caches.
+   */
+  async function computeOverlapPairs(listed: SessionRow[]): Promise<Array<{ a: string; b: string; paths: string[] }>> {
+    const paths: SessionPaths[] = [];
+    for (const target of overlapTargets(listed)) {
+      const scan = await scanner.scan(target.folder, target.baseHead);
+      if (scan === null) continue;
+      paths.push({ name: target.name, paths: [...scan.changedPaths, ...scan.committedPaths] });
+    }
+    const pairs: Array<{ a: string; b: string; paths: string[] }> = [];
+    const seen = new Set<string>();
+    for (const [name, overlaps] of overlapPairs(paths)) {
+      for (const other of overlaps) {
+        const key = [name, other.session].sort().join('|');
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const [a, b] = [name, other.session].sort();
+        pairs.push({ a: a as string, b: b as string, paths: other.paths });
+      }
+    }
+    return pairs;
   }
 
   /** Close the shells of every session that no longer exists (its worktree is gone). */
@@ -492,6 +536,12 @@ export function buildMethods(
       }).then((changed) => {
         if (changed) broadcastRegistry.broadcast('tui.invalidate', {});
       });
+      // The overlap signal reads the SAME scan (through the shared RepoScanner), so it
+      // costs no extra git. Only worktree sessions take part: a shared session has no
+      // branch to overlap on, and a plain folder has no git at all.
+      if (hasGit) void overlap.refresh(() => overlapTargets(listed)).then((changed) => {
+        if (changed) broadcastRegistry.broadcast('tui.invalidate', {});
+      });
       // Tokens the agents run in each session's own worktree have used since it was
       // created. Not for a session in the project folder: every Claude run there —
       // one in a terminal outside crossweave too — writes to the same log folder, and
@@ -512,6 +562,7 @@ export function buildMethods(
         const agent = agents.get(session.id) ?? null;
         const status = activity.status(session.id, agent);
         const git = gitCounts.get(session.id);
+        const overlaps = overlap.get(session.id);
         const used = session.worktreePath === projectRoot ? undefined : usage.get(session.id);
         const size = runtime.size(session.id);
         const withWords = {
@@ -519,6 +570,7 @@ export function buildMethods(
           ...(used === undefined ? {} : { usage: used }),
           ...(words === undefined ? {} : { latestWords: words }),
           ...(git === undefined ? {} : { git }),
+          ...(overlaps === undefined ? {} : { overlaps }),
           ...(size === undefined ? {} : size),
           agent,
           activity: status.activity,
@@ -791,6 +843,13 @@ export function buildMethods(
         degraded,
         baseBranch: readBaseBranch(projectRoot),
       };
+    },
+
+    // The overlap signal on demand, for the CLI's one-shot `cw overlap`. The rail reads
+    // it from `session.list` (which must not block on git); a CLI answer must be fresh.
+    'overlap.list': async (p) => {
+      const workspaceId = str(p, 'workspaceId');
+      return { pairs: await computeOverlapPairs(sessions.list(workspaceId)) };
     },
 
     'land.session': async (p) => {
