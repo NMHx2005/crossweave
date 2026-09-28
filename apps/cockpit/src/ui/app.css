@@ -1824,12 +1824,28 @@ body,
   background: var(--cw-border);
 }
 
-/* A heading inside a menu (the rail's Open recent). */
-.cockpit-menu__label {
-  padding: var(--cw-space-1) var(--cw-space-3) 0;
+/* An item that opens a submenu: the chevron sits where a shortcut would. */
+.cockpit-menu__parent svg {
+  margin-left: auto;
+  color: var(--cw-text-dim);
+}
+
+.cockpit-menu__parent.is-open {
+  background: var(--cw-surface-active);
+}
+
+/* A submenu is drawn beside its menu, not inside it: the menu scrolls, and would clip it. */
+.cockpit-menu--sub {
+  z-index: 21;
+}
+
+.cockpit-menu__name {
+  color: var(--cw-text);
+}
+
+.cockpit-menu__path {
+  margin-left: auto;
   font-size: var(--cw-fs-micro);
-  letter-spacing: var(--cw-tracking-label);
-  text-transform: uppercase;
   color: var(--cw-text-dim);
 }
 

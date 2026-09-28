@@ -177,3 +177,21 @@ export function recentToOffer(recent: readonly string[], open: readonly string[]
   return [...new Set(recent)].filter((root) => !shown.has(root)).slice(0, max)
 }
 
+
+/**
+ * Where a submenu opens beside the item that opens it: to its right, top edges level
+ * (less the menu's padding), flipped to the left when it would leave the window, and
+ * pulled up to stay on screen.
+ */
+export function submenuPosition(
+  item: { left: number; right: number; top: number },
+  size: { width: number; height: number },
+  view: { width: number; height: number },
+  inset = 4,
+  margin = 8,
+): { left: number; top: number } {
+  const right = item.right + inset
+  const left = right + size.width <= view.width - margin ? right : Math.max(margin, item.left - inset - size.width)
+  const top = Math.max(margin, Math.min(item.top - inset, view.height - margin - size.height))
+  return { left, top }
+}

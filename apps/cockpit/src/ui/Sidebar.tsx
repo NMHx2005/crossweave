@@ -1,9 +1,9 @@
-import { useCallback, useLayoutEffect, useRef, useState } from 'preact/hooks'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
 import type { ListedSession } from '../host/cockpit-api'
 import type { AttentionKind } from '../lib/attention'
 import { SESSION_COLORS, type SessionColor } from '../lib/colors'
 import { sessionNameError } from '../lib/quick-picker'
-import { agentName, clampMenu, gitBadge, jumpTargets, landChip, railOrder, relativeTime, rowState, rowTitle, ROW_STATE_LABEL, recentToOffer, visibleRows } from '../lib/rail'
+import { agentName, clampMenu, gitBadge, jumpTargets, landChip, railOrder, relativeTime, rowState, rowTitle, ROW_STATE_LABEL, recentToOffer, submenuPosition, visibleRows } from '../lib/rail'
 import { formatRailMeta } from '../lib/sessions'
 import { sumUsage, usageLabel } from '../lib/usage'
 import type { ModelPrice } from '../../../../src/core/settings.js'
@@ -114,9 +114,25 @@ export function Sidebar(props: SidebarProps) {
   const [dragOver, setDragOver] = useState<string | null>(null)
   const dragging = useRef<string | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
-  const closeMenu = useCallback(() => setMenu(null), [])
-  useDismiss(menu !== null, closeMenu, menuRef)
+  /** The empty-area menu's Open recent submenu: open, and where. */
+  const [recentAt, setRecentAt] = useState<{ left: number; top: number } | null>(null)
+  const recentItemRef = useRef<HTMLButtonElement>(null)
+  const recentRef = useRef<HTMLDivElement>(null)
+  const recentTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const closeMenu = useCallback(() => { setMenu(null); setRecentAt(null) }, [])
+  useDismiss(menu !== null, closeMenu, menuRef, recentRef)
+  useEffect(() => () => clearTimeout(recentTimer.current), [])
   const filtering = query.trim() !== ''
+
+  // The submenu, once drawn, placed by its real size.
+  useLayoutEffect(() => {
+    const el = recentRef.current
+    const item = recentItemRef.current?.getBoundingClientRect()
+    if (!el || !item || !recentAt) return
+    const at = submenuPosition(item, { width: el.offsetWidth, height: el.offsetHeight }, { width: window.innerWidth, height: window.innerHeight })
+    el.style.left = `${at.left}px`
+    el.style.top = `${at.top}px`
+  }, [recentAt])
 
   // Opened at the pointer, then moved so a long menu near an edge stays on screen.
   useLayoutEffect(() => {
@@ -166,8 +182,21 @@ export function Sidebar(props: SidebarProps) {
     setMenu(null)
   }
   const blank = (run: () => void): void => {
-    setMenu(null)
+    closeMenu()
     run()
+  }
+  const openRecent = (focusFirst = false): void => {
+    clearTimeout(recentTimer.current)
+    const item = recentItemRef.current?.getBoundingClientRect()
+    if (!item) return
+    // Measured once drawn (below); a first guess keeps it from flashing off-screen.
+    setRecentAt(submenuPosition(item, { width: 220, height: 200 }, { width: window.innerWidth, height: window.innerHeight }))
+    if (focusFirst) setTimeout(() => recentRef.current?.querySelector<HTMLButtonElement>('button')?.focus(), 0)
+  }
+  // Leaving the item for the submenu crosses a gap: close only if the pointer does not arrive.
+  const closeRecentSoon = (): void => {
+    clearTimeout(recentTimer.current)
+    recentTimer.current = setTimeout(() => setRecentAt(null), 250)
   }
 
   const folder = (projectRoot: string, sessionId: string | null, how: FolderHow): void => {
@@ -460,21 +489,19 @@ export function Sidebar(props: SidebarProps) {
 
       {menu?.kind === 'blank' ? (
         <div class="cockpit-menu" role="menu" aria-label="Sidebar" ref={menuRef} style={{ left: `${menu.x}px`, top: `${menu.y}px` }}>
-          <button type="button" role="menuitem" onClick={() => blank(props.onOpenProject)}>Open project…</button>
-          {menu.recent.length > 0 ? (
-            <>
-              <div class="cockpit-menu__label">Open recent</div>
-              {menu.recent.map((root) => (
-                <button key={root} type="button" role="menuitem" title={root} onClick={() => blank(() => props.onOpenRecent(root))}>
-                  {baseName(root)}
-                </button>
-              ))}
-            </>
-          ) : null}
+          <button type="button" role="menuitem" onMouseEnter={() => setRecentAt(null)} onClick={() => blank(props.onOpenProject)}>Open project…</button>
+          <button type="button" role="menuitem" ref={recentItemRef} class={`cockpit-menu__parent${recentAt ? ' is-open' : ''}`}
+            aria-haspopup="menu" aria-expanded={recentAt !== null} disabled={menu.recent.length === 0}
+            title={menu.recent.length === 0 ? 'No other project opened recently' : undefined}
+            onMouseEnter={() => openRecent()} onMouseLeave={closeRecentSoon}
+            onClick={() => (recentAt ? setRecentAt(null) : openRecent())}
+            onKeyDown={(ev) => { if (ev.key === 'ArrowRight') { ev.preventDefault(); openRecent(true) } }}>
+            Open recent<ChevronIcon />
+          </button>
           {projects.some((p) => p.active) ? (
             <>
               <div class="cockpit-menu__sep" role="separator" />
-              <button type="button" role="menuitem" onClick={() => blank(() => {
+              <button type="button" role="menuitem" onMouseEnter={() => setRecentAt(null)} onClick={() => blank(() => {
                 const active = projects.find((p) => p.active)
                 if (active) props.onNew(active.projectRoot)
               })}>New session…<kbd>⌘T</kbd></button>
@@ -490,6 +517,21 @@ export function Sidebar(props: SidebarProps) {
           <div class="cockpit-menu__sep" role="separator" />
           <button type="button" role="menuitem" onClick={() => blank(props.onSettings)}>Settings…<kbd>⌘,</kbd></button>
           <button type="button" role="menuitem" onClick={() => blank(props.onToggleSidebar)}>Hide sidebar<kbd>⌘\</kbd></button>
+        </div>
+      ) : null}
+      {menu?.kind === 'blank' && recentAt !== null && menu.recent.length > 0 ? (
+        <div class="cockpit-menu cockpit-menu--sub" role="menu" aria-label="Open recent" ref={recentRef}
+          style={{ left: `${recentAt.left}px`, top: `${recentAt.top}px` }}
+          onMouseEnter={() => clearTimeout(recentTimer.current)} onMouseLeave={closeRecentSoon}
+          onKeyDown={(ev) => {
+            if (ev.key === 'ArrowLeft') { ev.preventDefault(); setRecentAt(null); recentItemRef.current?.focus() }
+          }}>
+          {menu.recent.map((root) => (
+            <button key={root} type="button" role="menuitem" title={root} onClick={() => blank(() => props.onOpenRecent(root))}>
+              <span class="cockpit-menu__name">{baseName(root)}</span>
+              <span class="cockpit-menu__path">{parentName(root)}</span>
+            </button>
+          ))}
         </div>
       ) : null}
 
@@ -606,6 +648,12 @@ function InlineRename({ initial, label, validate, onCommit, onCancel }: {
       {error !== null ? <span class="cockpit-rename__error" role="alert">{error}</span> : null}
     </span>
   )
+}
+
+/** The folder a project sits in, to tell two same-named projects apart. */
+function parentName(root: string): string {
+  const parts = root.replace(/\/+$/, '').split('/')
+  return parts.length > 2 ? parts[parts.length - 2] as string : ''
 }
 
 function baseName(root: string): string {

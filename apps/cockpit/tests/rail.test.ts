@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { agentName, gitBadge, landChip, newlyAsking, railOrder, relativeTime, rowState, rowTitle, visibleRows, jumpTargets, clampMenu, newlyFinished, recentToOffer } from '../src/lib/rail'
+import { agentName, gitBadge, landChip, newlyAsking, railOrder, relativeTime, rowState, rowTitle, visibleRows, jumpTargets, clampMenu, newlyFinished, recentToOffer, submenuPosition } from '../src/lib/rail'
 import { parseSessionList } from '../src/lib/sessions'
 
 describe('relativeTime', () => {
@@ -176,5 +176,19 @@ describe('recentToOffer', () => {
     expect(recentToOffer(['/a', '/b', '/c', '/b'], ['/b'])).toEqual(['/a', '/c'])
     expect(recentToOffer([], ['/a'])).toEqual([])
     expect(recentToOffer(['/1', '/2', '/3'], [], 2)).toEqual(['/1', '/2'])
+  })
+})
+
+describe('submenuPosition', () => {
+  const view = { width: 1000, height: 800 }
+  test('opens to the right of its item, tops level', () => {
+    expect(submenuPosition({ left: 40, right: 240, top: 600 }, { width: 200, height: 100 }, view)).toEqual({ left: 244, top: 596 })
+  })
+  test('flips left when the right side has no room', () => {
+    expect(submenuPosition({ left: 700, right: 900, top: 100 }, { width: 200, height: 100 }, view)).toEqual({ left: 496, top: 96 })
+  })
+  test('is pulled up to stay on screen, never above the margin', () => {
+    expect(submenuPosition({ left: 40, right: 240, top: 780 }, { width: 200, height: 300 }, view).top).toBe(492)
+    expect(submenuPosition({ left: 40, right: 240, top: 10 }, { width: 200, height: 2000 }, view).top).toBe(8)
   })
 })

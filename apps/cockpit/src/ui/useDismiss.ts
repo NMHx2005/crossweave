@@ -6,14 +6,15 @@ import { useEffect } from 'preact/hooks'
  * colour menu closed only on a click inside their own area (or on mouse-leave), so a
  * menu opened by mistake stayed open until the user found the one way out.
  */
-export function useDismiss(open: boolean, close: () => void, ref?: RefObject<HTMLElement>): void {
+export function useDismiss(open: boolean, close: () => void, ref?: RefObject<HTMLElement>, also?: RefObject<HTMLElement>): void {
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') close()
     }
     const onPress = (e: MouseEvent): void => {
-      if (ref?.current && e.target instanceof Node && ref.current.contains(e.target)) return
+      // `also`: a submenu drawn outside the menu (so the menu's scrolling cannot clip it).
+      if (e.target instanceof Node && (ref?.current?.contains(e.target) || also?.current?.contains(e.target))) return
       close()
     }
     window.addEventListener('keydown', onKey)
@@ -23,5 +24,5 @@ export function useDismiss(open: boolean, close: () => void, ref?: RefObject<HTM
       window.removeEventListener('keydown', onKey)
       window.removeEventListener('mousedown', onPress, true)
     }
-  }, [open, close, ref])
+  }, [open, close, ref, also])
 }
