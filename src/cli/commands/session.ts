@@ -9,6 +9,14 @@ interface Session {
   leases?: LeaseSummary;
 }
 
+interface SessionHistoryEntry {
+  name: string;
+  branch: string | null;
+  finalStatus: 'landed' | 'dead';
+  endedAt: string;
+  tokenSpent: number;
+}
+
 interface LeaseSummary {
   portBase: number | null;
   composeProject: string | null;
@@ -294,6 +302,28 @@ export const sessionCommand = defineCommand({
             const result = await client.call<{ warnings?: string[] }>('session.rm', { workspaceId, idOrName: args.target });
             for (const warning of result.warnings ?? []) process.stdout.write(`warning: ${warning}\n`);
             process.stdout.write(`removed ${args.target}\n`);
+          });
+        } catch (err) { fail(err); }
+      },
+    }),
+
+    history: defineCommand({
+      meta: { name: 'history', description: 'List sessions that have been landed or removed' },
+      args: {
+        limit: { type: 'string', description: 'Max rows (default 50)', required: false },
+      },
+      async run({ args }) {
+        try {
+          await withClient(async (client) => {
+            const workspaceId = await currentWorkspaceId(client);
+            const params: Record<string, unknown> = { workspaceId };
+            if (args.limit !== undefined) params.limit = Number(args.limit);
+            const { history } = await client.call<{ history: SessionHistoryEntry[] }>('session.history', params);
+            if (history.length === 0) { process.stdout.write('no history\n'); return; }
+            process.stdout.write('NAME\tSTATUS\tBRANCH\tENDED\tTOKENS\n');
+            for (const h of history) {
+              process.stdout.write(`${h.name}\t${h.finalStatus}\t${h.branch ?? '-'}\t${h.endedAt}\t${h.tokenSpent}\n`);
+            }
           });
         } catch (err) { fail(err); }
       },

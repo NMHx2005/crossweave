@@ -164,7 +164,18 @@ describe('cw CLI', () => {
     // --rm-worktree means the work is gone, so the row is deleted, not left dead —
     // that is what makes the name reusable again.
     expect((await cw(['session', 'list'])).stdout).toContain('no sessions');
+
+    // The row is gone, but its history survives: kill --rm-worktree records it.
+    const history = await cw(['session', 'history']);
+    expect(history.stdout).toContain('auth2');
+    expect(history.stdout).toContain('dead');
   }, 60_000);
+
+  it('session history is empty until something has ended', async () => {
+    await cw(['init']);
+    const empty = await cw(['session', 'history']);
+    expect(empty.stdout).toContain('no history');
+  });
 
   it('cw config notify on/off round-trips through config status, overall and per-event', async () => {
     await cw(['init']);

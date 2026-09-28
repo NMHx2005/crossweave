@@ -23,6 +23,7 @@ import { baseConflictFiles, commitsAhead } from '../convergence/trial.js';
 import { sessionDiff } from '../domain/session-diff.js';
 import { ConfigTrustRepo } from '../db/repositories/config-trust.js';
 import { SessionSetupRepo } from '../db/repositories/session-setup.js';
+import { SessionHistoryRepo } from '../db/repositories/session-history.js';
 import { decideSetup, runTeardown, SETUP_UNTRUSTED_NOTICE, withSetup, wrapWithSentinel } from '../domain/session-setup.js';
 import { SetupExitWatcher } from './setup-exit-watcher.js';
 import { NotifyConfigRepo, type NotifyEventKind } from '../db/repositories/notify-config.js';
@@ -181,6 +182,7 @@ export function buildMethods(
   const notifyGate = new NotificationGate();
   const configTrust = new ConfigTrustRepo(db);
   const sessionSetup = new SessionSetupRepo(db);
+  const sessionHistory = new SessionHistoryRepo(db);
   const notifyConfig = new NotifyConfigRepo(db);
   const notifyDeps: NotifyDispatcherDeps = {
     gate: notifyGate,
@@ -751,6 +753,15 @@ export function buildMethods(
       });
       broadcastRegistry.broadcast('tui.invalidate', {});
       return { ok: true, warnings };
+    },
+
+    // A landed or removed session's row is gone the moment `remove`/`kill
+    // --rm-worktree`/`gc` delete it (see SessionManager.recordHistory) — this is the
+    // only place any of that is still readable afterward.
+    'session.history': (p) => {
+      const workspaceId = str(p, 'workspaceId');
+      const limit = optionalNum(p, 'limit');
+      return { history: sessionHistory.listByWorkspace(workspaceId, limit) };
     },
 
     // Run `hooks.sessionSetup` again by hand. With the hook typed into the shell, that
