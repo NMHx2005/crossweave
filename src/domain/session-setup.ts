@@ -44,6 +44,44 @@ export function withSetup(command: string, run: string | undefined): string {
 }
 
 /**
+ * The daemon types `sessionSetup` into the shell and never spawns it directly (see the
+ * doc comment above), so there is no `child_process` exit event to read — the shell's
+ * own pty output is the only channel back. This wraps the command in a group that
+ * captures its exit code and writes it out as an OSC (Operating System Command) escape
+ * sequence: `ESC ] 6961 ; <code> BEL`. OSC sequences are consumed by every real
+ * terminal (xterm, iTerm2, Terminal.app, the cockpit's xterm.js pane) without being
+ * printed, whether or not that terminal recognizes OSC number 6961 specifically — so
+ * nothing needs to strip it from what the user sees. A `( )` subshell, not a `{ }`
+ * group: a hook whose command itself calls `exit` (a script ending `exit $?`, say)
+ * would otherwise terminate the user's whole login shell, not just this wrapper — a
+ * subshell contains that. `exit "$ec"` as its last statement makes the subshell's own
+ * exit status equal the command's, which is what lets `withSetup` still chain it with
+ * `&&` to the launcher.
+ */
+const SETUP_SENTINEL_OSC = '\u001b]6961;';
+const SETUP_SENTINEL_BEL = '\u0007';
+const SETUP_SENTINEL_RE = /\u001b\]6961;(\d+)\u0007/;
+
+export function wrapWithSentinel(command: string): string {
+  return `( ${command}; ec=$?; printf '${SETUP_SENTINEL_OSC}%d${SETUP_SENTINEL_BEL}' "$ec"; exit "$ec" )`;
+}
+
+/**
+ * Scans accumulated pty output for a complete sentinel. Undefined means "not there
+ * yet" — the caller (which owns the buffer across chunks) keeps accumulating and
+ * tries again on the next chunk; a buffer that never completes never leaks, since the
+ * caller bounds how much it keeps (see `SetupExitWatcher`).
+ */
+export function scanForSetupSentinel(buffer: string): { code: number; rest: string } | undefined {
+  const match = SETUP_SENTINEL_RE.exec(buffer);
+  if (match === null) return undefined;
+  return {
+    code: Number(match[1]),
+    rest: buffer.slice(0, match.index) + buffer.slice(match.index + match[0].length),
+  };
+}
+
+/**
  * Typed as a shell comment, so it runs nothing and only tells the user why setup was
  * skipped. Its own line — a trailing `# … && run` would comment the run away too.
  */
