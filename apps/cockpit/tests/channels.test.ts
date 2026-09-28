@@ -23,6 +23,11 @@ describe('cockpit IPC allowlist', () => {
     expect(isCockpitChannel('session.rm')).toBe(true)
   })
 
+  // A landed/removed session's row is gone; the History panel reads it from here.
+  test('lets the renderer read session history', () => {
+    expect(isCockpitChannel('session.history')).toBe(true)
+  })
+
   test('listen events are a closed set', () => {
     expect(COCKPIT_EVENTS.length).toBeGreaterThan(0)
     for (const event of COCKPIT_EVENTS) {

@@ -17,12 +17,12 @@ const JUMPS: CommandSpec[] = [1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => ({
 export const COMMANDS: readonly CommandSpec[] = [
   { id: 'open-project', menu: 'File', label: 'Open Project…', key: 'CmdOrCtrl+O' },
   { id: 'open-file', menu: 'File', label: 'Open File in Session…', key: 'CmdOrCtrl+P' },
-  { id: 'open-browser', menu: 'File', label: 'Open Browser Pane', key: 'CmdOrCtrl+Shift+B' },
+  { id: 'open-browser', menu: 'File', label: 'Open Browser Pane', key: 'CmdOrCtrl+Shift+B' }, // gitleaks:allow
   { id: 'open-settings', menu: 'File', label: 'Settings…', key: 'CmdOrCtrl+,' },
   { id: 'close-pane', menu: 'File', label: 'Close Pane', key: 'CmdOrCtrl+W' },
   { id: 'find', menu: 'Edit', label: 'Find…', key: 'CmdOrCtrl+F' },
   { id: 'find-next', menu: 'Edit', label: 'Find Next', key: 'CmdOrCtrl+G' },
-  { id: 'find-prev', menu: 'Edit', label: 'Find Previous', key: 'CmdOrCtrl+Shift+G' },
+  { id: 'find-prev', menu: 'Edit', label: 'Find Previous', key: 'CmdOrCtrl+Shift+G' }, // gitleaks:allow
   { id: 'command-bar', menu: 'Session', label: 'Command…', key: 'CmdOrCtrl+K' },
   { id: 'new-agent', menu: 'Session', label: 'New Session…', key: 'CmdOrCtrl+T' },
   { id: 'jump-attention', menu: 'Session', label: 'Jump to Attention', key: 'CmdOrCtrl+Shift+A' },
@@ -33,12 +33,12 @@ export const COMMANDS: readonly CommandSpec[] = [
   ...JUMPS,
   { id: 'toggle-sidebar', menu: 'View', label: 'Toggle Sidebar', key: 'CmdOrCtrl+\\' },
   { id: 'split-right', menu: 'Pane', label: 'Split Right', key: 'CmdOrCtrl+D' },
-  { id: 'split-down', menu: 'Pane', label: 'Split Down', key: 'CmdOrCtrl+Shift+D' },
-  { id: 'zoom-pane', menu: 'Pane', label: 'Zoom Pane', key: 'CmdOrCtrl+Shift+Enter' },
+  { id: 'split-down', menu: 'Pane', label: 'Split Down', key: 'CmdOrCtrl+Shift+D' }, // gitleaks:allow
+  { id: 'zoom-pane', menu: 'Pane', label: 'Zoom Pane', key: 'CmdOrCtrl+Shift+Enter' }, // gitleaks:allow
   { id: 'focus-left', menu: 'Pane', label: 'Focus Pane Left', key: 'CmdOrCtrl+Alt+Left' },
   { id: 'focus-right', menu: 'Pane', label: 'Focus Pane Right', key: 'CmdOrCtrl+Alt+Right' },
   { id: 'focus-up', menu: 'Pane', label: 'Focus Pane Above', key: 'CmdOrCtrl+Alt+Up' },
-  { id: 'focus-down', menu: 'Pane', label: 'Focus Pane Below', key: 'CmdOrCtrl+Alt+Down' },
+  { id: 'focus-down', menu: 'Pane', label: 'Focus Pane Below', key: 'CmdOrCtrl+Alt+Down' }, // gitleaks:allow
   { id: 'equalize-panes', menu: 'Pane', label: 'Equalize Pane Sizes', key: 'CmdOrCtrl+Alt+=' },
   { id: 'layout-even-horizontal', menu: 'Pane', label: 'Layout: Side by Side', key: null },
   { id: 'layout-even-vertical', menu: 'Pane', label: 'Layout: Stacked', key: null },
@@ -50,6 +50,7 @@ export const COMMANDS: readonly CommandSpec[] = [
   { id: 'copy-mode', menu: 'Pane', label: 'Enter Copy Mode', key: null },
   // No menu item: reachable from a shortcut the user binds, the command bar, or (later) the key-table.
   { id: 'cycle-layout', menu: null, label: 'Cycle Pane Layout', key: null },
+  { id: 'show-session-history', menu: 'Session', label: 'Session History…', key: 'CmdOrCtrl+Shift+H' },
   { id: 'show-shortcuts', menu: 'Help', label: 'Keyboard Shortcuts', key: 'CmdOrCtrl+/' },
   // The key-table's prefix (tmux's Ctrl-b). Not a command that runs: the window listens for it in a
   // terminal pane, then takes one more key. Unbind it to switch the key-table off.

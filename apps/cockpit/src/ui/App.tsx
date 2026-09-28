@@ -21,6 +21,7 @@ import { ShortcutsDialog } from './ShortcutsPanel'
 import { COMMANDS, effectiveKeys, formatAccelerator, keyMatchesAccelerator, menuLessBindings } from '../lib/keymap'
 import { buildTable, initialKeyTable, isTerminalFocus, keyTableStep, prefixLiteral, PREFIX_TIMEOUT_MS, type KeyTableState } from '../lib/keytable'
 import { KeyTableHint } from './KeyTableHint'
+import { SessionHistoryDialog } from './SessionHistoryDialog'
 import type { InterfaceAppearance, TerminalAppearance, UsageSettings } from '../../../../src/core/settings.js'
 import { applyAppearance } from '../lib/appearance'
 
@@ -100,6 +101,7 @@ export function App() {
   /** Settings → Keyboard, for Help → Keyboard Shortcuts. */
   const [keybindings, setKeybindings] = useState<Record<string, string | null> | undefined>(undefined)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
+  const [sessionHistoryOpen, setSessionHistoryOpen] = useState(false)
   const lookLoaded = useRef(false)
   /** Read once, through the first project a daemon answers for (Settings are per user). */
   const loadLook = useCallback((root: string): void => {
@@ -567,6 +569,7 @@ export function App() {
     else if (command === 'open-project') void openProject()
     else if (command === 'open-settings') void handleOpenSettings()
     else if (command === 'show-shortcuts') setShortcutsOpen(true)
+    else if (command === 'show-session-history') setSessionHistoryOpen(true)
     else if (/^jump-[1-9]$/.test(command)) jumpTo(Number(command.slice('jump-'.length)))
     else if (activeRef.current === null) {
       if (command === 'new-agent') void openProject()
@@ -758,6 +761,9 @@ export function App() {
       {shortcutsOpen ? (
         <ShortcutsDialog keybindings={keybindings} onClose={() => setShortcutsOpen(false)}
           onEdit={() => { setShortcutsOpen(false); void handleOpenSettings('keyboard') }} />
+      ) : null}
+      {sessionHistoryOpen ? (
+        <SessionHistoryDialog load={() => cockpitApi.sessionHistory()} onClose={() => setSessionHistoryOpen(false)} />
       ) : null}
       {projectSettings !== null ? (
         <ProjectSettings

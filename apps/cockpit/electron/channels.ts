@@ -13,6 +13,8 @@ export const COCKPIT_CHANNELS = [
   'session.kill',
   // Delete: the session's row, worktree and branch (after a kill when it is live).
   'session.rm',
+  // Sessions landed or removed — their row (and history) survives that deletion.
+  'session.history',
   'converge.status',
   'land.session',
   'journal.get',

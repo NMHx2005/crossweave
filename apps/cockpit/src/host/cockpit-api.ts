@@ -1,6 +1,7 @@
 import type { SessionDiff } from '../lib/patch'
 import type { CockpitChannel, CockpitEvent } from '../../electron/channels'
 import { parseSessionList, type ListedSession } from '../lib/sessions'
+import { parseSessionHistory, type SessionHistoryEntry } from '../lib/session-history'
 import type { TerminalAppearance } from '../../../../src/core/settings.js'
 import type { FolderInfo } from '../../electron/folder-open'
 
@@ -77,6 +78,10 @@ function makeApi(invoke: Invoke, listen: Listen) {
     /** Gone from the rail: its worktree and branch deleted (the daemon refuses a live one). */
     removeSession(idOrName: string): Promise<unknown> {
       return invoke('session.rm', { idOrName })
+    },
+    /** Sessions landed or removed — their row is gone, but this survives it. */
+    sessionHistory(limit?: number): Promise<SessionHistoryEntry[]> {
+      return invoke('session.history', limit === undefined ? undefined : { limit }).then(parseSessionHistory)
     },
     /** `projectRoot`: another open project's (the bridge routes it); the active one's by default. */
     convergeStatus(projectRoot?: string): Promise<unknown> {

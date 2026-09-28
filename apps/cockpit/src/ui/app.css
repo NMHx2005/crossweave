@@ -986,6 +986,41 @@ body,
   overflow: auto;
 }
 
+/* Session History (⌘⇧H). */
+.cockpit-session-history {
+  width: calc(var(--cw-row-h) * 30);
+  max-height: calc(100vh - var(--cw-row-h) * 6);
+  overflow: auto;
+}
+
+.cockpit-session-history__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--cw-fs-sm);
+}
+
+.cockpit-session-history__table th {
+  text-align: left;
+  color: var(--cw-text-dim);
+  font-weight: 600;
+  padding: var(--cw-space-1) var(--cw-space-2);
+  border-bottom: var(--cw-hairline) solid var(--cw-border-strong);
+}
+
+.cockpit-session-history__table td {
+  padding: var(--cw-space-1) var(--cw-space-2);
+  border-bottom: var(--cw-hairline) solid var(--cw-border);
+  color: var(--cw-text);
+}
+
+.cockpit-session-history__table td.is-landed {
+  color: var(--cw-ready);
+}
+
+.cockpit-session-history__table td.is-dead {
+  color: var(--cw-text-dim);
+}
+
 .cockpit-settings__heading {
   margin: var(--cw-space-2) 0 0;
   font-size: var(--cw-fs-sm);
