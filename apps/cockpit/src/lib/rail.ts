@@ -167,3 +167,13 @@ export function newlyFinished(
       && quiet && (s.status === 'running' || s.status === 'waiting')
   })
 }
+
+/**
+ * What the empty-rail menu offers under Open Recent: recently opened projects not
+ * already in the rail, newest first, as many as fit a menu.
+ */
+export function recentToOffer(recent: readonly string[], open: readonly string[], max = 8): string[] {
+  const shown = new Set(open)
+  return [...new Set(recent)].filter((root) => !shown.has(root)).slice(0, max)
+}
+

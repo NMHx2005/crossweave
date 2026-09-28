@@ -39,6 +39,8 @@ export const COCKPIT_CHANNELS = [
   'projects.close',
   'projects.pick',
   'projects.reorder',
+  // The Open Recent history (main process), for the rail's empty-area menu.
+  'projects.recent',
   // The command bar's rename and gc.
   'session.rename',
   // A session's one-line note (shown in the rail instead of the agent's last words).

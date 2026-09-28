@@ -1824,6 +1824,15 @@ body,
   background: var(--cw-border);
 }
 
+/* A heading inside a menu (the rail's Open recent). */
+.cockpit-menu__label {
+  padding: var(--cw-space-1) var(--cw-space-3) 0;
+  font-size: var(--cw-fs-micro);
+  letter-spacing: var(--cw-tracking-label);
+  text-transform: uppercase;
+  color: var(--cw-text-dim);
+}
+
 .cockpit-menu button:disabled,
 .cockpit-menu button:disabled:hover {
   background: none;

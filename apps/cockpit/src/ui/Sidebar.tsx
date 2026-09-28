@@ -3,7 +3,7 @@ import type { ListedSession } from '../host/cockpit-api'
 import type { AttentionKind } from '../lib/attention'
 import { SESSION_COLORS, type SessionColor } from '../lib/colors'
 import { sessionNameError } from '../lib/quick-picker'
-import { agentName, clampMenu, gitBadge, jumpTargets, landChip, railOrder, relativeTime, rowState, rowTitle, ROW_STATE_LABEL, visibleRows } from '../lib/rail'
+import { agentName, clampMenu, gitBadge, jumpTargets, landChip, railOrder, relativeTime, rowState, rowTitle, ROW_STATE_LABEL, recentToOffer, visibleRows } from '../lib/rail'
 import { formatRailMeta } from '../lib/sessions'
 import { sumUsage, usageLabel } from '../lib/usage'
 import type { ModelPrice } from '../../../../src/core/settings.js'
@@ -52,6 +52,10 @@ export type SidebarProps = {
   onToggleSidebar: () => void
   onNew: (projectRoot: string) => void
   onOpenProject: () => void
+  /** Open a project folder by path (the empty-area menu's Open Recent). */
+  onOpenRecent: (projectRoot: string) => void
+  /** Recently opened project folders, newest first (read when the menu opens). */
+  loadRecent: () => Promise<string[]>
   onCommandBar: () => void
   onSettings: () => void
   onSelect: (projectRoot: string, sessionId: string) => void
@@ -76,6 +80,7 @@ export type SidebarProps = {
 type Menu =
   | { kind: 'row'; projectRoot: string; session: ListedSession; x: number; y: number }
   | { kind: 'project'; project: ProjectGroup; index: number; x: number; y: number }
+  | { kind: 'blank'; recent: string[]; x: number; y: number }
 
 const COLLAPSED_KEY = 'cw.collapsed-projects.v1'
 
@@ -142,6 +147,29 @@ export function Sidebar(props: SidebarProps) {
     props.onProjectAction(menu.project.projectRoot, action)
     setMenu(null)
   }
+  /** Right-click on the rail's empty space: the window-wide actions, and recent projects. */
+  const openBlankMenu = (e: MouseEvent): void => {
+    if ((e.target as HTMLElement).closest('.cockpit-project, .cockpit-sidebar__nomatch')) return
+    e.preventDefault()
+    const { clientX: x, clientY: y } = e
+    const open = projects.map((p) => p.projectRoot)
+    setMenu({ kind: 'blank', recent: [], x, y })
+    void props.loadRecent().then(
+      (recent) => setMenu((m) => (m?.kind === 'blank' && m.x === x && m.y === y ? { ...m, recent: recentToOffer(recent, open) } : m)),
+      () => undefined,
+    )
+  }
+  const setAllCollapsed = (all: boolean): void => {
+    const next = new Set(all ? projects.map((p) => p.projectRoot) : [])
+    setCollapsed(next)
+    writeCollapsed(next)
+    setMenu(null)
+  }
+  const blank = (run: () => void): void => {
+    setMenu(null)
+    run()
+  }
+
   const folder = (projectRoot: string, sessionId: string | null, how: FolderHow): void => {
     props.onFolder(projectRoot, sessionId, how)
     setMenu(null)
@@ -184,7 +212,7 @@ export function Sidebar(props: SidebarProps) {
         </div>
       ) : null}
 
-      <div class="cockpit-sidebar__projects">
+      <div class="cockpit-sidebar__projects" onContextMenu={openBlankMenu}>
         {projects.map((project, index) => {
           const rows = railOrder(visibleRows(project.sessions, { hideEnded: project.hideEnded, query }))
           if (filtering && rows.length === 0) return null
@@ -427,6 +455,41 @@ export function Sidebar(props: SidebarProps) {
             <button type="button" role="menuitem" class="is-danger" onClick={() => rowMenu('kill')}>Kill…</button>
           ) : null}
           <button type="button" role="menuitem" class="is-danger" onClick={() => rowMenu('delete')}>Delete…</button>
+        </div>
+      ) : null}
+
+      {menu?.kind === 'blank' ? (
+        <div class="cockpit-menu" role="menu" aria-label="Sidebar" ref={menuRef} style={{ left: `${menu.x}px`, top: `${menu.y}px` }}>
+          <button type="button" role="menuitem" onClick={() => blank(props.onOpenProject)}>Open project…</button>
+          {menu.recent.length > 0 ? (
+            <>
+              <div class="cockpit-menu__label">Open recent</div>
+              {menu.recent.map((root) => (
+                <button key={root} type="button" role="menuitem" title={root} onClick={() => blank(() => props.onOpenRecent(root))}>
+                  {baseName(root)}
+                </button>
+              ))}
+            </>
+          ) : null}
+          {projects.some((p) => p.active) ? (
+            <>
+              <div class="cockpit-menu__sep" role="separator" />
+              <button type="button" role="menuitem" onClick={() => blank(() => {
+                const active = projects.find((p) => p.active)
+                if (active) props.onNew(active.projectRoot)
+              })}>New session…<kbd>⌘T</kbd></button>
+            </>
+          ) : null}
+          {projects.length > 1 ? (
+            <>
+              <div class="cockpit-menu__sep" role="separator" />
+              <button type="button" role="menuitem" onClick={() => setAllCollapsed(true)}>Collapse all projects</button>
+              <button type="button" role="menuitem" onClick={() => setAllCollapsed(false)}>Expand all projects</button>
+            </>
+          ) : null}
+          <div class="cockpit-menu__sep" role="separator" />
+          <button type="button" role="menuitem" onClick={() => blank(props.onSettings)}>Settings…<kbd>⌘,</kbd></button>
+          <button type="button" role="menuitem" onClick={() => blank(props.onToggleSidebar)}>Hide sidebar<kbd>⌘\</kbd></button>
         </div>
       ) : null}
 

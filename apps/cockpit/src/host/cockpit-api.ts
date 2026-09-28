@@ -210,6 +210,10 @@ function makeApi(invoke: Invoke, listen: Listen) {
     setBadge(count: number): Promise<unknown> {
       return invoke('app.badge', { count })
     },
+    /** Recently opened project folders that still exist, newest first. */
+    recentProjects(): Promise<string[]> {
+      return invoke('projects.recent')
+    },
     /** The folder picker; null when cancelled. */
     pickProject(): Promise<string | null> {
       return invoke<{ projectRoot: string | null }>('projects.pick').then((r) => r.projectRoot)
@@ -234,7 +238,7 @@ export const cockpitApi: CockpitApi = makeApi(cockpitInvoke, cockpitListen)
  * view must not stamp its root on them (for `projects.close` the root IS the argument).
  */
 const WINDOW_CHANNELS = new Set<CockpitChannel>([
-  'workspace.ensure', 'projects.list', 'projects.pick', 'projects.reorder', 'projects.sessions',
+  'workspace.ensure', 'projects.list', 'projects.pick', 'projects.reorder', 'projects.recent', 'projects.sessions',
   'projects.close', 'app.badge', 'folder.reveal', 'folder.openInEditor',
   'terminal.importSources', 'terminal.import', 'fonts.list', 'menu.refresh',
 ])

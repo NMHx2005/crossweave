@@ -641,6 +641,8 @@ export function App() {
           onToggleSidebar={toggleSidebar}
           onNew={(root) => { void activate(root, { kind: 'new' }) }}
           onOpenProject={() => { void openProject() }}
+          onOpenRecent={(root) => { void activate(root) }}
+          loadRecent={() => cockpitApi.recentProjects()}
           onCommandBar={() => { if (activeRef.current !== null) handles.current.get(activeRef.current)?.command('command-bar') }}
           query={railQuery}
           onQuery={setRailQuery}

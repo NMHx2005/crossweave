@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { agentName, gitBadge, landChip, newlyAsking, railOrder, relativeTime, rowState, rowTitle, visibleRows, jumpTargets, clampMenu, newlyFinished } from '../src/lib/rail'
+import { agentName, gitBadge, landChip, newlyAsking, railOrder, relativeTime, rowState, rowTitle, visibleRows, jumpTargets, clampMenu, newlyFinished, recentToOffer } from '../src/lib/rail'
 import { parseSessionList } from '../src/lib/sessions'
 
 describe('relativeTime', () => {
@@ -168,5 +168,13 @@ describe('newlyFinished', () => {
     expect(newlyFinished([], [row('a', 'idle')])).toEqual([])
     expect(newlyFinished([row('a', 'working')], [row('a', 'working')])).toEqual([])
     expect(newlyFinished([row('a', 'idle')], [row('a', 'idle')])).toEqual([])
+  })
+})
+
+describe('recentToOffer', () => {
+  test('recent projects not already in the rail, newest first, once each, capped', () => {
+    expect(recentToOffer(['/a', '/b', '/c', '/b'], ['/b'])).toEqual(['/a', '/c'])
+    expect(recentToOffer([], ['/a'])).toEqual([])
+    expect(recentToOffer(['/1', '/2', '/3'], [], 2)).toEqual(['/1', '/2'])
   })
 })

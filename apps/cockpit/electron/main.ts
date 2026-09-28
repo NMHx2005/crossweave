@@ -215,6 +215,8 @@ function registerHandlers(bridge: DaemonBridge): void {
       if (channel === 'app.badge') return setBadge(payload)
       if (channel === 'terminal.importSources') return importSources(importDeps())
       if (channel === 'fonts.list') return listFonts(importDeps().run)
+      // Only folders that still exist: a deleted project must not be offered.
+      if (channel === 'projects.recent') return loadRecent().filter((root) => existsSync(root))
       if (channel === 'menu.refresh') {
         buildMenu()
         return { ok: true }
