@@ -40,7 +40,8 @@ interface RunningSession {
 
 /** What the runtime tells the status tracker; see src/daemon/session-status.ts. */
 export interface RuntimeObserver {
-  started(sessionId: string): void;
+  started(sessionId: string, cols?: number, rows?: number): void;
+  resized?(sessionId: string, cols: number, rows: number): void;
   output(sessionId: string, chunk: string): void;
   input(sessionId: string): void;
   exited(sessionId: string, code: number, requested: boolean): void;
@@ -87,7 +88,7 @@ export class SessionRuntime {
     const entry: RunningSession = { proc, scrollback: '', subscribers: new Set(), session, stopping: false, cols: 80, rows: 24 };
 
     this.running.set(session.id, entry);
-    this.observer?.started(session.id);
+    this.observer?.started(session.id, entry.cols, entry.rows);
 
     proc.onData((chunk) => {
       this.observer?.output(session.id, chunk);
@@ -133,6 +134,7 @@ export class SessionRuntime {
     entry.proc.resize(cols, rows);
     entry.cols = cols;
     entry.rows = rows;
+    this.observer?.resized?.(sessionId, cols, rows);
   }
 
   size(sessionId: string): { cols: number; rows: number } | undefined {

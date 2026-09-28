@@ -1,10 +1,18 @@
+import { AgentScreen, ASKING_ON_SCREEN, BUSY_ON_SCREEN } from './agent-screen.js';
+
 /**
  * What a session is doing, inferred from its shell — crossweave does not launch or
- * configure agents, so it cannot ask them. Three signals, all passive:
+ * configure agents, so it cannot ask them. Four signals, all passive:
  *
- * - output: agent TUIs animate while they think, so recent output means work;
+ * - the screen: with an agent running, what it shows — "esc to interrupt" while it
+ *   works, a permission prompt when it asks (see agent-screen.ts);
+ * - output: for a plain shell (or an agent that shows no such words), recent output
+ *   means work;
  * - the bell: a terminal's "look at me" (Claude Code rings it when it wants input);
  * - the process tree: which agent CLI, if any, runs under the session's shell.
+ *
+ * Output alone used to decide for agents too, and Claude Code redrawing its status
+ * line while it waited kept a finished session spinning for hours.
  */
 
 export type Activity = 'working' | 'asked' | 'idle' | 'failed';
@@ -29,6 +37,13 @@ interface Track {
   failed: boolean;
   /** The status the last sweep reported, to tell what changed. */
   reported: Activity;
+  screen: AgentScreen;
+  /** The screen showed an agent working at some point: its words can be trusted here. */
+  screenSpoke: boolean;
+  /** The screen showed it working since the user last typed: a turn, not keystroke echo. */
+  busySinceInput: boolean;
+  /** When the screen last showed it working (debounces a repaint between frames). */
+  lastBusyAt: number | null;
 }
 
 /**
@@ -40,6 +55,13 @@ function rings(chunk: string): boolean {
   return chunk.replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '').includes('\x07');
 }
 
+/**
+ * Agents known to show "esc to interrupt" (or cancel) whenever they work: their screen
+ * is trusted from the start. For any other, only once it has shown those words — until
+ * then its output is the only sign of work, as for a plain shell.
+ */
+const SCREEN_AGENTS: ReadonlySet<string> = new Set(['claude', 'codex', 'gemini']);
+
 export class ActivityTracker {
   private readonly tracks = new Map<string, Track>();
 
@@ -47,12 +69,16 @@ export class ActivityTracker {
     private readonly now: () => number = () => Date.now(),
     /** How long output may pause before the session counts as quiet. */
     private readonly quietMs = 2500,
+    /** How long "esc to interrupt" may be gone before the turn counts as over. */
+    private readonly busyGraceMs = 1500,
   ) {}
 
-  started(id: string): void {
+  started(id: string, cols = 80, rows = 24): void {
+    this.tracks.get(id)?.screen.dispose();
     this.tracks.set(id, {
       lastOutputAt: null, lastInputAt: null, workedSinceInput: false,
       bellSinceInput: false, failed: false, reported: 'idle',
+      screen: new AgentScreen(cols, rows), screenSpoke: false, busySinceInput: false, lastBusyAt: null,
     });
   }
 
@@ -62,6 +88,11 @@ export class ActivityTracker {
     t.lastOutputAt = this.now();
     t.workedSinceInput = true;
     if (rings(chunk)) t.bellSinceInput = true;
+    t.screen.write(chunk);
+  }
+
+  resized(id: string, cols: number, rows: number): void {
+    this.tracks.get(id)?.screen.resize(cols, rows);
   }
 
   input(id: string): void {
@@ -70,6 +101,7 @@ export class ActivityTracker {
     t.lastInputAt = this.now();
     t.workedSinceInput = false;
     t.bellSinceInput = false;
+    t.busySinceInput = false;
   }
 
   /** `requested`: we stopped it, so its exit code (129 for a hangup) is no failure. */
@@ -81,6 +113,7 @@ export class ActivityTracker {
   }
 
   forget(id: string): void {
+    this.tracks.get(id)?.screen.dispose();
     this.tracks.delete(id);
   }
 
@@ -88,11 +121,30 @@ export class ActivityTracker {
     const t = this.tracks.get(id);
     if (t === undefined) return { activity: 'idle', lastActivityAt: null, rang: false };
     const lastActivityAt = Math.max(t.lastOutputAt ?? -1, t.lastInputAt ?? -1);
-    return { activity: this.activityOf(t, agent), lastActivityAt: lastActivityAt < 0 ? null : lastActivityAt, rang: t.bellSinceInput };
+    const activity = this.activityOf(t, agent);
+    // A permission prompt on screen asks as surely as a bell does.
+    const rang = t.bellSinceInput || (activity === 'asked' && agent !== null && (t.screenSpoke || SCREEN_AGENTS.has(agent)) && ASKING_ON_SCREEN.test(t.screen.nearCursor()));
+    return { activity, lastActivityAt: lastActivityAt < 0 ? null : lastActivityAt, rang };
   }
 
   private activityOf(t: Track, agent: string | null): Activity {
     if (t.failed) return 'failed';
+    if (agent !== null) {
+      const screen = t.screen.nearCursor();
+      const now = this.now();
+      if (BUSY_ON_SCREEN.test(screen)) {
+        t.screenSpoke = true;
+        t.busySinceInput = true;
+        t.lastBusyAt = now;
+      }
+      if (t.screenSpoke || SCREEN_AGENTS.has(agent)) {
+        if (t.lastBusyAt !== null && now - t.lastBusyAt < this.busyGraceMs) return 'working';
+        if (t.bellSinceInput || ASKING_ON_SCREEN.test(screen)) return 'asked';
+        // Its turn ended without asking: finished, waiting for your next message
+        // ('asked' without `rang` — the cockpit shows it as done).
+        return t.busySinceInput ? 'asked' : 'idle';
+      }
+    }
     if (t.lastOutputAt !== null && this.now() - t.lastOutputAt < this.quietMs) return 'working';
     if (t.bellSinceInput) return 'asked';
     // A plain shell going quiet after `ls` asks nothing; an agent going quiet after
