@@ -84,11 +84,17 @@ export const sessionCommand = defineCommand({
             const workspaceId = await currentWorkspaceId(client);
             const rows = await client.call<Session[]>('session.list', { workspaceId });
             if (rows.length === 0) { process.stdout.write('no sessions\n'); return; }
-            // NOTE last: scripts reading the first four columns keep working.
-            process.stdout.write('NAME\tSTATUS\tBRANCH\tLEASES\tNOTE\n');
+            // The SETUP column appears only when some session has a pending hook, so the
+            // common listing keeps its width. NOTE stays last (see below).
+            const anySetup = rows.some((s) => (s as Session & { setup?: string }).setup !== undefined);
+            process.stdout.write(`NAME\tSTATUS\tBRANCH\tLEASES${anySetup ? '\tSETUP' : ''}\tNOTE\n`);
             for (const s of rows) {
               const note = (s as Session & { note?: string | null }).note ?? '';
-              process.stdout.write(`${s.name}\t${s.status}\t${s.branch ?? '-'}\t${formatLeaseSummary(s.leases)}\t${note}\n`);
+              const setup = (s as Session & { setup?: string }).setup ?? '';
+              process.stdout.write(
+                `${s.name}\t${s.status}\t${s.branch ?? '-'}\t${formatLeaseSummary(s.leases)}` +
+                  `${anySetup ? `\t${setup}` : ''}\t${note}\n`,
+              );
             }
           });
         } catch (err) { fail(err); }
@@ -109,6 +115,30 @@ export const sessionCommand = defineCommand({
               workspaceId, idOrName: args.target, note: args.text ?? '',
             });
             process.stdout.write(`${s.name}: ${s.note ?? '(no note)'}\n`);
+          });
+        } catch (err) { fail(err); }
+      },
+    }),
+
+    // With the setup hook typed into the shell, re-running it means: clear the
+    // once-marker, and — when the shell is already open — type it there now.
+    setup: defineCommand({
+      meta: { name: 'setup', description: "Run the session's hooks.sessionSetup again (typed into its shell)" },
+      args: { target: { type: 'positional', description: 'Session name or id', required: false } },
+      async run({ args }) {
+        try {
+          if (args.target === undefined) {
+            throw new CrossweaveError('INVALID_ARGUMENTS', 'Missing required argument: TARGET');
+          }
+          const target = args.target;
+          await withClient(async (client) => {
+            const workspaceId = await currentWorkspaceId(client);
+            const result = await client.call<{ typed: boolean }>('session.setup', { workspaceId, idOrName: target });
+            process.stdout.write(
+              result.typed
+                ? `typed the setup hook into ${target}'s shell\n`
+                : `setup will run when ${target} next starts\n`,
+            );
           });
         } catch (err) { fail(err); }
       },

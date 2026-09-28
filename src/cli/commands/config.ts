@@ -3,9 +3,10 @@ import { CrossweaveError } from '../../core/errors.js';
 import { withClient, fail, currentWorkspaceId } from '../context.js';
 import { loadGlobalConfig, saveGlobalConfig } from '../../update/global-config.js';
 
-interface TrustResult { trusted: boolean; testCommand: string }
+interface TrustResult { trusted: boolean; target: 'testCommand' | 'hooks'; testCommand?: string }
 interface NotifyStatus { enabled: boolean; land: boolean; convergence: boolean }
-interface StatusResult { testCommand: string | null; trusted: boolean; notify: NotifyStatus }
+interface HooksStatus { sessionSetup: string | null; sessionTeardown: string | null; trusted: boolean }
+interface StatusResult { testCommand: string | null; trusted: boolean; hooks?: HooksStatus; notify: NotifyStatus }
 
 const NOTIFY_EVENTS = ['land', 'convergence'] as const;
 type NotifyEvent = (typeof NOTIFY_EVENTS)[number];
@@ -17,26 +18,38 @@ function parseNotifyEvent(raw: string | undefined): NotifyEvent | undefined {
 }
 
 const trustCommand = defineCommand({
-  meta: { name: 'trust', description: "Trust the current crossweave.config.json converge.testCommand" },
-  async run() {
+  meta: { name: 'trust', description: 'Trust converge.testCommand, or `hooks` — two separate trusts, deliberately' },
+  args: { target: { type: 'positional', required: false, description: 'hooks — omit to trust converge.testCommand' } },
+  async run({ args }) {
     try {
+      const target = args.target;
+      if (target !== undefined && target !== 'hooks' && target !== 'testCommand') {
+        throw new CrossweaveError('INVALID_ARGUMENTS', `Unknown trust target: ${target} (expected hooks)`);
+      }
       await withClient(async (client) => {
         const workspaceId = await currentWorkspaceId(client);
-        const result = await client.call<TrustResult>('config.trust', { workspaceId });
-        process.stdout.write(`trusted converge.testCommand: ${result.testCommand}\n`);
+        const result = await client.call<TrustResult>('config.trust', {
+          workspaceId,
+          ...(target === undefined ? {} : { target }),
+        });
+        process.stdout.write(
+          result.target === 'hooks'
+            ? 'trusted hooks (sessionSetup / sessionTeardown)\n'
+            : `trusted converge.testCommand: ${result.testCommand}\n`,
+        );
       });
     } catch (err) { fail(err); }
   },
 });
 
 const untrustCommand = defineCommand({
-  meta: { name: 'untrust', description: 'Revoke trust for converge.testCommand' },
+  meta: { name: 'untrust', description: 'Revoke trust: both converge.testCommand and the hooks' },
   async run() {
     try {
       await withClient(async (client) => {
         const workspaceId = await currentWorkspaceId(client);
         await client.call('config.untrust', { workspaceId });
-        process.stdout.write('converge.testCommand trust revoked\n');
+        process.stdout.write('trust revoked (converge.testCommand and hooks)\n');
       });
     } catch (err) { fail(err); }
   },
@@ -53,6 +66,14 @@ const statusCommand = defineCommand({
           process.stdout.write('converge.testCommand is not set\n');
         } else {
           process.stdout.write(`converge.testCommand: ${result.testCommand} (${result.trusted ? 'trusted' : 'NOT trusted'})\n`);
+        }
+        // Printed only when the file actually sets a hook: a workspace with none has
+        // nothing to say about them.
+        const h = result.hooks;
+        if (h !== undefined && (h.sessionSetup !== null || h.sessionTeardown !== null)) {
+          process.stdout.write(`hooks: ${h.trusted ? 'trusted' : 'NOT trusted'}\n`);
+          if (h.sessionSetup !== null) process.stdout.write(`  sessionSetup: ${h.sessionSetup}\n`);
+          if (h.sessionTeardown !== null) process.stdout.write(`  sessionTeardown: ${h.sessionTeardown}\n`);
         }
         const n = result.notify;
         process.stdout.write(

@@ -84,9 +84,10 @@ export const gcCommand = defineCommand({
     try {
       await withClient(async (client) => {
         const ws = await client.call<Workspace>('workspace.init', {});
-        const result = await client.call<{ removed: string[]; reclaimedBytes: number; kept: string[] }>(
+        const result = await client.call<{ removed: string[]; reclaimedBytes: number; kept: string[]; warnings?: string[] }>(
           'workspace.gc', { id: ws.id, force: args.force },
         );
+        for (const warning of result.warnings ?? []) process.stdout.write(`warning: ${warning}\n`);
         if (result.removed.length === 0) {
           process.stdout.write('nothing to reclaim\n');
         } else {
