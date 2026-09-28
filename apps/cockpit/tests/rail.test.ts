@@ -164,6 +164,15 @@ describe('parseSessionList overlaps', () => {
   })
 })
 
+describe('parseSessionList setup', () => {
+  test('keeps a recognized setup status, drops anything else', () => {
+    expect(parseSessionList([{ id: 'a', name: 'a', setup: 'pending' }])[0]?.setup).toBe('pending')
+    expect(parseSessionList([{ id: 'a', name: 'a', setup: 'failed' }])[0]?.setup).toBe('failed')
+    expect(parseSessionList([{ id: 'a', name: 'a', setup: 'bogus' }])[0]?.setup).toBeUndefined()
+    expect(parseSessionList([{ id: 'a', name: 'a' }])[0]?.setup).toBeUndefined()
+  })
+})
+
 describe('gitBadge', () => {
   test('files changed and commits to land; nothing when both are zero or unknown', () => {
     expect(gitBadge({ changed: 3, ahead: 2 })).toEqual({ changed: '3', ahead: '↑2', title: '3 uncommitted files · 2 commits to land' })

@@ -56,6 +56,8 @@ export type ListedSession = {
   note?: string
   /** Other sessions touching the same files, and which paths — the early warning before a trial merge. */
   overlaps?: { session: string; paths: string[] }[]
+  /** hooks.sessionSetup: typed but not yet run (`pending`), or ran and exited nonzero (`failed`). Absent otherwise — not run at all, or ran clean. */
+  setup?: 'pending' | 'failed'
 }
 
 export function parseSessionList(value: unknown): ListedSession[] {
@@ -98,6 +100,7 @@ export function parseSessionList(value: unknown): ListedSession[] {
       row.signal = { kind: sig.kind, message: sig.message, at: sig.at }
     }
     if (typeof record.note === 'string' && record.note.trim() !== '') row.note = record.note
+    if (record.setup === 'pending' || record.setup === 'failed') row.setup = record.setup
     const overlaps = record.overlaps
     if (Array.isArray(overlaps)) {
       const parsed = overlaps.flatMap((entry) => {
