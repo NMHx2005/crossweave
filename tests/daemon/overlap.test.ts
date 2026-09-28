@@ -90,6 +90,38 @@ describe('OverlapTracker', () => {
     expect(tracker.get('s2')).toEqual([{ session: 'alice', paths: ['x.ts'] }]);
   });
 
+  test('a folder that keeps failing for several refreshes in a row is excluded, not frozen forever', async () => {
+    let fail = false;
+    const tracker = new OverlapTracker(
+      async (folder) => (fail && folder === '/a' ? null : scanOf(['x.ts'])),
+      () => 0,
+      0,
+      3, // maxConsecutiveFailures
+    );
+    const targets = () => [
+      { id: 's1', name: 'alice', folder: '/a', baseHead: null },
+      { id: 's2', name: 'bob', folder: '/b', baseHead: null },
+    ];
+    expect(await tracker.refresh(targets)).toBe(true);
+    expect(tracker.get('s1')).toEqual([{ session: 'bob', paths: ['x.ts'] }]);
+
+    fail = true;
+    expect(await tracker.refresh(targets)).toBe(false); // 1st consecutive failure: whole refresh aborted
+    expect(await tracker.refresh(targets)).toBe(false); // 2nd: still aborted
+    expect(tracker.get('s1')).toEqual([{ session: 'bob', paths: ['x.ts'] }]); // still stale, not frozen empty
+
+    // 3rd consecutive failure crosses the threshold: exclude the broken session only,
+    // the rest of the picture keeps updating instead of staying stuck forever.
+    expect(await tracker.refresh(targets)).toBe(true);
+    expect(tracker.get('s1')).toBeUndefined();
+    expect(tracker.get('s2')).toBeUndefined();
+
+    // Recovers once the read succeeds again.
+    fail = false;
+    expect(await tracker.refresh(targets)).toBe(true);
+    expect(tracker.get('s1')).toEqual([{ session: 'bob', paths: ['x.ts'] }]);
+  });
+
   test('two refreshes at once read once', async () => {
     let reads = 0;
     let release: () => void = () => undefined;
