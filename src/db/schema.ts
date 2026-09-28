@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 16;
+export const SCHEMA_VERSION = 17;
 
 /**
  * Each migration is a list of single statements, never one multi-statement blob.
@@ -276,5 +276,30 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
     // OSC sentinel `wrapWithSentinel` wraps the hook in (see src/domain/session-setup.ts)
     // — typing the line only proves it started, not how it ended.
     `ALTER TABLE session_setup ADD COLUMN exit_code INTEGER`,
+  ],
+  [
+    // Session history (2026-09-28): `event.session_id` and `session_setup.session_id`
+    // are both ON DELETE CASCADE, and `session rm`/`kill --rm-worktree`/`gc` delete the
+    // `session` row outright — so a landed or killed session's entire record vanishes
+    // the moment its row goes, with nothing left to ask "what did I land last week?".
+    // `session_id` here is deliberately NOT a foreign key: by the time this row is
+    // written, the session it names is seconds from being deleted, and this table's
+    // whole purpose is to keep meaning it after that row is gone. Snapshotted fields,
+    // not a join, for the same reason.
+    `CREATE TABLE session_history (
+    id             TEXT PRIMARY KEY,
+    workspace_id   TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+    session_id     TEXT NOT NULL,
+    name           TEXT NOT NULL,
+    agent_kind     TEXT NOT NULL,
+    branch         TEXT,
+    final_status   TEXT NOT NULL CHECK (final_status IN ('landed','dead')),
+    created_at     TEXT NOT NULL,
+    ended_at       TEXT NOT NULL,
+    token_spent    INTEGER NOT NULL,
+    cost_spent_usd REAL NOT NULL,
+    note           TEXT
+  )`,
+    `CREATE INDEX session_history_by_workspace ON session_history (workspace_id, ended_at)`,
   ],
 ];
