@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 15;
+export const SCHEMA_VERSION = 16;
 
 /**
  * Each migration is a list of single statements, never one multi-statement blob.
@@ -270,5 +270,11 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
     snapshot_at TEXT
   )`,
     `CREATE INDEX terminal_session ON terminal(session_id)`,
+  ],
+  [
+    // The setup hook's exit code (2026-09-28): NULL until the daemon observes the
+    // OSC sentinel `wrapWithSentinel` wraps the hook in (see src/domain/session-setup.ts)
+    // — typing the line only proves it started, not how it ended.
+    `ALTER TABLE session_setup ADD COLUMN exit_code INTEGER`,
   ],
 ];
