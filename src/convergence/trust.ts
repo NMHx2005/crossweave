@@ -16,3 +16,30 @@ export function isTestCommandTrusted(testCommand: string, configTrust: ConfigTru
   const trust = configTrust.get(workspaceId);
   return trust !== undefined && trust.testCommandHash === hashTestCommand(testCommand);
 }
+
+/**
+ * The lifecycle hooks' trust, kept separate from the test command's on purpose:
+ * `sessionSetup` is typed into a shell automatically on a session's first start, while
+ * `testCommand` runs only on an explicit `cw land --yes`. Gating them together would let
+ * a user trusting their test command unknowingly arm a hook a hostile clone added, so
+ * each is hashed and trusted on its own.
+ *
+ * A canonical serialization (fixed keys, empty for the absent side) so the hash does not
+ * depend on which keys the file happened to spell out.
+ */
+export function hashHooks(hooks: { sessionSetup?: string; sessionTeardown?: string }): string {
+  const canonical = JSON.stringify({
+    setup: hooks.sessionSetup ?? '',
+    teardown: hooks.sessionTeardown ?? '',
+  });
+  return createHash('sha256').update(canonical).digest('hex');
+}
+
+export function isHooksTrusted(
+  hooks: { sessionSetup?: string; sessionTeardown?: string },
+  configTrust: ConfigTrustRepo,
+  workspaceId: string,
+): boolean {
+  const trust = configTrust.get(workspaceId);
+  return trust?.hooksHash !== undefined && trust.hooksHash === hashHooks(hooks);
+}

@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 13;
+export const SCHEMA_VERSION = 14;
 
 /**
  * Each migration is a list of single statements, never one multi-statement blob.
@@ -241,5 +241,18 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
     // A one-line note the user keeps on a session ("fix the login redirect"), shown in
     // the rail instead of the agent's latest words. NULL = none.
     `ALTER TABLE session ADD COLUMN note TEXT`,
+  ],
+  [
+    // Setup hooks (2026-09-28). `hooks_hash` is the hooks' trust — kept apart from
+    // `test_command_hash`, and nullable so a workspace that trusted only a test command
+    // has no hooks armed (editing the hooks re-locks it; see src/convergence/trust.ts).
+    `ALTER TABLE config_trust ADD COLUMN hooks_hash TEXT`,
+    // Whether a session's `hooks.sessionSetup` has already been typed into its shell, so
+    // it runs once (at first start), not on every start. Its own table rather than a
+    // session column, so nothing that reads a SessionRow has to change.
+    `CREATE TABLE session_setup (
+    session_id TEXT PRIMARY KEY REFERENCES session(id) ON DELETE CASCADE,
+    ran_at     TEXT NOT NULL
+  )`,
   ],
 ];

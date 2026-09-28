@@ -14,6 +14,14 @@ export interface CrossweaveConfig {
     fullIntegrationIntervalMs: number;
     pairwiseSessionThreshold: number;
   };
+  /**
+   * Optional shell run on a session's lifecycle. `sessionSetup` is typed into the shell
+   * on a worktree session's FIRST start (warm-up: install, seed, env), and
+   * `sessionTeardown` runs before a worktree is removed. Both are arbitrary shell from a
+   * repo-controlled file and must be trusted before they run — see `cw config trust
+   * hooks` — exactly like `converge.testCommand`.
+   */
+  hooks?: { sessionSetup?: string; sessionTeardown?: string };
 }
 
 export const DEFAULT_CONFIG: CrossweaveConfig = {
@@ -152,6 +160,27 @@ export function loadConfig(projectRoot: string): CrossweaveConfig {
   // A non-boolean here would be read as truthy/falsy by the spawn path and silently
   // decide whether the OS boundary exists — the one setting whose misreading changes
   // what the session can do, so it is checked rather than coerced.
+
+  // Absent by default, and left absent (not `{}`) when the file has none, so a config
+  // that says nothing about hooks is distinguishable from one that sets them empty.
+  if (input.hooks !== undefined) {
+    const hooks = input.hooks as { sessionSetup?: unknown; sessionTeardown?: unknown };
+    if (typeof hooks !== 'object' || hooks === null) invalid('hooks must be an object');
+    for (const key of ['sessionSetup', 'sessionTeardown'] as const) {
+      const value = hooks[key];
+      if (value === undefined) continue;
+      if (typeof value !== 'string') invalid(`hooks.${key} must be a string if set`);
+      // One line: this is typed into a shell, where a line break would run a second
+      // command nobody chose.
+      if (/[\r\n\0]/.test(value)) invalid(`hooks.${key} must be one line`);
+      if (value.trim() === '') invalid(`hooks.${key} must not be empty`);
+      if (value.length > 2000) invalid(`hooks.${key} must be at most 2000 characters`);
+    }
+    config.hooks = {
+      ...(hooks.sessionSetup === undefined ? {} : { sessionSetup: hooks.sessionSetup as string }),
+      ...(hooks.sessionTeardown === undefined ? {} : { sessionTeardown: hooks.sessionTeardown as string }),
+    };
+  }
 
   return config;
 }
