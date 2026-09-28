@@ -265,9 +265,10 @@ export const sessionCommand = defineCommand({
           }
           await withClient(async (client) => {
             const workspaceId = await currentWorkspaceId(client);
-            await client.call('session.kill', {
+            const result = await client.call<{ warnings?: string[] }>('session.kill', {
               workspaceId, idOrName: args.target, removeWorktree: args['rm-worktree'],
             });
+            for (const warning of result.warnings ?? []) process.stdout.write(`warning: ${warning}\n`);
             process.stdout.write(`killed ${args.target}\n`);
           });
         } catch (err) { fail(err); }
@@ -290,7 +291,8 @@ export const sessionCommand = defineCommand({
           }
           await withClient(async (client) => {
             const workspaceId = await currentWorkspaceId(client);
-            await client.call('session.rm', { workspaceId, idOrName: args.target });
+            const result = await client.call<{ warnings?: string[] }>('session.rm', { workspaceId, idOrName: args.target });
+            for (const warning of result.warnings ?? []) process.stdout.write(`warning: ${warning}\n`);
             process.stdout.write(`removed ${args.target}\n`);
           });
         } catch (err) { fail(err); }

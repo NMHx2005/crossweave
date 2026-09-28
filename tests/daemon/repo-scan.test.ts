@@ -91,6 +91,25 @@ describe('RepoScanner', () => {
     expect(reads).toBe(2);
   });
 
+  test('an entry idle past maxAge is evicted, so the cache cannot grow without bound', async () => {
+    let reads = 0;
+    let clock = 0;
+    const scanner = new RepoScanner(
+      async () => { reads += 1; return { changed: 0, ahead: null, changedPaths: [], committedPaths: [] }; },
+      () => clock,
+      100_000,
+      1000,
+    );
+    await scanner.scan('/w', null);
+    expect(reads).toBe(1);
+    clock = 500; // still cached by the (long) min interval, and younger than maxAge
+    await scanner.scan('/w', null);
+    expect(reads).toBe(1);
+    clock = 2000; // past maxAge: pruned, so it reads again despite minInterval 100000
+    await scanner.scan('/w', null);
+    expect(reads).toBe(2);
+  });
+
   test('counts() is the counts half of the same scan', async () => {
     const scanner = new RepoScanner(
       async () => ({ changed: 2, ahead: 1, changedPaths: ['a', 'b'], committedPaths: ['c'] }),

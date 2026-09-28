@@ -56,7 +56,7 @@ const untrustCommand = defineCommand({
 });
 
 const statusCommand = defineCommand({
-  meta: { name: 'status', description: 'Show whether converge.testCommand is trusted, and notify preferences' },
+  meta: { name: 'status', description: 'Show whether converge.testCommand and the hooks are trusted, and notify preferences' },
   async run() {
     try {
       await withClient(async (client) => {

@@ -28,6 +28,31 @@ describe('SessionSetupRepo', () => {
     db.close();
   });
 
+  test('markedIds reads every marked session in one query', () => {
+    const db = openDatabase(':memory:');
+    new WorkspaceRepo(db).insert({
+      id: 'ws_1', name: 'w', rootPath: '/tmp/w', createdAt: 'now',
+      defaultIsolation: 'worktree', safeModeTier: 'T1',
+    });
+    const sessions = new SessionRepo(db);
+    for (const id of ['s_1', 's_2']) {
+      sessions.insert({
+        id, workspaceId: 'ws_1', name: id, agentKind: 'claude', adapter: 'claude',
+        status: 'idle', worktreePath: null, branch: null, createdAt: 'now', lastActiveAt: 'now',
+        tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null,
+        enforcementTier: 'T3', pid: null, launchArgs: null,
+      });
+    }
+    const repo = new SessionSetupRepo(db);
+    repo.mark('s_1');
+    expect(repo.markedIds()).toEqual(new Set(['s_1']));
+    repo.mark('s_2');
+    expect(repo.markedIds()).toEqual(new Set(['s_1', 's_2']));
+    repo.clear('s_1');
+    expect(repo.markedIds()).toEqual(new Set(['s_2']));
+    db.close();
+  });
+
   test('the migration adds the hooks_hash column and the session_setup table', () => {
     const db = openDatabase(':memory:');
     const columns = (db.prepare('PRAGMA table_info(config_trust)').all() as Array<{ name: string }>).map((c) => c.name);

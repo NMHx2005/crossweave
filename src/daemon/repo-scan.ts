@@ -97,15 +97,29 @@ export class RepoScanner {
     private readonly read: (folder: string, baseHead: string | null) => Promise<RepoScan | null> = readRepoScan,
     private readonly now: () => number = Date.now,
     private readonly minIntervalMs = 2000,
+    /**
+     * Entries not read within this window are dropped. Without it the cache would grow
+     * for the daemon's whole life: the key includes `baseHead`, which changes on every
+     * commit, and folders of deleted sessions are never looked up again.
+     */
+    private readonly maxAgeMs = 60_000,
   ) {}
 
   scan(folder: string, baseHead: string | null): Promise<RepoScan | null> {
+    this.prune();
     const key = `${folder}\u0000${baseHead ?? ''}`;
     const hit = this.cache.get(key);
     if (hit !== undefined && this.now() - hit.at < this.minIntervalMs) return hit.scan;
     const scan = this.read(folder, baseHead);
     this.cache.set(key, { at: this.now(), scan });
     return scan;
+  }
+
+  private prune(): void {
+    const cutoff = this.now() - this.maxAgeMs;
+    for (const [key, entry] of this.cache) {
+      if (entry.at < cutoff) this.cache.delete(key);
+    }
   }
 
   /** The counts half, in the shape `GitCounter`'s reader wants. */

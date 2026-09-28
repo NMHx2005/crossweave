@@ -321,9 +321,14 @@ export function buildMethods(
    */
   function overlapTargets(listed: SessionRow[]): Array<{ id: string; name: string; folder: string; baseHead: string | null }> {
     const baseHead = readBaseHead(projectRoot);
-    return listed
-      .filter((s) => s.worktreePath !== null && s.worktreePath !== projectRoot && s.status !== 'landed' && existsSync(s.worktreePath))
-      .map((s) => ({ id: s.id, name: s.name, folder: s.worktreePath as string, baseHead }));
+    const targets: Array<{ id: string; name: string; folder: string; baseHead: string | null }> = [];
+    for (const session of listed) {
+      const folder = session.worktreePath;
+      if (folder === null || folder === projectRoot) continue;
+      if (session.status === 'landed' || !existsSync(folder)) continue;
+      targets.push({ id: session.id, name: session.name, folder, baseHead });
+    }
+    return targets;
   }
 
   /**
@@ -342,11 +347,12 @@ export function buildMethods(
     const seen = new Set<string>();
     for (const [name, overlaps] of overlapPairs(paths)) {
       for (const other of overlaps) {
-        const key = [name, other.session].sort().join('|');
+        const a = name < other.session ? name : other.session;
+        const b = name < other.session ? other.session : name;
+        const key = `${a}|${b}`;
         if (seen.has(key)) continue;
         seen.add(key);
-        const [a, b] = [name, other.session].sort();
-        pairs.push({ a: a as string, b: b as string, paths: other.paths });
+        pairs.push({ a, b, paths: other.paths });
       }
     }
     return pairs;
@@ -573,6 +579,8 @@ export function buildMethods(
       // had its (trusted) setup hook typed yet carries `setup: 'pending'` to the rail.
       const hooksForList = config.hooks;
       const hooksTrusted = hooksForList?.sessionSetup !== undefined && isHooksTrusted(hooksForList, configTrust, workspaceId);
+      // Read once for the whole list, not once per row: this runs on every redraw.
+      const setupRan = hooksTrusted ? sessionSetup.markedIds() : undefined;
       // Read in the background; a change is announced like any other, and the next
       // list carries it.
       if (hasGit) void gitCounts.refresh(() => {
@@ -610,9 +618,9 @@ export function buildMethods(
         const status = activity.status(session.id, agent);
         const git = gitCounts.get(session.id);
         const overlaps = overlap.get(session.id);
-        const setupPending = hooksTrusted
+        const setupPending = setupRan !== undefined
           && session.worktreePath !== null && session.worktreePath !== projectRoot
-          && !sessionSetup.has(session.id);
+          && !setupRan.has(session.id);
         const used = session.worktreePath === projectRoot ? undefined : usage.get(session.id);
         const size = runtime.size(session.id);
         const withWords = {
@@ -655,22 +663,26 @@ export function buildMethods(
     'session.rename': (p) =>
       sessions.rename(str(p, 'workspaceId'), str(p, 'idOrName'), str(p, 'newName')),
     'session.kill': async (p) => {
+      const row = sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName'));
       const removeWorktree = bool(p, 'removeWorktree', false);
       // Killing keeps the worktree (it can still be landed), and a shell there is
       // still useful; only a kill that deletes it takes the shells first.
-      if (removeWorktree) {
-        await terminals.closeForSession(sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName')).id);
-      }
-      await sessions.kill(str(p, 'workspaceId'), str(p, 'idOrName'), { removeWorktree });
+      if (removeWorktree) await terminals.closeForSession(row.id);
+      const warnings = await sessions.kill(str(p, 'workspaceId'), str(p, 'idOrName'), {
+        removeWorktree,
+        onBeforeRemove: (r) => teardownFor(r),
+      });
       broadcastRegistry.broadcast('tui.invalidate', {});
-      return { ok: true };
+      return { ok: true, warnings };
     },
     'session.rm': async (p) => {
       const row = sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName'));
-      // Teardown first: it needs the worktree that `remove` is about to delete.
-      const warnings = await teardownFor(row);
       await terminals.closeForSession(row.id);
-      await sessions.remove(str(p, 'workspaceId'), str(p, 'idOrName'));
+      // Teardown is run by `remove`, AFTER its liveness refusal: a live session's
+      // `rm` must be refused without a teardown's side effects (see SessionManager.remove).
+      const warnings = await sessions.remove(str(p, 'workspaceId'), str(p, 'idOrName'), {
+        onBeforeRemove: (r) => teardownFor(r),
+      });
       sessionSetup.clear(row.id);
       broadcastRegistry.broadcast('tui.invalidate', {});
       return { ok: true, warnings };
@@ -955,7 +967,13 @@ export function buildMethods(
       // caller's real result/error is never altered by this wiring.
       try {
         const result = await landSession(
-          { db, projectRoot, sessions: sessionsRepo, leaseManager, ledger, config, configTrust },
+          {
+            db, projectRoot, sessions: sessionsRepo, leaseManager, ledger, config, configTrust,
+            // Landing removes the worktree too, so its teardown must run as well —
+            // not only `session rm`/`gc`, or `docker compose down` never fires on the
+            // most common way a session ends.
+            onBeforeRemoveWorktree: (r) => teardownFor(r),
+          },
           workspaceId, target.id, { force },
         );
         const event = { kind: 'land' as const, session: target.name, ok: true as const, baseBranch: result.baseBranch, workspaceId };

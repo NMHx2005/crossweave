@@ -229,8 +229,12 @@ export class SessionManager {
   async kill(
     workspaceId: string,
     idOrName: string,
-    opts: { removeWorktree: boolean },
-  ): Promise<void> {
+    opts: {
+      removeWorktree: boolean;
+      /** Runs `hooks.sessionTeardown` in the worktree just before it is removed. */
+      onBeforeRemove?: (row: SessionRow) => Promise<string[]>;
+    },
+  ): Promise<string[]> {
     const row = this.resolve(workspaceId, idOrName);
     const root = this.projectRoot(workspaceId);
 
@@ -244,6 +248,10 @@ export class SessionManager {
       row.worktreePath !== null && row.worktreePath !== root ? row.worktreePath : null;
 
     if (opts.removeWorktree && ownWorktree !== null) {
+      // The teardown needs the worktree this removal is about to delete. It runs
+      // after `onKill` above, so an agent (a live `docker compose up`) is already
+      // stopped before its teardown tries to bring it down.
+      const warnings = opts.onBeforeRemove === undefined ? [] : await opts.onBeforeRemove(row);
       await removeWorktree(root, ownWorktree);
       if (row.branch !== null) await deleteBranch(root, row.branch).catch(() => undefined);
       // Removing the worktree means the work is gone, so nothing is left for the row
@@ -252,10 +260,11 @@ export class SessionManager {
       const workspace = this.workspaces.findById(workspaceId);
       if (workspace) disposeLeasedPaths(this.leases, workspace, row.id);
       this.sessions.delete(row.id);
-      return;
+      return warnings;
     }
 
     this.sessions.updateStatus(row.id, 'dead', null);
+    return [];
   }
 
   /**
@@ -265,7 +274,14 @@ export class SessionManager {
    * agent's record without stopping the agent would strand the process, and silently
    * killing something the caller only asked to remove is worse.
    */
-  async remove(workspaceId: string, idOrName: string): Promise<void> {
+  async remove(
+    workspaceId: string,
+    idOrName: string,
+    opts: {
+      /** Runs `hooks.sessionTeardown` in the worktree just before it is removed. */
+      onBeforeRemove?: (row: SessionRow) => Promise<string[]>;
+    } = {},
+  ): Promise<string[]> {
     const row = this.resolve(workspaceId, idOrName);
     if (row.status !== 'dead' && row.status !== 'landed') {
       throw new CrossweaveError(
@@ -278,10 +294,17 @@ export class SessionManager {
     const ownWorktree =
       row.worktreePath !== null && row.worktreePath !== root ? row.worktreePath : null;
 
-    if (ownWorktree !== null) await removeWorktree(root, ownWorktree).catch(() => undefined);
+    const warnings: string[] = [];
+    if (ownWorktree !== null) {
+      // AFTER the liveness refusal above, deliberately: a teardown is a real side
+      // effect (`docker compose down -v`), and a refused `rm` must not run it.
+      if (opts.onBeforeRemove !== undefined) warnings.push(...(await opts.onBeforeRemove(row)));
+      await removeWorktree(root, ownWorktree).catch(() => undefined);
+    }
     if (row.branch !== null) await deleteBranch(root, row.branch).catch(() => undefined);
     const workspace = this.workspaces.findById(workspaceId);
     if (workspace) disposeLeasedPaths(this.leases, workspace, row.id);
     this.sessions.delete(row.id);
+    return warnings;
   }
 }

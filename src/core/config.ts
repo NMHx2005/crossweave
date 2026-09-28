@@ -176,10 +176,10 @@ export function loadConfig(projectRoot: string): CrossweaveConfig {
       if (value.trim() === '') invalid(`hooks.${key} must not be empty`);
       if (value.length > 2000) invalid(`hooks.${key} must be at most 2000 characters`);
     }
-    config.hooks = {
-      ...(hooks.sessionSetup === undefined ? {} : { sessionSetup: hooks.sessionSetup as string }),
-      ...(hooks.sessionTeardown === undefined ? {} : { sessionTeardown: hooks.sessionTeardown as string }),
-    };
+    const parsedHooks: { sessionSetup?: string; sessionTeardown?: string } = {};
+    if (typeof hooks.sessionSetup === 'string') parsedHooks.sessionSetup = hooks.sessionSetup;
+    if (typeof hooks.sessionTeardown === 'string') parsedHooks.sessionTeardown = hooks.sessionTeardown;
+    config.hooks = parsedHooks;
   }
 
   return config;

@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import type { Database } from 'bun:sqlite';
 import { CrossweaveError } from '../core/errors.js';
 import type { CrossweaveConfig } from '../core/config.js';
-import type { SessionRepo } from '../db/repositories/session.js';
+import type { SessionRepo, SessionRow } from '../db/repositories/session.js';
 import type { LeaseManager } from '../isolation/leases/manager.js';
 import type { EventLedger } from '../domain/ledger.js';
 import type { ConfigTrustRepo } from '../db/repositories/config-trust.js';
@@ -19,6 +19,11 @@ export interface LandDeps {
   ledger: EventLedger;
   config: CrossweaveConfig;
   configTrust: ConfigTrustRepo;
+  /**
+   * Runs `hooks.sessionTeardown` in the worktree just before landing removes it.
+   * Best effort — it returns warning lines; a missing hook returns `[]`.
+   */
+  onBeforeRemoveWorktree?: (row: SessionRow) => Promise<string[]>;
 }
 
 export interface LandResult {
@@ -349,6 +354,10 @@ export async function landSession(
     const warnings: string[] = [];
     const ownWorktree = row.worktreePath !== null && row.worktreePath !== deps.projectRoot ? row.worktreePath : null;
     if (ownWorktree !== null) {
+      // The teardown needs the worktree landing is about to remove, so it runs first.
+      if (deps.onBeforeRemoveWorktree !== undefined) {
+        warnings.push(...(await deps.onBeforeRemoveWorktree(row)));
+      }
       try {
         await removeWorktree(deps.projectRoot, ownWorktree);
       } catch (cause) {

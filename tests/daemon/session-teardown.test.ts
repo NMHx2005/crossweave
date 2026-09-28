@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { openDatabase } from '../../src/db/open.js';
 import { buildMethods } from '../../src/daemon/methods.js';
 import { ConfigTrustRepo } from '../../src/db/repositories/config-trust.js';
+import { SessionRepo } from '../../src/db/repositories/session.js';
 import { WorkspaceManager } from '../../src/domain/workspace.js';
 import { hashHooks } from '../../src/convergence/trust.js';
 import { DEFAULT_CONFIG } from '../../src/core/config.js';
@@ -66,6 +67,63 @@ describe('sessionTeardown', () => {
     } finally {
       db.close();
       await fx.cleanup();
+    }
+  }, 15_000);
+
+  test('a live session is refused, and its teardown is NOT run', async () => {
+    const marker = join(process.env.TMPDIR ?? '/tmp', `cw-teardown-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    const { fx, db, ws, methods } = await fixtureWithTeardown(marker, true);
+    try {
+      const row = (await methods['session.new']!({ workspaceId: ws.id, name: 'a' }, ctx)) as { id: string };
+      // A live session, without a pty to spawn: the point is only the refused `rm`.
+      new SessionRepo(db).updateStatus(row.id, 'running', null);
+
+      await expect(methods['session.rm']!({ workspaceId: ws.id, idOrName: 'a' }, ctx))
+        .rejects.toMatchObject({ code: 'SESSION_STILL_LIVE' });
+      // The refusal must come BEFORE any teardown side effect: `docker compose down`
+      // on a session that is still running (and still being refused) is not harmless.
+      expect(existsSync(marker)).toBe(false);
+    } finally {
+      db.close();
+      await fx.cleanup();
+    }
+  }, 15_000);
+
+  test('kill --rm-worktree runs the teardown before removing the worktree', async () => {
+    const marker = join(process.env.TMPDIR ?? '/tmp', `cw-teardown-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    const { fx, db, ws, methods } = await fixtureWithTeardown(marker, true);
+    try {
+      await methods['session.new']!({ workspaceId: ws.id, name: 'a' }, ctx);
+      const result = (await methods['session.kill']!(
+        { workspaceId: ws.id, idOrName: 'a', removeWorktree: true }, ctx,
+      )) as { warnings: string[] };
+      expect(result.warnings).toEqual([]);
+      expect(existsSync(marker)).toBe(true);
+    } finally {
+      db.close();
+      await fx.cleanup();
+    }
+  }, 15_000);
+
+  test('a failing teardown is a warning, and the removal still happens', async () => {
+    const fixture = await makeGitFixture();
+    const db = openDatabase(join(fixture.root, '.crossweave', 'state.db'));
+    try {
+      const ws = new WorkspaceManager(db).init(fixture.root);
+      const hooks = { sessionTeardown: 'exit 3' };
+      const config = { ...DEFAULT_CONFIG, hooks };
+      new ConfigTrustRepo(db).setHooks(ws.id, hashHooks(hooks), 'now');
+      const methods = buildMethods(db, fixture.root, undefined, config);
+      const row = (await methods['session.new']!({ workspaceId: ws.id, name: 'a' }, ctx)) as { id: string };
+      new SessionRepo(db).updateStatus(row.id, 'dead', null);
+
+      const result = (await methods['session.rm']!({ workspaceId: ws.id, idOrName: 'a' }, ctx)) as { warnings: string[] };
+      expect(result.warnings.join(' ')).toContain('sessionTeardown failed');
+      // The failed hook must not block the removal — the session row is gone.
+      expect(new SessionRepo(db).findById(row.id)).toBeUndefined();
+    } finally {
+      db.close();
+      await fixture.cleanup();
     }
   }, 15_000);
 });

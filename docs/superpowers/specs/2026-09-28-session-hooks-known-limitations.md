@@ -10,7 +10,8 @@
   a worktree session's first start, `&&`-chained with the launcher so a failed setup does
   not start an agent on a half-installed tree.
 - `hooks.sessionTeardown` is spawned (best effort) in the worktree just before it is
-  removed — `cw session rm` and `cw gc` — and a failure is a warning, never a block.
+  removed — on `cw session rm`, `cw session kill --rm-worktree`, `cw gc` and `cw land` —
+  and a failure is a warning, never a block.
 - Trust is separate: `cw config trust hooks` stores a `hooks_hash`
   (`config_trust.hooks_hash`), and `cw config trust` keeps trusting only
   `converge.testCommand`. Editing the hooks re-locks them.
@@ -36,5 +37,7 @@
 - **`sessionTeardown` runs with `process.env` only**, not the session's lease env (leases
   are released around removal): a teardown that needs `$PORT` or the compose project name
   must derive them itself. It runs as the user, unsandboxed.
-- **`session.kill --rm-worktree` does not run the teardown** — only `session rm` and
-  `cw gc` do.
+- **A teardown that fails is only a warning, and only where the caller shows warnings.**
+  `cw gc` and `cw land` print it; `cw session rm`/`kill --rm-worktree` return it on the RPC
+  and the CLI prints it, but an untrusted hook is skipped rather than run, so a mistyped
+  trust looks like "nothing happened" until `cw config status` is checked.

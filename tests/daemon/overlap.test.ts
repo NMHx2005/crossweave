@@ -71,6 +71,25 @@ describe('OverlapTracker', () => {
     expect(tracker.get('s2')).toBeUndefined();
   });
 
+  test('a read that fails after a good one keeps the previous picture', async () => {
+    let clock = 0;
+    let fail = false;
+    const tracker = new OverlapTracker(async () => (fail ? null : scanOf(['x.ts'])), () => clock, 0);
+    const targets = () => [
+      { id: 's1', name: 'alice', folder: '/a', baseHead: null },
+      { id: 's2', name: 'bob', folder: '/b', baseHead: null },
+    ];
+    expect(await tracker.refresh(targets)).toBe(true);
+    expect(tracker.get('s1')).toEqual([{ session: 'bob', paths: ['x.ts'] }]);
+
+    clock = 1;
+    fail = true;
+    expect(await tracker.refresh(targets)).toBe(false);
+    // Unchanged: a transient git failure must not wipe a peer's overlap badge for a tick.
+    expect(tracker.get('s1')).toEqual([{ session: 'bob', paths: ['x.ts'] }]);
+    expect(tracker.get('s2')).toEqual([{ session: 'alice', paths: ['x.ts'] }]);
+  });
+
   test('two refreshes at once read once', async () => {
     let reads = 0;
     let release: () => void = () => undefined;

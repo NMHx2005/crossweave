@@ -27,8 +27,12 @@ export class OverlapTracker {
   /**
    * Resolves true when the overlap picture changed; false when skipped or unchanged.
    * Only worktree sessions should be passed (a shared session has no branch of its own
-   * and a plain folder has no git): a session whose folder git cannot read is skipped
-   * rather than emptying everything else's overlaps.
+   * and a plain folder has no git).
+   *
+   * If ANY folder's git read fails, the whole refresh is abandoned and the previous
+   * picture is kept: dropping just the unreadable session would silently remove it from
+   * every peer's overlap set for a tick, flickering a badge off over a transient read
+   * failure. The next tick retries.
    */
   async refresh(
     targets: () => ReadonlyArray<{ id: string; name: string; folder: string; baseHead: string | null }>,
@@ -42,7 +46,7 @@ export class OverlapTracker {
       const idByName = new Map<string, string>();
       for (const target of list) {
         const scan = await this.read(target.folder, target.baseHead);
-        if (scan === null) continue;
+        if (scan === null) return false;
         paths.push({ name: target.name, paths: [...scan.changedPaths, ...scan.committedPaths] });
         idByName.set(target.name, target.id);
       }

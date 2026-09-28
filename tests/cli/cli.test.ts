@@ -255,6 +255,24 @@ describe('cw CLI', () => {
     expect(recreated.exitCode).toBe(0);
   }, 60_000);
 
+  it('session kill --rm-worktree prints a teardown warning, and still kills', async () => {
+    // Written before the daemon starts: it reads crossweave.config.json once, at boot.
+    await writeFile(
+      join(fx.root, 'crossweave.config.json'),
+      JSON.stringify({ hooks: { sessionTeardown: 'exit 1' } }),
+    );
+    await cw(['init']);
+    await cw(['session', 'new', '--name', 'warned']);
+
+    const r = await cw(['session', 'kill', 'warned', '--rm-worktree', '--yes']);
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain('killed warned');
+    // Untrusted (never `cw config trust hooks`): skipped, but the user must be told
+    // rather than left to think the teardown ran.
+    expect(r.stdout).toContain('warning:');
+    expect(r.stdout).toContain('not trusted');
+  }, 60_000);
+
   it('daemon stop reports success without starting a daemon when none is running', async () => {
     const r = await cw(['daemon', 'stop']);
     expect(r.exitCode).toBe(0);

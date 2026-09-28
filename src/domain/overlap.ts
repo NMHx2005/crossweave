@@ -29,30 +29,28 @@ export interface Overlap {
  * deterministic (other session, then path) so two runs over the same input are equal.
  */
 export function overlapPairs(sessions: readonly SessionPaths[]): Map<string, Overlap[]> {
-  const sets = new Map<string, Set<string>>();
-  const names: string[] = [];
+  const entries: { name: string; set: Set<string> }[] = [];
+  const seen = new Set<string>();
   for (const session of sessions) {
-    if (sets.has(session.name)) continue;
-    names.push(session.name);
+    if (seen.has(session.name)) continue;
+    seen.add(session.name);
     const set = new Set<string>();
     for (const path of session.paths) if (path !== '') set.add(path);
-    sets.set(session.name, set);
+    entries.push({ name: session.name, set });
   }
 
   const out = new Map<string, Overlap[]>();
-  for (const name of names) {
-    const mine = sets.get(name) as Set<string>;
-    if (mine.size === 0) continue;
+  for (const mine of entries) {
+    if (mine.set.size === 0) continue;
     const overlaps: Overlap[] = [];
-    for (const other of names) {
-      if (other === name) continue;
-      const theirs = sets.get(other) as Set<string>;
-      const shared = [...mine].filter((path) => theirs.has(path)).sort();
-      if (shared.length > 0) overlaps.push({ session: other, paths: shared });
+    for (const other of entries) {
+      if (other.name === mine.name) continue;
+      const shared = [...mine.set].filter((path) => other.set.has(path)).sort();
+      if (shared.length > 0) overlaps.push({ session: other.name, paths: shared });
     }
     if (overlaps.length > 0) {
       overlaps.sort((a, b) => a.session.localeCompare(b.session));
-      out.set(name, overlaps);
+      out.set(mine.name, overlaps);
     }
   }
   return out;

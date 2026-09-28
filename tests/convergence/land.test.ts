@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { $ } from 'bun';
 import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { openDatabase } from '../../src/db/open.js';
@@ -13,7 +14,7 @@ import { LeaseManager } from '../../src/isolation/leases/manager.js';
 import { EventLedger } from '../../src/domain/ledger.js';
 import { DEFAULT_CONFIG, type CrossweaveConfig } from '../../src/core/config.js';
 import { gitFailureText, landSession, type LandResult } from '../../src/convergence/land.js';
-import { hashTestCommand } from '../../src/convergence/trust.js';
+import { hashHooks, hashTestCommand } from '../../src/convergence/trust.js';
 import { buildMethods } from '../../src/daemon/methods.js';
 import { ConvergenceScheduler } from '../../src/daemon/convergence-scheduler.js';
 import { argvAdapter } from '../helpers/argv-adapter.js';
@@ -720,6 +721,37 @@ describe('land.session RPC', () => {
       await fixture.cleanup();
     }
   });
+
+  test('land runs hooks.sessionTeardown in the worktree before removing it', async () => {
+    const fixture = await makeGitFixture();
+    try {
+      const marker = join(process.env.TMPDIR ?? '/tmp', `cw-land-teardown-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+      const db = openDatabase(':memory:');
+      new WorkspaceRepo(db).insert({
+        id: 'ws_1', name: 'w', rootPath: fixture.root, createdAt: 'now',
+        defaultIsolation: 'worktree', safeModeTier: 'T1',
+      });
+      const hooks = { sessionTeardown: `touch ${marker}` };
+      const config = { ...DEFAULT_CONFIG, hooks };
+      const methods = buildMethods(db, fixture.root, undefined, config, { notifySend: () => {} });
+      new ConfigTrustRepo(db).setHooks('ws_1', hashHooks(hooks), 'now');
+      const ctx = { notify: () => undefined, onClose: () => undefined };
+
+      const created = (await methods['session.new']!(
+        { workspaceId: 'ws_1', name: 'a', worktree: true }, ctx,
+      )) as { worktreePath: string };
+      await commitFile(created.worktreePath, 'work.txt', 'work\n', 'agent commit');
+
+      const result = (await methods['land.session']!({ workspaceId: 'ws_1', idOrName: 'a', force: false }, ctx)) as LandResult;
+      expect(result.status).toBe('landed');
+      expect(result.warnings).toEqual([]);
+      // The hook needs the worktree that landing is about to remove — so it runs
+      // before the removal, and a teardown that is never run leaks its resources.
+      expect(existsSync(marker)).toBe(true);
+    } finally {
+      await fixture.cleanup();
+    }
+  }, 10_000);
 });
 
 describe('cw land all (RPC-level, converge.status + land.session directly — not a spawned CLI process)', () => {
