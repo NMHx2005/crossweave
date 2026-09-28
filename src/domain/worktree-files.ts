@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, renameSync, statSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, statSync, writeFileSync, type Dirent } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { CrossweaveError } from '../core/errors.js';
 import { assertContained } from '../core/paths.js';
 
@@ -58,6 +58,38 @@ export function writeWorktreeFile(
   writeFileSync(tmp, content, { mode });
   renameSync(tmp, path);
   return { mtimeMs: statSync(path).mtimeMs };
+}
+
+const FOLDER_SKIP = new Set(['node_modules', '.git', '.crossweave']);
+
+/**
+ * A plain folder's files (no git to ask, so no .gitignore either): walked breadth-first,
+ * skipping hidden folders and node_modules, capped like the git listing.
+ */
+export function listFolderFiles(root: string, limit = 20_000): Promise<string[]> {
+  const out: string[] = [];
+  let queue = [''];
+  while (queue.length > 0 && out.length < limit) {
+    const next: string[] = [];
+    for (const rel of queue) {
+      let entries: Dirent[];
+      try {
+        entries = readdirSync(join(root, rel), { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+        if (e.name.startsWith('.') || FOLDER_SKIP.has(e.name)) continue;
+        const path = rel === '' ? e.name : `${rel}/${e.name}`;
+        if (e.isDirectory()) next.push(path);
+        else if (e.isFile()) out.push(path);
+        if (out.length >= limit) break;
+      }
+      if (out.length >= limit) break;
+    }
+    queue = next;
+  }
+  return Promise.resolve(out);
 }
 
 /** Tracked and untracked files, honouring .gitignore; capped for a quick-open list. */

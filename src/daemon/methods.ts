@@ -35,7 +35,7 @@ import { measureWorktrees } from '../isolation/disk-guard.js';
 import { LeaseRepo } from '../db/repositories/lease.js';
 import { spawnShell } from '../adapters/shell.js';
 import { latestWords } from '../domain/agent-logs.js';
-import { listWorktreeFiles, readWorktreeFile, writeWorktreeFile } from '../domain/worktree-files.js';
+import { listFolderFiles, listWorktreeFiles, readWorktreeFile, writeWorktreeFile } from '../domain/worktree-files.js';
 import { BUILTIN_LAUNCHERS, loadSettings, saveSettings, type LauncherDef, type UserSettings } from '../core/settings.js';
 import { TerminalRegistry } from './terminals.js';
 import { ActivityTracker, detectAgents } from './session-status.js';
@@ -134,6 +134,12 @@ export function buildMethods(
   config: CrossweaveConfig = loadConfig(projectRoot),
   opts: {
     startBackgroundJobs?: boolean;
+    /**
+     * False for a plain folder (no git; the cockpit's "Open as a plain folder"): sessions
+     * run in the folder itself, and branches, worktrees, git counts, diff, land and
+     * convergence are off.
+     */
+    git?: boolean;
     // Injected so tests can assert on notification call counts without spawning a
     // real terminal-notifier/osascript process — defaults to the real platform send.
     notifySend?: (title: string, message: string, clickCommand: string[] | undefined) => void;
@@ -175,7 +181,9 @@ export function buildMethods(
   // buildMethods() to exercise one RPC in isolation goes straight to db.close()
   // without daemon.shutdown, so an unconditional start() leaks a live 5s timer
   // into each of them — one that does real git work while the DB is still open.
-  if (opts.startBackgroundJobs === true) convergenceScheduler.start();
+  const hasGit = opts.git !== false;
+  // Convergence trials merge branches: a plain folder has none.
+  if (opts.startBackgroundJobs === true && hasGit) convergenceScheduler.start();
 
   // Once, at boot: every `running`/`waiting` session in the DB is necessarily a
   // leftover from a previous daemon instance, since this one hasn't started
@@ -393,7 +401,7 @@ export function buildMethods(
   return {
     ping: () => ({ ok: true }),
 
-    'workspace.init': (p) => workspaces.init(projectRoot, optionalStr(p, 'name')),
+    'workspace.init': (p) => ({ ...workspaces.init(projectRoot, optionalStr(p, 'name')), git: hasGit }),
     'workspace.list': () => workspaces.list(),
     // Enriched with disk usage at this RPC-handler layer, not inside
     // `WorkspaceManager.info()` — that domain method's `{workspace, sessions}` shape
@@ -463,7 +471,8 @@ export function buildMethods(
       const row = sessions.create({
         workspaceId: str(p, 'workspaceId'),
         name: str(p, 'name'),
-        worktree: bool(p, 'worktree', true),
+        // A plain folder has no worktrees to make: its sessions run in the folder.
+        worktree: hasGit ? bool(p, 'worktree', true) : false,
         budgetTokens: optionalNum(p, 'budgetTokens'),
         budgetUsd: optionalNum(p, 'budgetUsd'),
         base: optionalStr(p, 'base'),
@@ -475,7 +484,7 @@ export function buildMethods(
       const listed = sessions.list(str(p, 'workspaceId'));
       // Read in the background; a change is announced like any other, and the next
       // list carries it.
-      void gitCounts.refresh(() => {
+      if (hasGit) void gitCounts.refresh(() => {
         const baseHead = readBaseHead(projectRoot);
         return listed
           .filter((s) => s.worktreePath !== null && s.status !== 'landed' && existsSync(s.worktreePath))
@@ -603,20 +612,20 @@ export function buildMethods(
 
     // The in-app editor: files in ONE session's worktree, contained to it (see
     // domain/worktree-files.ts). Local clients only — never to be offered remotely.
-    'file.list': (p) => listWorktreeFiles(sessionWorktree(p)),
+    'file.list': (p) => (hasGit ? listWorktreeFiles(sessionWorktree(p)) : listFolderFiles(sessionWorktree(p))),
     'file.read': (p) => readWorktreeFile(sessionWorktree(p), str(p, 'path')),
     'file.write': (p) => writeWorktreeFile(
       sessionWorktree(p), str(p, 'path'), str(p, 'content'), optionalNum(p, 'expectedMtimeMs'),
     ),
     // Branches a new session can start from.
-    'git.branches': () => new Promise<string[]>((resolve) => {
+    'git.branches': () => (!hasGit ? Promise.resolve([] as string[]) : new Promise<string[]>((resolve) => {
       execFile('git', ['for-each-ref', '--format=%(refname:short)', '--sort=-committerdate', 'refs/heads/'],
         { cwd: projectRoot, encoding: 'utf8' },
         // cw/integration and cw/trial are crossweave's own scratch branches, reset on
         // every trial — nothing a session should start from.
         (err, stdout) => resolve(err ? [] : String(stdout).split('\n')
           .filter((b) => b !== '' && b !== 'cw/integration' && b !== 'cw/trial')));
-    }),
+    })),
 
     'terminal.open': (p) => {
       const row = sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName'));

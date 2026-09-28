@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import { openDatabase } from '../db/open.js';
-import { crossweaveDir, findProjectRoot } from '../core/paths.js';
+import { crossweaveDir } from '../core/paths.js';
+import { resolveDaemonRoot } from './root.js';
 import { createDaemon } from './server.js';
 import { buildMethods } from './methods.js';
 
@@ -8,12 +9,12 @@ import { buildMethods } from './methods.js';
 const SOCKET_WATCHDOG_MS = 5_000;
 
 async function main(): Promise<void> {
-  const projectRoot = findProjectRoot(process.cwd());
+  const { projectRoot, git } = resolveDaemonRoot(process.cwd(), process.env);
   const dir = crossweaveDir(projectRoot);
   const db = openDatabase(join(dir, 'state.db'));
   const daemon = createDaemon({
     socketPath: join(dir, 'daemon.sock'),
-    methods: buildMethods(db, projectRoot, undefined, undefined, { startBackgroundJobs: true }),
+    methods: buildMethods(db, projectRoot, undefined, undefined, { startBackgroundJobs: true, git }),
     watchdogMs: SOCKET_WATCHDOG_MS,
     onSocketLost: () => {
       process.stderr.write('crossweave: daemon socket removed or replaced — shutting down\n');
