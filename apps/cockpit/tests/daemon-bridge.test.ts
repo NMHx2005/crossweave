@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { DaemonBridge, encodeSessionData, isForwardedNotification } from '../electron/daemon-bridge'
+import { CommandBridgeServer } from '../electron/command-bridge'
 import type { CockpitEvent } from '../electron/channels'
 
 class FakeDaemon {
@@ -567,5 +568,80 @@ describe('many projects in one window', () => {
       await expect(bridge.handle('projects.reorder', { roots })).rejects.toThrow(/reordered/)
     }
     expect(open()).toEqual(['/w/web', '/w/api'])
+  })
+})
+
+describe('command bridge', () => {
+  test('registers the kinds it serves for the workspace, once the project is attached', async () => {
+    const fake = new FakeDaemon()
+    const server = new CommandBridgeServer()
+    server.serve('pane.ping', () => 'pong')
+    const events: Array<{ event: CockpitEvent; payload: unknown }> = []
+    const bridge = new DaemonBridge({
+      connect: async () => fake, pickFolder: async () => undefined, loadSavedRoot: () => undefined, saveRoot: () => undefined,
+      exists: () => true, send: (event, payload) => { events.push({ event, payload }) }, commandBridge: server,
+    })
+    await bridge.handle('workspace.ensure', { projectRoot: '/tmp/demo' })
+    const registered = fake.calls.find((c) => c.method === 'bridge.register')
+    expect(registered?.params).toEqual({ workspaceId: 'ws_1', kinds: ['pane.ping'] })
+  })
+
+  test('answers a bridge.request in the main process, and never sends it to the window', async () => {
+    const fake = new FakeDaemon()
+    const server = new CommandBridgeServer()
+    server.serve('pane.ping', (_p, c) => ({ pong: true, root: c.projectRoot }))
+    const events: Array<{ event: CockpitEvent; payload: unknown }> = []
+    const bridge = new DaemonBridge({
+      connect: async () => fake, pickFolder: async () => undefined, loadSavedRoot: () => undefined, saveRoot: () => undefined,
+      exists: () => true, send: (event, payload) => { events.push({ event, payload }) }, commandBridge: server,
+    })
+    await bridge.handle('workspace.ensure', { projectRoot: '/tmp/demo' })
+    events.length = 0
+    fake.emit('bridge.request', { id: 'br_9', kind: 'pane.ping', params: {} })
+    await new Promise((r) => setTimeout(r, 10))
+    const answer = fake.calls.filter((c) => c.method === 'bridge.respond').pop()
+    expect(answer?.params).toEqual({ id: 'br_9', ok: true, result: { pong: true, root: '/tmp/demo' } })
+    expect(events).toEqual([])
+  })
+
+  test('a slot already taken is shown to the person as a notice, and the project still attaches', async () => {
+    const fake = new FakeDaemon()
+    const taken = Object.assign(new Error('Another client is already registered on this workspace'), { code: 'BRIDGE_ALREADY_REGISTERED' })
+    const realCall = fake.call.bind(fake)
+    fake.call = async <T,>(method: string, params: Record<string, unknown> = {}): Promise<T> => {
+      if (method === 'bridge.register') throw taken
+      return realCall<T>(method, params)
+    }
+    const server = new CommandBridgeServer()
+    server.serve('pane.ping', () => 1)
+    const events: Array<{ event: CockpitEvent; payload: unknown }> = []
+    const bridge = new DaemonBridge({
+      connect: async () => fake, pickFolder: async () => undefined, loadSavedRoot: () => undefined, saveRoot: () => undefined,
+      exists: () => true, send: (event, payload) => { events.push({ event, payload }) }, commandBridge: server,
+    })
+    const r = (await bridge.handle('workspace.ensure', { projectRoot: '/tmp/demo' })) as { projectRoot: string }
+    expect(r.projectRoot).toBe('/tmp/demo')
+    expect(events.some((e) => e.event === 'cockpit.command' && /another client/i.test(JSON.stringify(e.payload)))).toBe(true)
+  })
+
+  test('a daemon that predates the bridge is not an error: the feature is simply absent', async () => {
+    const fake = new FakeDaemon()
+    fake.failMethod = 'bridge.register'
+    const server = new CommandBridgeServer()
+    server.serve('pane.ping', () => 1)
+    const events: Array<{ event: CockpitEvent; payload: unknown }> = []
+    const bridge = new DaemonBridge({
+      connect: async () => fake, pickFolder: async () => undefined, loadSavedRoot: () => undefined, saveRoot: () => undefined,
+      exists: () => true, send: (event, payload) => { events.push({ event, payload }) }, commandBridge: server,
+    })
+    const r = (await bridge.handle('workspace.ensure', { projectRoot: '/tmp/demo' })) as { projectRoot: string }
+    expect(r.projectRoot).toBe('/tmp/demo')
+    expect(events).toEqual([])
+  })
+
+  test('without a command bridge configured nothing is registered', async () => {
+    const { bridge, fake } = makeBridge()
+    await bridge.handle('workspace.ensure', { projectRoot: '/tmp/demo' })
+    expect(fake.calls.some((c) => c.method === 'bridge.register')).toBe(false)
   })
 })

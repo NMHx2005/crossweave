@@ -571,7 +571,9 @@ export function App() {
     } else handles.current.get(activeRef.current)?.command(command)
   }
   useEffect(() => cockpitApi.onCommand((payload) => {
-    const record = payload as { command?: unknown; projectRoot?: unknown } | null
+    const record = payload as { command?: unknown; projectRoot?: unknown; message?: unknown } | null
+    // A notice from the main process (e.g. another client holds the command channel).
+    if (record?.command === 'notice' && typeof record.message === 'string') { showToast(record.message, 'info'); return }
     // Open Recent and `cw <dir>` from a terminal: main has attached it already.
     if (record?.command === 'show-project' && typeof record.projectRoot === 'string') void activateRef.current(record.projectRoot)
     else if (typeof record?.command === 'string') commandRef.current(record.command)

@@ -1,5 +1,6 @@
 import { Buffer } from 'node:buffer'
 import { isCockpitChannel, type CockpitChannel, type CockpitEvent } from './channels'
+import type { CommandBridgeServer } from './command-bridge'
 
 export type DaemonLike = {
   call<T>(method: string, params?: Record<string, unknown>): Promise<T>
@@ -30,6 +31,8 @@ export type DaemonBridgeDeps = {
   saveOpenRoots?: (roots: string[]) => void
   /** Folders opened as plain folders (no git): the rail marks them, and they have no worktrees. */
   isPlain?: (root: string) => boolean
+  /** What a shell command may ask this cockpit to do (registered with each project's daemon). */
+  commandBridge?: CommandBridgeServer
 }
 
 type Attached = { client: DaemonLike; workspace: WorkspaceSnapshot }
@@ -207,8 +210,15 @@ export class DaemonBridge {
       const client = await this.deps.connect(projectRoot)
       // Every open project speaks, not only the one on the stage: each keeps its panes
       // alive in the window, so its output must keep arriving while another is shown.
+      let workspaceId = ''
       client.onNotification((method, params) => {
         if (this.pool.get(projectRoot)?.client !== client) return
+        // A shell command's request: answered here, in the main process, and never shown to
+        // the window (which has no channel for it).
+        if (method === 'bridge.request') {
+          void this.serveBridge(client, projectRoot, workspaceId, params)
+          return
+        }
         this.forward(method, params, projectRoot)
       })
       client.onClose(() => {
@@ -220,6 +230,8 @@ export class DaemonBridge {
       try {
         const workspace = await client.call<WorkspaceSnapshot>('workspace.init', {})
         await client.call('daemon.subscribe', {})
+        workspaceId = workspace.id
+        await this.registerBridge(client, projectRoot, workspace.id)
         const attached = { client, workspace }
         this.pool.set(projectRoot, attached)
         this.rememberOpen(projectRoot)
@@ -233,6 +245,35 @@ export class DaemonBridge {
     const settle = (): void => { this.connecting.delete(projectRoot) }
     run.then(settle, settle)
     return run
+  }
+
+  /**
+   * Tell the project's daemon which kinds this cockpit serves. One cockpit per workspace, first
+   * come first served: if the slot is taken the person is told, and the project still attaches.
+   * A daemon that predates the bridge simply has no such method: the feature is absent, not broken.
+   */
+  private async registerBridge(client: DaemonLike, projectRoot: string, workspaceId: string): Promise<void> {
+    const commands = this.deps.commandBridge
+    if (commands === undefined || commands.kinds().length === 0) return
+    try {
+      await client.call('bridge.register', { workspaceId, kinds: commands.kinds() })
+    } catch (err) {
+      if ((err as { code?: string } | null)?.code === 'BRIDGE_ALREADY_REGISTERED') {
+        this.deps.send('cockpit.command', { command: 'notice', message: 'Another client is registered on this workspace, so shell commands cannot reach this window.', projectRoot })
+      }
+    }
+  }
+
+  private async serveBridge(client: DaemonLike, projectRoot: string, workspaceId: string, params: unknown): Promise<void> {
+    const commands = this.deps.commandBridge
+    const request = asRecord(params)
+    if (commands === undefined || typeof request.id !== 'string' || typeof request.kind !== 'string') return
+    const answer = await commands.handle({ id: request.id, kind: request.kind, params: request.params }, { projectRoot, workspaceId })
+    try {
+      await client.call('bridge.respond', { id: request.id, ...answer })
+    } catch {
+      // The daemon went away or the request timed out: nobody is waiting any more.
+    }
   }
 
   close(): void {

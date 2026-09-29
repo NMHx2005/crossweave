@@ -20,6 +20,7 @@ import { badgeCount, folderLaunch, resolveFolder } from './path-target'
 import { importSources, importTerminal, type ImportDeps } from './terminal-import'
 import { listFonts } from './fonts'
 import { refine, resolveCommand, transcribe, type VoiceDeps } from './voice'
+import { CommandBridgeServer } from './command-bridge'
 import { findRepos, folderKind } from '../../../src/core/folder-kind.js'
 import { initGit, inspectFolder } from './folder-open'
 import { loadSettings, saveSettings } from '../../../src/core/settings.js'
@@ -109,7 +110,12 @@ function createBridge(): DaemonBridge {
   const entry = app.isPackaged
     ? resolveCockpitDaemonEntry('', '', { isPackaged: true })
     : resolveCockpitDaemonEntry(findCrossweaveRoot(__dirname), resolveBunCommand())
+  // What a shell command may ask this window to do. `pane.ping` only proves the channel:
+  // the pane and browser kinds register here as their features land, each with its own checks.
+  const commandBridge = new CommandBridgeServer()
+  commandBridge.serve('pane.ping', (_params, ctx) => ({ pong: true, projectRoot: ctx.projectRoot }))
   return new DaemonBridge({
+    commandBridge,
     // A folder the user opened as a plain folder gets a daemon that serves it without git.
     connect: (projectRoot) => connectOrStart(projectRoot, loadPlainProjects().includes(projectRoot) ? { ...entry, env: { CW_PLAIN: '1' } } : entry),
     pickFolder,
