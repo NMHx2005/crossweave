@@ -26,9 +26,8 @@ export const GlobeIcon = (p: IconProps) => <Svg {...p}><circle cx="8" cy="8" r="
 export const DiffIcon = (p: IconProps) => <Svg {...p}><path d="M5 3v6M2 6h6M8 12h6" /></Svg>
 export const MicIcon = (p: IconProps) => <Svg {...p}><rect x="6" y="2" width="4" height="7" rx="2" /><path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2" /></Svg>
 export const MoreIcon = (p: IconProps) => <Svg {...p}><path d="M4 8h.01M8 8h.01M12 8h.01" stroke-width="2.2" /></Svg>
-export const GearIcon = (p: IconProps) => (
-  <Svg {...p}><circle cx="8" cy="8" r="2" /><path d="M8 1.8v1.7M8 12.5v1.7M1.8 8h1.7M12.5 8h1.7M3.6 3.6l1.2 1.2M11.2 11.2l1.2 1.2M3.6 12.4l1.2-1.2M11.2 4.8l1.2-1.2" /></Svg>
-)
+export const GearIcon = (p: IconProps) => <Svg {...p}><path d="M6.54 3.22 L6.97 1.48 L9.03 1.48 L9.46 3.22 L10.35 3.59 L11.88 2.66 L13.34 4.12 L12.41 5.65 L12.78 6.54 L14.52 6.97 L14.52 9.03 L12.78 9.46 L12.41 10.35 L13.34 11.88 L11.88 13.34 L10.35 12.41 L9.46 12.78 L9.03 14.52 L6.97 14.52 L6.54 12.78 L5.65 12.41 L4.12 13.34 L2.66 11.88 L3.59 10.35 L3.22 9.46 L1.48 9.03 L1.48 6.97 L3.22 6.54 L3.59 5.65 L2.66 4.12 L4.12 2.66 L5.65 3.59Z" /><circle cx="8" cy="8" r="2.1" /></Svg>
+
 export const ChevronIcon = (p: IconProps) => <Svg {...p}><path d="M6 4l4 4-4 4" /></Svg>
 export const CloseIcon = (p: IconProps) => <Svg {...p}><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" /></Svg>
 export const SearchIcon = (p: IconProps) => <Svg {...p}><circle cx="7" cy="7" r="4" /><path d="M10 10l3.5 3.5" /></Svg>

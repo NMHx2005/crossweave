@@ -1270,6 +1270,12 @@ body,
   font-size: var(--cw-fs);
 }
 
+/* The label's caps sit about a pixel below the plus's centre; lift it so the pair reads level. */
+.cockpit-sidebar__new-label {
+  position: relative;
+  top: calc(var(--cw-hairline) * -1);
+}
+
 .cockpit-sidebar__new:hover,
 .cockpit-sidebar__link:hover {
   background: var(--cw-surface-hover);

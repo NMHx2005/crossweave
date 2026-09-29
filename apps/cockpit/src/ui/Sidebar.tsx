@@ -215,7 +215,7 @@ export function Sidebar(props: SidebarProps) {
         <button type="button" class="cockpit-sidebar__new"
           // With no project yet, "New" starts by choosing one.
           onClick={() => { const active = projects.find((p) => p.active); if (active) props.onNew(active.projectRoot); else props.onOpenProject() }}>
-          <PlusIcon /> New
+          <PlusIcon /> <span class="cockpit-sidebar__new-label">New</span>
         </button>
         <span class="cockpit-sidebar__spring" />
         <button type="button" class="cockpit-iconbtn" title="Command (⌘K)" aria-label="Command" onClick={props.onCommandBar}>
