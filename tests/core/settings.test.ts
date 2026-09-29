@@ -267,3 +267,23 @@ describe('key-table bindings in the keybindings', () => {
     }
   });
 });
+
+describe('persistence settings', () => {
+  it('is off by default: nothing is stored until it is switched on', () => {
+    expect(loadSettings(home).persistence).toBeUndefined();
+    expect(loadSettings(home).persistence?.terminals).toBeUndefined();
+  });
+
+  it('round-trips the switch', () => {
+    saveSettings({ ...loadSettings(home), persistence: { terminals: true } }, home);
+    expect(loadSettings(home).persistence).toEqual({ terminals: true });
+  });
+
+  it('refuses a value that is not a boolean, and drops a corrupt block on load', () => {
+    expect(() => saveSettings({ ...loadSettings(home), persistence: { terminals: 'yes' as never } }, home)).toThrow(/persistence/i);
+    mkdirSync(join(home, '.crossweave'), { recursive: true });
+    writeFileSync(file(), JSON.stringify({ editor: { kind: 'zed' }, persistence: { terminals: 'yes' } }));
+    expect(loadSettings(home).persistence).toBeUndefined();
+    expect(loadSettings(home).editor).toEqual({ kind: 'zed' });
+  });
+});

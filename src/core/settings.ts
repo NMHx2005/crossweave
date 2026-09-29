@@ -133,6 +133,15 @@ export interface VoiceSettings {
   };
 }
 
+/**
+ * What the daemon may keep at rest. Off by default: a terminal snapshot is output, which can
+ * hold anything a person typed or printed, so keeping it is something the user asks for.
+ */
+export interface PersistenceSettings {
+  /** Reopen extra terminals after a daemon restart, with the tail of their output. */
+  terminals?: boolean;
+}
+
 export interface UserSettings {
   launchers: LauncherDef[];
   editor: EditorSetting;
@@ -147,6 +156,7 @@ export interface UserSettings {
    */
   keybindings?: Record<string, string | null>;
   voice?: VoiceSettings;
+  persistence?: PersistenceSettings;
 }
 
 /** A font family as it reaches xterm's CSS font string: nothing that could end the quotes. */
@@ -283,6 +293,19 @@ export function cleanKeybindings(raw: unknown): { keybindings: Record<string, st
     else problems.push(`keybinding "${id}": a command id, and a shortcut like CmdOrCtrl+Shift+K (or none)`);
   }
   return { keybindings: Object.keys(out).length === 0 ? undefined : out, problems };
+}
+
+export function cleanPersistence(raw: unknown): { persistence: PersistenceSettings | undefined; problems: string[] } {
+  if (raw === undefined || raw === null) return { persistence: undefined, problems: [] };
+  if (typeof raw !== 'object' || Array.isArray(raw)) return { persistence: undefined, problems: ['persistence must be an object'] };
+  const r = raw as Record<string, unknown>;
+  const problems: string[] = [];
+  const out: PersistenceSettings = {};
+  if (r.terminals !== undefined) {
+    if (typeof r.terminals === 'boolean') out.terminals = r.terminals;
+    else problems.push('persistence terminals must be true or false');
+  }
+  return { persistence: Object.keys(out).length === 0 ? undefined : out, problems };
 }
 
 const VOICE_LANGUAGES: ReadonlySet<string> = new Set(['auto', 'vi', 'en']);
@@ -451,6 +474,7 @@ function validate(settings: UserSettings): void {
     ...cleanUsage(settings.usage).problems,
     ...cleanKeybindings(settings.keybindings).problems,
     ...cleanVoice(settings.voice).problems,
+    ...cleanPersistence(settings.persistence).problems,
   ];
   if (problems.length > 0) invalid(problems[0] as string);
 }
@@ -476,6 +500,7 @@ export function loadSettings(homeDir?: string): UserSettings {
   const { usage } = cleanUsage(saved.usage);
   const { keybindings } = cleanKeybindings(saved.keybindings);
   const { voice } = cleanVoice(saved.voice);
+  const { persistence } = cleanPersistence(saved.persistence);
   return {
     launchers: mergeLaunchers(saved.launchers), editor, layouts,
     ...(terminal === undefined ? {} : { terminal }),
@@ -483,6 +508,7 @@ export function loadSettings(homeDir?: string): UserSettings {
     ...(usage === undefined ? {} : { usage }),
     ...(keybindings === undefined ? {} : { keybindings }),
     ...(voice === undefined ? {} : { voice }),
+    ...(persistence === undefined ? {} : { persistence }),
   };
 }
 
@@ -543,6 +569,7 @@ export function saveSettings(settings: UserSettings, homeDir?: string): void {
     ...(settings.usage === undefined ? {} : { usage: cleanUsage(settings.usage).usage }),
     ...(settings.keybindings === undefined ? {} : { keybindings: cleanKeybindings(settings.keybindings).keybindings }),
     ...(settings.voice === undefined ? {} : { voice: cleanVoice(settings.voice).voice }),
+    ...(settings.persistence === undefined ? {} : { persistence: cleanPersistence(settings.persistence).persistence }),
   };
   writeFileSync(tmp, `${JSON.stringify(normalized, null, 2)}\n`, { mode: 0o600 });
   chmodSync(tmp, 0o600);

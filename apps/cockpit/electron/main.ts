@@ -24,7 +24,7 @@ import { CommandBridgeServer } from './command-bridge'
 import { findRepos, folderKind } from '../../../src/core/folder-kind.js'
 import { initGit, inspectFolder } from './folder-open'
 import { loadSettings, saveSettings } from '../../../src/core/settings.js'
-import { restoreVoice, withVoiceFromFile } from './settings-voice'
+import { restoreGuarded, withGuardedFromFile } from './settings-voice'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -344,16 +344,17 @@ function registerHandlers(bridge: DaemonBridge): void {
         return importTerminal(from, importDeps())
       }
       // The project's daemon may predate `voice` and would drop it: see settings-voice.ts.
-      if (channel === 'settings.get') return withVoiceFromFile(await bridge.handle(channel, payload), loadSettings().voice)
+      if (channel === 'settings.get') { const file = loadSettings(); return withGuardedFromFile(await bridge.handle(channel, payload), { voice: file.voice, persistence: file.persistence }) }
       if (channel === 'settings.set') {
         const answer = await bridge.handle(channel, payload)
-        const lost = restoreVoice(payload, loadSettings())
-        if (lost === undefined) return answer
+        const file = loadSettings()
+        const lost = restoreGuarded(payload, { voice: file.voice, persistence: file.persistence })
+        if (Object.keys(lost).length === 0) return answer
         try {
-          saveSettings({ ...loadSettings(), voice: lost })
-          return withVoiceFromFile(answer, lost)
+          saveSettings({ ...file, ...lost })
+          return withGuardedFromFile(answer, lost)
         } catch {
-          // Refused by validation: the daemon's answer stands and the page shows it as saved-without.
+          // Refused by validation: the daemon's answer stands.
           return answer
         }
       }

@@ -55,21 +55,21 @@ report before the next starts. Order: **2B.1 → 2A → 2B → 2C → 2D**.
 
 ## 2C — terminal persistence (`feat/terminal-persist`)
 
-1. [ ] Settings: persistence **off by default** (opt-in); the daemon setting gates it.
-2. [ ] Migration: `terminal` table (id, workspaceId, sessionId, createdAt, snapshot,
+1. [x] Settings: persistence **off by default** (opt-in); the daemon setting gates it.
+2. [x] Migration: `terminal` table (id, workspaceId, sessionId, createdAt, snapshot,
    snapshotAt). Forward-only; repository + tests.
-3. [ ] `TerminalRegistry`: descriptors on open/close; debounced periodic snapshot (30 s)
+3. [x] `TerminalRegistry`: descriptors on open/close; debounced periodic snapshot (30 s)
    while dirty; snapshot on close and on daemon shutdown; cap; normalise the replay
    (`\x1bc` + SGR reset, safe trim).
-4. [ ] Restore on daemon start: reopen terminals whose session + worktree exist, **same
+4. [x] Restore on daemon start: reopen terminals whose session + worktree exist, **same
    terminalId**, mark `restored`, replay, stream; drop the rest. Row **deleted** on close,
    `gc`, session rm/kill, `closeForSession`. Test that a snapshot replay suppresses stale
    DA answers (`replayAnsweredUntil`). `tests/daemon/terminal-persist.test.ts`.
-5. [ ] Permissions: verify current dir/file modes, then `chmod 0700` the directory and
+5. [x] Permissions: verify current dir/file modes, then `chmod 0700` the directory and
    `0600` `state.db` while persistence is on (the dir is already 0700; the file is 0644
    today).
-6. [ ] RPC: `terminal.list` carries `restored`; cockpit pane shows the restart note.
-7. [ ] Gate + known limitations + digest line; report.
+6. [x] RPC: `terminal.list` carries `restored`; cockpit pane shows the restart note.
+7. [x] Gate + known limitations + digest line; report.
 
 ## 2D — pane control bridge (`feat/pane-bridge`, own spec + plan)
 

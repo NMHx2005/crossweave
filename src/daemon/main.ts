@@ -15,9 +15,10 @@ async function main(): Promise<void> {
   const { projectRoot, git } = resolveDaemonRoot(process.cwd(), process.env);
   const dir = crossweaveDir(projectRoot);
   const db = openDatabase(join(dir, 'state.db'));
+  const methods = buildMethods(db, projectRoot, undefined, undefined, { startBackgroundJobs: true, git });
   const daemon = createDaemon({
     socketPath: join(dir, 'daemon.sock'),
-    methods: buildMethods(db, projectRoot, undefined, undefined, { startBackgroundJobs: true, git }),
+    methods,
     watchdogMs: SOCKET_WATCHDOG_MS,
     onSocketLost: () => {
       // The sessions this daemon owns die with it: closing the pty master SIGHUPs
@@ -43,6 +44,8 @@ async function main(): Promise<void> {
 
   function shutdown(reason: string): void {
     daemonLog(reason);
+    // Keep the terminals' last output (when persistence is on) before the shells go with the process.
+    try { void methods['terminal.flush']?.({}, { notify: () => undefined, onClose: () => undefined }); } catch { /* nothing to keep */ }
     void daemon.close().then(() => {
       db.close();
       process.exit(0);

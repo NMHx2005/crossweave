@@ -1,51 +1,52 @@
 import { describe, expect, test } from 'bun:test'
-import { restoreVoice, withVoiceFromFile } from '../electron/settings-voice'
+import { restoreGuarded, withGuardedFromFile } from '../electron/settings-voice'
 
 const voice = { transcribeCommand: 'whisper-cli -f {audio}', language: 'vi' as const }
+const persistence = { terminals: true }
 
-describe('withVoiceFromFile', () => {
-  // A daemon older than the app has never heard of `voice`: it neither returns it nor keeps
-  // it, so the page would show an empty section while the file still holds the user's setup.
-  test("adds the file's voice when the daemon's answer has none", () => {
-    expect(withVoiceFromFile({ editor: { kind: 'zed' }, launchers: [] }, voice)).toEqual({ editor: { kind: 'zed' }, launchers: [], voice })
+describe('withGuardedFromFile', () => {
+  // A daemon older than the app has never heard of `voice` or `persistence`: it neither returns them nor
+  // keeps them, so the page would show an empty section while the file still holds the user's setup.
+  test("adds the file's blocks when the daemon's answer has none", () => {
+    expect(withGuardedFromFile({ editor: { kind: 'zed' }, launchers: [] }, { voice, persistence })).toEqual({ editor: { kind: 'zed' }, launchers: [], voice, persistence })
   })
 
-  test("leaves a daemon's own voice alone (a current daemon is authoritative)", () => {
+  test("leaves a daemon's own block alone (a current daemon is authoritative), and fills only the missing one", () => {
     const own = { transcribeCommand: 'other' }
-    expect(withVoiceFromFile({ voice: own }, voice)).toEqual({ voice: own })
+    expect(withGuardedFromFile({ voice: own }, { voice, persistence })).toEqual({ voice: own, persistence })
   })
 
-  test('nothing in the file: the answer is unchanged', () => {
+  test('nothing in the file: the answer is the same object', () => {
     const answer = { editor: { kind: 'zed' } }
-    expect(withVoiceFromFile(answer, undefined)).toBe(answer)
+    expect(withGuardedFromFile(answer, {})).toBe(answer)
   })
 
   test('an answer that is not an object passes through untouched', () => {
-    expect(withVoiceFromFile(null, voice)).toBeNull()
-    expect(withVoiceFromFile('x', voice)).toBe('x')
+    expect(withGuardedFromFile(null, { voice })).toBeNull()
+    expect(withGuardedFromFile('x', { voice })).toBe('x')
   })
 })
 
-describe('restoreVoice', () => {
-  test('a save that carried voice which the file no longer has: it must be written back', () => {
-    expect(restoreVoice({ settings: { voice } }, { voice: undefined })).toEqual(voice)
+describe('restoreGuarded', () => {
+  test('a save that carried a block which the file no longer has: it must be written back', () => {
+    expect(restoreGuarded({ settings: { voice, persistence } }, {})).toEqual({ voice, persistence })
   })
 
-  test('the file kept it: nothing to restore', () => {
-    expect(restoreVoice({ settings: { voice } }, { voice })).toBeUndefined()
+  test('only what was lost: a block the file kept is not restored', () => {
+    expect(restoreGuarded({ settings: { voice, persistence } }, { voice })).toEqual({ persistence })
   })
 
-  test('the save carried no voice (the user cleared it): never resurrect it', () => {
-    expect(restoreVoice({ settings: { editor: { kind: 'zed' } } }, { voice: undefined })).toBeUndefined()
+  test('the save carried no block (the user cleared it): never resurrect it', () => {
+    expect(restoreGuarded({ settings: { editor: { kind: 'zed' } } }, {})).toEqual({})
   })
 
-  test('an empty voice block is not worth restoring', () => {
-    expect(restoreVoice({ settings: { voice: {} } }, { voice: undefined })).toBeUndefined()
+  test('an empty block is not worth restoring', () => {
+    expect(restoreGuarded({ settings: { voice: {} } }, {})).toEqual({})
   })
 
   test('a malformed request restores nothing', () => {
-    expect(restoreVoice(null, { voice: undefined })).toBeUndefined()
-    expect(restoreVoice({ settings: 'x' }, { voice: undefined })).toBeUndefined()
-    expect(restoreVoice({}, { voice: undefined })).toBeUndefined()
+    expect(restoreGuarded(null, {})).toEqual({})
+    expect(restoreGuarded({ settings: 'x' }, {})).toEqual({})
+    expect(restoreGuarded({}, {})).toEqual({})
   })
 })

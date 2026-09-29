@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type { ComponentChildren } from 'preact'
 import { formatEnvLines, launcherIdFor, parseEnvLines } from '../lib/launchers'
 import { AgentMark } from './icons'
-import type { InterfaceAppearance, ModelPrice, TerminalAppearance, UsageSettings, VoiceSettings } from '../../../../src/core/settings.js'
+import type { InterfaceAppearance, ModelPrice, PersistenceSettings, TerminalAppearance, UsageSettings, VoiceSettings } from '../../../../src/core/settings.js'
 import { FontPicker, type InstalledFont } from './FontPicker'
 import { ShortcutList } from './ShortcutsPanel'
 import { effectiveKeys, keyConflicts } from '../lib/keymap'
@@ -32,6 +32,7 @@ export type UserSettings = {
   usage?: UsageSettings
   keybindings?: Record<string, string | null>
   voice?: VoiceSettings
+  persistence?: PersistenceSettings
 }
 
 const EDITORS: Array<{ kind: EditorSetting['kind']; label: string }> = [
@@ -399,6 +400,11 @@ export function SettingsPage({ initialSection, initialRow, initial, availability
         <label class="cockpit-settings__toggle" data-setting="terminal-blink">
           <input type="checkbox" checked={draft.terminal?.cursorBlink ?? true} onChange={(e) => setTerminal({ cursorBlink: (e.target as HTMLInputElement).checked })} />
           <span>Blinking cursor</span>
+        </label>
+        <label class="cockpit-settings__toggle" data-setting="terminal-persist">
+          <input type="checkbox" checked={draft.persistence?.terminals === true}
+            onChange={(e) => setDraft((d) => ({ ...d, persistence: (e.target as HTMLInputElement).checked ? { ...d.persistence, terminals: true } : undefined }))} />
+          <span>Keep terminals across a daemon restart (off by default). Their recent output is saved in this project's private database and shown again above a new shell; nothing else survives.</span>
         </label>
         <label class="cockpit-settings__toggle" data-setting="terminal-option-meta">
           <input type="checkbox" checked={draft.terminal?.optionAsMeta ?? false} onChange={(e) => setTerminal({ optionAsMeta: (e.target as HTMLInputElement).checked })} />

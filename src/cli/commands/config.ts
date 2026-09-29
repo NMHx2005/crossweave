@@ -6,7 +6,7 @@ import { loadGlobalConfig, saveGlobalConfig } from '../../update/global-config.j
 interface TrustResult { trusted: boolean; target: 'testCommand' | 'hooks'; testCommand?: string }
 interface NotifyStatus { enabled: boolean; land: boolean; convergence: boolean }
 interface HooksStatus { sessionSetup: string | null; sessionTeardown: string | null; trusted: boolean }
-interface StatusResult { testCommand: string | null; trusted: boolean; hooks?: HooksStatus; notify: NotifyStatus }
+interface StatusResult { testCommand: string | null; trusted: boolean; hooks?: HooksStatus; notify: NotifyStatus; terminalPersistence?: boolean }
 
 const NOTIFY_EVENTS = ['land', 'convergence'] as const;
 type NotifyEvent = (typeof NOTIFY_EVENTS)[number];
@@ -75,6 +75,8 @@ const statusCommand = defineCommand({
           if (h.sessionSetup !== null) process.stdout.write(`  sessionSetup: ${h.sessionSetup}\n`);
           if (h.sessionTeardown !== null) process.stdout.write(`  sessionTeardown: ${h.sessionTeardown}\n`);
         }
+        // Off unless the user switched it on (Settings): a terminal's saved output is output at rest.
+        process.stdout.write(`terminal persistence: ${result.terminalPersistence === true ? 'on' : 'off'}\n`);
         const n = result.notify;
         process.stdout.write(
           `notify: ${n.enabled ? 'on' : 'off'}\t` +

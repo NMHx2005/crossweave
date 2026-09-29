@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 14;
+export const SCHEMA_VERSION = 15;
 
 /**
  * Each migration is a list of single statements, never one multi-statement blob.
@@ -254,5 +254,21 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
     session_id TEXT PRIMARY KEY REFERENCES session(id) ON DELETE CASCADE,
     ran_at     TEXT NOT NULL
   )`,
+  ],
+  [
+    // Terminal persistence (2026-09-29), opt-in and off by default: which extra terminals to reopen
+    // after a daemon restart, and the tail of their output. `id` is the terminal's own id, kept
+    // across the restart because the cockpit's saved layout names it. argv, cwd and size are NOT
+    // stored: the shell and its directory come from the session, the size from the first client's
+    // fit. ON DELETE CASCADE, so removing or gc'ing a session takes its snapshots with it.
+    `CREATE TABLE terminal (
+    id          TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+    session_id  TEXT NOT NULL REFERENCES session(id) ON DELETE CASCADE,
+    created_at  TEXT NOT NULL,
+    snapshot    TEXT,
+    snapshot_at TEXT
+  )`,
+    `CREATE INDEX terminal_session ON terminal(session_id)`,
   ],
 ];

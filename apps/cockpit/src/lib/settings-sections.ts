@@ -39,6 +39,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
       { id: 'terminal-size', label: 'Terminal font size', description: 'Size of the pane text', keywords: 'font size zoom' },
       { id: 'terminal-cursor', label: 'Cursor', description: 'Block, bar or underline', keywords: 'caret style' },
       { id: 'terminal-blink', label: 'Blinking cursor', description: 'Whether the cursor blinks', keywords: 'cursor caret' },
+      { id: 'terminal-persist', label: 'Keep terminals across a daemon restart', description: 'Off by default: saves recent terminal output on disk so a restarted daemon can show it again', keywords: 'restore persist snapshot scrollback tmux history' },
       { id: 'terminal-option-meta', label: 'Option key sends Meta', description: 'Alt shortcuts in the shell and in agents', keywords: 'alt escape esc keyboard' },
     ],
   },

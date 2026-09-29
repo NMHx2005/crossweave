@@ -16,7 +16,7 @@ import { loadConfig, type CrossweaveConfig } from '../core/config.js';
 import { collectGarbage, collectOrphans } from '../domain/gc.js';
 import { EventLedger } from '../domain/ledger.js';
 import { reconcile } from '../domain/reconciliation.js';
-import { assertContained } from '../core/paths.js';
+import { assertContained, crossweaveDir } from '../core/paths.js';
 import { ConvergenceScheduler } from './convergence-scheduler.js';
 import { MergeTrialRepo, isPairwiseTrial } from '../db/repositories/merge-trial.js';
 import { baseConflictFiles, commitsAhead } from '../convergence/trial.js';
@@ -43,6 +43,8 @@ import { latestWords } from '../domain/agent-logs.js';
 import { listFolderFiles, listWorktreeFiles, readWorktreeFile, writeWorktreeFile } from '../domain/worktree-files.js';
 import { BUILTIN_LAUNCHERS, loadSettings, saveSettings, type LauncherDef, type UserSettings } from '../core/settings.js';
 import { TerminalRegistry } from './terminals.js';
+import { TerminalRepo } from '../db/repositories/terminal.js';
+import { hardenStateFiles } from './private-files.js';
 import { ActivityTracker, detectAgents } from './session-status.js';
 import { GitCounter } from './git-counts.js';
 import { RepoScanner } from './repo-scan.js';
@@ -141,6 +143,8 @@ export function buildMethods(
   config: CrossweaveConfig = loadConfig(projectRoot),
   opts: {
     startBackgroundJobs?: boolean;
+    /** Whether terminals are kept across a restart; defaults to the user's setting (off) for a real daemon. */
+    terminalPersistence?: () => boolean;
     /**
      * False for a plain folder (no git; the cockpit's "Open as a plain folder"): sessions
      * run in the folder itself, and branches, worktrees, git counts, diff, land and
@@ -285,12 +289,25 @@ export function buildMethods(
     ? setInterval(() => { void sweepStatus(); }, STATUS_SWEEP_MS)
     : undefined;
 
+  // Whether terminals are kept across a restart: the user's setting (off by default), read each time.
+  // Only a real daemon consults the settings file; the methods a test builds never do.
+  const persistTerminals = opts.terminalPersistence ?? (opts.startBackgroundJobs === true ? () => loadSettings().persistence?.terminals === true : () => false);
+
   // Extra shells in a session's worktree (split panes), beside the session's own.
   const terminals = new TerminalRegistry((row) => spawnShell({
     shell: opts.shell ?? process.env.SHELL ?? '/bin/sh',
     cwd: row.worktreePath as string,
     env: { CW_SESSION_ID: row.id, CW_SESSION_NAME: row.name },
-  }), () => broadcastRegistry.broadcast('tui.invalidate', {}));
+  }), () => broadcastRegistry.broadcast('tui.invalidate', {}), {
+    // Opt-in: switching it off takes effect at the next snapshot.
+    enabled: persistTerminals,
+    repo: new TerminalRepo(db),
+    harden: () => hardenStateFiles(crossweaveDir(projectRoot)),
+  });
+  // A daemon that was stopped left its terminals' rows behind when persistence was on: reopen them.
+  if (opts.startBackgroundJobs === true) {
+    terminals.restore(new TerminalRepo(db).listAll(), (id) => sessionsRepo.findById(id));
+  }
 
   /** The worktree of the session a file RPC names; it must still be on disk. */
   function sessionWorktree(p: Record<string, unknown>): string {
@@ -784,6 +801,8 @@ export function buildMethods(
       return terminals.open(row);
     },
     'terminal.list': (p) => terminals.list(str(p, 'workspaceId')),
+    // Snapshot every terminal now (the daemon calls it as it goes down, so the last words are kept).
+    'terminal.flush': () => { terminals.flush(true); return { ok: true }; },
     'terminal.attach': (p, ctx) => terminals.subscribe(str(p, 'terminalId'), ctx),
     'terminal.input': (p) => {
       terminals.write(str(p, 'terminalId'), str(p, 'data'));
@@ -1033,6 +1052,7 @@ export function buildMethods(
       return {
         testCommand: testCommand ?? null,
         trusted,
+        terminalPersistence: persistTerminals(),
         hooks: {
           sessionSetup: hooks?.sessionSetup ?? null,
           sessionTeardown: hooks?.sessionTeardown ?? null,
