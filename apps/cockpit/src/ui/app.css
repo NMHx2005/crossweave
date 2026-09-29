@@ -2638,3 +2638,51 @@ body,
   font-size: var(--cw-fs-sm);
   white-space: pre;
 }
+
+/* What the next key does while the prefix is held. */
+.cockpit-keyhint {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--cw-row-h) * 2);
+  transform: translateX(-50%);
+  z-index: 25;
+  padding: var(--cw-space-3);
+  background: var(--cw-surface-overlay);
+  border: var(--cw-hairline) solid var(--cw-border-strong);
+  border-radius: var(--cw-radius-lg);
+  box-shadow: 0 var(--cw-space-1) var(--cw-space-4) var(--cw-shadow);
+  color: var(--cw-text);
+  font-size: var(--cw-fs-sm);
+}
+
+.cockpit-keyhint__title {
+  margin-bottom: var(--cw-space-2);
+  color: var(--cw-text-bright);
+  font-weight: 600;
+}
+
+.cockpit-keyhint ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--cw-space-1) var(--cw-space-4);
+}
+
+.cockpit-keyhint li {
+  display: flex;
+  gap: var(--cw-space-2);
+  align-items: baseline;
+}
+
+.cockpit-keyhint kbd {
+  min-width: var(--cw-space-4);
+  text-align: center;
+  color: var(--cw-accent);
+  font-family: var(--cw-font-mono);
+}
+
+.cockpit-shortcuts__seq {
+  opacity: 0.75;
+}

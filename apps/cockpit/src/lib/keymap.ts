@@ -51,6 +51,9 @@ export const COMMANDS: readonly CommandSpec[] = [
   // No menu item: reachable from a shortcut the user binds, the command bar, or (later) the key-table.
   { id: 'cycle-layout', menu: null, label: 'Cycle Pane Layout', key: null },
   { id: 'show-shortcuts', menu: 'Help', label: 'Keyboard Shortcuts', key: 'CmdOrCtrl+/' },
+  // The key-table's prefix (tmux's Ctrl-b). Not a command that runs: the window listens for it in a
+  // terminal pane, then takes one more key. Unbind it to switch the key-table off.
+  { id: 'prefix', menu: null, label: 'Prefix Key (key-table)', key: 'Ctrl+A' },
 ]
 
 const IDS = new Set(COMMANDS.map((c) => c.id))
@@ -111,7 +114,7 @@ export function keyConflicts(keys: Readonly<Record<string, string | null>>): Arr
   const byKey = new Map<string, string[]>()
   for (const [id, key] of Object.entries(keys)) {
     if (!key) continue
-    const k = normalizeAccelerator(key)
+    const k = key.startsWith('prefix:') ? key : normalizeAccelerator(key)
     byKey.set(k, [...(byKey.get(k) ?? []), id])
   }
   return [...byKey.entries()].filter(([, ids]) => ids.length > 1).map(([key, ids]) => ({ key, ids }))
@@ -173,5 +176,14 @@ export function keyMatchesAccelerator(e: KeyLike, accelerator: string): boolean 
  * which wins over a focused terminal pane.
  */
 export function menuLessBindings(keys: Readonly<Record<string, string | null>>): Array<{ id: string; accelerator: string }> {
-  return COMMANDS.filter((c) => c.menu === null && keys[c.id]).map((c) => ({ id: c.id, accelerator: keys[c.id] as string }))
+  return COMMANDS.filter((c) => c.menu === null && c.id !== 'prefix' && keys[c.id] && isAccelerator(keys[c.id] as string))
+    .map((c) => ({ id: c.id, accelerator: keys[c.id] as string }))
+}
+
+/** A binding as it is shown: an accelerator as ⌘⇧D, a key-table binding as the prefix then its key. */
+export function formatBinding(value: string | null, prefix: string | null): string {
+  if (!value) return ''
+  if (!value.startsWith('prefix:')) return formatAccelerator(value)
+  const key = value.slice('prefix:'.length)
+  return `${prefix ? formatAccelerator(prefix) : 'prefix'} ${GLYPHS[key] ?? key}`
 }

@@ -18,7 +18,9 @@ import { baseName, readFlag, readString, writeFlag, writeString } from './storag
 import { PaneThemeContext, TerminalLookContext } from './terminal-look-context'
 import { applyTheme, resolveTheme, xtermThemeFor, type ResolvedTheme } from './themes'
 import { ShortcutsDialog } from './ShortcutsPanel'
-import { effectiveKeys, formatAccelerator, keyMatchesAccelerator, menuLessBindings } from '../lib/keymap'
+import { COMMANDS, effectiveKeys, formatAccelerator, keyMatchesAccelerator, menuLessBindings } from '../lib/keymap'
+import { buildTable, initialKeyTable, isTerminalFocus, keyTableStep, prefixLiteral, PREFIX_TIMEOUT_MS, type KeyTableState } from '../lib/keytable'
+import { KeyTableHint } from './KeyTableHint'
 import type { InterfaceAppearance, TerminalAppearance, UsageSettings } from '../../../../src/core/settings.js'
 import { applyAppearance } from '../lib/appearance'
 
@@ -575,10 +577,43 @@ export function App() {
   // item keeps its accelerator in the menu.
   const keybindingsRef = useRef(keybindings)
   keybindingsRef.current = keybindings
+  const keyTable = useRef<KeyTableState>(initialKeyTable())
+  const [prefixOn, setPrefixOn] = useState(false)
+  // Prefix mode lapses on its own; the hint goes with it.
+  useEffect(() => {
+    if (!prefixOn) return
+    const t = setTimeout(() => { keyTable.current = initialKeyTable(); setPrefixOn(false) }, PREFIX_TIMEOUT_MS)
+    return () => clearTimeout(t)
+  }, [prefixOn])
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent): void => {
+      // The key-table (tmux's prefix): only while a terminal pane has the keyboard.
+      const keys = effectiveKeys(keybindingsRef.current)
+      const prefix = keys['prefix'] ?? null
+      if (isTerminalFocus(document.activeElement)) {
+        if (!e.repeat || keyTable.current.mode === 'prefix') {
+          const out = keyTableStep(keyTable.current, {
+            key: e.key, code: e.code, ctrl: e.ctrlKey, meta: e.metaKey, alt: e.altKey, shift: e.shiftKey, isComposing: e.isComposing,
+          }, { prefix, table: buildTable(keybindingsRef.current) }, Date.now())
+          keyTable.current = out.state
+          setPrefixOn(out.state.mode === 'prefix')
+          if (out.action.type !== 'pass') {
+            e.preventDefault()
+            e.stopPropagation()
+            if (out.action.type === 'command') commandRef.current(out.action.id)
+            else if (out.action.type === 'literal') {
+              const literal = prefixLiteral(prefix)
+              if (literal !== null) window.dispatchEvent(new CustomEvent('cockpit:paste', { detail: { text: literal, raw: true, target: document.activeElement } }))
+            }
+            return
+          }
+        }
+      } else if (keyTable.current.mode === 'prefix') {
+        keyTable.current = initialKeyTable()
+        setPrefixOn(false)
+      }
       if (e.isComposing || e.repeat) return
-      const bindings = menuLessBindings(effectiveKeys(keybindingsRef.current))
+      const bindings = menuLessBindings(keys)
       if (bindings.length === 0) return
       const hit = bindings.find((b) => keyMatchesAccelerator(e, b.accelerator))
       if (hit === undefined) return
@@ -702,6 +737,7 @@ export function App() {
           }}
         />
       ) : null}
+      {prefixOn ? <KeyTableHint keybindings={keybindings} /> : null}
       {shortcutsOpen ? (
         <ShortcutsDialog keybindings={keybindings} onClose={() => setShortcutsOpen(false)}
           onEdit={() => { setShortcutsOpen(false); void handleOpenSettings('keyboard') }} />

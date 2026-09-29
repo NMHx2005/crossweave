@@ -254,3 +254,16 @@ describe('voice settings', () => {
     expect(statSync(file()).mode & 0o777).toBe(0o600);
   });
 });
+
+describe('key-table bindings in the keybindings', () => {
+  it('accepts prefix:<key> for a character or a named key, and stores it as given', () => {
+    saveSettings({ ...loadSettings(home), keybindings: { 'split-right': 'prefix:|', 'focus-left': 'prefix:Left', 'zoom-pane': 'prefix:%', 'x': 'prefix:đ' } }, home);
+    expect(loadSettings(home).keybindings).toMatchObject({ 'split-right': 'prefix:|', 'focus-left': 'prefix:Left', 'zoom-pane': 'prefix:%' });
+  });
+
+  it('refuses a malformed one: empty, several characters, whitespace, or a control character', () => {
+    for (const bad of ['prefix:', 'prefix:ab', 'prefix: ', 'prefix:\n', 'prefix:Home']) {
+      expect(() => saveSettings({ ...loadSettings(home), keybindings: { 'split-right': bad } }, home)).toThrow();
+    }
+  });
+});

@@ -43,15 +43,15 @@ report before the next starts. Order: **2B.1 → 2A → 2B → 2C → 2D**.
 
 ## 2B — key-table (`feat/tmux-keytable`)
 
-1. [ ] `keytable.ts`: `root`/`prefix` modes, prefix chord (default `Ctrl-a`, rebindable,
+1. [x] `keytable.ts`: `root`/`prefix` modes, prefix chord (default `Ctrl-a`, rebindable,
    validated), table lookup, prefix-twice literal, hint overlay, `Esc`/timeout exit. Pure
    reducer tests + a DOM test that interception happens capture-phase **and only while a
    terminal pane is focused** (not the find box, Settings or a note).
-2. [ ] IME/repeat/layout handling (`event.key`, `isComposing`, bare modifiers); tests.
-3. [ ] Settings → Keyboard: record a 1- or 2-chord sequence; conflict detection across
+2. [x] IME/repeat/layout handling (`event.key`, `isComposing`, bare modifiers); tests.
+3. [x] Settings → Keyboard: record a 1- or 2-chord sequence; conflict detection across
    accelerators and sequences; reset.
-4. [ ] Wire the tmux table entries (from 2B.1) to the prefix.
-5. [ ] Gate + known limitations + digest line; report.
+4. [x] Wire the tmux table entries (from 2B.1) to the prefix.
+5. [x] Gate + known limitations + digest line; report.
 
 ## 2C — terminal persistence (`feat/terminal-persist`)
 

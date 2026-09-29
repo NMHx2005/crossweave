@@ -1,5 +1,6 @@
 import { useState } from 'preact/hooks'
-import { acceleratorFromKey, COMMANDS, effectiveKeys, formatAccelerator, keyConflicts, type MenuName } from '../lib/keymap'
+import { acceleratorFromKey, COMMANDS, effectiveKeys, formatAccelerator, formatBinding, keyConflicts, normalizeAccelerator, type MenuName } from '../lib/keymap'
+import { buildTable, tableKeyOf } from '../lib/keytable'
 
 /** `null` is the commands with no menu item: listed last, as "Other". */
 const MENUS: Array<MenuName | null> = ['Session', 'Pane', 'File', 'Edit', 'View', 'Help', null]
@@ -16,8 +17,12 @@ export function ShortcutList({ keybindings, onChange }: {
 }) {
   const [query, setQuery] = useState('')
   const [recording, setRecording] = useState<string | null>(null)
+  /** The prefix was pressed while recording: the next key completes a `prefix:<key>` binding. */
+  const [awaitingKey, setAwaitingKey] = useState<string | null>(null)
   const keys = effectiveKeys(keybindings)
   const conflicts = keyConflicts(keys)
+  const prefix = keys['prefix'] ?? null
+  const table = buildTable(keybindings)
   const clash = new Set(conflicts.flatMap((c) => c.ids))
   const q = query.trim().toLowerCase()
 
@@ -62,16 +67,35 @@ export function ShortcutList({ keybindings, onChange }: {
                             setRecording(null)
                             return
                           }
+                          // The prefix was just pressed: this key completes a key-table binding.
+                          if (awaitingKey === c.id) {
+                            const k = tableKeyOf({ key: ev.key })
+                            if (k === null) return
+                            set(c.id, `prefix:${k}`)
+                            setAwaitingKey(null)
+                            setRecording(null)
+                            return
+                          }
                           const accel = acceleratorFromKey(ev)
                           if (accel === null) return
+                          // The prefix chord itself, for any command but the prefix: a sequence.
+                          if (c.id !== 'prefix' && prefix !== null && normalizeAccelerator(accel) === normalizeAccelerator(prefix)) {
+                            setAwaitingKey(c.id)
+                            return
+                          }
                           set(c.id, accel)
                           setRecording(null)
                         }}
-                        onBlur={() => setRecording(null)}>
-                        Press keys… (Esc cancels)
+                        onBlur={() => { setRecording(null); setAwaitingKey(null) }}>
+                        {awaitingKey === c.id ? `${formatAccelerator(prefix)} then press the key…` : 'Press keys… (Esc cancels; the prefix then a key records a key-table binding)'}
                       </button>
                     ) : (
-                      <kbd class="cockpit-shortcuts__key">{key ? formatAccelerator(key) : '—'}</kbd>
+                      <>
+                        <kbd class="cockpit-shortcuts__key">{key ? formatBinding(key, prefix) : '—'}</kbd>
+                        {c.id !== 'prefix' ? Object.entries(table).filter(([, id]) => id === c.id && !(key ?? '').startsWith('prefix:')).map(([k]) => (
+                          <kbd key={k} class="cockpit-shortcuts__key cockpit-shortcuts__seq" title="Key-table: the prefix, then this key">{formatBinding(`prefix:${k}`, prefix)}</kbd>
+                        )) : null}
+                      </>
                     )}
                     {onChange ? (
                       <span class="cockpit-shortcuts__actions">

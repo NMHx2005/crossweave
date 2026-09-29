@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import {
-  acceleratorFromKey, COMMANDS, effectiveKeys, formatAccelerator, isAccelerator, isCommandId, keyConflicts, keyMatchesAccelerator, menuLessBindings, normalizeAccelerator,
+  acceleratorFromKey, COMMANDS, effectiveKeys, formatAccelerator, isAccelerator, isCommandId, keyConflicts, keyMatchesAccelerator, menuLessBindings, normalizeAccelerator, formatBinding,
 } from '../src/lib/keymap'
 
 describe('the command list', () => {
@@ -99,5 +99,38 @@ describe('keyMatchesAccelerator', () => {
 
   test('Option-modified letters match on the physical key, not the glyph they type', () => {
     expect(keyMatchesAccelerator(press({ code: 'KeyD', key: '∂', metaKey: true, altKey: true }), 'CmdOrCtrl+Alt+D')).toBe(true)
+  })
+})
+
+describe('the prefix key and key-table bindings', () => {
+  test('the prefix is a command with a default (Ctrl+A) that can be rebound or unbound', () => {
+    expect(effectiveKeys(undefined)['prefix']).toBe('Ctrl+A')
+    expect(effectiveKeys({ prefix: 'Ctrl+B' })['prefix']).toBe('Ctrl+B')
+    expect(effectiveKeys({ prefix: null })['prefix']).toBeNull()
+  })
+
+  test('it is never treated as a menu-less command to run', () => {
+    expect(menuLessBindings(effectiveKeys(undefined)).map((b) => b.id)).not.toContain('prefix')
+  })
+
+  test('the prefix chord conflicts with an ordinary command bound to the same chord', () => {
+    expect(keyConflicts(effectiveKeys({ 'zoom-pane': 'Ctrl+A' }))).toEqual([{ key: 'Ctrl+A', ids: ['zoom-pane', 'prefix'] }])
+  })
+
+  test('two commands on one key-table key conflict; different keys do not', () => {
+    expect(keyConflicts(effectiveKeys({ 'split-right': 'prefix:|', 'split-down': 'prefix:|' }))).toEqual([{ key: 'prefix:|', ids: ['split-right', 'split-down'] }])
+    expect(keyConflicts(effectiveKeys({ 'split-right': 'prefix:|', 'split-down': 'prefix:-' }))).toEqual([])
+  })
+
+  test('a key-table binding is not an accelerator, so no menu item carries it', () => {
+    expect(isAccelerator('prefix:%')).toBe(false)
+    expect(menuLessBindings(effectiveKeys({ 'cycle-layout': 'prefix:x' }))).toEqual([])
+  })
+
+  test('formatBinding shows the prefix and then the key', () => {
+    expect(formatBinding('prefix:%', 'Ctrl+A')).toBe('⌃A %')
+    expect(formatBinding('prefix:Left', 'Ctrl+A')).toBe('⌃A ←')
+    expect(formatBinding('CmdOrCtrl+Shift+D', 'Ctrl+A')).toBe('⌘⇧D')
+    expect(formatBinding(null, 'Ctrl+A')).toBe('')
   })
 })

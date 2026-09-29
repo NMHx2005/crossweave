@@ -364,11 +364,14 @@ export function XtermPane({ source, focused, syncGroup, paneId }: XtermPaneProps
   // presses Enter as a keystroke.
   useEffect(() => {
     const onPaste = (ev: Event): void => {
-      if (!focusedRef.current) return
-      const detail = (ev as CustomEvent<{ text?: string; enter?: boolean }>).detail
+      const detail = (ev as CustomEvent<{ text?: string; enter?: boolean; raw?: boolean; target?: Element | null }>).detail
       const term = termRef.current
       if (!term || typeof detail?.text !== 'string' || detail.text === '') return
-      term.paste(detail.text)
+      // Aimed at the element that has the keyboard (the literal prefix), or else the focused pane.
+      if (detail.target instanceof Element ? !containerRef.current?.contains(detail.target) : !focusedRef.current) return
+      // raw: keystrokes as typed (the literal prefix), not a paste.
+      if (detail.raw === true) term.input(detail.text, true)
+      else term.paste(detail.text)
       if (detail.enter === true) term.input('\r', true)
       term.focus()
     }

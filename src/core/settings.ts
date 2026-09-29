@@ -270,6 +270,8 @@ export function cleanUsage(raw: unknown): { usage: UsageSettings | undefined; pr
 
 const COMMAND_ID = /^[a-z0-9][a-z0-9-]{0,39}$/;
 const ACCELERATOR_CHARS = /^[A-Za-z0-9+,./;'[\]\\\-=`]{1,40}$/;
+/** A key-table binding: the prefix, then one character or a named key (`prefix:%`, `prefix:Left`). */
+const PREFIX_BINDING = /^prefix:(?:[^\s\p{C}]|Space|Left|Right|Up|Down|Enter|Escape|Tab|Backspace)$/u;
 
 export function cleanKeybindings(raw: unknown): { keybindings: Record<string, string | null> | undefined; problems: string[] } {
   const problems: string[] = [];
@@ -277,7 +279,7 @@ export function cleanKeybindings(raw: unknown): { keybindings: Record<string, st
   if (typeof raw !== 'object' || Array.isArray(raw)) return { keybindings: undefined, problems: ['keybindings must map a command to a shortcut'] };
   const out: Record<string, string | null> = {};
   for (const [id, key] of Object.entries(raw as Record<string, unknown>)) {
-    if (COMMAND_ID.test(id) && (key === null || (typeof key === 'string' && ACCELERATOR_CHARS.test(key)))) out[id] = key;
+    if (COMMAND_ID.test(id) && (key === null || (typeof key === 'string' && (ACCELERATOR_CHARS.test(key) || PREFIX_BINDING.test(key))))) out[id] = key;
     else problems.push(`keybinding "${id}": a command id, and a shortcut like CmdOrCtrl+Shift+K (or none)`);
   }
   return { keybindings: Object.keys(out).length === 0 ? undefined : out, problems };
