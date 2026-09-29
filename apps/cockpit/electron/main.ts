@@ -22,7 +22,8 @@ import { listFonts } from './fonts'
 import { refine, transcribe, type VoiceDeps } from './voice'
 import { findRepos, folderKind } from '../../../src/core/folder-kind.js'
 import { initGit, inspectFolder } from './folder-open'
-import { loadSettings } from '../../../src/core/settings.js'
+import { loadSettings, saveSettings } from '../../../src/core/settings.js'
+import { restoreVoice, withVoiceFromFile } from './settings-voice'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -317,6 +318,20 @@ function registerHandlers(bridge: DaemonBridge): void {
         const from = (payload as { from?: unknown } | null)?.from
         if (from !== 'ghostty' && from !== 'iterm2') return { ok: false, reason: 'Import from ghostty or iterm2' }
         return importTerminal(from, importDeps())
+      }
+      // The project's daemon may predate `voice` and would drop it: see settings-voice.ts.
+      if (channel === 'settings.get') return withVoiceFromFile(await bridge.handle(channel, payload), loadSettings().voice)
+      if (channel === 'settings.set') {
+        const answer = await bridge.handle(channel, payload)
+        const lost = restoreVoice(payload, loadSettings())
+        if (lost === undefined) return answer
+        try {
+          saveSettings({ ...loadSettings(), voice: lost })
+          return withVoiceFromFile(answer, lost)
+        } catch {
+          // Refused by validation: the daemon's answer stands and the page shows it as saved-without.
+          return answer
+        }
       }
       return bridge.handle(channel, payload)
     })
