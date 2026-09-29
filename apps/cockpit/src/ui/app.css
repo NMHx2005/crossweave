@@ -1671,7 +1671,8 @@ body,
   font-family: var(--cw-font-mono);
 }
 
-.cockpit-settings code {
+.cockpit-settings code,
+.cockpit-settings-content code {
   font-family: var(--cw-font-mono);
   color: var(--cw-text-bright);
 }
@@ -2343,4 +2344,158 @@ body,
   border-radius: var(--cw-radius-sm);
   font-size: var(--cw-fs-micro);
   color: var(--cw-text-dim);
+}
+
+/* The settings page: a window-sized layer over the stage with its own navigation and a
+   pane of rows. It is not a dialog, so it has no backdrop and does not close on a click
+   outside; Esc and Back leave it. */
+.cockpit-settings-page {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  background: var(--cw-surface);
+  color: var(--cw-text);
+  animation: cockpit-fade var(--cw-dur-enter) var(--cw-ease-out);
+}
+
+/* The traffic lights sit in the top-left; the band drags the window, its controls do not. */
+.cockpit-settings-page__top {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--cw-space-3);
+  height: var(--cw-titlebar-h);
+  padding: 0 var(--cw-space-4) 0 var(--cw-traffic-w);
+  border-bottom: var(--cw-hairline) solid var(--cw-border);
+  -webkit-app-region: drag;
+}
+
+.cockpit-settings-page__top > button {
+  -webkit-app-region: no-drag;
+}
+
+.cockpit-settings-page__title {
+  margin: 0;
+  font-size: var(--cw-fs-project);
+  font-weight: 600;
+  color: var(--cw-text-bright);
+}
+
+.cockpit-settings-page__body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.cockpit-settings-nav {
+  flex: none;
+  width: var(--cw-rail-w);
+  display: flex;
+  flex-direction: column;
+  gap: var(--cw-space-3);
+  padding: var(--cw-space-3);
+  overflow: auto;
+  background: var(--cw-surface-sidebar);
+  border-right: var(--cw-hairline) solid var(--cw-border);
+}
+
+.cockpit-settings-nav ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--cw-hairline);
+}
+
+.cockpit-settings-nav__item {
+  width: 100%;
+  height: var(--cw-row-h);
+  padding: 0 var(--cw-space-3);
+  border: 0;
+  border-radius: var(--cw-radius);
+  background: transparent;
+  color: var(--cw-text);
+  font-size: var(--cw-fs-rail);
+  text-align: left;
+  cursor: pointer;
+}
+
+.cockpit-settings-nav__item:hover {
+  background: var(--cw-surface-hover);
+}
+
+.cockpit-settings-nav__item.is-active {
+  background: var(--cw-surface-active);
+  color: var(--cw-text-bright);
+}
+
+.cockpit-settings-content {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  padding: var(--cw-space-4) calc(var(--cw-space-4) * 2);
+}
+
+/* A comfortable measure: rows do not stretch across a wide window. */
+.cockpit-settings-content > section,
+.cockpit-settings-results {
+  max-width: calc(var(--cw-row-h) * 30);
+  display: flex;
+  flex-direction: column;
+  gap: var(--cw-space-3);
+}
+
+.cockpit-settings-content > section > * {
+  flex: none;
+}
+
+.cockpit-settings-content > section > .cockpit-settings__heading {
+  font-size: var(--cw-fs-project);
+}
+
+.cockpit-settings-content__unsaved {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: var(--cw-space-2) var(--cw-space-3);
+  background: var(--cw-surface-overlay);
+  border: var(--cw-hairline) solid var(--cw-border-strong);
+  border-radius: var(--cw-radius);
+}
+
+.cockpit-settings-results ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cockpit-settings-results__row {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--cw-hairline);
+  padding: var(--cw-space-2) var(--cw-space-3);
+  border: 0;
+  border-radius: var(--cw-radius);
+  background: transparent;
+  color: var(--cw-text);
+  font-size: var(--cw-fs);
+  text-align: left;
+  cursor: pointer;
+}
+
+.cockpit-settings-results__row:hover,
+.cockpit-settings-results__row:focus-visible {
+  background: var(--cw-surface-hover);
+}
+
+/* A row reached from a search hit or a deep link, marked once. */
+[data-setting].is-target {
+  outline: calc(var(--cw-hairline) * 2) solid var(--cw-accent);
+  outline-offset: var(--cw-space-1);
+  border-radius: var(--cw-radius);
+  animation: cockpit-attention var(--cw-dur-slow) var(--cw-ease-spring);
 }

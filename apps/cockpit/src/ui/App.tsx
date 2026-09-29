@@ -4,7 +4,7 @@ import { ConfirmDialog, type ConfirmRequest } from './ConfirmDialog'
 import { OpenFolderDialog } from './OpenFolderDialog'
 import type { FolderInfo } from '../../electron/folder-open'
 import type { NewSessionRequest } from './QuickPicker'
-import { SettingsPanel, type NotifyPrefs, type UserSettings } from './SettingsPanel'
+import { SettingsPage, type NotifyPrefs, type UserSettings } from './SettingsPage'
 import { ProjectSettings } from './ProjectSettings'
 import { moveProject, projectLabel, readPrefs, withPrefs, writePrefs, type PrefsMap, type ProjectPrefs } from '../lib/project-prefs'
 import { suggestSessionName } from '../lib/quick-picker'
@@ -66,6 +66,8 @@ export function App() {
     availability: Record<string, boolean>
     defaults: Record<string, { label: string; command: string }>
     importSources: { ghostty: boolean; iterm2: boolean }
+    /** The section to open on (a deep link). */
+    section?: string
   } | null>(null)
   const [projectSettings, setProjectSettings] = useState<{ projectRoot: string; launchers: LauncherOption[]; branches: string[] } | null>(null)
   const [notify, setNotify] = useState<NotifyPrefs>(() => ({
@@ -472,7 +474,7 @@ export function App() {
     })
   }
 
-  async function handleOpenSettings(): Promise<void> {
+  async function handleOpenSettings(section?: string): Promise<void> {
     // Settings are the user's (~/.crossweave), read through any project's daemon.
     const root = activeRef.current ?? openRoots[0]
     if (root === undefined) {
@@ -492,7 +494,7 @@ export function App() {
         availability[l.id] = l.available
         if (l.defaults) defaults[l.id] = l.defaults
       }
-      setSettingsOpen({ settings: settings as UserSettings, availability, defaults, importSources })
+      setSettingsOpen({ settings: settings as UserSettings, availability, defaults, importSources, ...(section === undefined ? {} : { section }) })
     } catch (err) {
       showToast(plainErrorMessage(err), 'error')
     }
@@ -639,7 +641,8 @@ export function App() {
         />
       ) : null}
       {settingsOpen !== null ? (
-        <SettingsPanel
+        <SettingsPage
+          initialSection={settingsOpen.section}
           initial={settingsOpen.settings}
           availability={settingsOpen.availability}
           defaults={settingsOpen.defaults}
@@ -670,7 +673,7 @@ export function App() {
       ) : null}
       {shortcutsOpen ? (
         <ShortcutsDialog keybindings={keybindings} onClose={() => setShortcutsOpen(false)}
-          onEdit={() => { setShortcutsOpen(false); void handleOpenSettings() }} />
+          onEdit={() => { setShortcutsOpen(false); void handleOpenSettings('keyboard') }} />
       ) : null}
       {projectSettings !== null ? (
         <ProjectSettings

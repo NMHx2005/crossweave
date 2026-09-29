@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'preact/hooks'
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
+import type { ComponentChildren } from 'preact'
 import { formatEnvLines, launcherIdFor, parseEnvLines } from '../lib/launchers'
 import { AgentMark } from './icons'
 import type { InterfaceAppearance, ModelPrice, TerminalAppearance, UsageSettings } from '../../../../src/core/settings.js'
@@ -7,6 +8,8 @@ import { ShortcutList } from './ShortcutsPanel'
 import { effectiveKeys, keyConflicts } from '../lib/keymap'
 import type { TerminalImport } from '../host/cockpit-api'
 import { xtermLook } from '../lib/terminal-look'
+import { createCommitter } from '../lib/settings-commit'
+import { SETTINGS_SECTIONS, findSection, searchSettings } from '../lib/settings-sections'
 
 export type EditorSetting = { kind: 'vscode' | 'cursor' | 'zed' | 'custom' | 'cockpit'; command?: string }
 export type LauncherSetting = {
@@ -65,7 +68,10 @@ const TERMINAL_APPS: Array<{ id: 'ghostty' | 'iterm2'; label: string }> = [
   { id: 'iterm2', label: 'iTerm2' },
 ]
 
-export function SettingsPanel({ initial, availability, defaults, notify, onNotify, importSources, onImport, loadFonts, onPreviewAppearance, seenModels, hasTerminalColors, onSave, onClose }: {
+export function SettingsPage({ initialSection, initialRow, initial, availability, defaults, notify, onNotify, importSources, onImport, loadFonts, onPreviewAppearance, seenModels, hasTerminalColors, onSave, onClose }: {
+  /** Which section to open on, and a row in it to scroll to and highlight (a deep link). */
+  initialSection?: string
+  initialRow?: string
   initial: UserSettings
   /** Launcher id → whether this machine has its program (from launchers.list). */
   availability: Record<string, boolean>
@@ -88,12 +94,12 @@ export function SettingsPanel({ initial, availability, defaults, notify, onNotif
   seenModels: string[]
   /** Colors were imported under Terminal (the "From terminal" theme needs them). */
   hasTerminalColors: boolean
+  /** The daemon's answer: null when saved, or the sentence it refused with. */
   onSave: (next: UserSettings) => Promise<string | null>
   onClose: () => void
 }) {
   const [draft, setDraft] = useState<UserSettings>(initial)
   const [error, setError] = useState<string | null>(null)
-  const [saving, setSaving] = useState(false)
   const [open, setOpen] = useState<string | null>(null)
   /** The env textarea as typed, per launcher, until it parses. */
   const [envText, setEnvText] = useState<Record<string, string>>({})
@@ -176,7 +182,28 @@ export function SettingsPanel({ initial, availability, defaults, notify, onNotif
     setOpen(id)
   }
 
-  const save = async (): Promise<void> => {
+  // Every change is saved as it is made (after a short pause), through the same daemon
+  // call the old Save button used, so its validation is unchanged. A refusal does not
+  // discard what was typed: it says why, and the next change that fixes it saves it.
+  const savedRef = useRef<UserSettings>(initial)
+  const onSaveRef = useRef(onSave)
+  onSaveRef.current = onSave
+  const [notSaved, setNotSaved] = useState<string | null>(null)
+  const committer = useMemo(() => createCommitter<UserSettings>({
+    save: (value) => onSaveRef.current(value),
+    onResult: (value, problem) => {
+      if (problem === null) {
+        savedRef.current = value
+        setNotSaved(null)
+      } else {
+        setNotSaved(problem)
+      }
+    },
+  }), [])
+  useEffect(() => () => committer.cancel(), [committer])
+
+  useEffect(() => {
+    if (draft === savedRef.current) return
     // Two commands on one chord: the menu would silently keep only one of them.
     if (keyConflicts(effectiveKeys(draft.keybindings)).length > 0) {
       setError('Two commands share a shortcut — change one of them under Keyboard')
@@ -191,39 +218,51 @@ export function SettingsPanel({ initial, availability, defaults, notify, onNotif
         return
       }
     }
-    setSaving(true)
-    const problem = await onSave(draft)
-    setSaving(false)
-    if (problem === null) onClose()
-    else setError(problem)
+    setError(null)
+    committer.schedule(draft)
+  }, [draft])
+
+  const close = async (): Promise<void> => {
+    await committer.flush()
+    onClose()
   }
 
-  return (
-    <div class="cockpit-picker__backdrop" onClick={onClose}>
-      <div
-        class="cockpit-picker cockpit-settings"
-        role="dialog"
-        aria-label="Settings"
-        onClick={(e) => e.stopPropagation()}
-        onKeyDown={(e) => { if (e.key === 'Escape') onClose() }}
-      >
-        <h2 class="cockpit-picker__title">Settings</h2>
+  const [section, setSection] = useState(() => findSection(initialSection ?? '')?.id ?? SETTINGS_SECTIONS[0]!.id)
+  const [query, setQuery] = useState('')
+  const [target, setTarget] = useState<string | null>(initialRow ?? null)
+  const contentRef = useRef<HTMLElement>(null)
+  const hits = searchSettings(query)
+  const searching = query.trim() !== ''
 
-        <h3 class="cockpit-settings__heading">Appearance</h3>
-        <p class="cockpit-muted">The window's fonts and text size — shown as you choose, kept when you Save.</p>
+  // A search hit or deep link: scroll the row into view and mark it for a moment.
+  useEffect(() => {
+    if (target === null || searching) return
+    const el = contentRef.current?.querySelector<HTMLElement>(`[data-setting="${target}"]`)
+    setTarget(null)
+    if (!el) return
+    el.scrollIntoView({ block: 'center' })
+    el.classList.add('is-target')
+    const t = setTimeout(() => el.classList.remove('is-target'), 1600)
+    return () => clearTimeout(t)
+  }, [target, section, searching])
+
+  const bodies: Record<string, ComponentChildren> = {
+    appearance: (
+      <>
+        <p class="cockpit-muted">The window's fonts and text size — shown as you choose, saved as you choose.</p>
         <div class="cockpit-settings__fonts">
-          <div class="cockpit-picker__field">
+          <div class="cockpit-picker__field" data-setting="appearance-ui-font">
             <span class="cockpit-muted">Interface font</span>
             <FontPicker label="Interface font" value={draft.appearance?.uiFont} fonts={fonts} suggestions={UI_FONTS}
               defaultLabel="System (SF Pro)" onChange={(uiFont) => setAppearance({ uiFont })} />
           </div>
-          <div class="cockpit-picker__field">
+          <div class="cockpit-picker__field" data-setting="appearance-code-font">
             <span class="cockpit-muted" title="Commands, paths, branches and the file editor">Code font</span>
             <FontPicker label="Code font" value={draft.appearance?.codeFont} fonts={fonts} suggestions={CODE_FONTS} mono
               defaultLabel="Menlo" onChange={(codeFont) => setAppearance({ codeFont })} />
           </div>
         </div>
-        <div class="cockpit-settings__segmented" role="radiogroup" aria-label="Theme">
+        <div class="cockpit-settings__segmented" role="radiogroup" aria-label="Theme" data-setting="appearance-theme">
           <span class="cockpit-muted">Theme</span>
           {THEMES.map((t) => {
             const disabled = t.id === 'terminal' && !hasTerminalColors && draft.terminal?.colors === undefined
@@ -238,7 +277,7 @@ export function SettingsPanel({ initial, availability, defaults, notify, onNotif
             )
           })}
         </div>
-        <div class="cockpit-settings__segmented" role="radiogroup" aria-label="Text size">
+        <div class="cockpit-settings__segmented" role="radiogroup" aria-label="Text size" data-setting="appearance-text-size">
           <span class="cockpit-muted">Text size</span>
           {TEXT_SIZES.map((size) => (
             <button key={size.id} type="button" role="radio" aria-checked={(draft.appearance?.textSize ?? 'default') === size.id}
@@ -248,12 +287,91 @@ export function SettingsPanel({ initial, availability, defaults, notify, onNotif
             </button>
           ))}
         </div>
-
-        <h3 class="cockpit-settings__heading">Launchers</h3>
+      </>
+    ),
+    terminal: (
+      <>
+        <p class="cockpit-muted">
+          How the panes look. Import from the terminal you use — font, size, colors, cursor and the Option key — then adjust.
+        </p>
+        <div class="cockpit-term__actions" data-setting="terminal-import">
+          {TERMINAL_APPS.map((app) => (
+            <button key={app.id} type="button" class="cockpit-btn cockpit-btn--sm"
+              disabled={!importSources[app.id] || importing !== null}
+              title={importSources[app.id] ? `Read ${app.label}'s settings (it is applied as you go)` : `No ${app.label} settings found on this Mac`}
+              onClick={() => { void runImport(app.id, app.label) }}>
+              {importing === app.id ? 'Importing…' : `Import from ${app.label}`}
+            </button>
+          ))}
+          <span class="cockpit-sidebar__spring" />
+          <button type="button" class="cockpit-btn cockpit-btn--sm cockpit-btn--ghost" disabled={draft.terminal === undefined}
+            onClick={() => { setDraft({ ...draft, terminal: undefined }); setImportNote(null) }}>
+            Use cockpit default
+          </button>
+        </div>
+        {importNote ? <p class={importNote.error ? 'cockpit-error' : 'cockpit-muted'} role={importNote.error ? 'alert' : 'status'}>{importNote.text}</p> : null}
+        {/* The preview paints with the imported colors themselves: they are data, not the chrome's tokens. */}
+        <div class="cockpit-term__preview" aria-label="Terminal preview"
+          style={{ background: look.theme.background, color: look.theme.foreground, fontFamily: look.fontFamily, fontSize: `${look.fontSize}px` }}>
+          <div>
+            <span style={{ color: look.theme.blue }}>~/project</span> <span style={{ color: look.theme.magenta }}>main</span>{' '}
+            <span style={{ color: look.theme.green }}>❯</span> claude --continue
+            <span class={`cockpit-term__cursor is-${look.cursorStyle}`} style={{ background: look.cursorStyle === 'block' ? look.theme.cursor : undefined, borderColor: look.theme.cursor }} />
+          </div>
+          <div class="cockpit-term__ansi">
+            {ansi.map((color, i) => <span key={i} style={{ background: color }} title={`ANSI ${i}`} />)}
+          </div>
+        </div>
+        <div class="cockpit-term__fields">
+          <div class="cockpit-picker__field" data-setting="terminal-font">
+            <span class="cockpit-muted">Font</span>
+            <FontPicker label="Terminal font" value={draft.terminal?.fontFamily} fonts={fonts} suggestions={CODE_FONTS} mono
+              defaultLabel="Menlo" onChange={(fontFamily) => setTerminal({ fontFamily })} />
+          </div>
+          <label class="cockpit-picker__field" data-setting="terminal-size">
+            <span class="cockpit-muted">Size</span>
+            <input type="number" min={8} max={32} value={draft.terminal?.fontSize ?? ''} placeholder="13"
+              onInput={(e) => {
+                const n = Number((e.target as HTMLInputElement).value)
+                setTerminal({ fontSize: Number.isInteger(n) && n > 0 ? n : undefined })
+              }} />
+          </label>
+          <label class="cockpit-picker__field" data-setting="terminal-cursor">
+            <span class="cockpit-muted">Cursor</span>
+            <select value={draft.terminal?.cursorStyle ?? 'block'}
+              onChange={(e) => setTerminal({ cursorStyle: (e.target as HTMLSelectElement).value as TerminalAppearance['cursorStyle'] })}>
+              <option value="block">Block</option>
+              <option value="bar">Bar</option>
+              <option value="underline">Underline</option>
+            </select>
+          </label>
+        </div>
+        <label class="cockpit-settings__toggle" data-setting="terminal-blink">
+          <input type="checkbox" checked={draft.terminal?.cursorBlink ?? true} onChange={(e) => setTerminal({ cursorBlink: (e.target as HTMLInputElement).checked })} />
+          <span>Blinking cursor</span>
+        </label>
+        <label class="cockpit-settings__toggle" data-setting="terminal-option-meta">
+          <input type="checkbox" checked={draft.terminal?.optionAsMeta ?? false} onChange={(e) => setTerminal({ optionAsMeta: (e.target as HTMLInputElement).checked })} />
+          <span>Option key sends Meta (Esc+), for Alt shortcuts in the shell and in agents</span>
+        </label>
+      </>
+    ),
+    keyboard: (
+      <>
+        <p class="cockpit-muted">Every command's shortcut. Change records the next keys you press; the menu updates as it is saved.</p>
+        <div data-setting="keyboard-shortcuts">
+        <ShortcutList keybindings={draft.keybindings}
+          onChange={(next) => setDraft((d) => ({ ...d, keybindings: Object.keys(next).length === 0 ? undefined : next }))} />
+        </div>
+      </>
+    ),
+    launchers: (
+      <>
         <p class="cockpit-muted">
           What a new session can start with. The command is typed into the session's shell, in its
           worktree; when it exits you are back at the prompt. Your aliases and wrappers work (e.g. <code>cx</code>).
         </p>
+        <div data-setting="launchers-list">
         <ul class="cockpit-launchers">
           {draft.launchers.map((l) => {
             const available = availability[l.id]
@@ -319,82 +437,66 @@ export function SettingsPanel({ initial, availability, defaults, notify, onNotif
           })}
         </ul>
         <button type="button" class="cockpit-btn cockpit-btn--ghost cockpit-launchers__add" onClick={addLauncher}>+ Add launcher</button>
-
-        <h3 class="cockpit-settings__heading">Terminal</h3>
-        <p class="cockpit-muted">
-          How the panes look. Import from the terminal you use — font, size, colors, cursor and the Option key — then adjust.
-        </p>
-        <div class="cockpit-term__actions">
-          {TERMINAL_APPS.map((app) => (
-            <button key={app.id} type="button" class="cockpit-btn cockpit-btn--sm"
-              disabled={!importSources[app.id] || importing !== null}
-              title={importSources[app.id] ? `Read ${app.label}'s settings (nothing is saved until you press Save)` : `No ${app.label} settings found on this Mac`}
-              onClick={() => { void runImport(app.id, app.label) }}>
-              {importing === app.id ? 'Importing…' : `Import from ${app.label}`}
-            </button>
+        </div>
+      </>
+    ),
+    editor: (
+      <>
+        <div class="cockpit-settings__editors" role="radiogroup" aria-label="Editor" data-setting="editor-open-in">
+          {EDITORS.map((e) => (
+            <label key={e.kind} class="cockpit-settings__toggle">
+              <input
+                type="radio"
+                name="editor"
+                checked={draft.editor.kind === e.kind}
+                onChange={() => setDraft({ ...draft, editor: { kind: e.kind, ...(e.kind === 'custom' ? { command: draft.editor.command ?? '' } : {}) } })}
+              />
+              <span>{e.label}</span>
+            </label>
           ))}
-          <span class="cockpit-sidebar__spring" />
-          <button type="button" class="cockpit-btn cockpit-btn--sm cockpit-btn--ghost" disabled={draft.terminal === undefined}
-            onClick={() => { setDraft({ ...draft, terminal: undefined }); setImportNote(null) }}>
-            Use cockpit default
-          </button>
         </div>
-        {importNote ? <p class={importNote.error ? 'cockpit-error' : 'cockpit-muted'} role={importNote.error ? 'alert' : 'status'}>{importNote.text}</p> : null}
-        {/* The preview paints with the imported colors themselves: they are data, not the chrome's tokens. */}
-        <div class="cockpit-term__preview" aria-label="Terminal preview"
-          style={{ background: look.theme.background, color: look.theme.foreground, fontFamily: look.fontFamily, fontSize: `${look.fontSize}px` }}>
-          <div>
-            <span style={{ color: look.theme.blue }}>~/project</span> <span style={{ color: look.theme.magenta }}>main</span>{' '}
-            <span style={{ color: look.theme.green }}>❯</span> claude --continue
-            <span class={`cockpit-term__cursor is-${look.cursorStyle}`} style={{ background: look.cursorStyle === 'block' ? look.theme.cursor : undefined, borderColor: look.theme.cursor }} />
-          </div>
-          <div class="cockpit-term__ansi">
-            {ansi.map((color, i) => <span key={i} style={{ background: color }} title={`ANSI ${i}`} />)}
-          </div>
-        </div>
-        <div class="cockpit-term__fields">
-          <div class="cockpit-picker__field">
-            <span class="cockpit-muted">Font</span>
-            <FontPicker label="Terminal font" value={draft.terminal?.fontFamily} fonts={fonts} suggestions={CODE_FONTS} mono
-              defaultLabel="Menlo" onChange={(fontFamily) => setTerminal({ fontFamily })} />
-          </div>
+        {draft.editor.kind === 'custom' ? (
           <label class="cockpit-picker__field">
-            <span class="cockpit-muted">Size</span>
-            <input type="number" min={8} max={32} value={draft.terminal?.fontSize ?? ''} placeholder="13"
-              onInput={(e) => {
-                const n = Number((e.target as HTMLInputElement).value)
-                setTerminal({ fontSize: Number.isInteger(n) && n > 0 ? n : undefined })
-              }} />
+            <span class="cockpit-muted">Command — {'{file}'}, {'{line}'} and {'{col}'} are filled in</span>
+            <input
+              value={draft.editor.command ?? ''}
+              placeholder='subl "{file}:{line}:{col}"'
+              spellcheck={false}
+              onInput={(e) => setDraft({ ...draft, editor: { kind: 'custom', command: (e.target as HTMLInputElement).value } })}
+            />
           </label>
-          <label class="cockpit-picker__field">
-            <span class="cockpit-muted">Cursor</span>
-            <select value={draft.terminal?.cursorStyle ?? 'block'}
-              onChange={(e) => setTerminal({ cursorStyle: (e.target as HTMLSelectElement).value as TerminalAppearance['cursorStyle'] })}>
-              <option value="block">Block</option>
-              <option value="bar">Bar</option>
-              <option value="underline">Underline</option>
-            </select>
-          </label>
-        </div>
-        <label class="cockpit-settings__toggle">
-          <input type="checkbox" checked={draft.terminal?.cursorBlink ?? true} onChange={(e) => setTerminal({ cursorBlink: (e.target as HTMLInputElement).checked })} />
-          <span>Blinking cursor</span>
+        ) : null}
+      </>
+    ),
+    notifications: (
+      <>
+        <p class="cockpit-muted">When a session waits for you, or its agent finishes, while you look elsewhere (another app, project or tab). These apply right away.</p>
+        <label class="cockpit-settings__toggle" data-setting="notify-finish">
+          <input type="checkbox" checked={notify.finish} onChange={(e) => onNotify({ ...notify, finish: (e.target as HTMLInputElement).checked })} />
+          <span>Also when an agent finishes (it stopped working without asking)</span>
         </label>
-        <label class="cockpit-settings__toggle">
-          <input type="checkbox" checked={draft.terminal?.optionAsMeta ?? false} onChange={(e) => setTerminal({ optionAsMeta: (e.target as HTMLInputElement).checked })} />
-          <span>Option key sends Meta (Esc+), for Alt shortcuts in the shell and in agents</span>
+        <label class="cockpit-settings__toggle" data-setting="notify-sound">
+          <input type="checkbox" checked={notify.sound} onChange={(e) => onNotify({ ...notify, sound: (e.target as HTMLInputElement).checked })} />
+          <span>Play a sound</span>
         </label>
-
-        <h3 class="cockpit-settings__heading">Usage</h3>
+        <label class="cockpit-settings__toggle" data-setting="notify-dock">
+          <input type="checkbox" checked={notify.dockBadge} onChange={(e) => onNotify({ ...notify, dockBadge: (e.target as HTMLInputElement).checked })} />
+          <span>Count them on the Dock icon</span>
+        </label>
+      </>
+    ),
+    usage: (
+      <>
         <p class="cockpit-muted">
           Tokens the agents in each session have used, read from their own logs (Claude Code, Codex). The logs carry no
           prices — add yours (USD per million tokens) to see cost; a model without a price shows as tokens.
         </p>
-        <label class="cockpit-settings__toggle">
+        <label class="cockpit-settings__toggle" data-setting="usage-show">
           <input type="checkbox" checked={draft.usage?.show ?? true}
             onChange={(e) => setDraft({ ...draft, usage: { ...draft.usage, show: (e.target as HTMLInputElement).checked } })} />
           <span>Show usage on the rail</span>
         </label>
+        <div data-setting="usage-prices">
         {pricedModels.length > 0 ? (
           <table class="cockpit-prices">
             <thead><tr><th>Model</th><th>Input</th><th>Output</th><th>Cache write</th><th>Cache read</th><th /></tr></thead>
@@ -420,58 +522,70 @@ export function SettingsPanel({ initial, availability, defaults, notify, onNotif
           <button type="button" class="cockpit-btn cockpit-btn--sm" disabled={newModel === '' || newModel in prices}
             onClick={() => { setPrice(newModel, 'input', '0'); setNewModel('') }}>Add model</button>
         </div>
-
-        <h3 class="cockpit-settings__heading">Keyboard</h3>
-        <p class="cockpit-muted">Every command's shortcut. Change records the next keys you press; the menu updates on Save.</p>
-        <ShortcutList keybindings={draft.keybindings}
-          onChange={(next) => setDraft((d) => ({ ...d, keybindings: Object.keys(next).length === 0 ? undefined : next }))} />
-
-        <h3 class="cockpit-settings__heading">Cmd+click opens files in</h3>
-        <div class="cockpit-settings__editors" role="radiogroup" aria-label="Editor">
-          {EDITORS.map((e) => (
-            <label key={e.kind} class="cockpit-settings__toggle">
-              <input
-                type="radio"
-                name="editor"
-                checked={draft.editor.kind === e.kind}
-                onChange={() => setDraft({ ...draft, editor: { kind: e.kind, ...(e.kind === 'custom' ? { command: draft.editor.command ?? '' } : {}) } })}
-              />
-              <span>{e.label}</span>
-            </label>
-          ))}
         </div>
-        {draft.editor.kind === 'custom' ? (
-          <label class="cockpit-picker__field">
-            <span class="cockpit-muted">Command — {'{file}'}, {'{line}'} and {'{col}'} are filled in</span>
-            <input
-              value={draft.editor.command ?? ''}
-              placeholder='subl "{file}:{line}:{col}"'
-              spellcheck={false}
-              onInput={(e) => setDraft({ ...draft, editor: { kind: 'custom', command: (e.target as HTMLInputElement).value } })}
-            />
-          </label>
-        ) : null}
+      </>
+    ),
+  }
 
-        <h3 class="cockpit-settings__heading">Notifications</h3>
-        <p class="cockpit-muted">When a session waits for you, or its agent finishes, while you look elsewhere (another app, project or tab). These apply right away.</p>
-        <label class="cockpit-settings__toggle">
-          <input type="checkbox" checked={notify.finish} onChange={(e) => onNotify({ ...notify, finish: (e.target as HTMLInputElement).checked })} />
-          <span>Also when an agent finishes (it stopped working without asking)</span>
-        </label>
-        <label class="cockpit-settings__toggle">
-          <input type="checkbox" checked={notify.sound} onChange={(e) => onNotify({ ...notify, sound: (e.target as HTMLInputElement).checked })} />
-          <span>Play a sound</span>
-        </label>
-        <label class="cockpit-settings__toggle">
-          <input type="checkbox" checked={notify.dockBadge} onChange={(e) => onNotify({ ...notify, dockBadge: (e.target as HTMLInputElement).checked })} />
-          <span>Count them on the Dock icon</span>
-        </label>
-
-        {error ? <p class="cockpit-error" role="alert">{error}</p> : null}
-        <div class="cockpit-picker__actions">
-          <button type="button" class="cockpit-btn" onClick={onClose}>Cancel</button>
-          <button type="button" class="cockpit-btn cockpit-btn--primary" disabled={saving} onClick={() => { void save() }}>Save</button>
-        </div>
+  return (
+    <div
+      class="cockpit-settings-page"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Settings"
+      onKeyDown={(e) => { if (e.key === 'Escape') void close() }}
+    >
+      <div class="cockpit-settings-page__top">
+        <button type="button" class="cockpit-btn cockpit-btn--sm cockpit-btn--ghost" onClick={() => { void close() }}>‹ Back</button>
+        <h1 class="cockpit-settings-page__title">Settings</h1>
+      </div>
+      <div class="cockpit-settings-page__body">
+        <nav class="cockpit-settings-nav" aria-label="Settings sections">
+          <input class="cockpit-settings-nav__search" type="search" placeholder="Search settings" aria-label="Search settings" spellcheck={false}
+            value={query} onInput={(e) => setQuery((e.target as HTMLInputElement).value)} />
+          <ul>
+            {SETTINGS_SECTIONS.map((s) => (
+              <li key={s.id}>
+                <button type="button" class={`cockpit-settings-nav__item${!searching && section === s.id ? ' is-active' : ''}`}
+                  aria-current={!searching && section === s.id ? 'page' : undefined}
+                  onClick={() => { setQuery(''); setSection(s.id) }}>{s.title}</button>
+              </li>
+            ))}
+          </ul>
+        </nav>
+        <main class="cockpit-settings-content" ref={contentRef}>
+          {notSaved !== null ? (
+            <p class="cockpit-error cockpit-settings-content__unsaved" role="alert">Not saved — {notSaved}</p>
+          ) : null}
+          {error ? <p class="cockpit-error" role="alert">{error}</p> : null}
+          {searching ? (
+            hits.length === 0 ? <p class="cockpit-muted">No settings match “{query.trim()}”.</p> : (
+              <div class="cockpit-settings-results">
+                {hits.map((g) => (
+                  <section key={g.section.id}>
+                    <h2 class="cockpit-settings__heading">{g.section.title}</h2>
+                    <ul>
+                      {g.rows.map((r) => (
+                        <li key={r.id}>
+                          <button type="button" class="cockpit-settings-results__row"
+                            onClick={() => { setQuery(''); setSection(g.section.id); setTarget(r.id) }}>
+                            <span>{r.label}</span>
+                            <span class="cockpit-muted">{r.description}</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ))}
+              </div>
+            )
+          ) : (
+            <section>
+              <h2 class="cockpit-settings__heading">{findSection(section)?.title}</h2>
+              {bodies[section]}
+            </section>
+          )}
+        </main>
       </div>
     </div>
   )

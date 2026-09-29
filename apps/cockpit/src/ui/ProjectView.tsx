@@ -11,7 +11,7 @@ import { rememberLine, type Command } from '../lib/commands'
 import { QuickOpen } from './QuickOpen'
 import { FilePane } from './FilePane'
 import { BrowserPane } from './BrowserPane'
-import type { NotifyPrefs } from './SettingsPanel'
+import type { NotifyPrefs } from './SettingsPage'
 import { readColors, writeColors, type SessionColor } from '../lib/colors'
 import { deriveAttention, parseLandabilityByName, type AttentionKind, type Landability } from '../lib/attention'
 import {
