@@ -986,6 +986,8 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
             if (pane.kind === 'browser') {
               return (
                 <BrowserPane
+                  paneId={at.paneId}
+                  setAccess={api.browserSetAccess}
                   url={pane.url}
                   onNavigate={(url) => setStage((s) => replacePane(s, at.tabId, at.paneId, { kind: 'browser', url }))}
                 />

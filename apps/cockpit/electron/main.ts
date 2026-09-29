@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFile, execFileSync } from 'node:child_process'
-import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell, systemPreferences } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell, systemPreferences, webContents } from 'electron'
 import { connectOrStart } from '../../../src/client/rpc-client.js'
 import { COCKPIT_CHANNELS, isCockpitChannel, type CockpitEvent } from './channels'
 import { DaemonBridge } from './daemon-bridge'
@@ -22,6 +22,8 @@ import { listFonts } from './fonts'
 import { refine, resolveCommand, transcribe, type VoiceDeps } from './voice'
 import { CommandBridgeServer } from './command-bridge'
 import { RendererBridge } from './renderer-bridge'
+import { BrowserAgent } from './browser-agent'
+import { BROWSER_COMMANDS } from '../../../src/core/browser-agent/permission.js'
 import { PANE_KINDS } from '../src/lib/pane-bridge'
 import { findRepos, folderKind } from '../../../src/core/folder-kind.js'
 import { initGit, inspectFolder } from './folder-open'
@@ -68,6 +70,29 @@ const rendererBridge = new RendererBridge({
     for (const win of windows) win.webContents.send(event, payload)
     return windows.length > 0
   },
+})
+
+/**
+ * What a shell command may do to a Browser pane. The guest lookup is the trust anchor: only a `webview` guest
+ * hosted by one of OUR windows can be attached to, so a page cannot register itself and nothing else in the app
+ * is reachable through this.
+ */
+const browserAgent = new BrowserAgent({
+  guest: (id) => {
+    const contents = webContents.fromId(id)
+    if (contents === undefined || contents.isDestroyed() || contents.getType() !== 'webview') return null
+    const host = contents.hostWebContents
+    if (host === undefined || !BrowserWindow.getAllWindows().some((w) => !w.isDestroyed() && w.webContents === host)) return null
+    return contents
+  },
+  // Native, from main: the page cannot draw over it or answer it. It has a parent so that `signal` can close it on macOS.
+  confirm: async (q, signal) => {
+    const parent = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows().find((w) => !w.isDestroyed())
+    const options = { type: 'question' as const, title: q.title, message: q.title, detail: q.body, buttons: [q.confirmLabel, 'Refuse'], defaultId: 1, cancelId: 1, noLink: true, signal }
+    const result = parent ? await dialog.showMessageBox(parent, options) : await dialog.showMessageBox(options)
+    return result.response === 0
+  },
+  emit: (activity) => sendToRenderers('browser.activity', activity),
 })
 
 function sendToRenderers(event: CockpitEvent, payload: unknown): void {
@@ -127,6 +152,8 @@ function createBridge(): DaemonBridge {
   commandBridge.serve('pane.ping', (_params, ctx) => ({ pong: true, projectRoot: ctx.projectRoot }))
   // Every other pane kind is decided by the window: it owns the layout, and it asks the person where it must.
   for (const kind of PANE_KINDS) commandBridge.serve(kind, (params, ctx) => rendererBridge.ask(kind, params, { projectRoot: ctx.projectRoot }))
+  // The Browser pane's kinds are decided here in main (permission, origin, confirmation), never in the daemon or the window.
+  for (const command of BROWSER_COMMANDS) commandBridge.serve(`browser.${command}`, (params, ctx) => browserAgent.handle(`browser.${command}`, params, ctx))
   return new DaemonBridge({
     commandBridge,
     // A folder the user opened as a plain folder gets a daemon that serves it without git.
@@ -325,6 +352,7 @@ function registerHandlers(bridge: DaemonBridge): void {
       if (channel === 'voice.refine') return voiceRefine(payload)
       if (channel === 'voice.micAccess') return micAccess()
       if (channel === 'bridge.reply') { rendererBridge.reply(payload); return { ok: true } }
+      if (channel === 'browser.setAccess') return browserAgent.setAccess(payload)
       if (channel === 'terminal.importSources') return importSources(importDeps())
       if (channel === 'fonts.list') return listFonts(importDeps().run)
       if (channel === 'folder.inspect') {

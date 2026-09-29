@@ -935,6 +935,44 @@ body,
   padding: 0 var(--cw-space-2);
 }
 
+.cockpit-browser__access {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex: none;
+}
+
+.cockpit-browser__access-label {
+  font-size: var(--cw-fs-micro);
+  color: var(--cw-text-dim);
+  padding-right: var(--cw-space-1);
+}
+
+/* The level is said in words; the dot is only a second cue, never the only one. */
+.cockpit-browser__level.is-active {
+  background: var(--cw-surface-active);
+  color: var(--cw-text-bright);
+}
+
+.cockpit-browser__access[data-level='read'] .cockpit-browser__level.is-active { box-shadow: inset 0 calc(var(--cw-hairline) * -2) 0 var(--cw-ready); }
+.cockpit-browser__access[data-level='control'] .cockpit-browser__level.is-active { box-shadow: inset 0 calc(var(--cw-hairline) * -2) 0 var(--cw-needs-you); }
+
+.cockpit-browser__activity {
+  font-size: var(--cw-fs-micro);
+  font-family: var(--cw-font-mono);
+  color: var(--cw-text-dim);
+  padding: 0 var(--cw-space-2);
+}
+
+.cockpit-browser__log {
+  margin: 0;
+  padding: var(--cw-space-1) var(--cw-space-2);
+  list-style: none;
+  max-height: calc(var(--cw-row-h) * 6);
+  overflow: auto;
+  border-top: var(--cw-hairline) solid var(--cw-border);
+}
+
 .cockpit-browser__view {
   flex: 1;
   min-height: 0;

@@ -75,6 +75,8 @@ export const COCKPIT_CHANNELS = [
   'voice.micAccess',
   // A shell command's request (cw pane) was carried out or refused by the window: the answer.
   'bridge.reply',
+  // The Browser pane's access switch (off / read / control) and the webview it belongs to; main enforces it.
+  'browser.setAccess',
 ] as const
 
 export type CockpitChannel = (typeof COCKPIT_CHANNELS)[number]
@@ -96,6 +98,8 @@ export const COCKPIT_EVENTS = [
   'cockpit.command',
   // A shell command asks the window to arrange its panes (answered on the bridge.reply channel).
   'cockpit.bridge',
+  // What an agent just did to a Browser pane (and 'detached' when the debugger went away): the activity line.
+  'browser.activity',
 ] as const
 
 export type CockpitEvent = (typeof COCKPIT_EVENTS)[number]

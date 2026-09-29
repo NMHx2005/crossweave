@@ -157,6 +157,14 @@ function makeApi(invoke: Invoke, listen: Listen) {
     bridgeReply(payload: unknown): Promise<unknown> {
       return invoke('bridge.reply', payload)
     },
+    /** The Browser pane's switch: main validates the webview and enforces the level. */
+    browserSetAccess(paneId: string, webContentsId: number, level: 'off' | 'read' | 'control'): Promise<{ ok: boolean; code?: string; message?: string }> {
+      return invoke('browser.setAccess', { paneId, webContentsId, level }) as Promise<{ ok: boolean; code?: string; message?: string }>
+    },
+    /** What an agent just did to a Browser pane, for the activity line. */
+    onBrowserActivity(cb: (payload: unknown) => void): () => void {
+      return listen('browser.activity', cb)
+    },
     onCommand(cb: (payload: unknown) => void): () => void {
       return listen('cockpit.command', cb)
     },
