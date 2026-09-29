@@ -41,20 +41,26 @@ const ref = { workspaceId: workspace!.id, idOrName: target!.name }
 let notifications = 0
 let bytes = 0
 let tail = ''
+// Searched in tail+chunk BEFORE the tail is cut: a coalesced chunk can hold the marker and
+// a long prompt redraw after it, which would push the marker out of a short tail.
+let needle = ''
+let hit = false
 let onChunk: (() => void) | undefined
 client.onNotification((method: string, params: unknown) => {
   const p = params as { chunk?: string }
   if (method !== 'session.data' || typeof p.chunk !== 'string') return
   notifications++
   bytes += p.chunk.length
-  tail = (tail + p.chunk).slice(-200)
+  const joined = tail + p.chunk
+  if (needle !== '' && joined.includes(needle)) hit = true
+  tail = joined.slice(-64)
   onChunk?.()
 })
 await client.call('session.attach', ref)
 await sleep(1500)
 
 // Optional renderer half: only when a debug port answers.
-let cdp: { metric(): Promise<number> } | undefined
+let cdp: { metric(): Promise<number>; panes(): Promise<number>; renderer(): Promise<string>; frames(start: boolean): Promise<string> } | undefined
 try {
   const targets = (await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json()) as Array<{ type: string; webSocketDebuggerUrl: string }>
   const page = targets.find((t) => t.type === 'page')
@@ -62,21 +68,34 @@ try {
     const ws = new WebSocket(page.webSocketDebuggerUrl)
     await new Promise((resolve) => ws.addEventListener('open', resolve))
     let seq = 0
-    const call = (method: string): Promise<{ metrics?: Array<{ name: string; value: number }> }> => {
+    const call = (method: string, params: Record<string, unknown> = {}): Promise<{ metrics?: Array<{ name: string; value: number }>; result?: { value?: number | string } }> => {
       const id = ++seq
       return new Promise((resolve) => {
         const on = (e: MessageEvent): void => {
           const msg = JSON.parse(String(e.data)) as { id?: number; result?: never }
           if (msg.id !== id) return
           ws.removeEventListener('message', on)
-          resolve((msg.result ?? {}) as { metrics?: Array<{ name: string; value: number }> })
+          resolve((msg.result ?? {}) as { metrics?: Array<{ name: string; value: number }>; result?: { value?: number } })
         }
         ws.addEventListener('message', on)
-        ws.send(JSON.stringify({ id, method }))
+        ws.send(JSON.stringify({ id, method, params }))
       })
     }
     await call('Performance.enable')
-    cdp = { metric: async () => (await call('Performance.getMetrics')).metrics?.find((m) => m.name === 'TaskDuration')?.value ?? 0 }
+    cdp = {
+      metric: async () => (await call('Performance.getMetrics')).metrics?.find((m) => m.name === 'TaskDuration')?.value ?? 0,
+      // Panes actually mounted: a window showing no terminal would make "renderer settle" meaningless.
+      panes: async () => Number((await call('Runtime.evaluate', { expression: "document.querySelectorAll('.xterm-screen').length", returnByValue: true })).result?.value ?? 0),
+      // xterm's WebGL addon draws into a <canvas> of its own; the DOM renderer is text in .xterm-rows.
+      // requestAnimationFrame deltas across the flood: this is where DOM and GPU drawing differ.
+      frames: async (start: boolean) => String((await call('Runtime.evaluate', {
+        expression: start
+          ? "(()=>{const f=[];let last=performance.now();window.__cwStop=false;(function t(n){f.push(n-last);last=n;if(!window.__cwStop)requestAnimationFrame(t)})(last);window.__cwFrames=f;return 'started'})()"
+          : "(()=>{window.__cwStop=true;const f=[...window.__cwFrames].slice(1).sort((a,b)=>a-b);if(!f.length)return 'no frames';const q=x=>f[Math.min(f.length-1,Math.floor(x*f.length))].toFixed(1);return f.length+' frames, p50 '+q(.5)+' / p95 '+q(.95)+' / max '+f[f.length-1].toFixed(0)+' ms, '+f.filter(x=>x>33).length+' over 33 ms'})()",
+        returnByValue: true,
+      })).result?.value ?? '?'),
+      renderer: async () => String((await call('Runtime.evaluate', { expression: "(()=>{const s=[...document.querySelectorAll('.xterm-screen')];const gl=s.filter(e=>e.querySelector('canvas:not(.xterm-link-layer)')).length;return gl+' of '+s.length+' panes on WebGL'})()", returnByValue: true })).result?.value ?? '?'),
+    }
   }
 } catch {
   // No debug port: the daemon-side numbers still stand.
@@ -94,14 +113,21 @@ const waitFor = (test: () => boolean, ms: number): Promise<boolean> =>
     check()
   })
 
+if (cdp) {
+  for (let i = 0; i < 40 && (await cdp.panes()) === 0; i++) await sleep(250)
+  if ((await cdp.panes()) === 0) fail('the cockpit shows no terminal pane, so the renderer numbers would mean nothing')
+}
+
 // Echo latency on an idle shell: a printable key, then its erase.
 const echo: number[] = []
 for (let i = 0; i < 30; i++) {
   await sleep(150)
   tail = ''
+  needle = 'a'
+  hit = false
   const t0 = performance.now()
   await client.call('session.input', { ...ref, data: 'a' })
-  if (!(await waitFor(() => tail.includes('a'), 2000))) fail('no echo for a keystroke — is the shell at a prompt?')
+  if (!(await waitFor(() => hit, 2000))) fail('no echo for a keystroke — is the shell at a prompt?')
   echo.push(performance.now() - t0)
   await client.call('session.input', { ...ref, data: '\x7f' })
 }
@@ -114,10 +140,13 @@ await sleep(500)
 notifications = 0
 bytes = 0
 tail = ''
+needle = 'CWBENCH_42_END'
+hit = false
 const before = (await cdp?.metric()) ?? 0
+await cdp?.frames(true)
 const start = performance.now()
 await client.call('session.input', { ...ref, data: `seq 1 ${LINES}; echo CWBENCH_$((40+2))_END\r` })
-if (!(await waitFor(() => tail.includes('CWBENCH_42_END'), 120_000))) fail('the marker never arrived')
+if (!(await waitFor(() => hit, 120_000))) fail('the marker never arrived')
 const lastLine = performance.now() - start
 const notes = notifications
 const received = bytes
@@ -136,6 +165,7 @@ if (cdp) {
   }
   settle = quietSince - start
 }
+const frames = cdp ? await cdp.frames(false) : 'n/a'
 const busy = cdp ? ((await cdp.metric()) - before).toFixed(2) : 'n/a'
 
 console.log(
@@ -145,6 +175,8 @@ console.log(
     `  notifications:     ${notes}`,
     `  to last line:      ${lastLine.toFixed(0)} ms`,
     `  renderer settle:   ${settle === undefined ? 'n/a (no debug port)' : `${settle.toFixed(0)} ms`}   main-thread busy ${busy} s`,
+    `  frames in flood:   ${frames}`,
+    `  renderer:          ${cdp ? await cdp.renderer() : 'n/a'}`,
     `  echo p50 / p95:    ${pct(0.5).toFixed(1)} / ${pct(0.95).toFixed(1)} ms`,
   ].join('\n'),
 )
