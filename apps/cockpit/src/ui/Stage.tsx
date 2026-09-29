@@ -9,7 +9,7 @@ import { clampMenu } from '../lib/rail'
 import { planFlip, playFlip, structureKey, type Box } from '../lib/flip'
 import { COCKPIT_TOKENS } from './tokens'
 import { useProjectApi } from './project-context'
-import { AgentMark, DiffIcon, FileIcon, GlobeIcon, MoreIcon, PanelRightIcon, PlusIcon, SidebarIcon, TerminalIcon } from './icons'
+import { AgentMark, DiffIcon, FileIcon, GlobeIcon, MicIcon, MoreIcon, PanelRightIcon, PlusIcon, SidebarIcon, TerminalIcon } from './icons'
 
 export type StageStatus = 'loading' | 'ready' | 'empty' | 'error' | 'welcome'
 
@@ -51,6 +51,8 @@ export type StageProps = {
   onToggleSidebar: () => void
   /** The tab strip's `+`: a new session in the active project. */
   onNewTab: () => void
+  /** Open the voice composer and start recording (the ⌘⇧M command). */
+  onVoice?: () => void
   /** The right-hand toggle: the focused session's Changes pane. */
   onToggleChanges: () => void
   /**
@@ -375,6 +377,11 @@ export function Stage(props: StageProps) {
           <PlusIcon />
         </button>
         <div class="cockpit-tabs__spacer" />
+        {props.onVoice ? (
+          <button type="button" class="cockpit-iconbtn" title={`Voice input (${key('voice-toggle') || '⌘⇧M'})`} aria-label="Voice input" onClick={props.onVoice}>
+            <MicIcon />
+          </button>
+        ) : null}
         <div class="cockpit-layouts" ref={layoutsRef}>
           <button type="button" class="cockpit-iconbtn" title="Layouts" aria-label="Layouts" aria-expanded={layoutsOpen}
             onClick={(e) => { e.stopPropagation(); setLayoutsOpen(!layoutsOpen) }}>

@@ -199,6 +199,18 @@ function makeApi(invoke: Invoke, listen: Listen) {
     listFonts(): Promise<Array<{ family: string; mono: boolean }>> {
       return invoke('fonts.list')
     },
+    /** Voice input: the recording (a WAV) to text through the user's own transcribe command. */
+    voiceTranscribe(audio: Uint8Array): Promise<{ ok: true; text: string } | { ok: false; reason: string }> {
+      return invoke('voice.transcribe', { audio })
+    },
+    /** A draft restructured by the user's own refine command (only while it is switched on). */
+    voiceRefine(text: string, context?: string): Promise<{ ok: true; text: string } | { ok: false; reason: string }> {
+      return invoke('voice.refine', { text, ...(context === undefined ? {} : { context }) })
+    },
+    /** macOS's microphone permission; asks the first time. */
+    voiceMicAccess(): Promise<{ status: string }> {
+      return invoke('voice.micAccess')
+    },
     /** Settings → Terminal: which terminals have settings on this machine. */
     terminalImportSources(): Promise<{ ghostty: boolean; iterm2: boolean }> {
       return invoke('terminal.importSources')
@@ -255,6 +267,7 @@ const WINDOW_CHANNELS = new Set<CockpitChannel>([
   'folder.inspect', 'folder.initGit', 'folder.openPlain',
   'projects.close', 'app.badge', 'folder.reveal', 'folder.openInEditor',
   'terminal.importSources', 'terminal.import', 'fonts.list', 'menu.refresh',
+  'voice.transcribe', 'voice.refine', 'voice.micAccess',
 ])
 
 /** `payload` with `projectRoot` added, unless the call already names one or is window-wide. */

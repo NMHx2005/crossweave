@@ -26,6 +26,7 @@ export const COMMANDS: readonly CommandSpec[] = [
   { id: 'new-agent', menu: 'Session', label: 'New Session…', key: 'CmdOrCtrl+T' },
   { id: 'jump-attention', menu: 'Session', label: 'Jump to Attention', key: 'CmdOrCtrl+Shift+A' },
   { id: 'open-terminal', menu: 'Session', label: 'Open Terminal', key: 'CmdOrCtrl+Shift+T' },
+  { id: 'voice-toggle', menu: 'Session', label: 'Voice Input', key: 'CmdOrCtrl+Shift+M' },
   ...JUMPS,
   { id: 'toggle-sidebar', menu: 'View', label: 'Toggle Sidebar', key: 'CmdOrCtrl+\\' },
   { id: 'split-right', menu: 'Pane', label: 'Split Right', key: 'CmdOrCtrl+D' },

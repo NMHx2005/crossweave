@@ -73,6 +73,22 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
     ],
   },
   {
+    id: 'voice',
+    title: 'Voice',
+    rows: [
+      { id: 'voice-command', label: 'Transcribe command', description: 'The program that turns a recording into text; {audio} and {language} are filled in', keywords: 'speech to text stt whisper microphone dictation' },
+      { id: 'voice-language', label: 'Spoken language', description: 'Auto, Vietnamese or English', keywords: 'tieng viet vietnamese english whisper' },
+      { id: 'voice-max', label: 'Longest recording', description: 'Seconds before a recording stops by itself', keywords: 'limit length duration' },
+      { id: 'voice-snippets', label: 'Snippets', description: 'Text you add to a draft with one click', keywords: 'template phrase prompt tail' },
+      { id: 'voice-refine', label: 'Refine the draft with a command', description: 'Off by default. A button that restructures the draft with a program you choose', keywords: 'llm ai rewrite improve prompt' },
+      { id: 'voice-refine-command', label: 'Refine command', description: 'Reads the draft on stdin and prints the refined prompt', keywords: 'claude llm ai' },
+      { id: 'voice-refine-instruction', label: 'Refine instruction', description: 'What the refine command is told to do', keywords: 'prompt system' },
+      { id: 'voice-refine-auto', label: 'Refine after each transcription', description: 'Off by default', keywords: 'automatic' },
+      { id: 'voice-refine-context', label: 'Include session context', description: 'Adds the branch and session name for the refine command', keywords: 'privacy branch' },
+      { id: 'voice-test', label: 'Test the microphone and command', description: 'Records three seconds and shows what was heard', keywords: 'check try' },
+    ],
+  },
+  {
     id: 'usage',
     title: 'Usage',
     rows: [

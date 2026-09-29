@@ -269,6 +269,23 @@ export function XtermPane({ source, focused }: XtermPaneProps) {
     else termRef.current?.blur()
   }, [focused])
 
+  // Text from outside the terminal (the voice composer's Send) goes to the focused pane as
+  // a paste, so an agent that asked for bracketed paste gets it as one paste; `enter` then
+  // presses Enter as a keystroke.
+  useEffect(() => {
+    const onPaste = (ev: Event): void => {
+      if (!focusedRef.current) return
+      const detail = (ev as CustomEvent<{ text?: string; enter?: boolean }>).detail
+      const term = termRef.current
+      if (!term || typeof detail?.text !== 'string' || detail.text === '') return
+      term.paste(detail.text)
+      if (detail.enter === true) term.input('\r', true)
+      term.focus()
+    }
+    window.addEventListener('cockpit:paste', onPaste)
+    return () => window.removeEventListener('cockpit:paste', onPaste)
+  }, [])
+
   // ⌘F / ⌘G / ⌘⇧G from the menu reach every pane; only the focused one (its tab and
   // its project shown) answers.
   useEffect(() => {

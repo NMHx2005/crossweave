@@ -24,6 +24,7 @@ export const TerminalIcon = (p: IconProps) => <Svg {...p}><path d="M3 4.5l3.5 3.
 export const FileIcon = (p: IconProps) => <Svg {...p}><path d="M4 2h5l3 3v9H4z" /><path d="M9 2v3h3" /></Svg>
 export const GlobeIcon = (p: IconProps) => <Svg {...p}><circle cx="8" cy="8" r="5.5" /><path d="M2.5 8h11M8 2.5c1.8 1.6 2.6 3.4 2.6 5.5S9.8 11.9 8 13.5M8 2.5C6.2 4.1 5.4 5.9 5.4 8s.8 3.9 2.6 5.5" /></Svg>
 export const DiffIcon = (p: IconProps) => <Svg {...p}><path d="M5 3v6M2 6h6M8 12h6" /></Svg>
+export const MicIcon = (p: IconProps) => <Svg {...p}><rect x="6" y="2" width="4" height="7" rx="2" /><path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2" /></Svg>
 export const MoreIcon = (p: IconProps) => <Svg {...p}><path d="M4 8h.01M8 8h.01M12 8h.01" stroke-width="2.2" /></Svg>
 export const GearIcon = (p: IconProps) => (
   <Svg {...p}><circle cx="8" cy="8" r="2" /><path d="M8 1.8v1.7M8 12.5v1.7M1.8 8h1.7M12.5 8h1.7M3.6 3.6l1.2 1.2M11.2 11.2l1.2 1.2M3.6 12.4l1.2-1.2M11.2 4.8l1.2-1.2" /></Svg>

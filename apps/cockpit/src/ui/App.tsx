@@ -585,7 +585,7 @@ export function App() {
       askConfirm,
       // A message from a project off the stage says which project it is about.
       toast: (message, tone) => showToast(root === activeRef.current ? message : `${labelOf(root)}: ${message}`, tone),
-      openSettings: () => { void handleOpenSettings() },
+      openSettings: (section) => { void handleOpenSettings(section) },
       activate: () => { void activate(root) },
       createElsewhere: (request: NewSessionRequest) => {
         void activate(request.projectRoot, { kind: 'create', name: request.name, options: request.options, launcher: request.launcher })
