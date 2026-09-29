@@ -18,7 +18,7 @@ import { baseName, readFlag, readString, writeFlag, writeString } from './storag
 import { PaneThemeContext, TerminalLookContext } from './terminal-look-context'
 import { applyTheme, resolveTheme, xtermThemeFor, type ResolvedTheme } from './themes'
 import { ShortcutsDialog } from './ShortcutsPanel'
-import { effectiveKeys, formatAccelerator } from '../lib/keymap'
+import { effectiveKeys, formatAccelerator, keyMatchesAccelerator, menuLessBindings } from '../lib/keymap'
 import type { InterfaceAppearance, TerminalAppearance, UsageSettings } from '../../../../src/core/settings.js'
 import { applyAppearance } from '../lib/appearance'
 
@@ -570,6 +570,26 @@ export function App() {
       if (command === 'new-agent') void openProject()
     } else handles.current.get(activeRef.current)?.command(command)
   }
+  // Commands with no menu item have no menu accelerator, so the window listens for the user's
+  // own binding (capture, so a focused terminal does not swallow it). Everything with a menu
+  // item keeps its accelerator in the menu.
+  const keybindingsRef = useRef(keybindings)
+  keybindingsRef.current = keybindings
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (e.isComposing || e.repeat) return
+      const bindings = menuLessBindings(effectiveKeys(keybindingsRef.current))
+      if (bindings.length === 0) return
+      const hit = bindings.find((b) => keyMatchesAccelerator(e, b.accelerator))
+      if (hit === undefined) return
+      e.preventDefault()
+      e.stopPropagation()
+      commandRef.current(hit.id)
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [])
+
   useEffect(() => cockpitApi.onCommand((payload) => {
     const record = payload as { command?: unknown; projectRoot?: unknown; message?: unknown } | null
     // A notice from the main process (e.g. another client holds the command channel).

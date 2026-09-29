@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import {
-  acceleratorFromKey, COMMANDS, effectiveKeys, formatAccelerator, isAccelerator, isCommandId, keyConflicts, normalizeAccelerator,
+  acceleratorFromKey, COMMANDS, effectiveKeys, formatAccelerator, isAccelerator, isCommandId, keyConflicts, keyMatchesAccelerator, menuLessBindings, normalizeAccelerator,
 } from '../src/lib/keymap'
 
 describe('the command list', () => {
@@ -59,5 +59,45 @@ describe('acceleratorFromKey', () => {
     expect(press('KeyD')).toBeNull()
     expect(press('ShiftLeft', { shiftKey: true })).toBeNull()
     expect(press('IntlYen', { metaKey: true })).toBeNull()
+  })
+})
+
+describe('commands without a menu item', () => {
+  test('exist, are bindable, and have no default shortcut', () => {
+    const menuless = COMMANDS.filter((c) => c.menu === null)
+    expect(menuless.length).toBeGreaterThan(0)
+    expect(menuless.map((c) => c.id)).toContain('cycle-layout')
+    expect(effectiveKeys(undefined)['cycle-layout']).toBeNull()
+    // the user's own binding takes effect and is checked for conflicts like any other
+    const keys = effectiveKeys({ 'cycle-layout': 'CmdOrCtrl+Alt+Space' })
+    expect(keys['cycle-layout']).toBe('CmdOrCtrl+Alt+Space')
+    expect(keyConflicts({ ...keys, 'zoom-pane': 'CmdOrCtrl+Alt+Space' })).toHaveLength(1)
+  })
+
+  test('menuLessBindings lists exactly the bound menu-less commands, with the accelerator to listen for', () => {
+    expect(menuLessBindings(effectiveKeys(undefined))).toEqual([])
+    expect(menuLessBindings(effectiveKeys({ 'cycle-layout': 'CmdOrCtrl+Alt+Space', 'split-right': 'CmdOrCtrl+Alt+D' })))
+      .toEqual([{ id: 'cycle-layout', accelerator: 'CmdOrCtrl+Alt+Space' }])
+  })
+})
+
+describe('keyMatchesAccelerator', () => {
+  const press = (over: Partial<{ key: string; code: string; metaKey: boolean; ctrlKey: boolean; altKey: boolean; shiftKey: boolean }>) =>
+    ({ key: 'x', code: 'KeyX', metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...over })
+
+  test('a key press spelling the same chord matches, whatever the accelerator\'s spelling', () => {
+    expect(keyMatchesAccelerator(press({ code: 'Space', key: ' ', metaKey: true, altKey: true }), 'CmdOrCtrl+Alt+Space')).toBe(true)
+    expect(keyMatchesAccelerator(press({ code: 'Space', key: ' ', metaKey: true, altKey: true }), 'Alt+Command+Space')).toBe(true)
+    expect(keyMatchesAccelerator(press({ code: 'KeyD', key: 'D', metaKey: true, shiftKey: true }), 'CmdOrCtrl+Shift+D')).toBe(true)
+  })
+
+  test('a different key or modifier does not, and neither does a bare modifier press', () => {
+    expect(keyMatchesAccelerator(press({ code: 'KeyD', metaKey: true }), 'CmdOrCtrl+Shift+D')).toBe(false)
+    expect(keyMatchesAccelerator(press({ code: 'KeyE', metaKey: true, shiftKey: true }), 'CmdOrCtrl+Shift+D')).toBe(false)
+    expect(keyMatchesAccelerator(press({ code: 'MetaLeft', key: 'Meta', metaKey: true }), 'CmdOrCtrl+D')).toBe(false)
+  })
+
+  test('Option-modified letters match on the physical key, not the glyph they type', () => {
+    expect(keyMatchesAccelerator(press({ code: 'KeyD', key: '∂', metaKey: true, altKey: true }), 'CmdOrCtrl+Alt+D')).toBe(true)
   })
 })

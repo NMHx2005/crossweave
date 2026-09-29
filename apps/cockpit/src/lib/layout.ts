@@ -22,6 +22,8 @@ export type LayoutNode =
 export type Tab = {
   id: string
   title: string
+  /** The preset last applied (tmux's layout cycle continues from it). */
+  preset?: LayoutPreset
   pinned: boolean
   root: LayoutNode
   focusedPaneId: string
@@ -482,8 +484,27 @@ export function applyPreset(state: StageState, tabId: string, preset: LayoutPres
       for (let i = 0; i < leaves.length; i += cols) rows.push(split('row', leaves.slice(i, i + cols)))
       root = split('column', rows)
     }
-    return { ...rest, root }
+    return { ...rest, root, preset }
   })
+}
+
+/** The presets in the order tmux's Space cycles them. */
+export const LAYOUT_PRESETS: readonly LayoutPreset[] = ['even-horizontal', 'even-vertical', 'main-left', 'tiled']
+
+/** Arrange the tab in the next preset after the one last applied, wrapping (tmux `Space`). */
+export function cyclePreset(state: StageState, tabId: string): StageState {
+  const tab = state.tabs.find((t) => t.id === tabId)
+  if (!tab) return state
+  const at = tab.preset === undefined ? -1 : LAYOUT_PRESETS.indexOf(tab.preset)
+  return applyPreset(state, tabId, LAYOUT_PRESETS[(at + 1) % LAYOUT_PRESETS.length] as LayoutPreset)
+}
+
+/** The next (1) or previous (-1) tab becomes active, wrapping (tmux `n` / `p`). */
+export function adjacentTab(state: StageState, dir: 1 | -1): StageState {
+  if (state.tabs.length < 2) return state
+  const at = state.tabs.findIndex((t) => t.id === state.activeTabId)
+  const next = state.tabs[((at < 0 ? 0 : at) + dir + state.tabs.length) % state.tabs.length] as Tab
+  return { ...state, activeTabId: next.id }
 }
 
 /** Swap the focused pane with the next one in reading order (wrapping); focus follows it. */

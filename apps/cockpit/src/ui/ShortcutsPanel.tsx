@@ -1,7 +1,8 @@
 import { useState } from 'preact/hooks'
 import { acceleratorFromKey, COMMANDS, effectiveKeys, formatAccelerator, keyConflicts, type MenuName } from '../lib/keymap'
 
-const MENUS: MenuName[] = ['Session', 'Pane', 'File', 'Edit', 'View', 'Help']
+/** `null` is the commands with no menu item: listed last, as "Other". */
+const MENUS: Array<MenuName | null> = ['Session', 'Pane', 'File', 'Edit', 'View', 'Help', null]
 
 /**
  * Every command and its shortcut, grouped by menu. Editable in Settings (record a new
@@ -43,8 +44,8 @@ export function ShortcutList({ keybindings, onChange }: {
         const rows = COMMANDS.filter((c) => c.menu === menu && (q === '' || c.label.toLowerCase().includes(q) || formatAccelerator(keys[c.id] ?? null).toLowerCase().includes(q)))
         if (rows.length === 0) return null
         return (
-          <section key={menu}>
-            <h4 class="cockpit-shortcuts__menu">{menu}</h4>
+          <section key={menu ?? 'other'}>
+            <h4 class="cockpit-shortcuts__menu">{menu ?? 'Other'}</h4>
             <ul class="cockpit-shortcuts__list">
               {rows.map((c) => {
                 const key = keys[c.id] ?? null

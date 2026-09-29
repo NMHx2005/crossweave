@@ -53,6 +53,8 @@ import {
   moveTab,
   openInNewTab,
   paneKeys,
+  adjacentTab,
+  cyclePreset,
   parseStoredStage,
   placeBeside,
   replacePane,
@@ -421,6 +423,9 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
     else if (command === 'new-agent') void handleNew()
     else if (command === 'jump-attention') jumpToAttention()
     else if (command === 'open-terminal') void handleTerminal()
+    else if (command === 'next-tab') setStage((s) => adjacentTab(s, 1))
+    else if (command === 'prev-tab') setStage((s) => adjacentTab(s, -1))
+    else if (command === 'cycle-layout') onFocusedPane((tabId) => setStage((s) => cyclePreset(s, tabId)))
     else if (command === 'voice-toggle') { setVoiceOpen(true); setVoiceSignal((n) => n + 1) }
     else if (command === 'open-file') void handleOpenFile()
     else if (command === 'open-browser') handleOpenBrowser()

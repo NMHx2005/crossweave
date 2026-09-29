@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   closeOthers, closePane, closeTab, closeToRight, emptyStage, findPane, focusPane, moveTab,
   liveTabs, openInNewTab, paneKey, paneKeys, reconcile, resizeSplit, setPinned, splitPane, toSavedLayout, type PaneRef, type StageState,
-  applyPreset, equalize, movePane, neighbourPane, paneRects, paneToTab, swapNext, toggleZoom, type LayoutNode,
+  applyPreset, equalize, movePane, neighbourPane, paneRects, paneToTab, swapNext, toggleZoom, type LayoutNode, cyclePreset, adjacentTab,
 } from '../src/lib/layout'
 
 const session = (sessionId: string): PaneRef => ({ kind: 'session', sessionId })
@@ -314,5 +314,60 @@ describe('tmux-like panes', () => {
     expect(keys(moved.root)).toEqual(['session:c', 'session:a', 'session:b'])
     expect(moved.focusedPaneId).toBe(c)
     expect(movePane(s, tabId, a, a, 'top')).toBe(s)
+  })
+})
+
+describe('cycling the layout preset (tmux Space)', () => {
+  const threePanes = (): { s: StageState; tabId: string } => {
+    let s = stageOf('a')
+    const tabId = s.tabs[0]!.id
+    const first = firstOf(s)
+    s = splitPane(s, tabId, first, 'row', session('b'))
+    s = splitPane(s, tabId, firstOf(s), 'row', session('c'))
+    return { s, tabId }
+  }
+  const firstOf = (s: StageState): string => {
+    const walk = (n: LayoutNode): string => (n.type === 'pane' ? n.id : walk(n.children[0]!))
+    return walk(s.tabs[0]!.root)
+  }
+  const shape = (n: LayoutNode): string => (n.type === 'pane' ? 'p' : `${n.dir === 'row' ? 'r' : 'c'}(${n.children.map(shape).join(',')})`)
+
+  test('each call arranges the tab in the next preset, wrapping after the last', () => {
+    const { s, tabId } = threePanes()
+    const seen: string[] = []
+    let cur = s
+    for (let i = 0; i < 5; i++) {
+      cur = cyclePreset(cur, tabId)
+      seen.push(shape(cur.tabs[0]!.root))
+    }
+    expect(seen[0]).toBe('r(p,p,p)') // even-horizontal first
+    expect(seen[1]).toBe('c(p,p,p)') // even-vertical
+    expect(new Set(seen.slice(0, 4)).size).toBe(4) // four different arrangements
+    expect(seen[4]).toBe(seen[0]) // and it wraps
+  })
+
+  test('never loses or duplicates a pane, and a single pane is left alone', () => {
+    const { s, tabId } = threePanes()
+    const after = cyclePreset(cyclePreset(s, tabId), tabId)
+    expect(paneKeys(after).sort()).toEqual(paneKeys(s).sort())
+    const one = stageOf('solo')
+    expect(cyclePreset(one, one.tabs[0]!.id).tabs[0]!.root).toEqual(one.tabs[0]!.root)
+  })
+})
+
+describe('adjacent tab (tmux n / p)', () => {
+  test('next and previous wrap around the tabs', () => {
+    const s = stageOf('a', 'b', 'c') // the last opened is active
+    const ids = s.tabs.map((t) => t.id)
+    expect(s.activeTabId).toBe(ids[2])
+    expect(adjacentTab(s, 1).activeTabId).toBe(ids[0])
+    expect(adjacentTab(s, -1).activeTabId).toBe(ids[1])
+    expect(adjacentTab(adjacentTab(s, 1), -1).activeTabId).toBe(ids[2])
+  })
+
+  test('one tab, or none: nothing changes', () => {
+    const one = stageOf('a')
+    expect(adjacentTab(one, 1)).toEqual(one)
+    expect(adjacentTab(emptyStage(), 1)).toEqual(emptyStage())
   })
 })

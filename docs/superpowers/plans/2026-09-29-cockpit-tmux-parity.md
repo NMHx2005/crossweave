@@ -12,14 +12,14 @@ report before the next starts. Order: **2B.1 → 2A → 2B → 2C → 2D**.
 
 ## 2B.1 — command registry first (`feat/command-registry`)
 
-1. [ ] Add handlers and a command **registry** in the renderer. `COMMANDS` already lives in
+1. [x] Add handlers and a command **registry** in the renderer. `COMMANDS` already lives in
    `keymap.ts:16` and the menu only imports it (`app-menu.ts:3`), so this is adding
    **handlers** plus commands that have **no menu item**, and one view of the registry for
    the menu. Keep `keymap.test.ts` green; add a test that a menu-less command is runnable
    and bindable.
-2. [ ] Move the tmux table entries (`%`, `"`, `z`, arrows, `o`, `x`, `[`, `c`, `n`/`p`,
+2. [x] Move the tmux table entries (`%`, `"`, `z`, arrows, `o`, `x`, `[`, `c`, `n`/`p`,
    `Space`, `:`, `?`) onto the registry.
-3. [ ] Gate + known limitations + digest line; report.
+3. [x] Gate + known limitations + digest line; report.
 
 ## 2A — panes (`feat/tmux-panes`)
 

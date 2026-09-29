@@ -7,7 +7,8 @@
  */
 export type MenuName = 'File' | 'Edit' | 'Session' | 'View' | 'Pane' | 'Help'
 
-export type CommandSpec = { id: string; menu: MenuName; label: string; key: string | null }
+/** `menu: null` is a command with no menu item: run by a shortcut, the command bar or the key-table. */
+export type CommandSpec = { id: string; menu: MenuName | null; label: string; key: string | null }
 
 const JUMPS: CommandSpec[] = [1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => ({
   id: `jump-${n}`, menu: 'Session', label: `Go to Session ${n}`, key: `CmdOrCtrl+${n}`,
@@ -27,6 +28,8 @@ export const COMMANDS: readonly CommandSpec[] = [
   { id: 'jump-attention', menu: 'Session', label: 'Jump to Attention', key: 'CmdOrCtrl+Shift+A' },
   { id: 'open-terminal', menu: 'Session', label: 'Open Terminal', key: 'CmdOrCtrl+Shift+T' },
   { id: 'voice-toggle', menu: 'Session', label: 'Voice Input', key: 'CmdOrCtrl+Shift+M' },
+  { id: 'next-tab', menu: 'Session', label: 'Next Tab', key: 'CmdOrCtrl+Shift+]' },
+  { id: 'prev-tab', menu: 'Session', label: 'Previous Tab', key: 'CmdOrCtrl+Shift+[' },
   ...JUMPS,
   { id: 'toggle-sidebar', menu: 'View', label: 'Toggle Sidebar', key: 'CmdOrCtrl+\\' },
   { id: 'split-right', menu: 'Pane', label: 'Split Right', key: 'CmdOrCtrl+D' },
@@ -43,6 +46,8 @@ export const COMMANDS: readonly CommandSpec[] = [
   { id: 'layout-tiled', menu: 'Pane', label: 'Layout: Tiled', key: null },
   { id: 'pane-to-tab', menu: 'Pane', label: 'Move Pane to New Tab', key: null },
   { id: 'swap-next', menu: 'Pane', label: 'Swap with Next Pane', key: null },
+  // No menu item: reachable from a shortcut the user binds, the command bar, or (later) the key-table.
+  { id: 'cycle-layout', menu: null, label: 'Cycle Pane Layout', key: null },
   { id: 'show-shortcuts', menu: 'Help', label: 'Keyboard Shortcuts', key: 'CmdOrCtrl+/' },
 ]
 
@@ -148,4 +153,23 @@ export function acceleratorFromKey(e: KeyLike): string | null {
   const mods = [e.metaKey ? 'CmdOrCtrl' : '', e.ctrlKey ? 'Ctrl' : '', e.altKey ? 'Alt' : '', e.shiftKey ? 'Shift' : ''].filter(Boolean)
   const accel = [...mods, key].join('+')
   return isAccelerator(accel) ? accel : null
+}
+
+/**
+ * A key press against an accelerator. Compares the chord the press spells (from the physical
+ * key, so Option does not turn D into ∂) with the accelerator normalised; a bare modifier
+ * press spells nothing and never matches. macOS only: `CmdOrCtrl` is ⌘.
+ */
+export function keyMatchesAccelerator(e: KeyLike, accelerator: string): boolean {
+  const spelled = acceleratorFromKey(e)
+  return spelled !== null && normalizeAccelerator(spelled) === normalizeAccelerator(accelerator)
+}
+
+/**
+ * The shortcuts to listen for in the window itself: commands with no menu item, so no menu
+ * accelerator carries them. Everything with a menu item keeps its accelerator in the menu,
+ * which wins over a focused terminal pane.
+ */
+export function menuLessBindings(keys: Readonly<Record<string, string | null>>): Array<{ id: string; accelerator: string }> {
+  return COMMANDS.filter((c) => c.menu === null && keys[c.id]).map((c) => ({ id: c.id, accelerator: keys[c.id] as string }))
 }
