@@ -35,9 +35,10 @@ command received the instruction and the draft on stdin, and Accept replaces the
 
 ## Not verified
 
-- **Transcription quality and latency with the user's real model.** whisper-cli and ffmpeg are
-  installed on this Mac but no `ggml-*.bin` model was found, so no real speech was transcribed.
-  The Vietnamese-with-English-terms measurement in the plan (task 8) is still to do.
+- **A real person's speech.** The measurements below use macOS `say` voices (Linh for
+  Vietnamese, Samantha for English) as the speaker, so accent, pace and noise are those of a
+  synthesizer. They show the pipeline and the model's handling of mixed-language terms; they are
+  not a substitute for the user speaking into their own microphone.
 - **The macOS microphone prompt in the packaged app.** In a development Electron, `getUserMedia`
   waits on the operating system's microphone permission even with Chromium's fake device, so the
   end-to-end run replaces `getUserMedia` in the page with a synthetic stream. The recorder, the
@@ -46,6 +47,21 @@ command received the instruction and the draft on stdin, and Accept replaces the
   runtime is off so no audio-input entitlement is needed — re-check if that changes.
 - The Settings → Voice **Test** button and *Refine after each transcription* are not covered by
   the CDP run.
+
+## Measured (whisper.cpp `ggml-large-v3-turbo`, Apple Silicon, this Mac)
+
+| Case | Result |
+|---|---|
+| Vietnamese sentence with English terms, ~11 s, through the whole app (record → WAV → IPC → whisper-cli → draft) | **2.4 s** from Stop to the draft |
+| The same file straight through `whisper-cli` | 2.5 s cold (1.5 s loading the model), 1.4 s with `--prompt` |
+| English sentence, ~9 s, `whisper-cli` | 1.2 s |
+
+Accuracy on the Vietnamese sample: correct except English words spoken inside Vietnamese.
+Without help: "load" → "lập", "frontend/backend" → "front pen/back pen", "code" → "cập". A
+`--prompt` that lists the technical words fixed "frontend/backend" (not "load" or "code"), so
+the default command in Settings carries one. Mixed-language terms remain the weak point; the
+draft is read before it is sent for exactly this reason, and the optional refinement does not
+fix mishearings (it only restructures).
 
 ## Limitations
 

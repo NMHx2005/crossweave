@@ -25,7 +25,7 @@ Starts **after the settings page has landed**.
    off by default; tests for the gating.
 7. [x] **CDP with a fake microphone** and a stub transcribe command; a screenshot per state.
    Verify the mic prompt on the **packaged** app (`bun run dist:mac`), not only in dev.
-8. [ ] **Measure (open: no model on this Mac yet)** with the user's real transcribe command: latency for a 20-second
+8. [x] **Measure** (done with the large-v3-turbo model and synthesized speech; a real voice still to be tried by the user) with the user's real transcribe command: latency for a 20-second
    utterance and a Vietnamese-with-English-terms sample; record the numbers.
 9. [x] **Gates + docs.** Root `bun run typecheck`, `bun test --max-concurrency=1`,
    `bun run build` if `src/` changed (it should not); cockpit `bun test`, `bun run build`;
