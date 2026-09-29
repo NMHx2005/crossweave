@@ -359,7 +359,7 @@ export function XtermPane({ source, focused, syncGroup, paneId }: XtermPaneProps
     else termRef.current?.blur()
   }, [focused])
 
-  // Text from outside the terminal (the voice composer's Send) goes to the focused pane as
+  // Text from outside the terminal (the key-table's literal prefix) goes to the focused pane as
   // a paste, so an agent that asked for bracketed paste gets it as one paste; `enter` then
   // presses Enter as a keystroke.
   useEffect(() => {

@@ -73,7 +73,6 @@ import {
 import type { RowAction } from './Sidebar'
 import { Stage, type StageStatus } from './Stage'
 import { runPaneRequest, type PaneEnv } from '../lib/pane-bridge'
-import { VoiceComposer } from './VoiceComposer'
 import { sessionsThatStartedRunning } from '../lib/sessions'
 import { agentName, newlyAsking, newlyFinished } from '../lib/rail'
 import { ProjectApiContext } from './project-context'
@@ -169,9 +168,6 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
   /** Bumped on every successful load, so open Changes panes refetch after new work. */
   const [sessionsRevision, setSessionsRevision] = useState(0)
   const [convergeDetail, setConvergeDetail] = useState<ConvergeDetail>({ pairwise: [], empty: [], baseBranch: null })
-  /** Voice input: the composer under the stage, and a counter the ⌘⇧M command bumps. */
-  const [voiceOpen, setVoiceOpen] = useState(false)
-  const [voiceSignal, setVoiceSignal] = useState(0)
   const [commandBarOpen, setCommandBarOpen] = useState(false)
   const [commandHistory, setCommandHistory] = useState<string[]>(() => readStringList(COMMAND_HISTORY_KEY))
   const [branches, setBranches] = useState<string[]>([])
@@ -436,7 +432,6 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
     else if (command === 'copy-mode') window.dispatchEvent(new CustomEvent('cockpit:copy-mode'))
     else if (command === 'sync-panes') onFocusedPane((tabId) => setStage((s) => toggleSync(s, tabId)))
     else if (command === 'cycle-layout') onFocusedPane((tabId) => setStage((s) => cyclePreset(s, tabId)))
-    else if (command === 'voice-toggle') { setVoiceOpen(true); setVoiceSignal((n) => n + 1) }
     else if (command === 'open-file') void handleOpenFile()
     else if (command === 'open-browser') handleOpenBrowser()
     else if (command === 'zoom-pane') onFocusedPane((tabId, paneId) => setStage((s) => toggleZoom(s, tabId, paneId)))
@@ -1012,20 +1007,9 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
           sidebarHidden={host.sidebarHidden}
           onToggleSidebar={host.onToggleSidebar}
           onNewTab={() => { void handleNew() }}
-          onVoice={() => { setVoiceOpen(true); setVoiceSignal((n) => n + 1) }}
           onToggleChanges={toggleChanges}
           changesOpen={focusedId !== null && Boolean(locatePane(stage, `changes:${focusedId}`))}
         />
-        {visible && voiceOpen ? (
-          <VoiceComposer
-            getSettings={async () => ((await api.getSettings()) as { voice?: import('../../../../src/core/settings.js').VoiceSettings } | null)?.voice}
-            toggleSignal={voiceSignal}
-            contextText={focused === null ? undefined : `session: ${focused.name}${focused.branch ? `\nbranch: ${focused.branch}` : ''}${focused.git ? `\nuncommitted files: ${focused.git.changed}` : ''}`}
-            onSend={(text, enter) => window.dispatchEvent(new CustomEvent('cockpit:paste', { detail: { text, enter } }))}
-            onOpenSettings={(section) => hostRef.current.openSettings(section)}
-            onClose={() => setVoiceOpen(false)}
-          />
-        ) : null}
       </div>
     </ProjectApiContext.Provider>
   )

@@ -101,6 +101,11 @@ instead of fighting it.
   `docs/superpowers/specs/2026-09-27-remote-phone-known-limitations.md`. Remote control
   comes back as a native iOS app, designed from scratch. Nothing in the daemon listens
   beyond its unix socket until then.
+- **No in-app voice input (2026-09-30).** Recording, the transcribe/refine commands, the voice
+  composer, its settings section and the ⌘⇧M command were removed: dictation is better served
+  system-wide by a dedicated tool (Superwhisper and the like), which also works in every other
+  app. The last version with it is tag `v0.5-voice-input`. Do not bring it back inside the
+  cockpit; a settings file that still carries a `voice` block loads fine and drops it on the next save.
 - **Leases are cooperative, not a sandbox.** They inject per-session port/docker/cache/
   db values; a process that ignores them still collides.
 - **Toolchain stays reversible**: only three seams touch Bun — the session pty, the

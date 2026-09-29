@@ -2,14 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type { ComponentChildren } from 'preact'
 import { formatEnvLines, launcherIdFor, parseEnvLines } from '../lib/launchers'
 import { AgentMark } from './icons'
-import type { InterfaceAppearance, ModelPrice, PersistenceSettings, TerminalAppearance, UsageSettings, VoiceSettings } from '../../../../src/core/settings.js'
+import type { InterfaceAppearance, ModelPrice, PersistenceSettings, TerminalAppearance, UsageSettings } from '../../../../src/core/settings.js'
 import { FontPicker, type InstalledFont } from './FontPicker'
 import { ShortcutList } from './ShortcutsPanel'
 import { effectiveKeys, keyConflicts } from '../lib/keymap'
 import { cockpitApi, type TerminalImport } from '../host/cockpit-api'
-import { startRecording } from '../lib/voice-recorder'
-import { DEFAULT_REFINE_INSTRUCTION } from '../lib/voice-defaults'
-import { isPhantomTranscript, isSilent, SILENCE_MESSAGE } from '../lib/voice-audio'
 import { xtermLook } from '../lib/terminal-look'
 import { createCommitter } from '../lib/settings-commit'
 import { SETTINGS_SECTIONS, findSection, searchSettings } from '../lib/settings-sections'
@@ -31,7 +28,6 @@ export type UserSettings = {
   appearance?: InterfaceAppearance
   usage?: UsageSettings
   keybindings?: Record<string, string | null>
-  voice?: VoiceSettings
   persistence?: PersistenceSettings
 }
 
@@ -250,52 +246,6 @@ export function SettingsPage({ initialSection, initialRow, initial, availability
     const t = setTimeout(() => el.classList.remove('is-target'), 1600)
     return () => clearTimeout(t)
   }, [target, section, searching])
-
-  const setVoice = (patch: Partial<VoiceSettings>): void => {
-    setDraft((d) => {
-      const next: VoiceSettings = { ...d.voice, ...patch }
-      for (const key of Object.keys(next) as Array<keyof VoiceSettings>) if (next[key] === undefined) delete next[key]
-      return { ...d, voice: Object.keys(next).length === 0 ? undefined : next }
-    })
-  }
-  const setRefine = (patch: Partial<NonNullable<VoiceSettings['refine']>>): void => {
-    const next = { ...draft.voice?.refine, ...patch }
-    for (const key of Object.keys(next) as Array<keyof typeof next>) if (next[key] === undefined || next[key] === '') delete next[key]
-    setVoice({ refine: Object.keys(next).length === 0 ? undefined : next })
-  }
-  const snippets = draft.voice?.snippets ?? []
-  const setSnippets = (list: NonNullable<VoiceSettings['snippets']>): void => setVoice({ snippets: list.length === 0 ? undefined : list })
-  const [voiceTest, setVoiceTest] = useState<{ phase: 'idle' | 'recording' | 'working'; result?: string; error?: string; level?: number }>({ phase: 'idle' })
-  // Records three seconds and runs the SAVED transcribe command (the main process reads
-  // the settings file itself), so a broken command is found here and not mid-prompt.
-  const runVoiceTest = async (): Promise<void> => {
-    setVoiceTest({ phase: 'recording' })
-    try {
-      const access = await cockpitApi.voiceMicAccess()
-      if (access.status !== 'granted') {
-        setVoiceTest({ phase: 'idle', error: 'Microphone access is off. Allow it in System Settings → Privacy & Security → Microphone.' })
-        return
-      }
-      const rec = await startRecording({ maxSeconds: 5, onLimit: () => undefined })
-      // Three seconds, with the level shown so a dead microphone is obvious.
-      for (let i = 0; i < 30; i++) {
-        await new Promise((r) => setTimeout(r, 100))
-        setVoiceTest({ phase: 'recording', level: rec.level() })
-      }
-      setVoiceTest({ phase: 'working' })
-      const audio = await rec.stop()
-      if (isSilent(audio.stats)) {
-        setVoiceTest({ phase: 'idle', error: SILENCE_MESSAGE })
-        return
-      }
-      const result = await cockpitApi.voiceTranscribe(audio.wav)
-      if (!result.ok) setVoiceTest({ phase: 'idle', error: result.reason })
-      else if (isPhantomTranscript(result.text, audio.stats.peak)) setVoiceTest({ phase: 'idle', error: SILENCE_MESSAGE })
-      else setVoiceTest({ phase: 'idle', result: result.text })
-    } catch (err) {
-      setVoiceTest({ phase: 'idle', error: err instanceof Error ? err.message : String(err) })
-    }
-  }
 
   const bodies: Record<string, ComponentChildren> = {
     appearance: (
@@ -539,97 +489,6 @@ export function SettingsPage({ initialSection, initialRow, initial, availability
           <input type="checkbox" checked={notify.dockBadge} onChange={(e) => onNotify({ ...notify, dockBadge: (e.target as HTMLInputElement).checked })} />
           <span>Count them on the Dock icon</span>
         </label>
-      </>
-    ),
-    voice: (
-      <>
-        <p class="cockpit-muted">
-          Speak a prompt, read it in a draft under the stage, then send it to the focused pane. Nothing is sent without your Send.
-          The programs below are yours: this app does not choose one. Audio stays on this Mac with a local transcribe command.
-        </p>
-        <label class="cockpit-picker__field" data-setting="voice-command">
-          <span class="cockpit-muted">Transcribe command — one line; {'{audio}'} and {'{language}'} are filled in</span>
-          <input class="cockpit-settings__command" value={draft.voice?.transcribeCommand ?? ''} spellcheck={false}
-            placeholder="whisper-cli -m ~/models/ggml-large-v3-turbo.bin -f {audio} -l {language} -nt"
-            onInput={(e) => setVoice({ transcribeCommand: (e.target as HTMLInputElement).value || undefined })} />
-        </label>
-        <label class="cockpit-picker__field" data-setting="voice-language">
-          <span class="cockpit-muted">Spoken language</span>
-          <select value={draft.voice?.language ?? 'auto'}
-            onChange={(e) => setVoice({ language: (e.target as HTMLSelectElement).value === 'auto' ? undefined : (e.target as HTMLSelectElement).value as VoiceSettings['language'] })}>
-            <option value="auto">Auto-detect</option>
-            <option value="vi">Vietnamese</option>
-            <option value="en">English</option>
-          </select>
-        </label>
-        <label class="cockpit-picker__field" data-setting="voice-max">
-          <span class="cockpit-muted">Longest recording, in seconds (5–1800)</span>
-          <input type="number" min={5} max={1800} value={draft.voice?.maxSeconds ?? ''} placeholder="300"
-            onInput={(e) => {
-              const n = Number((e.target as HTMLInputElement).value)
-              setVoice({ maxSeconds: Number.isInteger(n) && n > 0 ? n : undefined })
-            }} />
-        </label>
-        <div class="cockpit-picker__field" data-setting="voice-test">
-          <span class="cockpit-muted">Test — uses the saved command</span>
-          <div class="cockpit-voice__test">
-            <button type="button" class="cockpit-btn cockpit-btn--sm" disabled={voiceTest.phase !== 'idle'} onClick={() => { void runVoiceTest() }}>
-              {voiceTest.phase === 'recording' ? 'Listening… speak now' : voiceTest.phase === 'working' ? 'Transcribing…' : 'Record 3 seconds'}
-            </button>
-            {voiceTest.phase === 'recording' ? (
-              <div class="cockpit-voice__meter" role="meter" aria-label="Microphone level" aria-valuemin={0} aria-valuemax={1} aria-valuenow={Math.min(1, voiceTest.level ?? 0)}>
-                <div style={{ width: `${Math.round(Math.min(1, (voiceTest.level ?? 0) * 4) * 100)}%` }} />
-              </div>
-            ) : null}
-            {voiceTest.result !== undefined ? <p role="status">Heard: “{voiceTest.result}”</p> : null}
-            {voiceTest.error !== undefined ? <p class="cockpit-error" role="alert">{voiceTest.error}</p> : null}
-          </div>
-        </div>
-        <div data-setting="voice-snippets">
-          <p class="cockpit-muted">Snippets — text added to the end of a draft with one click</p>
-          <ul class="cockpit-voice__snippets">
-            {snippets.map((sn, i) => (
-              <li key={i}>
-                <input value={sn.name} aria-label="Snippet name" placeholder="Name"
-                  onInput={(e) => setSnippets(snippets.map((x, j) => (j === i ? { ...x, name: (e.target as HTMLInputElement).value } : x)))} />
-                <input value={sn.text} aria-label="Snippet text" placeholder="Text added to the draft"
-                  onInput={(e) => setSnippets(snippets.map((x, j) => (j === i ? { ...x, text: (e.target as HTMLInputElement).value } : x)))} />
-                <button type="button" class="cockpit-iconbtn" aria-label={`Remove snippet ${sn.name}`} onClick={() => setSnippets(snippets.filter((_, j) => j !== i))}>×</button>
-              </li>
-            ))}
-          </ul>
-          <button type="button" class="cockpit-btn cockpit-btn--sm" disabled={snippets.length >= 20}
-            onClick={() => setSnippets([...snippets, { name: `Snippet ${snippets.length + 1}`, text: '' }])}>+ Add snippet</button>
-        </div>
-        <label class="cockpit-settings__toggle" data-setting="voice-refine">
-          <input type="checkbox" checked={draft.voice?.refine?.enabled === true}
-            onChange={(e) => setRefine({ enabled: (e.target as HTMLInputElement).checked ? true : undefined })} />
-          <span>Refine the draft with a command (off by default). The draft is sent to the program below — whatever that program contacts receives it.</span>
-        </label>
-        {draft.voice?.refine?.enabled === true ? (
-          <>
-            <label class="cockpit-picker__field" data-setting="voice-refine-command">
-              <span class="cockpit-muted">Refine command — reads the draft on stdin, prints the refined prompt</span>
-              <input class="cockpit-settings__command" value={draft.voice?.refine?.command ?? ''} spellcheck={false} placeholder="claude -p"
-                onInput={(e) => setRefine({ command: (e.target as HTMLInputElement).value })} />
-            </label>
-            <label class="cockpit-picker__field" data-setting="voice-refine-instruction">
-              <span class="cockpit-muted">Instruction — empty uses the default that forbids adding requirements</span>
-              <textarea rows={5} spellcheck={false} value={draft.voice?.refine?.instruction ?? ''} placeholder={DEFAULT_REFINE_INSTRUCTION}
-                onInput={(e) => setRefine({ instruction: (e.target as HTMLTextAreaElement).value })} />
-            </label>
-            <label class="cockpit-settings__toggle" data-setting="voice-refine-auto">
-              <input type="checkbox" checked={draft.voice?.refine?.auto === true}
-                onChange={(e) => setRefine({ auto: (e.target as HTMLInputElement).checked ? true : undefined })} />
-              <span>Refine right after each transcription (you still Accept or Revert)</span>
-            </label>
-            <label class="cockpit-settings__toggle" data-setting="voice-refine-context">
-              <input type="checkbox" checked={draft.voice?.refine?.includeContext === true}
-                onChange={(e) => setRefine({ includeContext: (e.target as HTMLInputElement).checked ? true : undefined })} />
-              <span>Include the session's name and branch with the draft</span>
-            </label>
-          </>
-        ) : null}
       </>
     ),
     usage: (

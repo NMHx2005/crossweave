@@ -1,9 +1,8 @@
-import { accessSync, chmodSync, constants as fsConstants, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFile, execFileSync } from 'node:child_process'
-import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell, systemPreferences, webContents } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell, webContents } from 'electron'
 import { connectOrStart } from '../../../src/client/rpc-client.js'
 import { COCKPIT_CHANNELS, isCockpitChannel, type CockpitEvent } from './channels'
 import { DaemonBridge } from './daemon-bridge'
@@ -19,7 +18,6 @@ import { editorLaunch, resolveLinkTarget } from './editor-open'
 import { badgeCount, folderLaunch, resolveFolder } from './path-target'
 import { importSources, importTerminal, type ImportDeps } from './terminal-import'
 import { listFonts } from './fonts'
-import { refine, resolveCommand, transcribe, type VoiceDeps } from './voice'
 import { CommandBridgeServer } from './command-bridge'
 import { RendererBridge } from './renderer-bridge'
 import { BrowserAgent } from './browser-agent'
@@ -28,7 +26,7 @@ import { PANE_KINDS } from '../src/lib/pane-bridge'
 import { findRepos, folderKind } from '../../../src/core/folder-kind.js'
 import { initGit, inspectFolder } from './folder-open'
 import { loadSettings, saveSettings } from '../../../src/core/settings.js'
-import { restoreGuarded, withGuardedFromFile } from './settings-voice'
+import { restoreGuarded, withGuardedFromFile } from './settings-guard'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -256,88 +254,6 @@ function setBadge(payload: unknown): { ok: boolean } {
   return { ok: true }
 }
 
-/** The most audio a transcribe request may carry: five minutes of 16 kHz mono is ~10 MB. */
-const MAX_AUDIO_BYTES = 50 * 1024 * 1024
-const MAX_REFINE_CHARS = 100_000
-
-/**
- * The commands behind voice input. Both are the user's own programs from their saved
- * settings (read here, never taken from the request), run as argv with a timeout and an
- * output cap; the recording lives in a private directory for the length of one run.
- */
-/** The PATH a login shell would give (read once, only when a program is not found otherwise). */
-let loginPathCache: Promise<string | undefined> | undefined
-function loginShellPath(): Promise<string | undefined> {
-  loginPathCache ??= new Promise((resolve) => {
-    const shell = process.env.SHELL && process.env.SHELL.startsWith('/') ? process.env.SHELL : '/bin/zsh'
-    // argv only; the shell reads the user's own start-up files, then prints its PATH.
-    execFile(shell, ['-ilc', 'printf %s "$PATH"'], { timeout: 4000, encoding: 'utf8', maxBuffer: 64 * 1024 },
-      (err, stdout) => resolve(err ? undefined : String(stdout).trim() || undefined))
-  })
-  return loginPathCache
-}
-
-function voiceDeps(): VoiceDeps {
-  return {
-    home: app.getPath('home'),
-    resolveCommand: (command) => resolveCommand(command, {
-      home: app.getPath('home'),
-      pathEnv: process.env.PATH ?? '',
-      isExecutable: (path) => { try { accessSync(path, fsConstants.X_OK); return true } catch { return false } },
-      loginPath: loginShellPath,
-    }),
-    loadVoice: () => loadSettings().voice,
-    writeAudio: async (bytes) => {
-      const dir = mkdtempSync(join(tmpdir(), 'cw-voice-'))
-      chmodSync(dir, 0o700)
-      const path = join(dir, 'recording.wav')
-      writeFileSync(path, bytes, { mode: 0o600 })
-      return { path, cleanup: async () => { rmSync(dir, { recursive: true, force: true }) } }
-    },
-    run: (command, args, opts) => new Promise((resolve, reject) => {
-      const child = execFile(command, args, { timeout: opts.timeoutMs, maxBuffer: opts.maxBuffer, encoding: 'utf8' }, (err, stdout, stderr) => {
-        if (err === null) return resolve({ code: 0, stdout: String(stdout), stderr: String(stderr) })
-        const code = (err as NodeJS.ErrnoException).code
-        // Could not start at all (not installed, not executable): the caller words that.
-        if (typeof code === 'string' && /^E[A-Z]+$/.test(code)) return reject(err)
-        if ((err as { killed?: boolean }).killed) {
-          return resolve({ code: 124, stdout: String(stdout), stderr: `${String(stderr)}\ntimed out after ${Math.round(opts.timeoutMs / 1000)}s` })
-        }
-        resolve({ code: typeof code === 'number' ? code : 1, stdout: String(stdout), stderr: String(stderr) })
-      })
-      if (opts.input !== undefined) child.stdin?.end(opts.input)
-    }),
-  }
-}
-
-async function voiceTranscribe(payload: unknown): Promise<unknown> {
-  const audio = (payload as { audio?: unknown } | null)?.audio
-  const bytes = audio instanceof Uint8Array ? audio : audio instanceof ArrayBuffer ? new Uint8Array(audio) : undefined
-  if (bytes === undefined) return { ok: false, reason: 'No recording was sent.' }
-  if (bytes.byteLength > MAX_AUDIO_BYTES) return { ok: false, reason: 'The recording is too long.' }
-  return transcribe(voiceDeps(), bytes)
-}
-
-async function voiceRefine(payload: unknown): Promise<unknown> {
-  const p = payload as { text?: unknown; context?: unknown } | null
-  if (typeof p?.text !== 'string' || p.text.length > MAX_REFINE_CHARS) return { ok: false, reason: 'There is nothing to refine.' }
-  const context = typeof p.context === 'string' && p.context.length <= MAX_REFINE_CHARS ? p.context : undefined
-  return refine(voiceDeps(), { text: p.text, ...(context === undefined ? {} : { context }) })
-}
-
-/** macOS asks the person once; afterwards this only reports what they chose. */
-async function micAccess(): Promise<{ status: string }> {
-  // A run with Chromium's fake microphone (scripts/voice-check.ts) never touches the real
-  // device, so it must not raise the macOS prompt either.
-  if (process.platform !== 'darwin' || process.env.COCKPIT_FAKE_MIC === '1') return { status: 'granted' }
-  const before = systemPreferences.getMediaAccessStatus('microphone')
-  if (before === 'not-determined') {
-    const granted = await systemPreferences.askForMediaAccess('microphone')
-    return { status: granted ? 'granted' : 'denied' }
-  }
-  return { status: before }
-}
-
 function registerHandlers(bridge: DaemonBridge): void {
   for (const channel of COCKPIT_CHANNELS) {
     ipcMain.handle(channel, async (_event, payload: unknown) => {
@@ -348,9 +264,6 @@ function registerHandlers(bridge: DaemonBridge): void {
       if (channel === 'folder.reveal') return openFolder(bridge, payload, 'reveal')
       if (channel === 'folder.openInEditor') return openFolder(bridge, payload, 'editor')
       if (channel === 'app.badge') return setBadge(payload)
-      if (channel === 'voice.transcribe') return voiceTranscribe(payload)
-      if (channel === 'voice.refine') return voiceRefine(payload)
-      if (channel === 'voice.micAccess') return micAccess()
       if (channel === 'bridge.reply') { rendererBridge.reply(payload); return { ok: true } }
       if (channel === 'browser.setAccess') return browserAgent.setAccess(payload)
       if (channel === 'terminal.importSources') return importSources(importDeps())
@@ -385,12 +298,12 @@ function registerHandlers(bridge: DaemonBridge): void {
         if (from !== 'ghostty' && from !== 'iterm2') return { ok: false, reason: 'Import from ghostty or iterm2' }
         return importTerminal(from, importDeps())
       }
-      // The project's daemon may predate `voice` and would drop it: see settings-voice.ts.
-      if (channel === 'settings.get') { const file = loadSettings(); return withGuardedFromFile(await bridge.handle(channel, payload), { voice: file.voice, persistence: file.persistence }) }
+      // The project's daemon may predate `persistence` and would drop it: see settings-guard.ts.
+      if (channel === 'settings.get') { const file = loadSettings(); return withGuardedFromFile(await bridge.handle(channel, payload), { persistence: file.persistence }) }
       if (channel === 'settings.set') {
         const answer = await bridge.handle(channel, payload)
         const file = loadSettings()
-        const lost = restoreGuarded(payload, { voice: file.voice, persistence: file.persistence })
+        const lost = restoreGuarded(payload, { persistence: file.persistence })
         if (Object.keys(lost).length === 0) return answer
         try {
           saveSettings({ ...file, ...lost })
@@ -517,13 +430,10 @@ if (!hasSingleInstanceLock) {
   })
 
   app.whenReady().then(async () => {
-    // The window may use the microphone (voice input) and only the microphone: a page
-    // asking for the camera or screen with it is refused. Every other request keeps the
-    // behaviour it had before this handler existed (granted).
-    session.defaultSession.setPermissionRequestHandler((_contents, permission, callback, details) => {
-      if (permission !== 'media') return callback(true)
-      const types = (details as { mediaTypes?: string[] }).mediaTypes ?? []
-      callback(types.length > 0 && types.every((t) => t === 'audio'))
+    // The window has no use for the microphone or camera: refuse them. Every other request keeps
+    // the behaviour it had before this handler existed (granted).
+    session.defaultSession.setPermissionRequestHandler((_contents, permission, callback) => {
+      callback(permission !== 'media')
     })
     hardenWebviews()
     buildMenu()

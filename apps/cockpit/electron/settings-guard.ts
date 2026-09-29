@@ -1,4 +1,4 @@
-import type { PersistenceSettings, VoiceSettings } from '../../../src/core/settings.js'
+import type { PersistenceSettings } from '../../../src/core/settings.js'
 
 /**
  * The daemon that serves a project can be older than the app (it keeps running across app
@@ -6,10 +6,10 @@ import type { PersistenceSettings, VoiceSettings } from '../../../src/core/setti
  * returns it from `settings.get` nor keeps it on `settings.set`, and its save rewrites the whole
  * file — so the user's setup would quietly disappear the first time any setting changed. The
  * main process reads and writes the same file itself, so it mends both ends, for each block
- * that arrived after the first release: `voice` and `persistence`.
+ * that arrived after the first release (today: `persistence`).
  */
-export type GuardedSettings = { voice?: VoiceSettings; persistence?: PersistenceSettings }
-const GUARDED = ['voice', 'persistence'] as const
+export type GuardedSettings = { persistence?: PersistenceSettings }
+const GUARDED = ['persistence'] as const
 
 /** `settings.get`: an answer lacking a guarded block gets the file's, when there is one. */
 export function withGuardedFromFile(answer: unknown, file: GuardedSettings): unknown {

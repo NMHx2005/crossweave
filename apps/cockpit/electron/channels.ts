@@ -69,10 +69,6 @@ export const COCKPIT_CHANNELS = [
   'fonts.list',
   // Settings saved new shortcuts: rebuild the menu from the settings file.
   'menu.refresh',
-  // Voice input: a recording to text, a draft refined, and the macOS microphone prompt.
-  'voice.transcribe',
-  'voice.refine',
-  'voice.micAccess',
   // A shell command's request (cw pane) was carried out or refused by the window: the answer.
   'bridge.reply',
   // The Browser pane's access switch (off / read / control) and the webview it belongs to; main enforces it.

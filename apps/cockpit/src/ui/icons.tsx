@@ -24,7 +24,6 @@ export const TerminalIcon = (p: IconProps) => <Svg {...p}><path d="M3 4.5l3.5 3.
 export const FileIcon = (p: IconProps) => <Svg {...p}><path d="M4 2h5l3 3v9H4z" /><path d="M9 2v3h3" /></Svg>
 export const GlobeIcon = (p: IconProps) => <Svg {...p}><circle cx="8" cy="8" r="5.5" /><path d="M2.5 8h11M8 2.5c1.8 1.6 2.6 3.4 2.6 5.5S9.8 11.9 8 13.5M8 2.5C6.2 4.1 5.4 5.9 5.4 8s.8 3.9 2.6 5.5" /></Svg>
 export const DiffIcon = (p: IconProps) => <Svg {...p}><path d="M5 3v6M2 6h6M8 12h6" /></Svg>
-export const MicIcon = (p: IconProps) => <Svg {...p}><rect x="6" y="2" width="4" height="7" rx="2" /><path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2" /></Svg>
 export const MoreIcon = (p: IconProps) => <Svg {...p}><path d="M4 8h.01M8 8h.01M12 8h.01" stroke-width="2.2" /></Svg>
 export const GearIcon = (p: IconProps) => <Svg {...p}><path d="M6.54 3.22 L6.97 1.48 L9.03 1.48 L9.46 3.22 L10.35 3.59 L11.88 2.66 L13.34 4.12 L12.41 5.65 L12.78 6.54 L14.52 6.97 L14.52 9.03 L12.78 9.46 L12.41 10.35 L13.34 11.88 L11.88 13.34 L10.35 12.41 L9.46 12.78 L9.03 14.52 L6.97 14.52 L6.54 12.78 L5.65 12.41 L4.12 13.34 L2.66 11.88 L3.59 10.35 L3.22 9.46 L1.48 9.03 L1.48 6.97 L3.22 6.54 L3.59 5.65 L2.66 4.12 L4.12 2.66 L5.65 3.59Z" /><circle cx="8" cy="8" r="2.1" /></Svg>
 
