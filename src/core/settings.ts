@@ -105,6 +105,34 @@ export interface UsageSettings {
   prices?: Record<string, ModelPrice>;
 }
 
+/** A named block of text the voice composer inserts with one click. */
+export interface VoiceSnippet {
+  name: string;
+  text: string;
+}
+
+/**
+ * Voice input: speak a prompt, read it as a draft, send it. Both commands are the
+ * user's own programs (the app does not choose an AI): each is one line, split into
+ * arguments without a shell. `{audio}` and `{language}` in the transcribe command are
+ * filled in. Refinement is off until `refine.enabled` is true and never runs by itself
+ * unless `refine.auto` is also true.
+ */
+export interface VoiceSettings {
+  transcribeCommand?: string;
+  language?: 'auto' | 'vi' | 'en';
+  /** Longest recording, in seconds. */
+  maxSeconds?: number;
+  snippets?: VoiceSnippet[];
+  refine?: {
+    enabled?: boolean;
+    command?: string;
+    instruction?: string;
+    auto?: boolean;
+    includeContext?: boolean;
+  };
+}
+
 export interface UserSettings {
   launchers: LauncherDef[];
   editor: EditorSetting;
@@ -118,6 +146,7 @@ export interface UserSettings {
    * null to unbind. The cockpit checks the grammar and conflicts; this checks shape.
    */
   keybindings?: Record<string, string | null>;
+  voice?: VoiceSettings;
 }
 
 /** A font family as it reaches xterm's CSS font string: nothing that could end the quotes. */
@@ -254,6 +283,107 @@ export function cleanKeybindings(raw: unknown): { keybindings: Record<string, st
   return { keybindings: Object.keys(out).length === 0 ? undefined : out, problems };
 }
 
+const VOICE_LANGUAGES: ReadonlySet<string> = new Set(['auto', 'vi', 'en']);
+const MAX_VOICE_COMMAND = 2000;
+const MAX_INSTRUCTION = 4000;
+const MAX_SNIPPETS = 20;
+const MAX_SNIPPET_NAME = 40;
+const MAX_SNIPPET_TEXT = 2000;
+const MIN_VOICE_SECONDS = 5;
+const MAX_VOICE_SECONDS = 1800;
+
+/** One line, at most `max` characters, no control characters, and it splits into arguments. */
+function voiceCommand(value: unknown, what: string, problems: string[]): string | undefined {
+  if (typeof value !== 'string') {
+    problems.push(`voice ${what} must be text`);
+    return undefined;
+  }
+  if (value.length > MAX_VOICE_COMMAND || /[\r\n\0]/.test(value)) {
+    problems.push(`voice ${what} must be one line of at most ${MAX_VOICE_COMMAND} characters`);
+    return undefined;
+  }
+  if (value.trim() === '') return undefined;
+  try {
+    splitCommand(value);
+  } catch {
+    problems.push(`voice ${what}: unbalanced quote`);
+    return undefined;
+  }
+  return value;
+}
+
+export function cleanVoice(raw: unknown): { voice: VoiceSettings | undefined; problems: string[] } {
+  const problems: string[] = [];
+  if (raw === undefined || raw === null) return { voice: undefined, problems };
+  if (typeof raw !== 'object' || Array.isArray(raw)) return { voice: undefined, problems: ['voice must be an object'] };
+  const r = raw as Record<string, unknown>;
+  const out: VoiceSettings = {};
+
+  if (r.transcribeCommand !== undefined) {
+    const cmd = voiceCommand(r.transcribeCommand, 'transcribe command', problems);
+    if (cmd !== undefined) out.transcribeCommand = cmd;
+  }
+  if (r.language !== undefined) {
+    if (typeof r.language === 'string' && VOICE_LANGUAGES.has(r.language)) out.language = r.language as VoiceSettings['language'];
+    else problems.push('voice language: auto, vi or en');
+  }
+  if (r.maxSeconds !== undefined) {
+    if (typeof r.maxSeconds === 'number' && Number.isInteger(r.maxSeconds) && r.maxSeconds >= MIN_VOICE_SECONDS && r.maxSeconds <= MAX_VOICE_SECONDS) {
+      out.maxSeconds = r.maxSeconds;
+    } else {
+      problems.push(`voice maximum recording: ${MIN_VOICE_SECONDS} to ${MAX_VOICE_SECONDS} seconds`);
+    }
+  }
+  if (r.snippets !== undefined) {
+    if (!Array.isArray(r.snippets) || r.snippets.length > MAX_SNIPPETS) {
+      problems.push(`voice snippets: a list of at most ${MAX_SNIPPETS}`);
+    } else {
+      const seen = new Set<string>();
+      const snippets: VoiceSnippet[] = [];
+      for (const item of r.snippets as unknown[]) {
+        const sn = item as Record<string, unknown> | null;
+        const ok = sn !== null && typeof sn === 'object'
+          && typeof sn.name === 'string' && sn.name.trim() !== '' && sn.name.length <= MAX_SNIPPET_NAME && !/[\r\n\0]/.test(sn.name)
+          && typeof sn.text === 'string' && sn.text.length <= MAX_SNIPPET_TEXT && !sn.text.includes('\0')
+          && !seen.has(sn.name);
+        if (ok) {
+          seen.add(sn.name as string);
+          snippets.push({ name: sn.name as string, text: sn.text as string });
+        } else {
+          problems.push(`voice snippet: a unique name (up to ${MAX_SNIPPET_NAME} characters, one line) and its text (up to ${MAX_SNIPPET_TEXT})`);
+        }
+      }
+      if (snippets.length > 0) out.snippets = snippets;
+    }
+  }
+  if (r.refine !== undefined) {
+    if (typeof r.refine !== 'object' || r.refine === null || Array.isArray(r.refine)) {
+      problems.push('voice refine must be an object');
+    } else {
+      const f = r.refine as Record<string, unknown>;
+      const refine: NonNullable<VoiceSettings['refine']> = {};
+      for (const flag of ['enabled', 'auto', 'includeContext'] as const) {
+        if (f[flag] === undefined) continue;
+        if (typeof f[flag] === 'boolean') refine[flag] = f[flag] as boolean;
+        else problems.push(`voice refine ${flag} must be true or false`);
+      }
+      if (f.command !== undefined) {
+        const cmd = voiceCommand(f.command, 'refine command', problems);
+        if (cmd !== undefined) refine.command = cmd;
+      }
+      if (f.instruction !== undefined) {
+        if (typeof f.instruction === 'string' && f.instruction.length <= MAX_INSTRUCTION && !f.instruction.includes('\0')) {
+          if (f.instruction.trim() !== '') refine.instruction = f.instruction;
+        } else {
+          problems.push(`voice refine instruction: text of at most ${MAX_INSTRUCTION} characters`);
+        }
+      }
+      if (Object.keys(refine).length > 0) out.refine = refine;
+    }
+  }
+  return { voice: Object.keys(out).length === 0 ? undefined : out, problems };
+}
+
 const EDITORS: ReadonlySet<string> = new Set(['vscode', 'cursor', 'zed', 'custom', 'cockpit']);
 const LAUNCHER_ID = /^[a-z0-9][a-z0-9-]{0,31}$/;
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -318,6 +448,7 @@ function validate(settings: UserSettings): void {
     ...cleanAppearance(settings.appearance).problems,
     ...cleanUsage(settings.usage).problems,
     ...cleanKeybindings(settings.keybindings).problems,
+    ...cleanVoice(settings.voice).problems,
   ];
   if (problems.length > 0) invalid(problems[0] as string);
 }
@@ -342,12 +473,14 @@ export function loadSettings(homeDir?: string): UserSettings {
   const { appearance } = cleanAppearance(saved.appearance);
   const { usage } = cleanUsage(saved.usage);
   const { keybindings } = cleanKeybindings(saved.keybindings);
+  const { voice } = cleanVoice(saved.voice);
   return {
     launchers: mergeLaunchers(saved.launchers), editor, layouts,
     ...(terminal === undefined ? {} : { terminal }),
     ...(appearance === undefined ? {} : { appearance }),
     ...(usage === undefined ? {} : { usage }),
     ...(keybindings === undefined ? {} : { keybindings }),
+    ...(voice === undefined ? {} : { voice }),
   };
 }
 
@@ -407,6 +540,7 @@ export function saveSettings(settings: UserSettings, homeDir?: string): void {
     ...(settings.appearance === undefined ? {} : { appearance: cleanAppearance(settings.appearance).appearance }),
     ...(settings.usage === undefined ? {} : { usage: cleanUsage(settings.usage).usage }),
     ...(settings.keybindings === undefined ? {} : { keybindings: cleanKeybindings(settings.keybindings).keybindings }),
+    ...(settings.voice === undefined ? {} : { voice: cleanVoice(settings.voice).voice }),
   };
   writeFileSync(tmp, `${JSON.stringify(normalized, null, 2)}\n`, { mode: 0o600 });
   chmodSync(tmp, 0o600);

@@ -199,3 +199,58 @@ describe('keybindings', () => {
     }
   });
 });
+
+describe('voice settings', () => {
+  const valid = {
+    transcribeCommand: 'whisper-cli -m ~/models/ggml-large-v3-turbo.bin -f {audio} -l {language} -nt',
+    language: 'vi' as const,
+    maxSeconds: 120,
+    snippets: [{ name: 'Investigate first', text: 'Investigate before changing any code.' }],
+    refine: { enabled: true, command: 'claude -p', instruction: 'Restructure; add nothing.', auto: false, includeContext: false },
+  };
+
+  it('round-trips through save and load', () => {
+    saveSettings({ ...loadSettings(home), voice: valid }, home);
+    expect(loadSettings(home).voice).toEqual(valid);
+  });
+
+  it('is absent by default, and refinement is off until it is switched on', () => {
+    expect(loadSettings(home).voice).toBeUndefined();
+    saveSettings({ ...loadSettings(home), voice: { refine: { command: 'claude -p' } } }, home);
+    expect(loadSettings(home).voice?.refine?.enabled).toBeUndefined();
+  });
+
+  it('refuses a command that spans lines, is unbalanced, or is too long', () => {
+    for (const transcribeCommand of ['whisper-cli\nrm -rf ~', 'whisper-cli "unbalanced', 'x'.repeat(2001)]) {
+      expect(() => saveSettings({ ...loadSettings(home), voice: { transcribeCommand } }, home)).toThrow(/voice/i);
+    }
+    expect(() => saveSettings({ ...loadSettings(home), voice: { refine: { command: 'a\nb' } } }, home)).toThrow(/voice/i);
+  });
+
+  it('refuses an unknown language and an out-of-range recording length', () => {
+    expect(() => saveSettings({ ...loadSettings(home), voice: { language: 'klingon' as never } }, home)).toThrow(/language/i);
+    expect(() => saveSettings({ ...loadSettings(home), voice: { maxSeconds: 0 } }, home)).toThrow(/seconds/i);
+    expect(() => saveSettings({ ...loadSettings(home), voice: { maxSeconds: 100_000 } }, home)).toThrow(/seconds/i);
+  });
+
+  it('limits snippets: a name and text each, a sensible count, no duplicate names', () => {
+    const many = Array.from({ length: 21 }, (_, i) => ({ name: `s${i}`, text: 'x' }));
+    expect(() => saveSettings({ ...loadSettings(home), voice: { snippets: many } }, home)).toThrow(/snippets/i);
+    expect(() => saveSettings({ ...loadSettings(home), voice: { snippets: [{ name: '', text: 'x' }] } }, home)).toThrow(/snippet/i);
+    expect(() => saveSettings({ ...loadSettings(home), voice: { snippets: [{ name: 'a', text: 'x'.repeat(2001) }] } }, home)).toThrow(/snippet/i);
+    expect(() => saveSettings({ ...loadSettings(home), voice: { snippets: [{ name: 'a', text: '1' }, { name: 'a', text: '2' }] } }, home)).toThrow(/snippet/i);
+  });
+
+  it('a corrupt voice block in the file is dropped on load rather than breaking other settings', () => {
+    mkdirSync(join(home, '.crossweave'), { recursive: true });
+    writeFileSync(file(), JSON.stringify({ editor: { kind: 'zed' }, voice: { language: 'klingon', maxSeconds: 'x' } }));
+    const s = loadSettings(home);
+    expect(s.editor).toEqual({ kind: 'zed' });
+    expect(s.voice).toBeUndefined();
+  });
+
+  it('keeps the file readable by the user only', () => {
+    saveSettings({ ...loadSettings(home), voice: valid }, home);
+    expect(statSync(file()).mode & 0o777).toBe(0o600);
+  });
+});
