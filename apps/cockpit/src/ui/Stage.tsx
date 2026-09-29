@@ -5,6 +5,7 @@ import { liveTabs, type DropSide, type LayoutNode, type PaneRef, type SplitDir, 
 import { sessionSource, terminalSource, type InAppOpener } from '../lib/pane-source'
 import type { SessionColor } from '../lib/colors'
 import { XtermPane } from './XtermPane'
+import { clampMenu } from '../lib/rail'
 import { planFlip, playFlip, structureKey, type Box } from '../lib/flip'
 import { COCKPIT_TOKENS } from './tokens'
 import { useProjectApi } from './project-context'
@@ -258,6 +259,23 @@ export function Stage(props: StageProps) {
   const paneMenuRef = useRef<HTMLDivElement>(null)
   const closePaneMenu = useCallback(() => setPaneMenu(null), [])
   useDismiss(paneMenu !== null, closePaneMenu, paneMenuRef)
+
+  // Opened at the pointer, then moved so a menu near a window edge stays fully on screen
+  // (a right-click at the right edge used to draw it half outside the window).
+  useLayoutEffect(() => {
+    const el = paneMenuRef.current
+    if (!el || paneMenu === null) return
+    const at = clampMenu(paneMenu.x, paneMenu.y, el.offsetWidth, el.offsetHeight, window.innerWidth, window.innerHeight)
+    el.style.left = `${at.left}px`
+    el.style.top = `${at.top}px`
+  }, [paneMenu])
+  useLayoutEffect(() => {
+    const el = menuRef.current
+    if (!el || menu === null) return
+    const at = clampMenu(menu.x, menu.y, el.offsetWidth, el.offsetHeight, window.innerWidth, window.innerHeight)
+    el.style.left = `${at.left}px`
+    el.style.top = `${at.top}px`
+  }, [menu])
   const closeLayouts = useCallback(() => setLayoutsOpen(false), [])
   const closeMenu = useCallback(() => setMenu(null), [])
   useDismiss(layoutsOpen, closeLayouts, layoutsRef)
