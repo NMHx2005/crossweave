@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeAll } from 'bun:test';
-import { existsSync, readlinkSync, realpathSync } from 'node:fs';
+import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
+import { existsSync, mkdtempSync, readlinkSync, realpathSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { makeGitFixture } from '../helpers/git-fixture.js';
@@ -20,14 +21,22 @@ function daemonsServing(projectRoot: string): number[] {
     }
   });
 }
-const cwBin = join(root, 'dist', 'cw');
-const cwdBin = join(root, 'dist', 'cwd');
+// Built into a directory of this run's own, not the repo's ./dist: another `bun test`
+// (the gate can run two) or a developer's `bun run build` deletes and rebuilds ./dist, which
+// killed the binary this test was executing (exit 143) or made it time out.
+const outDir = mkdtempSync(join(tmpdir(), 'cw-bin-'));
+const cwBin = join(outDir, 'cw');
+const cwdBin = join(outDir, 'cwd');
 
 beforeAll(async () => {
-  const proc = Bun.spawn(['bun', 'run', 'scripts/build.ts'], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
+  const proc = Bun.spawn(['bun', 'run', 'scripts/build.ts', `--outdir=${outDir}`], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
   const code = await proc.exited;
   if (code !== 0) throw new Error(await new Response(proc.stderr).text());
 }, 180_000);
+
+afterAll(() => {
+  rmSync(outDir, { recursive: true, force: true });
+});
 
 describe('compiled binaries', () => {
   it('produces both executables', () => {
