@@ -12,7 +12,7 @@ import { argvAdapter } from '../helpers/argv-adapter.js';
 import type { AgentAdapter, AgentProcess } from '../../src/adapters/types.js';
 import { makeGitFixture, type GitFixture } from '../helpers/git-fixture.js';
 import { LeaseRepo } from '../../src/db/repositories/lease.js';
-import { DEFAULT_CONFIG } from '../../src/core/config.js';
+import { TEST_CONFIG } from '../helpers/test-ports.js';
 
 /**
  * Echoes each stdin line back, so tests never run the user's real shell.
@@ -52,7 +52,8 @@ beforeEach(async () => {
   sessions = new SessionManager(db, echoFactory);
   daemon = createDaemon({
     socketPath,
-    methods: buildMethods(db, fx.root, echoFactory),
+    // TEST_CONFIG: this process's own port window, so a squatter below never meets another suite's.
+    methods: buildMethods(db, fx.root, echoFactory, TEST_CONFIG),
   });
   await daemon.listen();
   client = await DaemonClient.connect(socketPath);
@@ -530,7 +531,7 @@ describe('session runtime', () => {
     const squatter = createServer();
     await new Promise<void>((resolve, reject) => {
       squatter.once('error', reject);
-      squatter.listen(DEFAULT_CONFIG.ports.base, '127.0.0.1', () => resolve());
+      squatter.listen(TEST_CONFIG.ports.base, '127.0.0.1', () => resolve());
     });
 
     try {
@@ -544,7 +545,7 @@ describe('session runtime', () => {
       const bases = new LeaseRepo(db).listActive('port').map((l) => l.value);
       expect(bases).toHaveLength(names.length);
       expect(new Set(bases).size).toBe(names.length);
-      expect(bases).not.toContain(String(DEFAULT_CONFIG.ports.base));
+      expect(bases).not.toContain(String(TEST_CONFIG.ports.base));
     } finally {
       await new Promise<void>((resolve) => squatter.close(() => resolve()));
     }

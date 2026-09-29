@@ -500,8 +500,10 @@ describe('cw CLI', () => {
     }, 30_000);
 
     it('NO_PORTS_AVAILABLE when the only block in range is held by another process', async () => {
-      // A range with room for exactly one block, so a single squatter exhausts it.
-      const base = 65020;
+      // A range with room for exactly one block (base+500 fits under 65535, base+1000 does
+      // not), so a single squatter exhausts it. The base varies per process within that
+      // band: two suites running at once must not squat the same port.
+      const base = 64536 + (process.pid % 500);
       await writeFile(
         join(fx.root, 'crossweave.config.json'),
         JSON.stringify({ ports: { base, blockSize: 500 } }),
