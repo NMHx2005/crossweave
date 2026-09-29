@@ -2581,3 +2581,28 @@ body,
   gap: var(--cw-space-2);
   align-items: center;
 }
+
+/* Which folder the tabs belong to: several projects each have a "shell-1". Not a pill, so it
+   is not mistaken for a tab: a folder mark and a name, closed off by a hairline. */
+.cockpit-tabs__project {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--cw-space-2);
+  max-width: calc(var(--cw-rail-w) * 0.7);
+  margin-right: var(--cw-space-3);
+  padding-right: var(--cw-space-3);
+  height: var(--cw-row-h);
+  border-right: var(--cw-hairline) solid var(--cw-border-strong);
+  color: var(--cw-text-bright);
+  font-size: var(--cw-fs-sm);
+  font-weight: 600;
+  -webkit-app-region: no-drag;
+}
+
+.cockpit-tabs__project-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

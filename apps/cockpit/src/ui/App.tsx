@@ -578,7 +578,7 @@ export function App() {
   }), [])
 
   const groups = railGroups()
-  const projectsForPicker = groups.map((g) => ({ projectRoot: g.projectRoot, name: g.name }))
+  const projectsForPicker = groups.map((g) => ({ projectRoot: g.projectRoot, name: g.name, ...(g.color ? { color: g.color } : {}) }))
 
   function viewHost(root: string): ViewHost {
     return {
@@ -620,6 +620,15 @@ export function App() {
   }
 
   const activeReport = activeRoot === null ? undefined : reports[activeRoot]
+
+  // The window's title names the project and its focused session: several projects each have
+  // a "shell-1", and the title is what Mission Control and the app switcher show.
+  const activeGroup = activeRoot === null ? undefined : groups.find((g) => g.projectRoot === activeRoot)
+  const focusedSessionName = activeGroup?.sessions.find((s) => s.id === activeReport?.focusedId)?.name
+  const windowTitle = activeGroup === undefined
+    ? 'crossweave Cockpit'
+    : `${activeGroup.name}${focusedSessionName === undefined ? '' : ` — ${focusedSessionName}`}`
+  useEffect(() => { document.title = windowTitle }, [windowTitle])
 
   return (
     <div class={`cockpit-shell${sidebarHidden ? ' is-sidebar-hidden' : ''}`}>
