@@ -140,13 +140,14 @@ describe('queries', () => {
     expect(queryConsole(many, { limit: 99999 })).toHaveLength(500);
   });
 
-  test('network: failed only, since, untrusted', () => {
+  test('network: failed means a transport failure or an HTTP error status; since; untrusted', () => {
     const rows = [
       { t: 1, method: 'GET', url: 'a', status: 200, type: 'Fetch', ms: 1, bytes: 1, failed: false },
       { t: 2, method: 'GET', url: 'b', status: 0, type: 'Fetch', ms: 1, bytes: 0, failed: true, error: 'x' },
+      { t: 3, method: 'GET', url: 'c', status: 404, type: 'Fetch', ms: 1, bytes: 9, failed: false },
     ];
-    expect(queryNetwork(rows, { failed: true }).map((r) => r.url)).toEqual(['b']);
-    expect(queryNetwork(rows, { since: 2 }).map((r) => r.url)).toEqual(['b']);
+    expect(queryNetwork(rows, { failed: true }).map((r) => r.url)).toEqual(['b', 'c']);
+    expect(queryNetwork(rows, { since: 2 }).map((r) => r.url)).toEqual(['b', 'c']);
     expect(queryNetwork(rows, {}).every((r) => r.untrusted === true)).toBe(true);
   });
 });

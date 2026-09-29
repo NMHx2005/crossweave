@@ -18,18 +18,18 @@ main-process CDP driver, a renderer switch, a CLI, a security matrix.
 
 ## Tasks
 
-1. [ ] **Pure core** `src/core/browser-agent/`: `permission.ts` (command × level, confirm rule), `origin.ts`
+1. [x] **Pure core** `src/core/browser-agent/`: `permission.ts` (command × level, confirm rule), `origin.ts`
    (local classification), `redact.ts`, `ring.ts`, `capture.ts` (CDP events → bounded console/network buffers,
    cleared on origin change), `query.ts` (filters and limits). Tests first in `tests/core/browser-agent/`.
-2. [ ] **Main driver** `apps/cockpit/electron/browser-agent.ts`: registry `paneId → {projectRoot, webContentsId,
+2. [x] **Main driver** `apps/cockpit/electron/browser-agent.ts`: registry `paneId → {projectRoot, webContentsId,
    level}`, lazy refcounted attach, the nine commands over CDP, native confirmation (serialised, 20 s = refusal),
    live-origin read at execution, screenshots written by main. Tests with a fake debugger first.
-3. [ ] **Wiring**: `browser.setAccess` channel + `browser.activity` event, `browser.*` kinds on the command bridge,
+3. [x] **Wiring**: `browser.setAccess` channel + `browser.activity` event, `browser.*` kinds on the command bridge,
    webview-guest validation, `hardenWebviews` untouched (test asserts it).
-4. [ ] **Renderer**: the three-level switch, badge and activity line in `BrowserPane`.
-5. [ ] **CLI** `cw browser …` (`src/cli/commands/browser.ts`), `tests/cli/browser.test.ts`.
-6. [ ] **End to end** with `scripts/browser-check.ts` on the running app (real webview, real CDP).
-7. [ ] **Docs**: known-limitations file + digest line.
+4. [x] **Renderer**: the three-level switch, badge and activity line in `BrowserPane`.
+5. [x] **CLI** `cw browser …` (`src/cli/commands/browser.ts`), `tests/cli/browser.test.ts`.
+6. [x] **End to end** with `scripts/browser-check.ts` on the running app (real webview, real CDP).
+7. [x] **Docs**: known-limitations file + digest line.
 
 ## Gate
 

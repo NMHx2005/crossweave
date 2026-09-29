@@ -175,6 +175,6 @@ export function queryConsole(entries: readonly ConsoleEntry[], opts: { level?: '
 }
 
 export function queryNetwork(entries: readonly NetworkEntry[], opts: { failed?: boolean; since?: number; limit?: number }): Array<Untrusted<NetworkEntry>> {
-  const rows = entries.filter((e) => (opts.failed !== true || e.failed) && (opts.since === undefined || e.t >= opts.since));
+  const rows = entries.filter((e) => (opts.failed !== true || e.failed || e.status >= 400) && (opts.since === undefined || e.t >= opts.since));
   return rows.slice(-limitOf(opts.limit)).map((e) => ({ ...e, untrusted: true as const }));
 }
