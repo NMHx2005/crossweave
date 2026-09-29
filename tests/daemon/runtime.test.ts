@@ -113,6 +113,30 @@ describe('SessionRuntime subscriber isolation', () => {
     await runtime.stop(row.id, 200);
   }, 15_000);
 
+  // Coalescing must be invisible to the stream's content: a burst arrives complete and
+  // in order, and the exit notification does not overtake the last bytes.
+  it('delivers a burst complete and in order, with the exit after the last output', async () => {
+    const runtime = new SessionRuntime(() => undefined);
+    const row = await sessions.create({ workspaceId, name: 'burst', worktree: true });
+    let text = '';
+    const events: string[] = [];
+    let exited = false;
+    const ctx: MethodContext = {
+      notify: (m, params) => {
+        events.push(m);
+        if (m === 'session.data') text += (params as { chunk: string }).chunk;
+        if (m === 'session.exit') exited = true;
+      },
+      onClose: () => undefined,
+    };
+    runtime.start(row, argvAdapter(['sh', '-c', 'sleep 0.3; i=0; while [ $i -lt 300 ]; do echo line$i; i=$((i+1)); done']));
+    runtime.subscribe(row.id, row.name, ctx);
+    await waitFor(() => exited);
+    const lines = text.split('\r\n').filter((l) => l !== '');
+    expect(lines).toEqual(Array.from({ length: 300 }, (_, i) => `line${i}`));
+    expect(events[events.length - 1]).toBe('session.exit');
+  }, 15_000);
+
   it('attaching the same connection again replays without stacking close handlers', async () => {
     const runtime = new SessionRuntime(() => undefined);
     const row = await sessions.create({ workspaceId, name: 'reattach', worktree: true });

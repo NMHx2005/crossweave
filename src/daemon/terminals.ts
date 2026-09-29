@@ -3,6 +3,7 @@ import { newId } from '../core/ids.js';
 import type { AgentProcess } from '../adapters/types.js';
 import type { SessionRow } from '../db/repositories/session.js';
 import type { MethodContext } from './server.js';
+import { OutputCoalescer } from './output-coalescer.js';
 
 /** Same budget as a session's replay: enough to redraw a screen or two. */
 const SCROLLBACK_LIMIT = 64 * 1024;
@@ -21,6 +22,8 @@ interface OpenTerminal extends TerminalInfo {
   proc: AgentProcess;
   scrollback: string;
   subscribers: Set<MethodContext>;
+  /** Merges a burst of output per subscriber; the scrollback stays synchronous. */
+  out: OutputCoalescer<MethodContext>;
   exited: Promise<void>;
 }
 
@@ -59,20 +62,24 @@ export class TerminalRegistry {
     const entry: OpenTerminal = {
       terminalId, sessionId: session.id, sessionName: session.name, workspaceId: session.workspaceId,
       proc, scrollback: '', subscribers: new Set(),
+      out: new OutputCoalescer<MethodContext>({
+        send: (sub, chunk) => sub.notify('terminal.data', this.payload(entry, chunk)),
+      }),
       exited: new Promise<void>((r) => { resolveExited = r; }),
     };
     this.open_.set(terminalId, entry);
 
     proc.onData((chunk) => {
       entry.scrollback = (entry.scrollback + chunk).slice(-SCROLLBACK_LIMIT);
-      const payload = this.payload(entry, chunk);
-      if (payload !== undefined) notifyAll(entry.subscribers, 'terminal.data', payload);
+      for (const sub of entry.subscribers) entry.out.push(sub, chunk);
     });
     proc.onExit((code) => {
       // Bookkeeping before notifying: a throwing subscriber must not leave a dead
       // shell listed (the same ordering SessionRuntime learned the hard way).
       this.open_.delete(terminalId);
       resolveExited();
+      // Pending output first: the exit must not overtake the last bytes.
+      entry.out.flushAll();
       notifyAll(entry.subscribers, 'terminal.exit', { terminalId, code });
       this.onChange?.();
     });
@@ -87,8 +94,16 @@ export class TerminalRegistry {
 
   subscribe(terminalId: string, ctx: MethodContext): TerminalInfo {
     const entry = this.require(terminalId);
-    entry.subscribers.add(ctx);
-    ctx.onClose(() => entry.subscribers.delete(ctx));
+    if (!entry.subscribers.has(ctx)) {
+      entry.subscribers.add(ctx);
+      ctx.onClose(() => {
+        entry.subscribers.delete(ctx);
+        entry.out.clear(ctx);
+      });
+    }
+    // Before the replay, on a re-attach too: the scrollback already holds whatever this
+    // ctx had pending, so a later timer flush would print it a second time.
+    entry.out.clear(ctx);
     if (entry.scrollback.length > 0) {
       const payload = this.payload(entry, entry.scrollback);
       if (payload !== undefined) ctx.notify('terminal.data', payload);

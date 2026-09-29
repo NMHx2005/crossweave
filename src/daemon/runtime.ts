@@ -2,6 +2,7 @@ import { CrossweaveError } from '../core/errors.js';
 import type { AgentAdapter, AgentProcess } from '../adapters/types.js';
 import type { SessionRow } from '../db/repositories/session.js';
 import type { MethodContext } from './server.js';
+import { OutputCoalescer } from './output-coalescer.js';
 
 const SCROLLBACK_LIMIT = 64 * 1024;
 
@@ -28,6 +29,8 @@ function notifyAll(
 
 interface RunningSession {
   proc: AgentProcess;
+  /** Merges a burst of output per subscriber; the scrollback below stays synchronous. */
+  out: OutputCoalescer<MethodContext>;
   scrollback: string;
   subscribers: Set<MethodContext>;
   session: SessionRow;
@@ -85,7 +88,12 @@ export class SessionRuntime {
       rows: 24,
     });
 
-    const entry: RunningSession = { proc, scrollback: '', subscribers: new Set(), session, stopping: false, cols: 80, rows: 24 };
+    const entry: RunningSession = {
+      proc, scrollback: '', subscribers: new Set(), session, stopping: false, cols: 80, rows: 24,
+      out: new OutputCoalescer<MethodContext>({
+        send: (sub, chunk) => sub.notify('session.data', this.dataPayload(session, chunk)),
+      }),
+    };
 
     this.running.set(session.id, entry);
     this.observer?.started(session.id, entry.cols, entry.rows);
@@ -93,8 +101,7 @@ export class SessionRuntime {
     proc.onData((chunk) => {
       this.observer?.output(session.id, chunk);
       entry.scrollback = (entry.scrollback + chunk).slice(-SCROLLBACK_LIMIT);
-      const payload = this.dataPayload(session, chunk);
-      if (payload !== undefined) notifyAll(entry.subscribers, 'session.data', payload);
+      for (const sub of entry.subscribers) entry.out.push(sub, chunk);
     });
 
     proc.onExit((code) => {
@@ -106,6 +113,8 @@ export class SessionRuntime {
       this.running.delete(session.id);
       this.observer?.exited(session.id, code, entry.stopping);
       this.onExit(session.id, code);
+      // Pending output first: the exit line must not overtake the last bytes.
+      entry.out.flushAll();
       notifyAll(entry.subscribers, 'session.exit', { sessionId: session.id, code });
     });
 
@@ -148,8 +157,14 @@ export class SessionRuntime {
     // not stack another close handler on the same connection each time.
     if (!entry.subscribers.has(ctx)) {
       entry.subscribers.add(ctx);
-      ctx.onClose(() => entry.subscribers.delete(ctx));
+      ctx.onClose(() => {
+        entry.subscribers.delete(ctx);
+        entry.out.clear(ctx);
+      });
     }
+    // Before the replay, on a re-attach too: the scrollback already holds whatever this
+    // ctx had pending, so a later timer flush would print it a second time.
+    entry.out.clear(ctx);
     if (entry.scrollback.length > 0) {
       const payload = this.dataPayload(entry.session, entry.scrollback);
       if (payload !== undefined) ctx.notify('session.data', payload);
