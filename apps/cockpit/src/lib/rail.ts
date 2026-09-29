@@ -63,6 +63,23 @@ export const ROW_STATE_LABEL: Record<RowState, string> = {
   ended: 'ended (landed or killed)',
 }
 
+/**
+ * The tests chip: what the last `Run checks` found, said in words as well as colour. A finished verdict the work
+ * has moved past is `stale` and shown dim — never as current.
+ */
+export function checkChip(check: ListedSession['check']): { label: string; tone: 'running' | 'pass' | 'fail'; stale: boolean; title: string } | undefined {
+  if (check === undefined) return undefined
+  if (check.state === 'running') return { label: 'tests…', tone: 'running', stale: false, title: 'Running the project\'s tests in this session' }
+  const took = check.ms === undefined ? '' : ` in ${(check.ms / 1000).toFixed(1)}s`
+  const base = check.state === 'pass' ? `Tests passed${took}` : `Tests failed${check.code === undefined ? '' : ` (exit ${check.code})`}${took}`
+  return {
+    label: check.state === 'pass' ? '✓ tests' : '✗ tests',
+    tone: check.state,
+    stale: check.stale,
+    title: check.stale ? `${base} — the work has changed since; run the checks again` : base,
+  }
+}
+
 /** The land chip: only the two verdicts worth acting on from the rail. */
 export function landChip(attention: AttentionKind | undefined): 'ready' | 'conflict' | undefined {
   return attention === 'ready' || attention === 'conflict' ? attention : undefined

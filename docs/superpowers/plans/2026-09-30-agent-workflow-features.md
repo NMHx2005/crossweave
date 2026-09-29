@@ -13,10 +13,10 @@ Tier: Large (four phases, stacked branches). A phase ends with the gate, a known
 
 ## Phase 2 — session checks (`feat/session-checks`)
 
-1. [ ] Extract `land`'s trusted test runner; `session.check` RPC + `cw check`; per-session single flight, timeout, tail.
-2. [ ] Verdict with the worktree state it ran against; stale detection.
-3. [ ] Rail chip + "Run checks" action.
-4. [ ] Docs.
+1. [x] Extract `land`'s trusted test runner; `session.check` RPC + `cw check`; per-session single flight, timeout, tail.
+2. [x] Verdict with the worktree state it ran against; stale detection.
+3. [x] Rail chip + "Run checks" action.
+4. [x] Docs.
 
 ## Phase 3 — compare (`feat/session-compare`)
 

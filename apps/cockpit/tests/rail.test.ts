@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { agentName, gitBadge, landChip, newlyAsking, overlapBadge, railOrder, relativeTime, rowState, glyphState, ROW_STATE_LABEL, rowTitle, visibleRows, jumpTargets, clampMenu, newlyFinished, newlySignalled, recentToOffer, submenuPosition } from '../src/lib/rail'
+import { agentName, gitBadge, landChip, newlyAsking, overlapBadge, railOrder, relativeTime, rowState, glyphState, ROW_STATE_LABEL, rowTitle, visibleRows, jumpTargets, clampMenu, newlyFinished, newlySignalled, checkChip, recentToOffer, submenuPosition } from '../src/lib/rail'
 import { parseSessionList } from '../src/lib/sessions'
 
 describe('relativeTime', () => {
@@ -276,5 +276,34 @@ describe('parseSessionList carries the signal', () => {
     expect(badKind?.signal).toBeUndefined()
     expect(badAt?.signal).toBeUndefined()
     expect(none?.signal).toBeUndefined()
+  })
+})
+
+describe('checkChip', () => {
+  test('nothing until a check was run', () => {
+    expect(checkChip(undefined)).toBeUndefined()
+  })
+
+  test('running says so; a verdict has words as well as a colour', () => {
+    expect(checkChip({ state: 'running', at: 1, stale: false })).toMatchObject({ label: 'tests…', tone: 'running' })
+    expect(checkChip({ state: 'pass', at: 1, ms: 4200, stale: false })).toMatchObject({ label: '✓ tests', tone: 'pass', stale: false, title: 'Tests passed in 4.2s' })
+    expect(checkChip({ state: 'fail', at: 1, ms: 1000, code: 2, stale: false })).toMatchObject({ label: '✗ tests', tone: 'fail', title: 'Tests failed (exit 2) in 1.0s' })
+  })
+
+  test('a verdict the work has moved past is stale and says to run it again, never passing as current', () => {
+    const chip = checkChip({ state: 'pass', at: 1, ms: 1000, stale: true })
+    expect(chip?.stale).toBe(true)
+    expect(chip?.title).toContain('run the checks again')
+  })
+})
+
+describe('parseSessionList carries the check verdict', () => {
+  test('a well-formed verdict is kept; a malformed one is dropped', () => {
+    const [ok, bad] = parseSessionList([
+      { id: 'a', name: 'a', check: { state: 'fail', at: 5, ms: 10, code: 1, tail: 'boom', stale: true } },
+      { id: 'b', name: 'b', check: { state: 'maybe', at: 5 } },
+    ])
+    expect(ok?.check).toEqual({ state: 'fail', at: 5, ms: 10, code: 1, tail: 'boom', stale: true })
+    expect(bad?.check).toBeUndefined()
   })
 })

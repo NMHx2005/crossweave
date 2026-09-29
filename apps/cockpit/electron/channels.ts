@@ -51,6 +51,8 @@ export const COCKPIT_CHANNELS = [
   'session.rename',
   // A session's one-line note (shown in the rail instead of the agent's last words).
   'session.note',
+  // Run the project's trusted test command in a session's worktree (the verdict arrives on the session list).
+  'session.check',
   'workspace.gc',
   'file.read',
   'file.write',

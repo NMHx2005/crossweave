@@ -18,6 +18,7 @@ import { tuiCommand } from './commands/tui.js';
 import { paneCommand } from './commands/pane.js';
 import { browserCommand } from './commands/browser.js';
 import { notifyCommand } from './commands/notify.js';
+import { checkCommand } from './commands/check.js';
 import { fail } from './context.js';
 import { openDefaultApp, shouldOpenApp } from './entry-mode.js';
 import { tryOpenCockpit } from './cockpit-launcher.js';
@@ -90,6 +91,7 @@ const main = defineCommand({
     pane: paneCommand,
     browser: browserCommand,
     notify: notifyCommand,
+    check: checkCommand,
   },
 });
 

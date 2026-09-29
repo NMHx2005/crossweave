@@ -39,6 +39,14 @@ export class GitCounter {
     return this.counts.get(sessionId);
   }
 
+  /** A read now, stored, ignoring the throttle: for a caller that needs the counts as of this moment. */
+  async readNow(sessionId: string, folder: string, baseHead: string | null): Promise<GitCounts | null> {
+    const next = await this.read(folder, baseHead);
+    if (next === null) this.counts.delete(sessionId);
+    else this.counts.set(sessionId, next);
+    return next;
+  }
+
   /**
    * Resolves true when some session's counts changed; false when skipped or unchanged.
    * `targets` is only called when a read is due, so what it costs is throttled too.

@@ -1529,6 +1529,24 @@ body,
   to { transform: rotate(360deg); }
 }
 
+/* Tests verdict on a row: colour AND words, dim when the work has moved past it. */
+.cockpit-testchip {
+  flex: none;
+  padding: 0 var(--cw-space-1);
+  border: none;
+  border-radius: var(--cw-radius-sm);
+  background: transparent;
+  font: inherit;
+  font-size: var(--cw-fs-micro);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.cockpit-testchip--pass { color: var(--cw-ready); }
+.cockpit-testchip--fail { color: var(--cw-blocked); }
+.cockpit-testchip--running { color: var(--cw-working); }
+.cockpit-testchip.is-stale { opacity: 0.5; }
+
 /* The land verdict, on the row where it can be acted on. */
 .cockpit-chip {
   flex: none;

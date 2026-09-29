@@ -49,6 +49,7 @@ import { ActivityTracker, detectAgents } from './session-status.js';
 import { GitCounter } from './git-counts.js';
 import { RepoScanner } from './repo-scan.js';
 import { parseSignal } from './signal.js';
+import { CheckRunner, runShell } from './checks.js';
 import { OverlapTracker } from './overlap.js';
 import { UsageReader, UsageTracker } from '../domain/agent-usage.js';
 import { launcherProgram } from '../core/launcher-program.js';
@@ -260,6 +261,12 @@ export function buildMethods(
   const gitCounts = new GitCounter((folder, baseHead) => scanner.counts(folder, baseHead));
   const overlap = new OverlapTracker((folder, baseHead) => scanner.scan(folder, baseHead));
   const usage = new UsageTracker(new UsageReader(userHome()));
+  // "Is this session's work fit to land?": the trusted test command, run in the session's own worktree on request.
+  const checks = new CheckRunner({
+    run: runShell,
+    onChange: () => broadcastRegistry.broadcast('tui.invalidate', {}),
+    markAtFinish: (id, cwd) => gitCounts.readNow(id, cwd, cwd === projectRoot ? null : readBaseHead(projectRoot)),
+  });
   let sweeping = false;
   async function sweepStatus(): Promise<void> {
     if (sweeping) return;
@@ -645,6 +652,7 @@ export function buildMethods(
           && !setupRan.has(session.id);
         const used = session.worktreePath === projectRoot ? undefined : usage.get(session.id);
         const size = runtime.size(session.id);
+        const checkOf = checks.get(session.id, git ?? null, status.lastActivityAt);
         const withWords = {
           ...session,
           ...(used === undefined ? {} : { usage: used }),
@@ -658,6 +666,7 @@ export function buildMethods(
           lastActivityAt: status.lastActivityAt,
           rang: status.rang,
           ...(status.signal === undefined ? {} : { signal: status.signal }),
+          ...(checkOf === undefined ? {} : { check: checkOf }),
         };
         const active = leasesRepo
           .listBySession(session.id)
@@ -677,6 +686,19 @@ export function buildMethods(
           },
         };
       });
+    },
+    // Run the project's TRUSTED test command in this session's worktree; the verdict rides on `session.list`.
+    'session.check': (p) => {
+      const row = sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName'));
+      const command = config.converge.testCommand;
+      if (command === undefined) throw new CrossweaveError('CHECK_NOT_CONFIGURED', 'Set converge.testCommand in crossweave.config.json, then `cw config trust`');
+      // The same gate `land` uses: a command nobody reviewed is never run.
+      if (!isTestCommandTrusted(command, configTrust, row.workspaceId)) {
+        throw new CrossweaveError('CHECK_UNTRUSTED', 'converge.testCommand is set but not trusted for this workspace. Review crossweave.config.json, then run `cw config trust`.');
+      }
+      if (row.worktreePath === null || !existsSync(row.worktreePath)) throw new CrossweaveError('SESSION_NO_WORKDIR', `Session has no working directory: ${row.name}`);
+      checks.start(row.id, command, row.worktreePath, { ...process.env, CW_SESSION_ID: row.id, CW_SESSION_NAME: row.name, CW_CHECK: '1' } as Record<string, string>, gitCounts.get(row.id) ?? null);
+      return { ok: true };
     },
     // `cw notify`: the session (or its agent's hook) says itself that it is done or needs an answer.
     'session.notify': (p) => {

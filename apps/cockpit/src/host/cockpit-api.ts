@@ -123,6 +123,10 @@ function makeApi(invoke: Invoke, listen: Listen) {
       return invoke('settings.set', { settings })
     },
     /** One line on the session ('' clears it). */
+    /** Start the project's trusted test command in this session's worktree; the verdict rides on the session list. */
+    runCheck(idOrName: string): Promise<unknown> {
+      return invoke('session.check', { idOrName })
+    },
     setNote(idOrName: string, note: string): Promise<unknown> {
       return invoke('session.note', { idOrName, note })
     },

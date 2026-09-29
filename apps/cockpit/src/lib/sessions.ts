@@ -22,6 +22,8 @@ export function parseUsage(v: unknown): SessionUsage | undefined {
   return { total, byModel }
 }
 
+export type SessionCheck = { state: 'running' | 'pass' | 'fail'; at: number; ms?: number; code?: number; tail?: string; stale: boolean }
+
 /** A session as the rail sees it: a worktree and the user's shell in it. */
 export type ListedSession = {
   id: string
@@ -48,6 +50,8 @@ export type ListedSession = {
   rang?: boolean
   /** What the session itself said with `cw notify` (done / ask), until the next keystroke in it. */
   signal?: { kind: 'done' | 'ask'; message: string; at: number }
+  /** The verdict of the last `Run checks` (the project's trusted test command in this worktree). */
+  check?: SessionCheck
   /** The user's one-line note on it, shown in the rail instead of the agent's words. */
   note?: string
   /** Other sessions touching the same files, and which paths — the early warning before a trial merge. */
@@ -80,6 +84,15 @@ export function parseSessionList(value: unknown): ListedSession[] {
       row.git = { changed: git.changed, ahead: typeof git.ahead === 'number' ? git.ahead : null }
     }
     if (typeof record.rang === 'boolean') row.rang = record.rang
+    const chk = record.check as { state?: unknown; at?: unknown; ms?: unknown; code?: unknown; tail?: unknown; stale?: unknown } | null | undefined
+    if (chk !== null && typeof chk === 'object' && (chk.state === 'running' || chk.state === 'pass' || chk.state === 'fail') && typeof chk.at === 'number') {
+      row.check = {
+        state: chk.state, at: chk.at, stale: chk.stale === true,
+        ...(typeof chk.ms === 'number' ? { ms: chk.ms } : {}),
+        ...(typeof chk.code === 'number' ? { code: chk.code } : {}),
+        ...(typeof chk.tail === 'string' ? { tail: chk.tail } : {}),
+      }
+    }
     const sig = record.signal as { kind?: unknown; message?: unknown; at?: unknown } | null | undefined
     if (sig !== null && typeof sig === 'object' && (sig.kind === 'done' || sig.kind === 'ask') && typeof sig.message === 'string' && typeof sig.at === 'number') {
       row.signal = { kind: sig.kind, message: sig.message, at: sig.at }

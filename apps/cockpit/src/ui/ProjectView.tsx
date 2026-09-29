@@ -412,6 +412,7 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
     else if (action === 'stop') void handleStop(sessionId)
     else if (action === 'changes') openChanges(sessionId)
     else if (action === 'land') void handleLand(sessionId)
+    else if (action === 'check') void handleCheck(sessionId)
     else if (action === 'terminal') void openShell(sessionId)
     else if (action === 'delete') void handleDelete(sessionId)
     else void handleKill(sessionId)
@@ -856,6 +857,17 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
   }
 
   /** Every ready session of this project, in order. */
+  /** Run the trusted test command in this session's worktree; the chip on the row shows the verdict. */
+  async function handleCheck(sessionId: string): Promise<void> {
+    const target = sessionById(sessionId)
+    if (!target) return
+    try {
+      await api.runCheck(target.id)
+    } catch (err) {
+      hostRef.current.toast(plainErrorMessage(err), 'error')
+    }
+  }
+
   async function handleLandAll(): Promise<void> {
     if (landBusy) return
     const toast = hostRef.current.toast

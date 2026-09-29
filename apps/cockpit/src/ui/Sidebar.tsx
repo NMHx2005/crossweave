@@ -3,7 +3,7 @@ import type { ListedSession } from '../host/cockpit-api'
 import type { AttentionKind } from '../lib/attention'
 import { SESSION_COLORS, type SessionColor } from '../lib/colors'
 import { sessionNameError } from '../lib/quick-picker'
-import { agentName, clampMenu, gitBadge, glyphState, jumpTargets, landChip, overlapBadge, railOrder, relativeTime, rowState, rowTitle, ROW_STATE_LABEL, recentToOffer, submenuPosition, visibleRows } from '../lib/rail'
+import { agentName, checkChip, clampMenu, gitBadge, glyphState, jumpTargets, landChip, overlapBadge, railOrder, relativeTime, rowState, rowTitle, ROW_STATE_LABEL, recentToOffer, submenuPosition, visibleRows } from '../lib/rail'
 import { formatRailMeta } from '../lib/sessions'
 import { sumUsage, usageLabel } from '../lib/usage'
 import type { ModelPrice } from '../../../../src/core/settings.js'
@@ -26,7 +26,7 @@ export type ProjectGroup = {
   plain?: boolean
 }
 
-export type RowAction = 'open' | 'stop' | 'changes' | 'land' | 'kill' | 'delete' | 'terminal'
+export type RowAction = 'open' | 'stop' | 'changes' | 'land' | 'kill' | 'delete' | 'terminal' | 'check'
 
 export type ProjectAction =
   | 'new' | 'terminal-here' | 'land-all' | 'gc' | 'toggle-ended' | 'settings' | 'close' | 'move-up' | 'move-down'
@@ -397,6 +397,13 @@ export function Sidebar(props: SidebarProps) {
                             <button type="button" class="cockpit-chip cockpit-chip--conflict" title="See what conflicts"
                               onClick={(e) => { e.stopPropagation(); props.onAction(project.projectRoot, session.id, 'changes') }}>conflict</button>
                           ) : null}
+                          {(() => {
+                            const tests = checkChip(session.check)
+                            return tests === undefined ? null : (
+                              <button type="button" class={`cockpit-testchip cockpit-testchip--${tests.tone}${tests.stale ? ' is-stale' : ''}`} title={tests.title}
+                                onClick={(e) => { e.stopPropagation(); props.onAction(project.projectRoot, session.id, 'check') }}>{tests.label}</button>
+                            )
+                          })()}
                           {project.doneIds?.includes(session.id) ? (
                             <span class="cockpit-row__done" title="Finished — not looked at yet" aria-label="finished">✓</span>
                           ) : null}
@@ -465,6 +472,7 @@ export function Sidebar(props: SidebarProps) {
             <>
               <div class="cockpit-menu__sep" role="separator" />
               <button type="button" role="menuitem" onClick={() => rowMenu('changes')}>Changes</button>
+              <button type="button" role="menuitem" onClick={() => rowMenu('check')}>Run checks</button>
               <button type="button" role="menuitem" onClick={() => rowMenu('land')}>Land</button>
             </>
           ) : null}
