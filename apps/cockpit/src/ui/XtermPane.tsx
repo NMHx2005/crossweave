@@ -3,6 +3,7 @@ import { Terminal } from '@xterm/xterm'
 import { describeAttachFailure } from '../lib/attach-message'
 import { FitAddon } from '@xterm/addon-fit'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
+import { WebglAddon } from '@xterm/addon-webgl'
 import { SearchAddon, type ISearchOptions } from '@xterm/addon-search'
 import { CLOSED_FIND, findLabel, findReducer, type FindState } from '../lib/find-state'
 import '@xterm/xterm/css/xterm.css'
@@ -11,8 +12,18 @@ import { findFileLinks } from '../lib/file-links'
 import { stripFocusReports, stripTerminalReports } from '../../../../src/client/terminal-reports.js'
 import { clipboardWriteFromOsc52 } from '../../../../src/client/osc52.js'
 import { droppedPathsText } from '../lib/dropped-paths'
+import { RendererCoordinator } from '../lib/terminal-renderer'
 import { xtermLook } from '../lib/terminal-look'
 import { usePaneTheme, useTerminalLook } from './terminal-look-context'
+
+/**
+ * One coordinator for the window: every pane asks it for a GPU renderer, and it keeps the
+ * live WebGL contexts under Chromium's cap. Without WebGL2 (or when the addon fails to
+ * load) a pane simply stays on xterm's DOM renderer.
+ */
+const glRenderers = new RendererCoordinator<WebglAddon>(() =>
+  typeof WebGL2RenderingContext === 'undefined' ? undefined : new WebglAddon(),
+)
 
 export type XtermPaneProps = {
   source: PaneSource
@@ -70,6 +81,25 @@ export function XtermPane({ source, focused }: XtermPaneProps) {
     const searchResults = search.onDidChangeResults((r) => dispatchFind({ type: 'results', resultIndex: r.resultIndex, resultCount: r.resultCount }))
     term.open(container)
     termRef.current = term
+
+    // A project off the stage is display:none, so its panes measure 0x0: that is the
+    // visibility signal, the same one applyFit uses. The GPU renderer attaches after
+    // open() because it needs the canvas's parent.
+    const isVisible = (): boolean => container.clientWidth > 0 && container.clientHeight > 0
+    const syncRenderer = (): void => {
+      if (cancelled) return
+      const visible = isVisible()
+      if (glRenderers.active(source.key)) {
+        glRenderers.setVisible(source.key, visible)
+        return
+      }
+      glRenderers.acquire(source.key, {
+        visible,
+        load: (addon) => term.loadAddon(addon),
+        // Falls back to the DOM renderer, which draws from the buffer: repaint it whole.
+        onFallback: () => { if (!cancelled) term.refresh(0, term.rows - 1) },
+      })
+    }
 
     // An agent that tracks the mouse (Claude Code) makes its own selection and copies
     // it with OSC 52; xterm.js ignores that sequence, so the clipboard never changed.
@@ -172,9 +202,13 @@ export function XtermPane({ source, focused }: XtermPaneProps) {
         if (said !== '') term.write(`\r\n[${said}]\r\n`)
       })
 
-    const observer = new ResizeObserver(() => applyFit())
+    const observer = new ResizeObserver(() => {
+      applyFit()
+      syncRenderer()
+    })
     observer.observe(container)
     applyFit()
+    syncRenderer()
 
     // A file dragged from Finder types its path, as in Ghostty and iTerm2. Without a
     // dragover default the browser refuses the drop, and Electron would navigate to it.
@@ -206,6 +240,8 @@ export function XtermPane({ source, focused }: XtermPaneProps) {
       searchResults.dispose()
       searchRef.current = null
       source.detach()
+      // Before dispose: the addon must let go of its context while the terminal exists.
+      glRenderers.release(source.key)
       term.dispose()
       termRef.current = null
     }
