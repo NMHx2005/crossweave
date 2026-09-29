@@ -3,7 +3,7 @@ import type { ListedSession } from '../host/cockpit-api'
 import type { AttentionKind } from '../lib/attention'
 import { SESSION_COLORS, type SessionColor } from '../lib/colors'
 import { sessionNameError } from '../lib/quick-picker'
-import { agentName, clampMenu, gitBadge, jumpTargets, landChip, overlapBadge, railOrder, relativeTime, rowState, rowTitle, ROW_STATE_LABEL, recentToOffer, submenuPosition, visibleRows } from '../lib/rail'
+import { agentName, clampMenu, gitBadge, glyphState, jumpTargets, landChip, overlapBadge, railOrder, relativeTime, rowState, rowTitle, ROW_STATE_LABEL, recentToOffer, submenuPosition, visibleRows } from '../lib/rail'
 import { formatRailMeta } from '../lib/sessions'
 import { sumUsage, usageLabel } from '../lib/usage'
 import type { ModelPrice } from '../../../../src/core/settings.js'
@@ -359,7 +359,7 @@ export function Sidebar(props: SidebarProps) {
                             setMenu({ kind: 'row', projectRoot: project.projectRoot, session, x: e.clientX, y: e.clientY })
                           }}
                         >
-                          <span class={`cockpit-status cockpit-status--${state}`} role="img" aria-label={ROW_STATE_LABEL[state]} title={ROW_STATE_LABEL[state]} />
+                          <span class={`cockpit-status cockpit-status--${glyphState(state)}`} role="img" aria-label={ROW_STATE_LABEL[state]} title={ROW_STATE_LABEL[state]} />
                           {color ? <span class="cockpit-dot" style={{ background: `var(--cw-${color})` }} aria-hidden="true" /> : null}
                           {renamingRow ? (
                             <InlineRename

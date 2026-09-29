@@ -43,6 +43,15 @@ export function rowState(session: Pick<ListedSession, 'status' | 'activity' | 'r
   return 'idle'
 }
 
+/**
+ * The circle drawn beside the name. A finished turn draws none: what says "finished, look at it" is the
+ * ✓ that is shown until the session is opened (Sidebar), so once you have looked, nothing is left.
+ * Measured before this: the green dot stayed until you typed your next message, long after you had looked.
+ */
+export function glyphState(state: RowState): RowState {
+  return state === 'done' ? 'idle' : state
+}
+
 /** What each glyph means, in the row's tooltip and to a screen reader. */
 export const ROW_STATE_LABEL: Record<RowState, string> = {
   working: 'agent working',

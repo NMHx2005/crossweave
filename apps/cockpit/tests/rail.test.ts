@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { agentName, gitBadge, landChip, newlyAsking, overlapBadge, railOrder, relativeTime, rowState, ROW_STATE_LABEL, rowTitle, visibleRows, jumpTargets, clampMenu, newlyFinished, recentToOffer, submenuPosition } from '../src/lib/rail'
+import { agentName, gitBadge, landChip, newlyAsking, overlapBadge, railOrder, relativeTime, rowState, glyphState, ROW_STATE_LABEL, rowTitle, visibleRows, jumpTargets, clampMenu, newlyFinished, recentToOffer, submenuPosition } from '../src/lib/rail'
 import { parseSessionList } from '../src/lib/sessions'
 
 describe('relativeTime', () => {
@@ -43,6 +43,16 @@ describe('rowState', () => {
     expect(rowState({ status: 'idle' })).toBe('stopped')
     expect(rowState({ status: 'idle', activity: 'failed' })).toBe('failed')
     expect(rowState({ status: 'landed' })).toBe('ended')
+  })
+})
+
+describe('glyphState', () => {
+  // The user's rule: nothing for a quiet shell; a loading mark while the agent works; a mark that
+  // says "finished, check it" that goes away once looked at. The ✓ is that mark, so no circle for it.
+  test('a finished turn and a quiet shell draw no circle; everything else keeps its own', () => {
+    expect(glyphState('done')).toBe('idle')
+    expect(glyphState('idle')).toBe('idle')
+    for (const state of ['working', 'asked', 'failed', 'stopped', 'ended'] as const) expect(glyphState(state)).toBe(state)
   })
 })
 
