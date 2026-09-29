@@ -25,3 +25,8 @@ export function droppedPathsText(paths: readonly string[]): string {
     .map((p) => `${escapeShellPath(p)} `)
     .join('')
 }
+
+/** Whether a drag carries files (from Finder) rather than text or a pane being moved. */
+export function isFileDrag(types: ArrayLike<string> | undefined): boolean {
+  return Array.from(types ?? []).includes('Files')
+}

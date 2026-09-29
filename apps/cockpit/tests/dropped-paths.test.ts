@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { droppedPathsText, escapeShellPath } from '../src/lib/dropped-paths'
+import { droppedPathsText, escapeShellPath, isFileDrag } from '../src/lib/dropped-paths'
 
 describe('escapeShellPath', () => {
   test('backslash-escapes spaces, keeping non-ASCII letters as they are', () => {
@@ -37,5 +37,15 @@ describe('droppedPathsText', () => {
 
   test('skips an empty path among real ones', () => {
     expect(droppedPathsText(['', '/a.txt'])).toBe('/a.txt ')
+  })
+})
+
+describe('isFileDrag', () => {
+  test('a Finder drag carries Files; a text or pane drag does not', () => {
+    expect(isFileDrag(['Files'])).toBe(true)
+    expect(isFileDrag(['text/plain', 'Files'])).toBe(true)
+    expect(isFileDrag(['text/plain'])).toBe(false)
+    expect(isFileDrag([])).toBe(false)
+    expect(isFileDrag(undefined)).toBe(false)
   })
 })

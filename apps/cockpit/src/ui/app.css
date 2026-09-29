@@ -606,6 +606,12 @@ body,
   display: flex;
 }
 
+/* A file is being dragged over the pane and will be typed as a path if dropped. */
+.xterm-pane__wrap.is-file-drop {
+  outline: calc(var(--cw-hairline) * 2) solid var(--cw-accent);
+  outline-offset: calc(var(--cw-hairline) * -2);
+}
+
 .cockpit-find {
   position: absolute;
   top: var(--cw-space-1);

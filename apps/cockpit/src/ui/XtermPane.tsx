@@ -11,7 +11,7 @@ import type { PaneSource } from '../lib/pane-source'
 import { findFileLinks } from '../lib/file-links'
 import { stripFocusReports, stripTerminalReports } from '../../../../src/client/terminal-reports.js'
 import { clipboardWriteFromOsc52 } from '../../../../src/client/osc52.js'
-import { droppedPathsText } from '../lib/dropped-paths'
+import { droppedPathsText, isFileDrag } from '../lib/dropped-paths'
 import { RendererCoordinator } from '../lib/terminal-renderer'
 import { xtermLook } from '../lib/terminal-look'
 import { usePaneTheme, useTerminalLook } from './terminal-look-context'
@@ -210,26 +210,43 @@ export function XtermPane({ source, focused }: XtermPaneProps) {
     applyFit()
     syncRenderer()
 
-    // A file dragged from Finder types its path, as in Ghostty and iTerm2. Without a
-    // dragover default the browser refuses the drop, and Electron would navigate to it.
-    const onDragOver = (e: DragEvent) => {
-      if (e.dataTransfer?.types.includes('Files')) e.preventDefault()
+    // A file dragged from Finder types its path, as in Ghostty and iTerm2. macOS asks the
+    // app at dragenter whether it takes the drop: an uncancelled dragenter (or a cursor over
+    // the pane's padding, outside the terminal box) sends the file flying back to Finder,
+    // which is why the whole pane, not just the terminal, answers all three events.
+    const zone = container.parentElement ?? container
+    const onDragEnterOver = (e: DragEvent) => {
+      if (!isFileDrag(e.dataTransfer?.types)) return
+      e.preventDefault()
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+      zone.classList.add('is-file-drop')
+    }
+    const onDragLeave = (e: DragEvent) => {
+      if (!zone.contains(e.relatedTarget as Node | null)) zone.classList.remove('is-file-drop')
     }
     const onDrop = (e: DragEvent) => {
+      zone.classList.remove('is-file-drop')
       const files = Array.from(e.dataTransfer?.files ?? [])
       if (files.length === 0) return
       e.preventDefault()
+      // The stage's own drop handler moves panes; a file is not one.
+      e.stopPropagation()
       const text = droppedPathsText(files.map((f) => window.cockpit.pathForFile(f)))
       // paste(), not input: a shell or agent that asked for bracketed paste gets one.
       if (text !== '') term.paste(text)
       term.focus()
     }
-    container.addEventListener('dragover', onDragOver)
-    container.addEventListener('drop', onDrop)
+    zone.addEventListener('dragenter', onDragEnterOver)
+    zone.addEventListener('dragover', onDragEnterOver)
+    zone.addEventListener('dragleave', onDragLeave)
+    zone.addEventListener('drop', onDrop)
 
     return () => {
-      container.removeEventListener('dragover', onDragOver)
-      container.removeEventListener('drop', onDrop)
+      zone.removeEventListener('dragenter', onDragEnterOver)
+      zone.removeEventListener('dragover', onDragEnterOver)
+      zone.removeEventListener('dragleave', onDragLeave)
+      zone.removeEventListener('drop', onDrop)
+      zone.classList.remove('is-file-drop')
       cancelled = true
       links.dispose()
       osc52.dispose()
