@@ -69,6 +69,10 @@ export const COCKPIT_CHANNELS = [
   'fonts.list',
   // Settings saved new shortcuts: rebuild the menu from the settings file.
   'menu.refresh',
+  // Voice input: a recording to text, a draft refined, and the macOS microphone prompt.
+  'voice.transcribe',
+  'voice.refine',
+  'voice.micAccess',
 ] as const
 
 export type CockpitChannel = (typeof COCKPIT_CHANNELS)[number]

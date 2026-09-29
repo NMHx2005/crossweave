@@ -24,6 +24,9 @@ mac:
     - zip
   artifactName: ${productName}-${version}-${arch}.${ext}
   hardenedRuntime: false
+  # Voice input records from the microphone; macOS shows this sentence in its prompt.
+  extendInfo:
+    NSMicrophoneUsageDescription: crossweave Cockpit records your voice only while you use voice input, and only to turn it into text on this Mac.
   gatekeeperAssess: false
 
 electronLanguages:
