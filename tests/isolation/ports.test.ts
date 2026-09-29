@@ -9,7 +9,7 @@ import { WorkspaceRepo } from '../../src/db/repositories/workspace.js';
 import { SessionRepo } from '../../src/db/repositories/session.js';
 import { LeaseRepo } from '../../src/db/repositories/lease.js';
 import { allocatePortBlock } from '../../src/isolation/leases/ports.js';
-import { DEFAULT_CONFIG } from '../../src/core/config.js';
+import { TEST_CONFIG } from '../helpers/test-ports.js';
 import { newId } from '../../src/core/ids.js';
 
 let dir: string;
@@ -42,41 +42,41 @@ afterEach(async () => {
 
 describe('allocatePortBlock', () => {
   it('returns the configured base when nothing is taken', async () => {
-    expect(await allocatePortBlock(leases, DEFAULT_CONFIG)).toBe(DEFAULT_CONFIG.ports.base);
+    expect(await allocatePortBlock(leases, TEST_CONFIG)).toBe(TEST_CONFIG.ports.base);
   });
 
   it('skips a block already leased', async () => {
     leases.insert({
-      id: newId('lease'), sessionId, kind: 'port', value: String(DEFAULT_CONFIG.ports.base),
+      id: newId('lease'), sessionId, kind: 'port', value: String(TEST_CONFIG.ports.base),
       acquiredAt: '2026-08-10T00:00:00.000Z', releasedAt: null,
     });
-    expect(await allocatePortBlock(leases, DEFAULT_CONFIG)).toBe(
-      DEFAULT_CONFIG.ports.base + DEFAULT_CONFIG.ports.blockSize,
+    expect(await allocatePortBlock(leases, TEST_CONFIG)).toBe(
+      TEST_CONFIG.ports.base + TEST_CONFIG.ports.blockSize,
     );
   });
 
   it('reuses a block whose lease was released', async () => {
     leases.insert({
-      id: newId('lease'), sessionId, kind: 'port', value: String(DEFAULT_CONFIG.ports.base),
+      id: newId('lease'), sessionId, kind: 'port', value: String(TEST_CONFIG.ports.base),
       acquiredAt: '2026-08-10T00:00:00.000Z', releasedAt: null,
     });
     leases.release(sessionId);
-    expect(await allocatePortBlock(leases, DEFAULT_CONFIG)).toBe(DEFAULT_CONFIG.ports.base);
+    expect(await allocatePortBlock(leases, TEST_CONFIG)).toBe(TEST_CONFIG.ports.base);
   });
 
   // A lease table free of a port does not make the port free: another program on the
   // machine may hold it, and handing it to an agent produces an EADDRINUSE the user
   // cannot explain.
   it('skips a block whose first port is held by another process', async () => {
-    const base = DEFAULT_CONFIG.ports.base;
+    const base = TEST_CONFIG.ports.base;
     const squatter = createServer();
     await new Promise<void>((resolve, reject) => {
       squatter.once('error', reject);
       squatter.listen(base, '127.0.0.1', () => resolve());
     });
     try {
-      expect(await allocatePortBlock(leases, DEFAULT_CONFIG)).toBe(
-        base + DEFAULT_CONFIG.ports.blockSize,
+      expect(await allocatePortBlock(leases, TEST_CONFIG)).toBe(
+        base + TEST_CONFIG.ports.blockSize,
       );
     } finally {
       await new Promise<void>((resolve) => squatter.close(() => resolve()));
@@ -84,15 +84,15 @@ describe('allocatePortBlock', () => {
   });
 
   it('skips a block when a non-base port in the block is occupied', async () => {
-    const base = DEFAULT_CONFIG.ports.base;
+    const base = TEST_CONFIG.ports.base;
     const squatter = createServer();
     await new Promise<void>((resolve, reject) => {
       squatter.once('error', reject);
       squatter.listen(base + 1, '127.0.0.1', () => resolve());
     });
     try {
-      expect(await allocatePortBlock(leases, DEFAULT_CONFIG)).toBe(
-        base + DEFAULT_CONFIG.ports.blockSize,
+      expect(await allocatePortBlock(leases, TEST_CONFIG)).toBe(
+        base + TEST_CONFIG.ports.blockSize,
       );
     } finally {
       await new Promise<void>((resolve) => squatter.close(() => resolve()));
@@ -101,11 +101,11 @@ describe('allocatePortBlock', () => {
 
   it('throws when the range is exhausted', async () => {
     const tiny = {
-      ...DEFAULT_CONFIG,
-      ports: { base: 43000, blockSize: 10, named: {} },
+      ...TEST_CONFIG,
+      ports: { base: TEST_CONFIG.ports.base, blockSize: 10, named: {} },
     };
     // Fill every block the range can hold by leasing them all.
-    for (let p = 43000; p + 10 <= 65535; p += 10) {
+    for (let p = TEST_CONFIG.ports.base; p + 10 <= 65535; p += 10) {
       leases.insert({
         id: newId('lease'), sessionId, kind: 'port', value: String(p),
         acquiredAt: '2026-08-10T00:00:00.000Z', releasedAt: null,

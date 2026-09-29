@@ -10,7 +10,7 @@ import { WorkspaceRepo } from '../../src/db/repositories/workspace.js';
 import { SessionRepo } from '../../src/db/repositories/session.js';
 import { LeaseRepo } from '../../src/db/repositories/lease.js';
 import { LeaseManager } from '../../src/isolation/leases/manager.js';
-import { DEFAULT_CONFIG } from '../../src/core/config.js';
+import { TEST_CONFIG } from '../helpers/test-ports.js';
 import { newId } from '../../src/core/ids.js';
 
 let dir: string;
@@ -41,7 +41,7 @@ beforeEach(async () => {
   });
   sessionA = addSession(workspaceId, 'a');
   sessionB = addSession(workspaceId, 'b');
-  manager = new LeaseManager(db, dir, DEFAULT_CONFIG);
+  manager = new LeaseManager(db, dir, TEST_CONFIG);
 });
 
 afterEach(async () => {
@@ -53,7 +53,7 @@ describe('LeaseManager', () => {
   it('injects a port block, a docker project and a cache directory', async () => {
     const env = await manager.acquire(sessionA);
 
-    expect(Number(env.CW_PORT_BASE)).toBe(DEFAULT_CONFIG.ports.base);
+    expect(Number(env.CW_PORT_BASE)).toBe(TEST_CONFIG.ports.base);
     expect(env.PORT).toBe(env.CW_PORT_BASE);
     expect(env.COMPOSE_PROJECT_NAME).toBe(`cw_${sessionA.toLowerCase()}`);
     expect(env.XDG_CACHE_HOME).toContain(sessionA);
@@ -73,15 +73,15 @@ describe('LeaseManager', () => {
 
     expect(a.CW_PORT_BASE).not.toBe(b.CW_PORT_BASE);
     expect(Math.abs(Number(a.CW_PORT_BASE) - Number(b.CW_PORT_BASE)))
-      .toBeGreaterThanOrEqual(DEFAULT_CONFIG.ports.blockSize);
+      .toBeGreaterThanOrEqual(TEST_CONFIG.ports.blockSize);
     expect(a.XDG_CACHE_HOME).not.toBe(b.XDG_CACHE_HOME);
     expect(a.COMPOSE_PROJECT_NAME).not.toBe(b.COMPOSE_PROJECT_NAME);
   });
 
   it('exposes named ports as offsets from the block base', async () => {
     const config = {
-      ...DEFAULT_CONFIG,
-      ports: { ...DEFAULT_CONFIG.ports, named: { API_PORT: 0, DB_PORT: 1 } },
+      ...TEST_CONFIG,
+      ports: { ...TEST_CONFIG.ports, named: { API_PORT: 0, DB_PORT: 1 } },
     };
     const named = new LeaseManager(db, dir, config);
     const env = await named.acquire(sessionA);
@@ -108,7 +108,7 @@ describe('LeaseManager', () => {
   });
 
   it('sets DATABASE_URL under the file-copy strategy', async () => {
-    const config = { ...DEFAULT_CONFIG, db: { strategy: 'file-copy' as const, url: 'app.db' } };
+    const config = { ...TEST_CONFIG, db: { strategy: 'file-copy' as const, url: 'app.db' } };
     const withDb = new LeaseManager(db, dir, config);
     const env = await withDb.acquire(sessionA);
     expect(env.DATABASE_URL).toContain(sessionA);
@@ -117,7 +117,7 @@ describe('LeaseManager', () => {
 
   it('rejects a file-copy db.url that escapes the project root', async () => {
     const config = {
-      ...DEFAULT_CONFIG,
+      ...TEST_CONFIG,
       db: { strategy: 'file-copy' as const, url: '../outside.db' },
     };
     const withDb = new LeaseManager(db, dir, config);
@@ -130,7 +130,7 @@ describe('LeaseManager', () => {
   // failed starts ate one port block each until NO_PORTS_AVAILABLE.
   it('releases what it already recorded when a later step fails', async () => {
     const bad = new LeaseManager(db, dir, {
-      ...DEFAULT_CONFIG, db: { strategy: 'file-copy' as const, url: '../outside.db' },
+      ...TEST_CONFIG, db: { strategy: 'file-copy' as const, url: '../outside.db' },
     });
     await expect(bad.acquire(sessionA)).rejects.toThrow();
     expect(new LeaseRepo(db).listActive('port').filter((l) => l.sessionId === sessionA)).toEqual([]);
@@ -157,7 +157,7 @@ describe('LeaseManager', () => {
     const squatter = createServer();
     await new Promise<void>((resolve, reject) => {
       squatter.once('error', reject);
-      squatter.listen(DEFAULT_CONFIG.ports.base, '127.0.0.1', () => resolve());
+      squatter.listen(TEST_CONFIG.ports.base, '127.0.0.1', () => resolve());
     });
 
     try {
@@ -172,7 +172,7 @@ describe('LeaseManager', () => {
 
       const bases = envs.map((e) => e.CW_PORT_BASE);
       expect(new Set(bases).size).toBe(ids.length);
-      expect(bases).not.toContain(String(DEFAULT_CONFIG.ports.base));
+      expect(bases).not.toContain(String(TEST_CONFIG.ports.base));
     } finally {
       await new Promise<void>((resolve) => squatter.close(() => resolve()));
     }
@@ -182,6 +182,6 @@ describe('LeaseManager', () => {
     await manager.acquire(sessionA);
     manager.releaseAll();
     const env = await manager.acquire(sessionB);
-    expect(env.CW_PORT_BASE).toBe(String(DEFAULT_CONFIG.ports.base));
+    expect(env.CW_PORT_BASE).toBe(String(TEST_CONFIG.ports.base));
   });
 });
