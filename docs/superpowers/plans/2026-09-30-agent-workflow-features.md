@@ -20,9 +20,9 @@ Tier: Large (four phases, stacked branches). A phase ends with the gate, a known
 
 ## Phase 3 — compare (`feat/session-compare`)
 
-1. [ ] Pure view model: two diffs, shared files, verdicts. Tests first.
-2. [ ] Compare modal + rail menu entry + per-side land.
-3. [ ] Docs.
+1. [x] Pure view model: two diffs, shared files, verdicts. Tests first.
+2. [x] Compare modal + rail menu entry + per-side land.
+3. [x] Docs.
 
 ## Phase 4 — prompt composer (`feat/prompt-composer`)
 

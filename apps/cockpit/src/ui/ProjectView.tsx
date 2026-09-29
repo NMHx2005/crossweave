@@ -73,6 +73,8 @@ import {
 import type { RowAction } from './Sidebar'
 import { Stage, type StageStatus } from './Stage'
 import { runPaneRequest, type PaneEnv } from '../lib/pane-bridge'
+import { CompareView } from './CompareView'
+import { defaultCompareTarget } from '../lib/compare'
 import { sessionsThatStartedRunning } from '../lib/sessions'
 import { agentName, newlyAsking, newlyFinished, newlySignalled } from '../lib/rail'
 import { ProjectApiContext } from './project-context'
@@ -169,6 +171,8 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
   const [sessionsRevision, setSessionsRevision] = useState(0)
   const [convergeDetail, setConvergeDetail] = useState<ConvergeDetail>({ pairwise: [], empty: [], baseBranch: null })
   const [commandBarOpen, setCommandBarOpen] = useState(false)
+  /** The two sessions being compared side by side, or null. */
+  const [compare, setCompare] = useState<[string, string] | null>(null)
   const [commandHistory, setCommandHistory] = useState<string[]>(() => readStringList(COMMAND_HISTORY_KEY))
   const [branches, setBranches] = useState<string[]>([])
   /** Non-null while ⌘P is open: the session whose worktree it searches. */
@@ -413,6 +417,7 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
     else if (action === 'changes') openChanges(sessionId)
     else if (action === 'land') void handleLand(sessionId)
     else if (action === 'check') void handleCheck(sessionId)
+    else if (action === 'compare') handleCompare(sessionId)
     else if (action === 'terminal') void openShell(sessionId)
     else if (action === 'delete') void handleDelete(sessionId)
     else void handleKill(sessionId)
@@ -868,6 +873,18 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
     }
   }
 
+  /** Open the two-session comparison with this session on the left and, opposite it, whoever it overlaps most. */
+  function handleCompare(sessionId: string): void {
+    const candidates = sessions.filter((s) => s.branch != null && s.status !== 'landed' && s.status !== 'dead')
+    const current = candidates.find((s) => s.id === sessionId)
+    const other = current === undefined ? undefined : defaultCompareTarget(current, candidates)
+    if (current === undefined || other === undefined) {
+      hostRef.current.toast('Compare needs two sessions that each have their own branch', 'info')
+      return
+    }
+    setCompare([current.id, other])
+  }
+
   async function handleLandAll(): Promise<void> {
     if (landBusy) return
     const toast = hostRef.current.toast
@@ -1023,6 +1040,22 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
           onToggleChanges={toggleChanges}
           changesOpen={focusedId !== null && Boolean(locatePane(stage, `changes:${focusedId}`))}
         />
+        {visible && compare !== null ? (
+          <CompareView
+            sessions={sessions.filter((s) => s.branch != null && s.status !== 'landed' && s.status !== 'dead')}
+            leftId={compare[0]}
+            rightId={compare[1]}
+            revision={sessionsRevision}
+            loadDiff={(id) => api.sessionDiff(id)}
+            verdictOf={(id) => {
+              const target = sessions.find((s) => s.id === id)
+              return target ? landVerdict(target, converge, convergeDetail, new Map(sessions.flatMap((s) => (s.branch ? [[s.branch, s.name] as const] : [])))) : { kind: 'none', conflictsWith: [] }
+            }}
+            onLand={(id) => { void handleLand(id).then(() => setCompare(null)) }}
+            landBusy={landBusy}
+            onClose={() => setCompare(null)}
+          />
+        ) : null}
       </div>
     </ProjectApiContext.Provider>
   )

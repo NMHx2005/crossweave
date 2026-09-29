@@ -1529,6 +1529,57 @@ body,
   to { transform: rotate(360deg); }
 }
 
+/* Compare two sessions: a wide modal, one column per session. */
+.cockpit-compare {
+  width: calc(var(--cw-row-h) * 60);
+  max-width: 100%;
+  max-height: calc(100vh - var(--cw-space-4) * 2);
+  display: flex;
+  flex-direction: column;
+}
+
+.cockpit-compare__title {
+  display: flex;
+  align-items: center;
+  gap: var(--cw-space-3);
+  padding-bottom: var(--cw-space-2);
+}
+
+.cockpit-compare__title .cockpit-picker__title { margin: 0; }
+.cockpit-compare__title .cockpit-btn { margin-left: auto; }
+
+.cockpit-compare__cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--cw-space-3);
+  min-height: 0;
+  overflow: auto;
+}
+
+.cockpit-compare__side { min-width: 0; }
+
+.cockpit-compare__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--cw-space-2);
+}
+
+.cockpit-compare__totals { margin: var(--cw-space-2) 0; }
+.cockpit-compare__side .cockpit-changes__files button.is-both { background: var(--cw-surface-hover); }
+
+.cockpit-compare__both {
+  flex: none;
+  font-size: var(--cw-fs-micro);
+  color: var(--cw-needs-you);
+}
+
+.cockpit-compare__patch {
+  margin: var(--cw-space-2) 0 0;
+  max-height: calc(var(--cw-row-h) * 14);
+  overflow: auto;
+}
+
 /* Tests verdict on a row: colour AND words, dim when the work has moved past it. */
 .cockpit-testchip {
   flex: none;
