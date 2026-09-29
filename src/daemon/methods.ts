@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { WorkspaceManager } from '../domain/workspace.js';
 import { SessionManager, type AdapterFactory } from '../domain/session.js';
 import { CrossweaveError } from '../core/errors.js';
+import { BridgeRegistry } from './bridge-registry.js';
 import { daemonLog } from '../core/log.js';
 import { SessionRuntime } from './runtime.js';
 import type { MethodHandler } from './server.js';
@@ -183,6 +184,8 @@ export function buildMethods(
   // `tui.event`/`tui.invalidate` as they happen — see src/daemon/broadcast.ts's
   // own doc comment.
   const broadcastRegistry = new BroadcastRegistry();
+  /** The cockpit's request/response channel for shell commands (see bridge-registry.ts). */
+  const commandBridge = new BridgeRegistry();
   const convergenceScheduler = new ConvergenceScheduler(db, projectRoot, config, leaseManager, configTrust, notifyDeps, broadcastRegistry);
   // Constructed always, started only by the real daemon. Every test that calls
   // buildMethods() to exercise one RPC in isolation goes straight to db.close()
@@ -1099,6 +1102,29 @@ export function buildMethods(
       ctx.onClose(unsubscribe);
       return { subscribed: true };
     },
+
+    // A cockpit says which kinds it serves for a workspace; a shell command then asks it for
+    // one through bridge.call and the cockpit answers with bridge.respond. The daemon carries
+    // the envelope and interprets nothing inside it (bridge-registry.ts has the rules).
+    'bridge.register': (p, ctx) => {
+      const kinds = p.kinds;
+      if (!Array.isArray(kinds) || !kinds.every((k) => typeof k === 'string')) {
+        throw new CrossweaveError('BRIDGE_UNKNOWN_KIND', 'kinds must be a list of names');
+      }
+      commandBridge.register(ctx, str(p, 'workspaceId'), kinds as string[]);
+      return { ok: true };
+    },
+    'bridge.respond': (p, ctx) => {
+      const id = str(p, 'id');
+      commandBridge.respond(ctx, id, p.ok === true
+        ? { ok: true, result: p.result }
+        : { ok: false, code: p.code, message: p.message });
+      return { ok: true };
+    },
+    'bridge.call': (p) => commandBridge.call(
+      str(p, 'workspaceId'), str(p, 'kind'), p.params,
+      typeof p.timeoutMs === 'number' ? p.timeoutMs : undefined,
+    ),
 
     'daemon.shutdown': async () => {
       // Says how many shells this takes down, because nothing else does: an explicit
