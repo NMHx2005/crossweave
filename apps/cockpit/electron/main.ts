@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { accessSync, chmodSync, constants as fsConstants, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -19,7 +19,7 @@ import { editorLaunch, resolveLinkTarget } from './editor-open'
 import { badgeCount, folderLaunch, resolveFolder } from './path-target'
 import { importSources, importTerminal, type ImportDeps } from './terminal-import'
 import { listFonts } from './fonts'
-import { refine, transcribe, type VoiceDeps } from './voice'
+import { refine, resolveCommand, transcribe, type VoiceDeps } from './voice'
 import { findRepos, folderKind } from '../../../src/core/folder-kind.js'
 import { initGit, inspectFolder } from './folder-open'
 import { loadSettings, saveSettings } from '../../../src/core/settings.js'
@@ -219,9 +219,27 @@ const MAX_REFINE_CHARS = 100_000
  * settings (read here, never taken from the request), run as argv with a timeout and an
  * output cap; the recording lives in a private directory for the length of one run.
  */
+/** The PATH a login shell would give (read once, only when a program is not found otherwise). */
+let loginPathCache: Promise<string | undefined> | undefined
+function loginShellPath(): Promise<string | undefined> {
+  loginPathCache ??= new Promise((resolve) => {
+    const shell = process.env.SHELL && process.env.SHELL.startsWith('/') ? process.env.SHELL : '/bin/zsh'
+    // argv only; the shell reads the user's own start-up files, then prints its PATH.
+    execFile(shell, ['-ilc', 'printf %s "$PATH"'], { timeout: 4000, encoding: 'utf8', maxBuffer: 64 * 1024 },
+      (err, stdout) => resolve(err ? undefined : String(stdout).trim() || undefined))
+  })
+  return loginPathCache
+}
+
 function voiceDeps(): VoiceDeps {
   return {
     home: app.getPath('home'),
+    resolveCommand: (command) => resolveCommand(command, {
+      home: app.getPath('home'),
+      pathEnv: process.env.PATH ?? '',
+      isExecutable: (path) => { try { accessSync(path, fsConstants.X_OK); return true } catch { return false } },
+      loginPath: loginShellPath,
+    }),
     loadVoice: () => loadSettings().voice,
     writeAudio: async (bytes) => {
       const dir = mkdtempSync(join(tmpdir(), 'cw-voice-'))

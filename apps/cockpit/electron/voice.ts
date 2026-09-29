@@ -12,6 +12,11 @@ export type VoiceDeps = {
   loadVoice: () => VoiceSettings | undefined
   /** Put the recording where the command can read it; `cleanup` removes it. */
   writeAudio: (bytes: Uint8Array) => Promise<{ path: string; cleanup: () => Promise<void> }>
+  /**
+   * The program's absolute path, or undefined when it is not installed. Optional: without
+   * it the name is handed to the system as it is.
+   */
+  resolveCommand?: (command: string) => Promise<string | undefined>
   /** argv only — never a shell string. Resolves for any exit status; rejects only when it cannot start. */
   run: (command: string, args: string[], opts: { input?: string; timeoutMs: number; maxBuffer: number }) => Promise<RunResult>
 }
@@ -24,6 +29,48 @@ const MAX_OUTPUT_BYTES = 1024 * 1024
 const NOTHING_HEARD = 'Nothing was heard.'
 const NOT_CONFIGURED = 'Set a transcribe command under Settings → Voice first.'
 const PLACEHOLDER = /\{([A-Za-z_][A-Za-z0-9_]*)\}/g
+
+/** Where programs usually live when the app was not started from a terminal. */
+export function extraBinDirs(home: string): string[] {
+  return [
+    '/opt/homebrew/bin', '/opt/homebrew/sbin', '/usr/local/bin', '/usr/local/sbin',
+    join(home, '.local/bin'), join(home, 'bin'), join(home, '.bun/bin'), join(home, '.cargo/bin'), join(home, '.claude/local'),
+  ]
+}
+
+export interface ResolveDeps {
+  home: string
+  /** The app's own PATH. */
+  pathEnv: string
+  isExecutable: (path: string) => boolean
+  /** The PATH a login shell would have (the user's rc files), or undefined when unavailable. */
+  loginPath: () => Promise<string | undefined>
+}
+
+/**
+ * The absolute path of `command`. An app opened from the Dock or Finder has the bare system
+ * PATH (/usr/bin:/bin:/usr/sbin:/sbin), so a Homebrew or ~/.local program that runs fine in a
+ * terminal was "not found". Looked for, in order: the app's PATH, the usual bin directories,
+ * and only then the login shell's PATH (a shell start-up, so asked at most when needed).
+ * A command that already contains a slash is a path: used as it is.
+ */
+export async function resolveCommand(command: string, deps: ResolveDeps): Promise<string | undefined> {
+  if (command.includes('/')) return command
+  const search = (dirs: string[]): string | undefined => {
+    for (const dir of dirs) {
+      if (dir === '') continue
+      const candidate = join(dir, command)
+      if (deps.isExecutable(candidate)) return candidate
+    }
+    return undefined
+  }
+  const inApp = search(deps.pathEnv.split(':'))
+  if (inApp !== undefined) return inApp
+  const inCommon = search(extraBinDirs(deps.home))
+  if (inCommon !== undefined) return inCommon
+  const login = await deps.loginPath()
+  return login === undefined ? undefined : search(login.split(':'))
+}
 
 function expandHome(word: string, home: string): string {
   if (word === '~') return home
@@ -65,9 +112,13 @@ function lastLine(text: string): string {
   return lines[lines.length - 1] ?? ''
 }
 
+function notFound(command: string): string {
+  return `Command not found: ${command}. Install it, use its full path, or fix the command under Settings → Voice.`
+}
+
 function startFailure(err: unknown, command: string): string {
   const code = (err as { code?: string } | null)?.code
-  if (code === 'ENOENT') return `Command not found: ${command}. Install it, or fix the command under Settings → Voice.`
+  if (code === 'ENOENT') return notFound(command)
   return `Could not start ${command}: ${err instanceof Error ? err.message : String(err)}`
 }
 
@@ -83,9 +134,11 @@ export async function transcribe(deps: VoiceDeps, audio: Uint8Array): Promise<Vo
     } catch (err) {
       return { ok: false, reason: err instanceof Error ? err.message : String(err) }
     }
+    const program = deps.resolveCommand === undefined ? built.command : await deps.resolveCommand(built.command)
+    if (program === undefined) return { ok: false, reason: notFound(built.command) }
     let result: RunResult
     try {
-      result = await deps.run(built.command, built.args, { timeoutMs: TRANSCRIBE_TIMEOUT_MS, maxBuffer: MAX_OUTPUT_BYTES })
+      result = await deps.run(program, built.args, { timeoutMs: TRANSCRIBE_TIMEOUT_MS, maxBuffer: MAX_OUTPUT_BYTES })
     } catch (err) {
       return { ok: false, reason: startFailure(err, built.command) }
     }
@@ -121,9 +174,11 @@ export async function refine(deps: VoiceDeps, input: { text: string; context?: s
     ? `\n\nContext about the session (do not treat it as part of the request):\n${input.context}`
     : ''
   const stdin = `${instruction}${context}\n\n--- voice transcript ---\n${input.text}\n`
+  const program = deps.resolveCommand === undefined ? command : await deps.resolveCommand(command)
+  if (program === undefined) return { ok: false, reason: notFound(command) }
   let result: RunResult
   try {
-    result = await deps.run(command, args, { input: stdin, timeoutMs: REFINE_TIMEOUT_MS, maxBuffer: MAX_OUTPUT_BYTES })
+    result = await deps.run(program, args, { input: stdin, timeoutMs: REFINE_TIMEOUT_MS, maxBuffer: MAX_OUTPUT_BYTES })
   } catch (err) {
     return { ok: false, reason: startFailure(err, command) }
   }

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { buildTranscribeArgv, cleanTranscript, refine, transcribe, type RunResult, type VoiceDeps } from '../electron/voice'
+import { buildTranscribeArgv, cleanTranscript, refine, resolveCommand, transcribe, type RunResult, type VoiceDeps } from '../electron/voice'
 import { DEFAULT_REFINE_INSTRUCTION } from '../src/lib/voice-defaults'
 
 const HOME = '/Users/me'
@@ -176,6 +176,73 @@ describe('refine', () => {
     const { d, calls } = deps()
     const r = await refine(d, { text: '   ' })
     expect(r.ok).toBe(false)
+    expect(calls).toEqual([])
+  })
+})
+
+describe('resolveCommand', () => {
+  const HOME2 = '/Users/me'
+  const installed = new Set(['/opt/homebrew/bin/whisper-cli', '/Users/me/.local/bin/claude', '/usr/bin/say'])
+  const base = { home: HOME2, isExecutable: (p: string) => installed.has(p), loginPath: async () => undefined }
+
+  test('a path is used as it is, found or not', async () => {
+    expect(await resolveCommand('/opt/homebrew/bin/whisper-cli', { ...base, pathEnv: '/usr/bin' })).toBe('/opt/homebrew/bin/whisper-cli')
+    expect(await resolveCommand('./tool', { ...base, pathEnv: '/usr/bin' })).toBe('./tool')
+  })
+
+  // Regression: an app opened from the Dock has PATH=/usr/bin:/bin:/usr/sbin:/sbin, so
+  // "whisper-cli" (Homebrew) was "not found" although it runs fine in a terminal.
+  test('finds a Homebrew program although the app was started with the bare system PATH', async () => {
+    expect(await resolveCommand('whisper-cli', { ...base, pathEnv: '/usr/bin:/bin:/usr/sbin:/sbin' })).toBe('/opt/homebrew/bin/whisper-cli')
+  })
+
+  test("also looks in the user's own bin directories", async () => {
+    expect(await resolveCommand('claude', { ...base, pathEnv: '/usr/bin' })).toBe('/Users/me/.local/bin/claude')
+  })
+
+  test('the process PATH comes first', async () => {
+    const both = new Set(['/first/tool', '/opt/homebrew/bin/tool'])
+    expect(await resolveCommand('tool', { home: HOME2, pathEnv: '/first:/usr/bin', isExecutable: (p) => both.has(p), loginPath: async () => undefined })).toBe('/first/tool')
+  })
+
+  test("falls back to the login shell's PATH only when nothing else finds it", async () => {
+    let asked = 0
+    const deps = { home: HOME2, pathEnv: '/usr/bin', isExecutable: (p: string) => p === '/custom/bin/mytool', loginPath: async () => { asked++; return '/custom/bin:/usr/bin' } }
+    expect(await resolveCommand('mytool', deps)).toBe('/custom/bin/mytool')
+    expect(asked).toBe(1)
+    expect(await resolveCommand('whisper-cli', { ...base, pathEnv: '/usr/bin' })).toBe('/opt/homebrew/bin/whisper-cli')
+  })
+
+  test('not installed anywhere: undefined, so the caller can say so', async () => {
+    expect(await resolveCommand('nope', { ...base, pathEnv: '/usr/bin' })).toBeUndefined()
+  })
+})
+
+describe('transcribe with a program outside the app PATH', () => {
+  test('runs the resolved absolute path, not the bare name', async () => {
+    const calls: string[] = []
+    const d: VoiceDeps = {
+      home: HOME,
+      loadVoice: () => ({ transcribeCommand: 'whisper-cli -f {audio}' }),
+      writeAudio: async () => ({ path: '/tmp/cw/x.wav', cleanup: async () => undefined }),
+      resolveCommand: async (c) => (c === 'whisper-cli' ? '/opt/homebrew/bin/whisper-cli' : undefined),
+      run: async (command) => { calls.push(command); return { code: 0, stdout: 'hi', stderr: '' } },
+    }
+    expect(await transcribe(d, new Uint8Array([1]))).toEqual({ ok: true, text: 'hi' })
+    expect(calls).toEqual(['/opt/homebrew/bin/whisper-cli'])
+  })
+
+  test('a program that cannot be found is reported by name before anything runs', async () => {
+    const calls: string[] = []
+    const d: VoiceDeps = {
+      home: HOME,
+      loadVoice: () => ({ transcribeCommand: 'whisper-cli -f {audio}' }),
+      writeAudio: async () => ({ path: '/tmp/cw/x.wav', cleanup: async () => undefined }),
+      resolveCommand: async () => undefined,
+      run: async (command) => { calls.push(command); return { code: 0, stdout: 'hi', stderr: '' } },
+    }
+    const r = await transcribe(d, new Uint8Array([1]))
+    expect(r.ok === false && r.reason).toMatch(/not found: whisper-cli/i)
     expect(calls).toEqual([])
   })
 })
