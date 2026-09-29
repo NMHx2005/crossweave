@@ -1,10 +1,12 @@
-import { useCallback, useRef, useState } from 'preact/hooks'
+import { useCallback, useLayoutEffect, useRef, useState } from 'preact/hooks'
 import { useDismiss } from './useDismiss'
 import type { ListedSession } from '../host/cockpit-api'
 import { liveTabs, type DropSide, type LayoutNode, type PaneRef, type SplitDir, type StageState, type Tab } from '../lib/layout'
 import { sessionSource, terminalSource, type InAppOpener } from '../lib/pane-source'
 import type { SessionColor } from '../lib/colors'
 import { XtermPane } from './XtermPane'
+import { planFlip, playFlip, structureKey, type Box } from '../lib/flip'
+import { COCKPIT_TOKENS } from './tokens'
 import { useProjectApi } from './project-context'
 import { AgentMark, DiffIcon, FileIcon, GlobeIcon, MoreIcon, PanelRightIcon, PlusIcon, SidebarIcon, TerminalIcon } from './icons'
 
@@ -116,6 +118,42 @@ export function Stage(props: StageProps) {
   const [dropAt, setDropAt] = useState<{ paneId: string; side: DropSide } | null>(null)
   const key = (id: string): string => props.shortcut?.(id) ?? ''
 
+  // Split, close, swap, preset and move animate (see lib/flip.ts). The shown tab's panes
+  // are measured after every render; when its structure — not merely its sizes — differs
+  // from the last measure, the panes that moved slide from where they were.
+  const stageRef = useRef<HTMLElement>(null)
+  const lastLayout = useRef<{ tabId: string; sig: string; rects: Map<string, Box> } | null>(null)
+  useLayoutEffect(() => {
+    const root = stageRef.current
+    const tab = stage.tabs.find((t) => t.id === shownTabId)
+    // A project off the stage measures 0x0; keep what we had for when it returns.
+    if (!root || !tab || root.clientWidth === 0) return
+    const sig = structureKey(tab.root)
+    const els = new Map<string, HTMLElement>()
+    for (const el of root.querySelectorAll<HTMLElement>('.cockpit-stage__body:not([hidden]) .cockpit-pane[data-pane-id]')) {
+      els.set(el.dataset['paneId'] ?? '', el)
+    }
+    const prev = lastLayout.current
+    const restructured = prev !== null && (prev.tabId !== tab.id || prev.sig !== sig)
+    // An animation still running makes every measure wrong (it carries a transform), and
+    // an unrelated re-render must not cut it short. Only a new structure interrupts it.
+    const running = [...els.values()].some((el) => el.getAnimations().length > 0)
+    if (running && !restructured) return
+    for (const el of els.values()) for (const a of el.getAnimations()) a.cancel()
+    const rects = new Map<string, Box>()
+    for (const [id, el] of els) {
+      const r = el.getBoundingClientRect()
+      rects.set(id, { left: r.left, top: r.top, width: r.width, height: r.height })
+    }
+    lastLayout.current = { tabId: tab.id, sig, rects }
+    // Another tab, or the first layout: the tab cross-fade covers those, not a slide.
+    if (prev === null || !restructured || prev.tabId !== tab.id) return
+    playFlip(els, planFlip(prev.rects, rects), {
+      durationMs: Number.parseFloat(COCKPIT_TOKENS['--cw-dur-layout']),
+      easing: COCKPIT_TOKENS['--cw-ease-out'],
+    })
+  })
+
   const tabLabel = (tab: Tab): string => {
     const n = paneCount(tab.root)
     return `${paneLabel(firstPane(tab.root), names, titles)}${n > 1 ? ` +${n - 1}` : ''}`
@@ -148,6 +186,7 @@ export function Stage(props: StageProps) {
     return (
       <div
         key={node.id}
+        data-pane-id={node.id}
         class={`cockpit-pane${focused ? ' is-focused' : ''}${zoomed ? ' is-zoomed' : ''}${drop ? ` is-drop-${drop}` : ''}`}
         aria-label={paneLabel(pane, names, titles)}
         onMouseDown={() => { if (!focused) props.onFocusPane(tab.id, node.id) }}
@@ -266,7 +305,7 @@ export function Stage(props: StageProps) {
   }
 
   return (
-    <main class="cockpit-stage" aria-label="Stage" onClick={() => { setMenu(null) }}>
+    <main class="cockpit-stage" aria-label="Stage" ref={stageRef} onClick={() => { setMenu(null) }}>
       <div class={`cockpit-tabs${props.sidebarHidden ? ' has-traffic' : ''}`} role="tablist" aria-label="Tabs">
         {props.sidebarHidden ? (
           <button type="button" class="cockpit-iconbtn" title="Show sidebar (⌘\\)" aria-label="Show sidebar" onClick={props.onToggleSidebar}>

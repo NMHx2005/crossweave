@@ -223,3 +223,24 @@ describe('themes', () => {
     expect([t.name, t.scheme, t.colors['--cw-surface']]).toEqual(['terminal', 'light', '#fdf6e3'])
   })
 })
+
+describe('motion tokens', () => {
+  const ms = (name: keyof typeof T): number => Number.parseFloat(String(T[name]))
+
+  it('defines the structural-motion durations and easings the stage animation uses', () => {
+    expect(T['--cw-dur-layout']).toMatch(/^\d+ms$/)
+    expect(T['--cw-dur-slow']).toMatch(/^\d+ms$/)
+    expect(T['--cw-ease-out']).toMatch(/^cubic-bezier\(/)
+    expect(T['--cw-ease-spring']).toMatch(/^linear\(/)
+  })
+
+  it('keeps every transition short: nothing but the working spinner is above 220 ms', () => {
+    const durations = (Object.keys(T) as Array<keyof typeof T>).filter((n) => n.startsWith('--cw-dur') && n !== '--cw-dur-spin')
+    expect(durations.length).toBeGreaterThan(3)
+    for (const name of durations) expect(ms(name)).toBeLessThanOrEqual(220)
+  })
+
+  it('layout motion is not slower than the slow token', () => {
+    expect(ms('--cw-dur-layout')).toBeLessThanOrEqual(ms('--cw-dur-slow'))
+  })
+})

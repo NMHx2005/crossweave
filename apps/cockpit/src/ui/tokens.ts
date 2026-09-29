@@ -153,6 +153,15 @@ export const COCKPIT_TOKENS = {
   // One turn of the working ring: slow enough to read as "busy", not as an alarm.
   '--cw-dur-spin': '1600ms',
   '--cw-ease': 'cubic-bezier(0.2, 0, 0.2, 1)',
+  // Structure moving (a pane splitting, closing or changing place). Longer than a control's
+  // hover but still under a quarter second, so a layout change never makes anyone wait.
+  '--cw-dur-layout': '180ms',
+  // Whole-view fades (a tab or project switching): the slowest thing the cockpit does.
+  '--cw-dur-slow': '220ms',
+  // Decelerates into place: a pane arriving should settle, not stop dead.
+  '--cw-ease-out': 'cubic-bezier(0.16, 1, 0.3, 1)',
+  // A small overshoot for something that lands (the attention pulse), as a CSS spring.
+  '--cw-ease-spring': 'linear(0, 0.55 12%, 0.98 30%, 1.04 42%, 1.01 60%, 1)',
 } as const
 
 export type CockpitTokenName = keyof typeof COCKPIT_TOKENS
