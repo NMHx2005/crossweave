@@ -21,6 +21,8 @@ import { importSources, importTerminal, type ImportDeps } from './terminal-impor
 import { listFonts } from './fonts'
 import { refine, resolveCommand, transcribe, type VoiceDeps } from './voice'
 import { CommandBridgeServer } from './command-bridge'
+import { RendererBridge } from './renderer-bridge'
+import { PANE_KINDS } from '../src/lib/pane-bridge'
 import { findRepos, folderKind } from '../../../src/core/folder-kind.js'
 import { initGit, inspectFolder } from './folder-open'
 import { loadSettings, saveSettings } from '../../../src/core/settings.js'
@@ -58,6 +60,15 @@ function forgetSavedRoot(): void {
     writeFileSync(savedRootPath(), '{}\n')
   } catch {}
 }
+
+/** The hop for bridge requests that only the window can carry out (layout lives in the renderer). */
+const rendererBridge = new RendererBridge({
+  send: (event, payload) => {
+    const windows = BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed())
+    for (const win of windows) win.webContents.send(event, payload)
+    return windows.length > 0
+  },
+})
 
 function sendToRenderers(event: CockpitEvent, payload: unknown): void {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -114,6 +125,8 @@ function createBridge(): DaemonBridge {
   // the pane and browser kinds register here as their features land, each with its own checks.
   const commandBridge = new CommandBridgeServer()
   commandBridge.serve('pane.ping', (_params, ctx) => ({ pong: true, projectRoot: ctx.projectRoot }))
+  // Every other pane kind is decided by the window: it owns the layout, and it asks the person where it must.
+  for (const kind of PANE_KINDS) commandBridge.serve(kind, (params, ctx) => rendererBridge.ask(kind, params, { projectRoot: ctx.projectRoot }))
   return new DaemonBridge({
     commandBridge,
     // A folder the user opened as a plain folder gets a daemon that serves it without git.
@@ -311,6 +324,7 @@ function registerHandlers(bridge: DaemonBridge): void {
       if (channel === 'voice.transcribe') return voiceTranscribe(payload)
       if (channel === 'voice.refine') return voiceRefine(payload)
       if (channel === 'voice.micAccess') return micAccess()
+      if (channel === 'bridge.reply') { rendererBridge.reply(payload); return { ok: true } }
       if (channel === 'terminal.importSources') return importSources(importDeps())
       if (channel === 'fonts.list') return listFonts(importDeps().run)
       if (channel === 'folder.inspect') {

@@ -625,6 +625,23 @@ export function App() {
     return () => window.removeEventListener('keydown', onKeyDown, true)
   }, [])
 
+  // A shell command (cw pane …) asks a project's window to act; the answer, or the refusal, goes back.
+  useEffect(() => cockpitApi.onBridge((payload) => {
+    const r = payload as { id?: unknown; kind?: unknown; params?: unknown; projectRoot?: unknown } | null
+    if (typeof r?.id !== 'string' || typeof r.kind !== 'string' || typeof r.projectRoot !== 'string') return
+    const id = r.id
+    const reply = (body: Record<string, unknown>): void => { void cockpitApi.bridgeReply({ id, ...body }).catch(() => undefined) }
+    const handle = handles.current.get(r.projectRoot)
+    if (handle === undefined) { reply({ ok: false, code: 'PANE_NOT_FOUND', message: 'That project is not open in this window' }); return }
+    handle.bridge(r.kind, r.params).then(
+      (result) => reply({ ok: true, result }),
+      (err: unknown) => {
+        const e = err as { code?: unknown; message?: unknown }
+        reply({ ok: false, code: typeof e?.code === 'string' ? e.code : 'BRIDGE_HANDLER_FAILED', message: typeof e?.code === 'string' && typeof e.message === 'string' ? e.message : 'The window could not do that' })
+      },
+    )
+  }), [])
+
   useEffect(() => cockpitApi.onCommand((payload) => {
     const record = payload as { command?: unknown; projectRoot?: unknown; message?: unknown } | null
     // A notice from the main process (e.g. another client holds the command channel).

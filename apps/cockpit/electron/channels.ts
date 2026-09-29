@@ -73,6 +73,8 @@ export const COCKPIT_CHANNELS = [
   'voice.transcribe',
   'voice.refine',
   'voice.micAccess',
+  // A shell command's request (cw pane) was carried out or refused by the window: the answer.
+  'bridge.reply',
 ] as const
 
 export type CockpitChannel = (typeof COCKPIT_CHANNELS)[number]
@@ -92,6 +94,8 @@ export const COCKPIT_EVENTS = [
   'terminal.exit',
   // A menu accelerator fired (⌘T, ⌘⇧A): the renderer decides what it means.
   'cockpit.command',
+  // A shell command asks the window to arrange its panes (answered on the bridge.reply channel).
+  'cockpit.bridge',
 ] as const
 
 export type CockpitEvent = (typeof COCKPIT_EVENTS)[number]

@@ -72,6 +72,7 @@ import {
 } from '../lib/layout'
 import type { RowAction } from './Sidebar'
 import { Stage, type StageStatus } from './Stage'
+import { runPaneRequest, type PaneEnv } from '../lib/pane-bridge'
 import { VoiceComposer } from './VoiceComposer'
 import { sessionsThatStartedRunning } from '../lib/sessions'
 import { agentName, newlyAsking, newlyFinished } from '../lib/rail'
@@ -115,6 +116,8 @@ export type ViewHandle = {
   /** A menu accelerator meant for the project on the stage (⌘T, ⌘K, ⌘D, …). */
   command: (name: string) => void
   setColor: (sessionId: string, color: SessionColor | null) => void
+  /** A shell command's request (cw pane …), carried out against this project's layout. */
+  bridge: (kind: string, params: unknown) => Promise<unknown>
 }
 
 /** The window-wide things a view reaches through its host. */
@@ -154,6 +157,8 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
 
   const [sessions, setSessions] = useState<ListedSession[]>([])
   const [stage, setStage] = useState<StageState>(emptyStage)
+  const stageRef = useRef(stage)
+  stageRef.current = stage
   const [status, setStatus] = useState<StageStatus>('loading')
   const [error, setError] = useState<string | null>(null)
   const [landabilityByName, setLandabilityByName] = useState<Map<string, Landability>>(() => new Map())
@@ -459,9 +464,31 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
     }
   }
 
+  /**
+   * A shell command's request (cw pane …). The command is unauthenticated, so `runPaneRequest`
+   * validates it and asks the person where it must; when it did ask, the answer is applied to the
+   * layout as it is NOW (the person may have changed it while the dialog was up), without asking twice.
+   */
+  const bridgeRef = useRef<(kind: string, params: unknown) => Promise<unknown>>(async () => undefined)
+  bridgeRef.current = async (kind, params) => {
+    const env = (stage: StageState, ask: PaneEnv['ask']): PaneEnv => ({ stage, sessions: sessions.map((s) => ({ id: s.id, name: s.name })), ask })
+    const ask: PaneEnv['ask'] = (q) => hostRef.current.askConfirm({ title: q.title, body: q.body, confirmLabel: q.confirmLabel, ...(q.danger ? { danger: true } : {}) })
+    let outcome = await runPaneRequest(env(stageRef.current, ask), kind, params)
+    if (outcome.asked === true) outcome = await runPaneRequest(env(stageRef.current, async () => true), kind, params)
+    const next = outcome.stage
+    if (next !== undefined) setStage(() => next)
+    for (const effect of outcome.effects) {
+      if (effect.type === 'openShell') void openShell(effect.sessionId, { tabId: effect.tabId, paneId: effect.paneId, dir: effect.dir })
+      else handleClosePane(effect.tabId, effect.paneId, effect.pane)
+    }
+    if (outcome.toast !== undefined) hostRef.current.toast(outcome.toast, 'info')
+    return outcome.answer
+  }
+
   useEffect(() => {
     hostRef.current.register(projectRoot, {
       run: (action) => runRef.current(action),
+      bridge: (kind, params) => bridgeRef.current(kind, params),
       command: (name) => commandRef.current(name),
       setColor: (sessionId, color) => {
         setColors((current) => {

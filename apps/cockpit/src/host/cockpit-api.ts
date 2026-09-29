@@ -150,6 +150,13 @@ function makeApi(invoke: Invoke, listen: Listen) {
     openInEditor(sessionId: string, path: string, line?: number, col?: number): Promise<{ ok: boolean; inApp?: boolean; path?: string; line?: number }> {
       return invoke('editor.open', { sessionId, path, line, col })
     },
+    /** A shell command (cw pane) asks this window to act; the answer goes back through bridgeReply. */
+    onBridge(cb: (payload: unknown) => void): () => void {
+      return listen('cockpit.bridge', cb)
+    },
+    bridgeReply(payload: unknown): Promise<unknown> {
+      return invoke('bridge.reply', payload)
+    },
     onCommand(cb: (payload: unknown) => void): () => void {
       return listen('cockpit.command', cb)
     },
@@ -267,7 +274,7 @@ const WINDOW_CHANNELS = new Set<CockpitChannel>([
   'folder.inspect', 'folder.initGit', 'folder.openPlain',
   'projects.close', 'app.badge', 'folder.reveal', 'folder.openInEditor',
   'terminal.importSources', 'terminal.import', 'fonts.list', 'menu.refresh',
-  'voice.transcribe', 'voice.refine', 'voice.micAccess',
+  'voice.transcribe', 'voice.refine', 'voice.micAccess', 'bridge.reply',
 ])
 
 /** `payload` with `projectRoot` added, unless the call already names one or is window-wide. */

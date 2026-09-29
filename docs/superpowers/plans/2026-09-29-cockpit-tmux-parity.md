@@ -73,12 +73,12 @@ report before the next starts. Order: **2B.1 → 2A → 2B → 2C → 2D**.
 
 ## 2D — pane control bridge (`feat/pane-bridge`, own spec + plan)
 
-1. [ ] Write `docs/superpowers/specs/<date>-pane-bridge-design.md` **on top of the
+1. [x] Write `docs/superpowers/specs/<date>-pane-bridge-design.md` **on top of the
    shared command bridge** (`2026-09-29-cockpit-command-bridge-design.md`, which lands
    first): the `pane.*` kinds and the `cw pane` surface; a **threat model** (socket is user-wide,
    `CW_SESSION_ID` spoofable, strict allowlist, `open --url/--file` require a cockpit
    confirmation); the "no cockpit attached" error; its own security review.
-2. [ ] Then its own plan. Not started until 2C has landed and been reported.
+2. [x] Then its own plan (done: `2026-09-29-pane-bridge.md`). Not started until 2C has landed and been reported.
 3. [ ] **Deferred:** daemon-owned layout (headless/multi-client) gets its own spec when
    the iOS app starts; the `src/core/layout` reducers make that cheap.
 

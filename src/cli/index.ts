@@ -15,6 +15,7 @@ import { landCommand } from './commands/land.js';
 import { configCommand } from './commands/config.js';
 import { updateCommand } from './commands/update.js';
 import { tuiCommand } from './commands/tui.js';
+import { paneCommand } from './commands/pane.js';
 import { fail } from './context.js';
 import { openDefaultApp, shouldOpenApp } from './entry-mode.js';
 import { tryOpenCockpit } from './cockpit-launcher.js';
@@ -84,6 +85,7 @@ const main = defineCommand({
     config: configCommand,
     update: updateCommand,
     tui: tuiCommand,
+    pane: paneCommand,
   },
 });
 
