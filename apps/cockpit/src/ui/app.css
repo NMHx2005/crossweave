@@ -1529,6 +1529,61 @@ body,
   to { transform: rotate(360deg); }
 }
 
+/* The prompt composer: a draft, an optional refine proposal, the sessions to send to, and exactly what will be sent. */
+.cockpit-prompt {
+  width: calc(var(--cw-row-h) * 34);
+  max-width: 100%;
+  max-height: calc(100vh - var(--cw-space-4) * 2);
+  overflow: auto;
+}
+
+.cockpit-prompt__draft {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  font-family: var(--cw-font-mono);
+}
+
+.cockpit-prompt__bar {
+  display: flex;
+  align-items: center;
+  gap: var(--cw-space-3);
+  padding: var(--cw-space-2) 0;
+}
+
+.cockpit-prompt__proposal pre {
+  margin: var(--cw-space-1) 0;
+  padding: var(--cw-space-2);
+  white-space: pre-wrap;
+  background: var(--cw-surface-input);
+  border-radius: var(--cw-radius-sm);
+  max-height: calc(var(--cw-row-h) * 10);
+  overflow: auto;
+}
+
+.cockpit-prompt__targets {
+  border: none;
+  margin: var(--cw-space-2) 0;
+  padding: 0;
+}
+
+.cockpit-prompt__targets label {
+  display: flex;
+  align-items: center;
+  gap: var(--cw-space-2);
+  height: var(--cw-row-h);
+}
+
+.cockpit-prompt__targets label.is-off { opacity: 0.55; }
+
+.cockpit-prompt__plan {
+  margin: var(--cw-space-2) 0;
+  padding: 0 0 0 var(--cw-space-4);
+  font-size: var(--cw-fs-sm);
+}
+
+.cockpit-prompt__plan .is-refused { color: var(--cw-text-dim); }
+
 /* Compare two sessions: a wide modal, one column per session. */
 .cockpit-compare {
   width: calc(var(--cw-row-h) * 60);

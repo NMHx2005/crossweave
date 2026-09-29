@@ -217,6 +217,41 @@ describe('a settings file from a version that had voice input', () => {
   });
 });
 
+describe('prompt settings (the composer\'s refine command)', () => {
+  const valid = { refine: { command: 'claude -p', instruction: 'Restructure; add nothing.', includeContext: true } };
+
+  it('round-trips through save and load, and is absent by default', () => {
+    expect(loadSettings(home).prompt).toBeUndefined();
+    saveSettings({ ...loadSettings(home), prompt: valid }, home);
+    expect(loadSettings(home).prompt).toEqual(valid);
+  });
+
+  it('refuses a command that spans lines, is unbalanced, or is too long', () => {
+    for (const command of ['claude -p\nrm -rf ~', 'claude "unbalanced', 'x'.repeat(2001)]) {
+      expect(() => saveSettings({ ...loadSettings(home), prompt: { refine: { command } } }, home)).toThrow(/prompt/i);
+    }
+  });
+
+  it('refuses an instruction that is not text, is over 4000 characters or has a NUL, and a flag that is not a boolean', () => {
+    expect(() => saveSettings({ ...loadSettings(home), prompt: { refine: { instruction: 'x'.repeat(4001) } } }, home)).toThrow(/instruction/i);
+    expect(() => saveSettings({ ...loadSettings(home), prompt: { refine: { instruction: 'a\0b' } } }, home)).toThrow(/instruction/i);
+    expect(() => saveSettings({ ...loadSettings(home), prompt: { refine: { includeContext: 'yes' as never } } }, home)).toThrow(/prompt/i);
+  });
+
+  it('a corrupt prompt block in the file is dropped on load rather than breaking other settings', () => {
+    mkdirSync(join(home, '.crossweave'), { recursive: true });
+    writeFileSync(file(), JSON.stringify({ editor: { kind: 'zed' }, prompt: { refine: { command: 'a\nb', includeContext: 3 } } }));
+    const s = loadSettings(home);
+    expect(s.editor).toEqual({ kind: 'zed' });
+    expect(s.prompt).toBeUndefined();
+  });
+
+  it('an empty block or a blank command is not kept', () => {
+    saveSettings({ ...loadSettings(home), prompt: { refine: { command: '   ' } } }, home);
+    expect(loadSettings(home).prompt).toBeUndefined();
+  });
+});
+
 describe('key-table bindings in the keybindings', () => {
   it('accepts prefix:<key> for a character or a named key, and stores it as given', () => {
     saveSettings({ ...loadSettings(home), keybindings: { 'split-right': 'prefix:|', 'focus-left': 'prefix:Left', 'zoom-pane': 'prefix:%', 'x': 'prefix:đ' } }, home);

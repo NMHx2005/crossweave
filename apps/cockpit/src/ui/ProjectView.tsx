@@ -74,6 +74,7 @@ import type { RowAction } from './Sidebar'
 import { Stage, type StageStatus } from './Stage'
 import { runPaneRequest, type PaneEnv } from '../lib/pane-bridge'
 import { CompareView } from './CompareView'
+import { PromptComposer } from './PromptComposer'
 import { defaultCompareTarget } from '../lib/compare'
 import { sessionsThatStartedRunning } from '../lib/sessions'
 import { agentName, newlyAsking, newlyFinished, newlySignalled } from '../lib/rail'
@@ -173,6 +174,10 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
   const [commandBarOpen, setCommandBarOpen] = useState(false)
   /** The two sessions being compared side by side, or null. */
   const [compare, setCompare] = useState<[string, string] | null>(null)
+  /** The prompt composer: open or not, and its draft (kept until it is sent) and whether a refine command is set. */
+  const [composerOpen, setComposerOpen] = useState(false)
+  const [composerDraft, setComposerDraft] = useState('')
+  const [refineConfigured, setRefineConfigured] = useState(false)
   const [commandHistory, setCommandHistory] = useState<string[]>(() => readStringList(COMMAND_HISTORY_KEY))
   const [branches, setBranches] = useState<string[]>([])
   /** Non-null while ⌘P is open: the session whose worktree it searches. */
@@ -439,6 +444,7 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
     else if (command === 'copy-mode') window.dispatchEvent(new CustomEvent('cockpit:copy-mode'))
     else if (command === 'sync-panes') onFocusedPane((tabId) => setStage((s) => toggleSync(s, tabId)))
     else if (command === 'cycle-layout') onFocusedPane((tabId) => setStage((s) => cyclePreset(s, tabId)))
+    else if (command === 'prompt-composer') openComposer()
     else if (command === 'open-file') void handleOpenFile()
     else if (command === 'open-browser') handleOpenBrowser()
     else if (command === 'zoom-pane') onFocusedPane((tabId, paneId) => setStage((s) => toggleZoom(s, tabId, paneId)))
@@ -873,6 +879,15 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
     }
   }
 
+  /** Open the composer; whether Refine is offered is read from the saved settings each time. */
+  function openComposer(): void {
+    setComposerOpen(true)
+    void api.getSettings().then(
+      (settings) => setRefineConfigured(((settings as { prompt?: { refine?: { command?: string } } } | null)?.prompt?.refine?.command ?? '').trim() !== ''),
+      () => setRefineConfigured(false),
+    )
+  }
+
   /** Open the two-session comparison with this session on the left and, opposite it, whoever it overlaps most. */
   function handleCompare(sessionId: string): void {
     const candidates = sessions.filter((s) => s.branch != null && s.status !== 'landed' && s.status !== 'dead')
@@ -1037,9 +1052,30 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
           sidebarHidden={host.sidebarHidden}
           onToggleSidebar={host.onToggleSidebar}
           onNewTab={() => { void handleNew() }}
+          onPrompt={openComposer}
           onToggleChanges={toggleChanges}
           changesOpen={focusedId !== null && Boolean(locatePane(stage, `changes:${focusedId}`))}
         />
+        {visible && composerOpen ? (
+          <PromptComposer
+            sessions={sessions
+              .filter((s) => s.status !== 'landed' && s.status !== 'dead')
+              .map((s) => ({ id: s.id, name: s.name, running: s.status === 'running' || s.status === 'waiting', agent: s.agent ?? null }))}
+            focusedId={focusedId}
+            refineConfigured={refineConfigured}
+            draft={composerDraft}
+            onDraft={setComposerDraft}
+            contextFor={(id) => {
+              const s = sessions.find((x) => x.id === id)
+              return s === undefined ? undefined : `session: ${s.name}${s.branch ? `\nbranch: ${s.branch}` : ''}${s.git ? `\nuncommitted files: ${s.git.changed}` : ''}`
+            }}
+            refine={(text, context) => api.promptRefine(text, context)}
+            send={(id, data) => api.sendInput(id, data)}
+            onOpenSettings={() => { setComposerOpen(false); hostRef.current.openSettings('prompt') }}
+            onSent={(summary) => { setComposerOpen(false); hostRef.current.toast(summary, 'info') }}
+            onClose={() => setComposerOpen(false)}
+          />
+        ) : null}
         {visible && compare !== null ? (
           <CompareView
             sessions={sessions.filter((s) => s.branch != null && s.status !== 'landed' && s.status !== 'dead')}

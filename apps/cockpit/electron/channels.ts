@@ -71,6 +71,8 @@ export const COCKPIT_CHANNELS = [
   'fonts.list',
   // Settings saved new shortcuts: rebuild the menu from the settings file.
   'menu.refresh',
+  // The prompt composer's Refine: the draft through the user's own command (from the saved settings), back as a proposal.
+  'prompt.refine',
   // A shell command's request (cw pane) was carried out or refused by the window: the answer.
   'bridge.reply',
   // The Browser pane's access switch (off / read / control) and the webview it belongs to; main enforces it.

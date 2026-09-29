@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { accessSync, constants as fsConstants, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFile, execFileSync } from 'node:child_process'
@@ -21,6 +21,7 @@ import { listFonts } from './fonts'
 import { CommandBridgeServer } from './command-bridge'
 import { RendererBridge } from './renderer-bridge'
 import { BrowserAgent } from './browser-agent'
+import { MAX_DRAFT_CHARS, refine as refineDraft, resolveCommand, type RefineDeps } from './prompt-refine'
 import { BROWSER_COMMANDS } from '../../../src/core/browser-agent/permission.js'
 import { PANE_KINDS } from '../src/lib/pane-bridge'
 import { findRepos, folderKind } from '../../../src/core/folder-kind.js'
@@ -254,6 +255,55 @@ function setBadge(payload: unknown): { ok: boolean } {
   return { ok: true }
 }
 
+/** The PATH a login shell would give (read once, only when a program is not found otherwise). */
+let loginPathCache: Promise<string | undefined> | undefined
+function loginShellPath(): Promise<string | undefined> {
+  loginPathCache ??= new Promise((resolve) => {
+    const shell = process.env.SHELL && process.env.SHELL.startsWith('/') ? process.env.SHELL : '/bin/zsh'
+    // argv only; the shell reads the user's own start-up files, then prints its PATH.
+    execFile(shell, ['-ilc', 'printf %s "$PATH"'], { timeout: 4000, encoding: 'utf8', maxBuffer: 64 * 1024 },
+      (err, stdout) => resolve(err ? undefined : String(stdout).trim() || undefined))
+  })
+  return loginPathCache
+}
+
+/**
+ * The composer's Refine. The command is the user's own program from their SAVED settings (read here, never taken
+ * from the request), run as argv with a timeout and an output cap; nothing it prints is sent anywhere.
+ */
+function refineDeps(): RefineDeps {
+  return {
+    home: app.getPath('home'),
+    loadPrompt: () => loadSettings().prompt,
+    resolveCommand: (command) => resolveCommand(command, {
+      home: app.getPath('home'),
+      pathEnv: process.env.PATH ?? '',
+      isExecutable: (path) => { try { accessSync(path, fsConstants.X_OK); return true } catch { return false } },
+      loginPath: loginShellPath,
+    }),
+    run: (command, args, opts) => new Promise((resolve, reject) => {
+      const child = execFile(command, args, { timeout: opts.timeoutMs, maxBuffer: opts.maxBuffer, encoding: 'utf8' }, (err, stdout, stderr) => {
+        if (err === null) return resolve({ code: 0, stdout: String(stdout), stderr: String(stderr) })
+        const code = (err as NodeJS.ErrnoException).code
+        // Could not start at all (not installed, not executable): the caller words that.
+        if (typeof code === 'string' && /^E[A-Z]+$/.test(code)) return reject(err)
+        if ((err as { killed?: boolean }).killed) {
+          return resolve({ code: 124, stdout: String(stdout), stderr: `${String(stderr)}\ntimed out after ${Math.round(opts.timeoutMs / 1000)}s` })
+        }
+        resolve({ code: typeof code === 'number' ? code : 1, stdout: String(stdout), stderr: String(stderr) })
+      })
+      child.stdin?.end(opts.input)
+    }),
+  }
+}
+
+async function promptRefine(payload: unknown): Promise<unknown> {
+  const p = payload as { text?: unknown; context?: unknown } | null
+  if (typeof p?.text !== 'string' || p.text.length > MAX_DRAFT_CHARS) return { ok: false, reason: 'There is nothing to refine.' }
+  const context = typeof p.context === 'string' && p.context.length <= MAX_DRAFT_CHARS ? p.context : undefined
+  return refineDraft(refineDeps(), { text: p.text, ...(context === undefined ? {} : { context }) })
+}
+
 function registerHandlers(bridge: DaemonBridge): void {
   for (const channel of COCKPIT_CHANNELS) {
     ipcMain.handle(channel, async (_event, payload: unknown) => {
@@ -264,6 +314,7 @@ function registerHandlers(bridge: DaemonBridge): void {
       if (channel === 'folder.reveal') return openFolder(bridge, payload, 'reveal')
       if (channel === 'folder.openInEditor') return openFolder(bridge, payload, 'editor')
       if (channel === 'app.badge') return setBadge(payload)
+      if (channel === 'prompt.refine') return promptRefine(payload)
       if (channel === 'bridge.reply') { rendererBridge.reply(payload); return { ok: true } }
       if (channel === 'browser.setAccess') return browserAgent.setAccess(payload)
       if (channel === 'terminal.importSources') return importSources(importDeps())
@@ -298,12 +349,12 @@ function registerHandlers(bridge: DaemonBridge): void {
         if (from !== 'ghostty' && from !== 'iterm2') return { ok: false, reason: 'Import from ghostty or iterm2' }
         return importTerminal(from, importDeps())
       }
-      // The project's daemon may predate `persistence` and would drop it: see settings-guard.ts.
-      if (channel === 'settings.get') { const file = loadSettings(); return withGuardedFromFile(await bridge.handle(channel, payload), { persistence: file.persistence }) }
+      // The project's daemon may predate `persistence` or `prompt` and would drop them: see settings-guard.ts.
+      if (channel === 'settings.get') { const file = loadSettings(); return withGuardedFromFile(await bridge.handle(channel, payload), { persistence: file.persistence, prompt: file.prompt }) }
       if (channel === 'settings.set') {
         const answer = await bridge.handle(channel, payload)
         const file = loadSettings()
-        const lost = restoreGuarded(payload, { persistence: file.persistence })
+        const lost = restoreGuarded(payload, { persistence: file.persistence, prompt: file.prompt })
         if (Object.keys(lost).length === 0) return answer
         try {
           saveSettings({ ...file, ...lost })

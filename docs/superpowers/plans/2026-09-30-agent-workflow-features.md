@@ -26,11 +26,11 @@ Tier: Large (four phases, stacked branches). A phase ends with the gate, a known
 
 ## Phase 4 — prompt composer (`feat/prompt-composer`)
 
-1. [ ] Settings block `prompt.refine` (validated) + Settings section.
-2. [ ] `prompt.refine` runner in main (argv, stdin, timeout, cap) — from the saved settings only.
-3. [ ] Paste framing (bracketed / single line) and `session.input` fan-out; refusal rules. Tests first.
-4. [ ] Composer dialog (⌘⇧P): draft, refine proposal, session list, exact preview, Send, optional Enter.
-5. [ ] Real-app measurement, docs.
+1. [x] Settings block `prompt.refine` (validated) + Settings section.
+2. [x] `prompt.refine` runner in main (argv, stdin, timeout, cap) — from the saved settings only.
+3. [x] Paste framing (bracketed / single line) and `session.input` fan-out; refusal rules. Tests first.
+4. [x] Composer dialog (⌘⇧P): draft, refine proposal, session list, exact preview, Send, optional Enter.
+5. [x] Real-app measurement, docs.
 
 ## Gate (each phase)
 

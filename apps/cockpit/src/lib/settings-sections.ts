@@ -74,6 +74,15 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
     ],
   },
   {
+    id: 'prompt',
+    title: 'Prompt',
+    rows: [
+      { id: 'prompt-refine-command', label: 'Refine command', description: 'The program the composer\'s Refine button runs: it reads the draft on stdin and prints the refined prompt. Empty means no Refine button', keywords: 'llm ai rewrite improve prompt claude compose' },
+      { id: 'prompt-refine-instruction', label: 'Refine instruction', description: 'What the refine command is told to do; empty uses the default', keywords: 'prompt system' },
+      { id: 'prompt-refine-context', label: 'Include session context', description: 'Adds the session\'s name, branch and changed-file count for the refine command', keywords: 'privacy branch' },
+    ],
+  },
+  {
     id: 'usage',
     title: 'Usage',
     rows: [

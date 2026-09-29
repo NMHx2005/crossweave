@@ -2,12 +2,18 @@ import { describe, expect, test } from 'bun:test'
 import { restoreGuarded, withGuardedFromFile } from '../electron/settings-guard'
 
 const persistence = { terminals: true }
+const prompt = { refine: { command: 'claude -p' } }
 
 describe('withGuardedFromFile', () => {
   // A daemon older than the app has never heard of `persistence`: it neither returns it nor keeps it,
   // so the page would show an empty section while the file still holds the user's setup.
   test("adds the file's block when the daemon's answer has none", () => {
     expect(withGuardedFromFile({ editor: { kind: 'zed' }, launchers: [] }, { persistence })).toEqual({ editor: { kind: 'zed' }, launchers: [], persistence })
+  })
+
+  test('the prompt block is mended too, each block on its own', () => {
+    expect(withGuardedFromFile({ persistence }, { persistence, prompt })).toEqual({ persistence, prompt })
+    expect(restoreGuarded({ settings: { prompt } }, {})).toEqual({ prompt })
   })
 
   test("leaves a daemon's own block alone (a current daemon is authoritative)", () => {

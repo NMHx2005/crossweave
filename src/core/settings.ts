@@ -114,6 +114,20 @@ export interface PersistenceSettings {
   terminals?: boolean;
 }
 
+/**
+ * The prompt composer. Refining a draft is done by a program the user names (the app does not choose an AI):
+ * one line, split into arguments without a shell, the draft on its stdin. Unset means no Refine button.
+ */
+export interface PromptSettings {
+  refine?: {
+    command?: string;
+    /** What the command is told to do; empty falls back to the app's default. */
+    instruction?: string;
+    /** Add the session's name, branch and changed-file count to what the command reads. */
+    includeContext?: boolean;
+  };
+}
+
 export interface UserSettings {
   launchers: LauncherDef[];
   editor: EditorSetting;
@@ -128,6 +142,7 @@ export interface UserSettings {
    */
   keybindings?: Record<string, string | null>;
   persistence?: PersistenceSettings;
+  prompt?: PromptSettings;
 }
 
 /** A font family as it reaches xterm's CSS font string: nothing that could end the quotes. */
@@ -266,6 +281,47 @@ export function cleanKeybindings(raw: unknown): { keybindings: Record<string, st
   return { keybindings: Object.keys(out).length === 0 ? undefined : out, problems };
 }
 
+const MAX_PROMPT_COMMAND = 2000;
+const MAX_PROMPT_INSTRUCTION = 4000;
+
+export function cleanPrompt(raw: unknown): { prompt: PromptSettings | undefined; problems: string[] } {
+  const problems: string[] = [];
+  if (raw === undefined || raw === null) return { prompt: undefined, problems };
+  if (typeof raw !== 'object' || Array.isArray(raw)) return { prompt: undefined, problems: ['prompt must be an object'] };
+  const refineRaw = (raw as Record<string, unknown>).refine;
+  if (refineRaw === undefined) return { prompt: undefined, problems };
+  if (typeof refineRaw !== 'object' || refineRaw === null || Array.isArray(refineRaw)) {
+    return { prompt: undefined, problems: ['prompt refine must be an object'] };
+  }
+  const f = refineRaw as Record<string, unknown>;
+  const refine: NonNullable<PromptSettings['refine']> = {};
+  if (f.command !== undefined) {
+    if (typeof f.command !== 'string') problems.push('prompt refine command must be text');
+    else if (f.command.length > MAX_PROMPT_COMMAND || /[\r\n\0]/.test(f.command)) {
+      problems.push(`prompt refine command must be one line of at most ${MAX_PROMPT_COMMAND} characters`);
+    } else if (f.command.trim() !== '') {
+      try {
+        splitCommand(f.command);
+        refine.command = f.command;
+      } catch {
+        problems.push('prompt refine command: unbalanced quote');
+      }
+    }
+  }
+  if (f.instruction !== undefined) {
+    if (typeof f.instruction === 'string' && f.instruction.length <= MAX_PROMPT_INSTRUCTION && !f.instruction.includes('\0')) {
+      if (f.instruction.trim() !== '') refine.instruction = f.instruction;
+    } else {
+      problems.push(`prompt refine instruction: text of at most ${MAX_PROMPT_INSTRUCTION} characters`);
+    }
+  }
+  if (f.includeContext !== undefined) {
+    if (typeof f.includeContext === 'boolean') refine.includeContext = f.includeContext;
+    else problems.push('prompt refine includeContext must be true or false');
+  }
+  return { prompt: Object.keys(refine).length === 0 ? undefined : { refine }, problems };
+}
+
 export function cleanPersistence(raw: unknown): { persistence: PersistenceSettings | undefined; problems: string[] } {
   if (raw === undefined || raw === null) return { persistence: undefined, problems: [] };
   if (typeof raw !== 'object' || Array.isArray(raw)) return { persistence: undefined, problems: ['persistence must be an object'] };
@@ -344,6 +400,7 @@ function validate(settings: UserSettings): void {
     ...cleanUsage(settings.usage).problems,
     ...cleanKeybindings(settings.keybindings).problems,
     ...cleanPersistence(settings.persistence).problems,
+    ...cleanPrompt(settings.prompt).problems,
   ];
   if (problems.length > 0) invalid(problems[0] as string);
 }
@@ -369,6 +426,7 @@ export function loadSettings(homeDir?: string): UserSettings {
   const { usage } = cleanUsage(saved.usage);
   const { keybindings } = cleanKeybindings(saved.keybindings);
   const { persistence } = cleanPersistence(saved.persistence);
+  const { prompt } = cleanPrompt(saved.prompt);
   return {
     launchers: mergeLaunchers(saved.launchers), editor, layouts,
     ...(terminal === undefined ? {} : { terminal }),
@@ -376,6 +434,7 @@ export function loadSettings(homeDir?: string): UserSettings {
     ...(usage === undefined ? {} : { usage }),
     ...(keybindings === undefined ? {} : { keybindings }),
     ...(persistence === undefined ? {} : { persistence }),
+    ...(prompt === undefined ? {} : { prompt }),
   };
 }
 
@@ -436,6 +495,7 @@ export function saveSettings(settings: UserSettings, homeDir?: string): void {
     ...(settings.usage === undefined ? {} : { usage: cleanUsage(settings.usage).usage }),
     ...(settings.keybindings === undefined ? {} : { keybindings: cleanKeybindings(settings.keybindings).keybindings }),
     ...(settings.persistence === undefined ? {} : { persistence: cleanPersistence(settings.persistence).persistence }),
+    ...(settings.prompt === undefined ? {} : { prompt: cleanPrompt(settings.prompt).prompt }),
   };
   writeFileSync(tmp, `${JSON.stringify(normalized, null, 2)}\n`, { mode: 0o600 });
   chmodSync(tmp, 0o600);

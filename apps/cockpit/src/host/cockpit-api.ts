@@ -123,6 +123,10 @@ function makeApi(invoke: Invoke, listen: Listen) {
       return invoke('settings.set', { settings })
     },
     /** One line on the session ('' clears it). */
+    /** The composer's Refine: the draft through the user's own refine command; only a proposal comes back. */
+    promptRefine(text: string, context?: string): Promise<{ ok: true; text: string } | { ok: false; reason: string }> {
+      return invoke('prompt.refine', { text, ...(context === undefined ? {} : { context }) }) as Promise<{ ok: true; text: string } | { ok: false; reason: string }>
+    },
     /** Start the project's trusted test command in this session's worktree; the verdict rides on the session list. */
     runCheck(idOrName: string): Promise<unknown> {
       return invoke('session.check', { idOrName })
@@ -274,7 +278,7 @@ const WINDOW_CHANNELS = new Set<CockpitChannel>([
   'folder.inspect', 'folder.initGit', 'folder.openPlain',
   'projects.close', 'app.badge', 'folder.reveal', 'folder.openInEditor',
   'terminal.importSources', 'terminal.import', 'fonts.list', 'menu.refresh',
-  'bridge.reply',
+  'bridge.reply', 'prompt.refine',
 ])
 
 /** `payload` with `projectRoot` added, unless the call already names one or is window-wide. */

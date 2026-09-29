@@ -2,13 +2,14 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type { ComponentChildren } from 'preact'
 import { formatEnvLines, launcherIdFor, parseEnvLines } from '../lib/launchers'
 import { AgentMark } from './icons'
-import type { InterfaceAppearance, ModelPrice, PersistenceSettings, TerminalAppearance, UsageSettings } from '../../../../src/core/settings.js'
+import type { InterfaceAppearance, ModelPrice, PersistenceSettings, TerminalAppearance, UsageSettings, PromptSettings } from '../../../../src/core/settings.js'
 import { FontPicker, type InstalledFont } from './FontPicker'
 import { ShortcutList } from './ShortcutsPanel'
 import { effectiveKeys, keyConflicts } from '../lib/keymap'
 import { cockpitApi, type TerminalImport } from '../host/cockpit-api'
 import { xtermLook } from '../lib/terminal-look'
 import { createCommitter } from '../lib/settings-commit'
+import { DEFAULT_REFINE_INSTRUCTION } from '../lib/prompt-defaults'
 import { SETTINGS_SECTIONS, findSection, searchSettings } from '../lib/settings-sections'
 
 export type EditorSetting = { kind: 'vscode' | 'cursor' | 'zed' | 'custom' | 'cockpit'; command?: string }
@@ -29,6 +30,7 @@ export type UserSettings = {
   usage?: UsageSettings
   keybindings?: Record<string, string | null>
   persistence?: PersistenceSettings
+  prompt?: PromptSettings
 }
 
 const EDITORS: Array<{ kind: EditorSetting['kind']; label: string }> = [
@@ -246,6 +248,14 @@ export function SettingsPage({ initialSection, initialRow, initial, availability
     const t = setTimeout(() => el.classList.remove('is-target'), 1600)
     return () => clearTimeout(t)
   }, [target, section, searching])
+
+  const setRefine = (patch: Partial<NonNullable<PromptSettings['refine']>>): void => {
+    setDraft((d) => {
+      const next = { ...d.prompt?.refine, ...patch }
+      for (const key of Object.keys(next) as Array<keyof typeof next>) if (next[key] === undefined || next[key] === '') delete next[key]
+      return { ...d, prompt: Object.keys(next).length === 0 ? undefined : { refine: next } }
+    })
+  }
 
   const bodies: Record<string, ComponentChildren> = {
     appearance: (
@@ -488,6 +498,30 @@ export function SettingsPage({ initialSection, initialRow, initial, availability
         <label class="cockpit-settings__toggle" data-setting="notify-dock">
           <input type="checkbox" checked={notify.dockBadge} onChange={(e) => onNotify({ ...notify, dockBadge: (e.target as HTMLInputElement).checked })} />
           <span>Count them on the Dock icon</span>
+        </label>
+      </>
+    ),
+    prompt: (
+      <>
+        <p class="cockpit-muted">
+          The prompt composer (⌘⇧P) writes one prompt and sends it to one or several sessions. Refine is optional: the program
+          below is yours (this app does not choose an AI); it reads the draft and prints a better one, which you read before it
+          goes anywhere. Empty means the composer has no Refine button.
+        </p>
+        <label class="cockpit-picker__field" data-setting="prompt-refine-command">
+          <span class="cockpit-muted">Refine command</span>
+          <input class="cockpit-settings__command" value={draft.prompt?.refine?.command ?? ''} spellcheck={false} placeholder="claude -p"
+            onInput={(e) => setRefine({ command: (e.target as HTMLInputElement).value })} />
+        </label>
+        <label class="cockpit-picker__field" data-setting="prompt-refine-instruction">
+          <span class="cockpit-muted">Instruction</span>
+          <textarea rows={5} spellcheck={false} value={draft.prompt?.refine?.instruction ?? ''} placeholder={DEFAULT_REFINE_INSTRUCTION}
+            onInput={(e) => setRefine({ instruction: (e.target as HTMLTextAreaElement).value })} />
+        </label>
+        <label class="cockpit-settings__toggle" data-setting="prompt-refine-context">
+          <input type="checkbox" checked={draft.prompt?.refine?.includeContext === true}
+            onChange={(e) => setRefine({ includeContext: (e.target as HTMLInputElement).checked ? true : undefined })} />
+          <span>Include the session's name, branch and changed-file count with the draft</span>
         </label>
       </>
     ),
