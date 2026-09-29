@@ -64,6 +64,10 @@ export type StageProps = {
   changesOpen?: boolean
   /** Drag a pane by its grip onto another pane's side (same tab). */
   onMovePane?: (tabId: string, fromPaneId: string, toPaneId: string, side: DropSide) => void
+  /** A pane dropped on another tab, or chosen from its menu: it moves there (tmux move-pane). */
+  onMovePaneToTab?: (fromTabId: string, paneId: string, toTabId: string) => void
+  /** tmux synchronize-panes for a tab. */
+  onToggleSync?: (tabId: string) => void
   onZoomPane?: (tabId: string, paneId: string) => void
   onPaneToTab?: (tabId: string, paneId: string, pane: PaneRef) => void
   /** A command's current shortcut, as shown in menus (Settings → Keyboard). */
@@ -119,12 +123,16 @@ export function Stage(props: StageProps) {
   /** The pane being dragged by its grip, and where a drop would put it. */
   const dragPane = useRef<{ tabId: string; paneId: string } | null>(null)
   const [dropAt, setDropAt] = useState<{ paneId: string; side: DropSide } | null>(null)
+  /** The tab a dragged pane is over. */
+  const [paneDropTab, setPaneDropTab] = useState<string | null>(null)
   const key = (id: string): string => props.shortcut?.(id) ?? ''
 
   // Split, close, swap, preset and move animate (see lib/flip.ts). The shown tab's panes
   // are measured after every render; when its structure — not merely its sizes — differs
   // from the last measure, the panes that moved slide from where they were.
   const stageRef = useRef<HTMLElement>(null)
+  // Distinguishes this stage's tabs from another project's, whose tab ids may repeat.
+  const syncScope = useRef(Math.random().toString(36).slice(2))
   const lastLayout = useRef<{ tabId: string; sig: string; rects: Map<string, Box> } | null>(null)
   useLayoutEffect(() => {
     const root = stageRef.current
@@ -222,13 +230,13 @@ export function Stage(props: StageProps) {
           setPaneMenu({ tabId: tab.id, paneId: node.id, pane, x: e.clientX, y: e.clientY })
         }}
       >
-        {props.onMovePane && paneCount(tab.root) > 1 ? (
+        {props.onMovePane && (paneCount(tab.root) > 1 || (props.onMovePaneToTab !== undefined && stage.tabs.length > 1)) ? (
           <div class="cockpit-pane__grip" draggable title="Drag onto another pane's side to move it" aria-hidden="true"
             onDragStart={(e) => {
               dragPane.current = { tabId: tab.id, paneId: node.id }
               e.dataTransfer?.setData('text/plain', node.id)
             }}
-            onDragEnd={() => { dragPane.current = null; setDropAt(null) }} />
+            onDragEnd={() => { dragPane.current = null; setDropAt(null); setPaneDropTab(null) }} />
         ) : null}
         {pane.kind === 'session' ? (() => {
           const launch = props.launchFor?.(pane.sessionId, focused) ?? null
@@ -239,6 +247,7 @@ export function Stage(props: StageProps) {
                 source={sessionSource(api, pane.sessionId, props.inApp)}
                 // The stopped bar takes the keyboard while there is no shell to type to.
                 focused={focused && launch === null}
+                {...(tab.sync ? { syncGroup: `${syncScope.current}:${tab.id}`, paneId: node.id } : {})}
               />
               {launch}
             </>
@@ -248,6 +257,7 @@ export function Stage(props: StageProps) {
             key={`terminal:${pane.terminalId}:${paneAttachEpoch}`}
             source={terminalSource(api, pane.terminalId, pane.sessionId, props.inApp)}
             focused={focused}
+            {...(tab.sync ? { syncGroup: `${syncScope.current}:${tab.id}`, paneId: node.id } : {})}
           />
         ) : (
           props.renderSurface?.(pane, focused, { tabId: tab.id, paneId: node.id }) ?? null
@@ -339,12 +349,27 @@ export function Stage(props: StageProps) {
             aria-selected={tab.id === stage.activeTabId}
             tabIndex={tab.id === stage.activeTabId ? 0 : -1}
             onKeyDown={(e) => onTabKey(e, index)}
-            class={`cockpit-tab${tab.id === stage.activeTabId ? ' is-active' : ''}${tab.pinned ? ' is-pinned' : ''}`}
+            class={`cockpit-tab${tab.id === stage.activeTabId ? ' is-active' : ''}${tab.pinned ? ' is-pinned' : ''}${paneDropTab === tab.id ? ' is-pane-drop' : ''}`}
             draggable
             onDragStart={() => { dragTab.current = tab.id }}
-            onDragOver={(e) => e.preventDefault()}
+            onDragOver={(e) => {
+              e.preventDefault()
+              // A pane from another tab: this tab will take it.
+              const from = dragPane.current
+              if (from && from.tabId !== tab.id && paneDropTab !== tab.id) setPaneDropTab(tab.id)
+            }}
+            onDragLeave={(e) => {
+              if (!(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node | null)) setPaneDropTab((t) => (t === tab.id ? null : t))
+            }}
             onDrop={(e) => {
               e.preventDefault()
+              const pane = dragPane.current
+              setPaneDropTab(null)
+              if (pane !== null && pane.tabId !== tab.id) {
+                dragPane.current = null
+                props.onMovePaneToTab?.(pane.tabId, pane.paneId, tab.id)
+                return
+              }
               if (dragTab.current !== null && dragTab.current !== tab.id) props.onMoveTab(dragTab.current, index)
               dragTab.current = null
             }}
@@ -438,6 +463,16 @@ export function Stage(props: StageProps) {
             <button type="button" role="menuitem"
               onClick={() => { props.onPaneToTab?.(paneMenu.tabId, paneMenu.paneId, paneMenu.pane); setPaneMenu(null) }}>Move to new tab<kbd>{key('pane-to-tab')}</kbd></button>
           ) : null}
+          {props.onToggleSync ? (
+            <button type="button" role="menuitem"
+              onClick={() => { props.onToggleSync?.(paneMenu.tabId); setPaneMenu(null) }}>
+              {stage.tabs.find((t) => t.id === paneMenu.tabId)?.sync ? 'Stop synchronizing panes' : 'Synchronize panes'}<kbd>{key('sync-panes')}</kbd>
+            </button>
+          ) : null}
+          {props.onMovePaneToTab ? stage.tabs.filter((t) => t.id !== paneMenu.tabId).map((t) => (
+            <button type="button" role="menuitem" key={t.id}
+              onClick={() => { props.onMovePaneToTab?.(paneMenu.tabId, paneMenu.paneId, t.id); setPaneMenu(null) }}>Move to tab “{tabLabel(t)}”</button>
+          )) : null}
           <div class="cockpit-menu__sep" role="separator" />
           <button type="button" role="menuitem"
             onClick={() => { props.onClosePane(paneMenu.tabId, paneMenu.paneId, paneMenu.pane); setPaneMenu(null) }}>Close pane<kbd>{key('close-pane')}</kbd></button>
@@ -465,10 +500,24 @@ export function Stage(props: StageProps) {
         </p>
       ) : null}
       {tabs.map(({ tab, shown }) => (
-        <div key={tab.id} class={`cockpit-stage__body${tab.zoomedPaneId ? ' is-zoomed' : ''}`} hidden={!shown}>{renderNode(tab, tab.root)}</div>
+        <div key={tab.id} class={`cockpit-stage__body${tab.zoomedPaneId ? ' is-zoomed' : ''}`} hidden={!shown}>
+          {tab.sync ? (
+            <div class="cockpit-sync-banner" role="status">
+              What you type goes to {terminalPaneCount(tab.root)} panes
+              <button type="button" class="cockpit-btn cockpit-btn--sm" onClick={() => props.onToggleSync?.(tab.id)}>Turn off</button>
+            </div>
+          ) : null}
+          {renderNode(tab, tab.root)}
+        </div>
       ))}
     </main>
   )
+}
+
+/** How many terminal panes a tab holds (what a synchronized keystroke reaches, the source included). */
+function terminalPaneCount(node: LayoutNode): number {
+  if (node.type === 'pane') return node.pane.kind === 'session' || node.pane.kind === 'terminal' ? 1 : 0
+  return node.children.reduce((n, c) => n + terminalPaneCount(c), 0)
 }
 
 /** A drag handle between two split cells; reports moves as a fraction of the split. */

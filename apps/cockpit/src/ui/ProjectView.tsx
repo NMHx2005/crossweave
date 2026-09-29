@@ -55,6 +55,8 @@ import {
   paneKeys,
   adjacentTab,
   cyclePreset,
+  movePaneToTab,
+  toggleSync,
   parseStoredStage,
   placeBeside,
   replacePane,
@@ -425,6 +427,9 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
     else if (command === 'open-terminal') void handleTerminal()
     else if (command === 'next-tab') setStage((s) => adjacentTab(s, 1))
     else if (command === 'prev-tab') setStage((s) => adjacentTab(s, -1))
+    // The focused terminal pane takes it, as with find.
+    else if (command === 'copy-mode') window.dispatchEvent(new CustomEvent('cockpit:copy-mode'))
+    else if (command === 'sync-panes') onFocusedPane((tabId) => setStage((s) => toggleSync(s, tabId)))
     else if (command === 'cycle-layout') onFocusedPane((tabId) => setStage((s) => cyclePreset(s, tabId)))
     else if (command === 'voice-toggle') { setVoiceOpen(true); setVoiceSignal((n) => n + 1) }
     else if (command === 'open-file') void handleOpenFile()
@@ -922,6 +927,8 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
           onResize={(tabId, splitId, index, delta) => setStage((s) => resizeSplit(s, tabId, splitId, index, delta))}
           onMovePane={(tabId, fromId, toId, side: DropSide) => setStage((s) => movePane(s, tabId, fromId, toId, side))}
           onZoomPane={(tabId, paneId) => setStage((s) => toggleZoom(s, tabId, paneId))}
+          onMovePaneToTab={(fromTabId, paneId, toTabId) => setStage((s) => movePaneToTab(s, fromTabId, paneId, toTabId))}
+          onToggleSync={(tabId) => setStage((s) => toggleSync(s, tabId))}
           onPaneToTab={(tabId, paneId, pane) => setStage((s) => paneToTab(s, tabId, paneId, paneTitle(pane)))}
           shortcut={host.shortcut}
           onMoveTab={(tabId, toIndex) => setStage((s) => moveTab(s, tabId, toIndex))}

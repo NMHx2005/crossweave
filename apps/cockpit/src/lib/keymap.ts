@@ -46,6 +46,8 @@ export const COMMANDS: readonly CommandSpec[] = [
   { id: 'layout-tiled', menu: 'Pane', label: 'Layout: Tiled', key: null },
   { id: 'pane-to-tab', menu: 'Pane', label: 'Move Pane to New Tab', key: null },
   { id: 'swap-next', menu: 'Pane', label: 'Swap with Next Pane', key: null },
+  { id: 'sync-panes', menu: 'Pane', label: 'Synchronize Panes', key: null },
+  { id: 'copy-mode', menu: 'Pane', label: 'Enter Copy Mode', key: null },
   // No menu item: reachable from a shortcut the user binds, the command bar, or (later) the key-table.
   { id: 'cycle-layout', menu: null, label: 'Cycle Pane Layout', key: null },
   { id: 'show-shortcuts', menu: 'Help', label: 'Keyboard Shortcuts', key: 'CmdOrCtrl+/' },

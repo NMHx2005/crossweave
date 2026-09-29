@@ -27,3 +27,30 @@ describe('stripFocusReports', () => {
     expect(stripFocusReports('\x1b[A\x1b[?1;2c')).toBe('\x1b[A\x1b[?1;2c');
   });
 });
+
+// The gaps synchronize-panes exposed: xterm answers a program's mode query (DECRPM) and its
+// version query (XTVERSION) on its own, and copying those answers into every pane would type
+// `^[[?2004;2$y` into an agent's prompt.
+describe('DECRPM and XTVERSION replies', () => {
+  it('drops a mode report (CSI ? Ps ; Pm $ y), private and ANSI', () => {
+    expect(stripTerminalReports('\x1b[?2004;2$y')).toBe('');
+    expect(stripTerminalReports('\x1b[?1;1$y')).toBe('');
+    expect(stripTerminalReports('\x1b[4;2$y')).toBe('');
+  });
+
+  it('drops an XTVERSION reply (DCS > | text ST), whichever terminator it ends with', () => {
+    expect(stripTerminalReports('\x1bP>|xterm.js(6.0.0)\x1b\\')).toBe('');
+    expect(stripTerminalReports('\x1bP>|xterm.js(6.0.0)\x07')).toBe('');
+  });
+
+  it('keeps everything a person typed around them', () => {
+    expect(stripTerminalReports('ls\x1b[?2004;2$y -la\r')).toBe('ls -la\r');
+    expect(stripTerminalReports('a\x1bP>|xterm.js(6.0.0)\x1b\\b')).toBe('ab');
+  });
+
+  it('does not eat ordinary escape sequences a person can type: arrows, bracketed paste', () => {
+    for (const keep of ['\x1b[A', '\x1bOA', '\x1b[200~pasted\x1b[201~', '\x1b[1;5C', '\x1b[3~']) {
+      expect(stripTerminalReports(keep)).toBe(keep);
+    }
+  });
+});

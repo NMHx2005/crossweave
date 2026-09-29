@@ -1,4 +1,4 @@
-import { useEffect, useReducer, useRef } from 'preact/hooks'
+import { useEffect, useReducer, useRef, useState } from 'preact/hooks'
 import { Terminal } from '@xterm/xterm'
 import { describeAttachFailure } from '../lib/attach-message'
 import { FitAddon } from '@xterm/addon-fit'
@@ -15,6 +15,7 @@ import { droppedPathsText, isFileDrag } from '../lib/dropped-paths'
 import { RendererCoordinator } from '../lib/terminal-renderer'
 import { xtermLook } from '../lib/terminal-look'
 import { usePaneTheme, useTerminalLook } from './terminal-look-context'
+import { copyModeStep, copySelection, initialCopyState, type CopyBuffer, type CopyState } from '../../../../src/core/layout/copy-mode.js'
 
 /**
  * One coordinator for the window: every pane asks it for a GPU renderer, and it keeps the
@@ -28,9 +29,15 @@ const glRenderers = new RendererCoordinator<WebglAddon>(() =>
 export type XtermPaneProps = {
   source: PaneSource
   focused: boolean
+  /**
+   * Set while this pane's tab is synchronized (tmux synchronize-panes): the group every pane of
+   * the tab shares, and this pane's id in it. What is typed here reaches the others.
+   */
+  syncGroup?: string
+  paneId?: string
 }
 
-export function XtermPane({ source, focused }: XtermPaneProps) {
+export function XtermPane({ source, focused, syncGroup, paneId }: XtermPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   const focusedRef = useRef(focused)
@@ -41,11 +48,17 @@ export function XtermPane({ source, focused }: XtermPaneProps) {
   const look = xtermLook(useTerminalLook(), paneTheme.xterm)
   const lookRef = useRef(look)
   lookRef.current = look
+  const syncRef = useRef({ group: syncGroup, paneId })
+  syncRef.current = { group: syncGroup, paneId }
   const fitRef = useRef<FitAddon | null>(null)
   const searchRef = useRef<SearchAddon | null>(null)
   const [find, dispatchFind] = useReducer(findReducer, CLOSED_FIND)
   const findRef = useRef(find)
   findRef.current = find
+  // tmux copy-mode: keys move a cursor through the scrollback instead of reaching the shell.
+  const [copy, setCopy] = useState<CopyState | null>(null)
+  const copyRef = useRef<CopyState | null>(null)
+  copyRef.current = copy
   const findInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -81,6 +94,61 @@ export function XtermPane({ source, focused }: XtermPaneProps) {
     const searchResults = search.onDidChangeResults((r) => dispatchFind({ type: 'results', resultIndex: r.resultIndex, resultCount: r.resultCount }))
     term.open(container)
     termRef.current = term
+
+    // Copy-mode: while it is on, every key belongs to it and none reaches the shell.
+    const bufferOf = (): CopyBuffer => {
+      const b = term.buffer.active
+      return { lineCount: b.length, line: (i) => b.getLine(i)?.translateToString(true) ?? '', rows: term.rows }
+    }
+    const paint = (state: CopyState): void => {
+      const b = bufferOf()
+      const sel = copySelection(state, b)
+      const width = term.cols
+      if (sel !== null && state.visual !== null) {
+        const startCol = state.visual === 'line' ? 0 : sel.start.col
+        const length = state.visual === 'line'
+          ? (sel.end.row - sel.start.row + 1) * width
+          : (sel.end.row - sel.start.row) * width + (sel.end.col - startCol + 1)
+        term.select(startCol, sel.start.row, Math.max(1, length))
+      } else {
+        term.select(state.col, state.row, 1) // the cursor: one highlighted cell
+      }
+      const top = term.buffer.active.viewportY
+      if (state.row < top) term.scrollToLine(state.row)
+      else if (state.row >= top + term.rows) term.scrollToLine(state.row - term.rows + 1)
+    }
+    const leaveCopy = (): void => {
+      copyRef.current = null
+      setCopy(null)
+      term.clearSelection()
+      term.scrollToBottom()
+      term.focus()
+    }
+    const enterCopy = (): void => {
+      if (copyRef.current !== null) return
+      const b = term.buffer.active
+      const state = initialCopyState(bufferOf(), { row: b.baseY + b.cursorY, col: b.cursorX })
+      copyRef.current = state
+      setCopy(state)
+      paint(state)
+    }
+    term.attachCustomKeyEventHandler((e) => {
+      const state = copyRef.current
+      if (state === null) return true
+      if (e.type === 'keydown' && !e.isComposing && !(e.metaKey || e.altKey)) {
+        const result = copyModeStep(state, { key: e.key, ctrl: e.ctrlKey }, bufferOf())
+        if (result.yank !== undefined && result.yank !== '') void navigator.clipboard.writeText(result.yank).catch(() => undefined)
+        if (result.exit === true) leaveCopy()
+        else {
+          copyRef.current = result.state
+          setCopy(result.state)
+          paint(result.state)
+        }
+      }
+      return false
+    })
+    const onCopyMode = (): void => { if (focusedRef.current) enterCopy() }
+    window.addEventListener('cockpit:copy-mode', onCopyMode)
 
     // A project off the stage is display:none, so its panes measure 0x0: that is the
     // visibility signal, the same one applyFit uses. The GPU renderer attaches after
@@ -167,18 +235,38 @@ export function XtermPane({ source, focused }: XtermPaneProps) {
     // (the IPC rejection was swallowed); say so, once.
     let notRunningShown = false
 
-    const dataSub = term.onData((raw) => {
-      if (cancelled) return
-      const live = stripFocusReports(raw)
-      const data = Date.now() < replayAnsweredUntil ? stripTerminalReports(live) : live
-      if (data === '') return
+    const send = (data: string): void => {
       void source.input(data).catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err)
         if (notRunningShown || !/not running|No such terminal/i.test(message)) return
         notRunningShown = true
         term.write(`\r\n${source.notRunningMessage}\r\n`)
       })
+    }
+
+    const dataSub = term.onData((raw) => {
+      if (cancelled) return
+      const live = stripFocusReports(raw)
+      const data = Date.now() < replayAnsweredUntil ? stripTerminalReports(live) : live
+      if (data === '') return
+      send(data)
+      // Synchronized panes: the same keystrokes reach the others. onData, not onKey, because
+      // IME-composed text (Telex) never fires onKey. onData also carries xterm's own answers to
+      // the PROGRAM's queries (device attributes, cursor position, mode reports), which are this
+      // pane's business and would type garbage into the others, so both strips run here always.
+      const { group, paneId: from } = syncRef.current
+      if (group !== undefined && from !== undefined) {
+        const copy = stripTerminalReports(stripFocusReports(raw))
+        if (copy !== '') window.dispatchEvent(new CustomEvent('cockpit:sync-input', { detail: { group, from, data: copy } }))
+      }
     })
+    const onSyncInput = (ev: Event): void => {
+      const d = (ev as CustomEvent<{ group?: string; from?: string; data?: string }>).detail
+      const mine = syncRef.current
+      if (cancelled || mine.group === undefined || d?.group !== mine.group || d.from === mine.paneId || typeof d.data !== 'string') return
+      send(d.data)
+    }
+    window.addEventListener('cockpit:sync-input', onSyncInput)
 
     void source
       .attach()
@@ -242,6 +330,8 @@ export function XtermPane({ source, focused }: XtermPaneProps) {
     zone.addEventListener('drop', onDrop)
 
     return () => {
+      window.removeEventListener('cockpit:copy-mode', onCopyMode)
+      window.removeEventListener('cockpit:sync-input', onSyncInput)
       zone.removeEventListener('dragenter', onDragEnterOver)
       zone.removeEventListener('dragover', onDragEnterOver)
       zone.removeEventListener('dragleave', onDragLeave)
@@ -363,6 +453,13 @@ export function XtermPane({ source, focused }: XtermPaneProps) {
       {/* The pane is painted in the terminal's own background: xterm fills whole rows
           only, and the strip left under the last one showed its stylesheet's black. */}
       <div class="xterm-pane" ref={containerRef} data-pane-key={source.key} style={{ background: look.theme.background }} />
+      {copy !== null ? (
+        <div class="cockpit-copyline" role="status" aria-label="Copy mode">
+          {copy.search?.typing
+            ? <span>{copy.search.dir === 1 ? '/' : '?'}{copy.search.query}</span>
+            : <span>{copy.notice ?? `${copy.visual === 'line' ? 'VISUAL LINE' : copy.visual === 'char' ? 'VISUAL' : 'COPY'}  ${copy.row + 1}:${copy.col + 1}   v select · y yank · / search · q quit`}</span>}
+        </div>
+      ) : null}
       {find.open ? (
         <div class="cockpit-find" role="search" aria-label="Find in terminal">
           <input

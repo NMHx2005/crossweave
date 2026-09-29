@@ -2597,3 +2597,44 @@ body,
   background: var(--cw-ready);
   transition: width var(--cw-dur-fast) var(--cw-ease);
 }
+
+/* A pane being dragged over a tab: it will move there. */
+.cockpit-tab.is-pane-drop {
+  outline: calc(var(--cw-hairline) * 2) solid var(--cw-accent);
+  outline-offset: calc(var(--cw-hairline) * -2);
+}
+
+/* Synchronize-panes is on: typing goes to several panes, which is easy to forget. */
+.cockpit-sync-banner {
+  position: absolute;
+  top: var(--cw-space-3);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--cw-space-3);
+  padding: var(--cw-space-1) var(--cw-space-3);
+  background: var(--cw-surface-overlay);
+  border: var(--cw-hairline) solid var(--cw-needs-you);
+  border-radius: var(--cw-radius-lg);
+  color: var(--cw-text-bright);
+  font-size: var(--cw-fs-sm);
+  box-shadow: 0 var(--cw-space-1) var(--cw-space-4) var(--cw-shadow);
+}
+
+/* Copy-mode's status line, over the bottom of the pane. */
+.cockpit-copyline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 4;
+  padding: var(--cw-space-1) var(--cw-space-3);
+  background: var(--cw-surface-overlay);
+  border-top: var(--cw-hairline) solid var(--cw-border-strong);
+  color: var(--cw-text-bright);
+  font-family: var(--cw-font-mono);
+  font-size: var(--cw-fs-sm);
+  white-space: pre;
+}

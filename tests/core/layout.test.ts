@@ -2,8 +2,8 @@ import { describe, expect, test } from 'bun:test'
 import {
   closeOthers, closePane, closeTab, closeToRight, emptyStage, findPane, focusPane, moveTab,
   liveTabs, openInNewTab, paneKey, paneKeys, reconcile, resizeSplit, setPinned, splitPane, toSavedLayout, type PaneRef, type StageState,
-  applyPreset, equalize, movePane, neighbourPane, paneRects, paneToTab, swapNext, toggleZoom, type LayoutNode, cyclePreset, adjacentTab,
-} from '../src/lib/layout'
+  applyPreset, equalize, movePane, neighbourPane, paneRects, paneToTab, swapNext, toggleZoom, type LayoutNode, cyclePreset, adjacentTab, movePaneToTab, joinPane, breakPane, toggleSync, syncTargets, parseStoredStage,
+} from '../../src/core/layout/index.js'
 
 const session = (sessionId: string): PaneRef => ({ kind: 'session', sessionId })
 const terminal = (terminalId: string, sessionId: string): PaneRef => ({ kind: 'terminal', terminalId, sessionId })
@@ -121,7 +121,7 @@ describe('reconcile', () => {
 
 describe('named layouts', () => {
   test('save by session name and restore onto whatever ids those names have now', async () => {
-    const { toSavedLayout, fromSavedLayout } = await import('../src/lib/layout')
+    const { toSavedLayout, fromSavedLayout } = await import('../../src/core/layout/index.js')
     let s = stageOf('id-a')
     s = splitPane(s, s.tabs[0]!.id, s.tabs[0]!.focusedPaneId, 'row', session('id-b'))
     s = splitPane(s, s.tabs[0]!.id, s.tabs[0]!.focusedPaneId, 'column', terminal('t1', 'id-b'))
@@ -133,7 +133,7 @@ describe('named layouts', () => {
   })
 
   test('a session that no longer exists is left out of the restored layout', async () => {
-    const { toSavedLayout, fromSavedLayout } = await import('../src/lib/layout')
+    const { toSavedLayout, fromSavedLayout } = await import('../../src/core/layout/index.js')
     const s = stageOf('id-a', 'id-b')
     const saved = toSavedLayout(s, new Map([['id-a', 'alpha'], ['id-b', 'beta']]))
     expect(paneKeys(fromSavedLayout(saved, new Map([['beta', 'b2']])))).toEqual(['session:b2'])
@@ -150,7 +150,7 @@ describe('syncStage', () => {
   // later. With ten agents that is ten tabs nobody asked for; the rail is where
   // sessions are listed, and a tab is opened by choosing one (or creating it here).
   test('first load with nothing open: one tab, the newest session that has not ended', async () => {
-    const { syncStage } = await import('../src/lib/layout')
+    const { syncStage } = await import('../../src/core/layout/index.js')
     const sessions = { sessions: [
       { id: 'a', name: 'a', status: 'idle' }, { id: 'b', name: 'b', status: 'running' }, { id: 'c', name: 'c', status: 'dead' },
     ], terminals: [] }
@@ -160,14 +160,14 @@ describe('syncStage', () => {
   })
 
   test('a session that appears later is listed in the rail, not opened; a new shell still opens', async () => {
-    const { syncStage } = await import('../src/lib/layout')
+    const { syncStage } = await import('../../src/core/layout/index.js')
     let s = syncStage(emptyStage(), live(['a']), null)
     s = syncStage(s, live(['a', 'b'], [['t1', 'a']]), { sessionIds: new Set(['a']), terminalIds: new Set() })
     expect(paneKeys(s)).toEqual(['session:a', 'terminal:t1'])
   })
 
   test('parseStoredStage accepts only a well-formed stage', async () => {
-    const { parseStoredStage } = await import('../src/lib/layout')
+    const { parseStoredStage } = await import('../../src/core/layout/index.js')
     const good = stageOf('a')
     expect(parseStoredStage(JSON.stringify(good))).toEqual(good)
     expect(parseStoredStage('{"tabs":[{"id":1}]}')).toBeNull()
@@ -177,7 +177,7 @@ describe('syncStage', () => {
 
 describe('replacePane', () => {
   test('changes what a pane shows without moving it', async () => {
-    const { replacePane } = await import('../src/lib/layout')
+    const { replacePane } = await import('../../src/core/layout/index.js')
     let s = emptyStage()
     s = openInNewTab(s, { kind: 'browser', url: 'http://localhost:3000/' }, 'web')
     s = replacePane(s, s.tabs[0]!.id, s.tabs[0]!.focusedPaneId, { kind: 'browser', url: 'http://localhost:3000/docs' })
@@ -189,7 +189,7 @@ describe('placeBeside', () => {
   // Opening things by shortcut used to split the focused pane every time, until one
   // tab held four slivers.
   test('splits a tab with one pane, and opens a new tab beside a split one', async () => {
-    const { placeBeside } = await import('../src/lib/layout')
+    const { placeBeside } = await import('../../src/core/layout/index.js')
     let s = stageOf('a')
     s = placeBeside(s, { kind: 'browser', url: 'http://x/' }, 'web')
     expect(s.tabs.length).toBe(1)
@@ -358,7 +358,7 @@ describe('cycling the layout preset (tmux Space)', () => {
 describe('adjacent tab (tmux n / p)', () => {
   test('next and previous wrap around the tabs', () => {
     const s = stageOf('a', 'b', 'c') // the last opened is active
-    const ids = s.tabs.map((t) => t.id)
+    const ids = s.tabs.map((t) => t.id) as [string, string, string]
     expect(s.activeTabId).toBe(ids[2])
     expect(adjacentTab(s, 1).activeTabId).toBe(ids[0])
     expect(adjacentTab(s, -1).activeTabId).toBe(ids[1])
@@ -369,5 +369,137 @@ describe('adjacent tab (tmux n / p)', () => {
     const one = stageOf('a')
     expect(adjacentTab(one, 1)).toEqual(one)
     expect(adjacentTab(emptyStage(), 1)).toEqual(emptyStage())
+  })
+})
+
+describe('moving a pane to another tab (tmux move-pane / join-pane)', () => {
+  const total = (s: StageState): number => s.tabs.reduce((n, t) => n + paneKeys({ tabs: [t], activeTabId: t.id }).length, 0)
+
+  // two tabs: T1 holds a and b side by side, T2 holds c
+  const setup = (): { s: StageState; t1: string; t2: string; bId: string } => {
+    let s = stageOf('a', 'c')
+    const t1 = s.tabs[0]!.id
+    const t2 = s.tabs[1]!.id
+    const aId = (s.tabs[0]!.root as { type: 'pane'; id: string }).id
+    s = splitPane(s, t1, aId, 'row', session('b'))
+    const bId = (s.tabs[0]!.root as { type: 'split'; children: Array<{ id: string }> }).children[1]!.id
+    return { s, t1, t2, bId }
+  }
+
+  test('the pane leaves its tab and lands beside the target tab\'s focused pane', () => {
+    const { s, t1, t2, bId } = setup()
+    const after = movePaneToTab(s, t1, bId, t2)
+    expect(paneKeys({ tabs: [after.tabs[0]!], activeTabId: t1 })).toEqual(['session:a'])
+    expect(paneKeys({ tabs: [after.tabs[1]!], activeTabId: t2 }).sort()).toEqual(['session:b', 'session:c'])
+  })
+
+  test('a pane is never lost or duplicated', () => {
+    const { s, t1, t2, bId } = setup()
+    expect(total(movePaneToTab(s, t1, bId, t2))).toBe(total(s))
+    expect(total(joinPane(s, t1, bId, t2, 'column'))).toBe(total(s))
+  })
+
+  test('focus follows: the target tab is shown and the moved pane is focused', () => {
+    const { s, t1, t2, bId } = setup()
+    const after = movePaneToTab(s, t1, bId, t2)
+    expect(after.activeTabId).toBe(t2)
+    const focused = after.tabs.find((t) => t.id === t2)!.focusedPaneId
+    const node = findPane(after.tabs.find((t) => t.id === t2)!.root, focused)
+    expect(node && paneKey(node.pane)).toBe('session:b')
+  })
+
+  test('a tab left with no panes collapses', () => {
+    const s = stageOf('a', 'c')
+    const t1 = s.tabs[0]!.id
+    const t2 = s.tabs[1]!.id
+    const aId = (s.tabs[0]!.root as { id: string }).id
+    const after = movePaneToTab(s, t1, aId, t2)
+    expect(after.tabs.map((t) => t.id)).toEqual([t2])
+    expect(after.activeTabId).toBe(t2)
+    expect(paneKeys(after).sort()).toEqual(['session:a', 'session:c'])
+  })
+
+  test('the direction decides the split: join-pane can stack instead of side by side', () => {
+    const { s, t1, t2, bId } = setup()
+    const stacked = joinPane(s, t1, bId, t2, 'column')
+    const root = stacked.tabs.find((t) => t.id === t2)!.root
+    expect(root.type === 'split' && root.dir).toBe('column')
+  })
+
+  test('to the same tab, an unknown pane or an unknown tab: nothing changes', () => {
+    const { s, t1, t2, bId } = setup()
+    expect(movePaneToTab(s, t1, bId, t1)).toBe(s)
+    expect(movePaneToTab(s, t1, 'nope', t2)).toBe(s)
+    expect(movePaneToTab(s, t1, bId, 'nope')).toBe(s)
+  })
+
+  test('moving twice back and forth ends where it began (same panes per tab)', () => {
+    const { s, t1, t2, bId } = setup()
+    const there = movePaneToTab(s, t1, bId, t2)
+    const movedId = findIdByKey(there.tabs.find((t) => t.id === t2)!.root, 'session:b')!
+    const back = movePaneToTab(there, t2, movedId, t1)
+    expect(paneKeys({ tabs: [back.tabs.find((t) => t.id === t1)!], activeTabId: t1 }).sort()).toEqual(['session:a', 'session:b'])
+    expect(paneKeys({ tabs: [back.tabs.find((t) => t.id === t2)!], activeTabId: t2 })).toEqual(['session:c'])
+  })
+
+  test('break-pane is the existing paneToTab under tmux\'s name', () => {
+    expect(breakPane).toBe(paneToTab)
+  })
+})
+
+function findIdByKey(node: LayoutNode, key: string): string | undefined {
+  if (node.type === 'pane') return paneKey(node.pane) === key ? node.id : undefined
+  for (const c of node.children) {
+    const r = findIdByKey(c, key)
+    if (r) return r
+  }
+  return undefined
+}
+
+describe('synchronize-panes (tmux setw synchronize-panes)', () => {
+  const twoTerminalsAndABrowser = (): { s: StageState; tabId: string; ids: string[] } => {
+    let s = stageOf('a')
+    const tabId = s.tabs[0]!.id
+    s = splitPane(s, tabId, (s.tabs[0]!.root as { id: string }).id, 'row', session('b'))
+    const firstLeaf = (n: LayoutNode): LayoutNode => (n.type === 'pane' ? n : firstLeaf(n.children[0]!))
+    s = splitPane(s, tabId, firstLeaf(s.tabs[0]!.root).id, 'column', { kind: 'browser', url: 'http://localhost:3000' })
+    const leaves: string[] = []
+    const walk = (n: LayoutNode): void => { if (n.type === 'pane') leaves.push(n.id); else n.children.forEach(walk) }
+    walk(s.tabs[0]!.root)
+    return { s, tabId, ids: leaves }
+  }
+
+  test('a tab is not synchronized until it is switched on, and it toggles', () => {
+    const { s, tabId } = twoTerminalsAndABrowser()
+    expect(s.tabs[0]!.sync).toBeUndefined()
+    const on = toggleSync(s, tabId)
+    expect(on.tabs[0]!.sync).toBe(true)
+    expect(toggleSync(on, tabId).tabs[0]!.sync).toBeUndefined()
+  })
+
+  test('targets are the OTHER terminal panes of the tab: never the source, never a browser', () => {
+    const { s, tabId, ids } = twoTerminalsAndABrowser()
+    const on = toggleSync(s, tabId).tabs[0]!
+    const kinds = new Map(ids.map((id) => [id, findPane(on.root, id)!.pane.kind]))
+    const source = ids.find((id) => kinds.get(id) === 'session')!
+    const targets = syncTargets(on, source)
+    expect(targets).not.toContain(source)
+    expect(targets.every((id) => kinds.get(id) === 'session' || kinds.get(id) === 'terminal')).toBe(true)
+    expect(targets).toHaveLength(1) // the second session; the browser is left out
+  })
+
+  test('no targets while the tab is not synchronized, or for a pane that is not there', () => {
+    const { s, tabId, ids } = twoTerminalsAndABrowser()
+    expect(syncTargets(s.tabs[0]!, ids[0]!)).toEqual([])
+    expect(syncTargets(toggleSync(s, tabId).tabs[0]!, 'nope')).toEqual([])
+  })
+
+  // Typing into every pane is dangerous to remember across a restart: it is view state.
+  test('is never restored from storage: it comes back off', () => {
+    const { s, tabId } = twoTerminalsAndABrowser()
+    const on = toggleSync(s, tabId)
+    const restored = parseStoredStage(JSON.stringify(on))
+    expect(restored?.tabs[0]!.sync).toBeUndefined()
+    expect(toSavedLayout(on, new Map())).not.toHaveProperty('tabs.0.sync')
   })
 })

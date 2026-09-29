@@ -23,23 +23,23 @@ report before the next starts. Order: **2B.1 → 2A → 2B → 2C → 2D**.
 
 ## 2A — panes (`feat/tmux-panes`)
 
-1. [ ] Move the layout reducers to **`src/core/layout/`** (pure; `layout.ts` imports
+1. [x] Move the layout reducers to **`src/core/layout/`** (pure; `layout.ts` imports
    nothing, so this is near-mechanical), re-exported by `apps/cockpit/src/lib/layout.ts`;
    port `layout.test.ts` to the core module and keep it green.
-2. [ ] `movePaneToTab`, `joinPane`, `breakPane` + tests (pane never lost, empty tab
+2. [x] `movePaneToTab`, `joinPane`, `breakPane` + tests (pane never lost, empty tab
    collapses, focus follows, idempotent on self).
-3. [ ] Stage/tab strip: drag a grip onto a tab to move the pane; Pane → Move to Tab ▸.
+3. [x] Stage/tab strip: drag a grip onto a tab to move the pane; Pane → Move to Tab ▸.
    CDP check.
-4. [ ] `Tab.sync` + `syncTargets(tab)` (pure, tested); fan-out from `onData` (not `onKey`,
+4. [x] `Tab.sync` + `syncTargets(tab)` (pure, tested); fan-out from `onData` (not `onKey`,
    for IME) with **both strips run unconditionally** on the copy; **extend `REPORT`** with
    DECRPM and DCS/XTVERSION (`src/client/terminal-reports.ts`); "not running" shown once;
    bracketed-paste / DECCKM mismatches documented as a known limitation; dismissible
    banner naming the N panes.
-5. [ ] `src/core/layout/copy-mode.ts` state machine + tests (motions, visual, yank,
+5. [x] `src/core/layout/copy-mode.ts` state machine + tests (motions, visual, yank,
    search, exit); `XtermPane` intercepts keys while active, renders the mode line; yank via
    `navigator.clipboard`; reachable through a **Pane → Enter Copy Mode** menu command
    (until the key-table lands in 2B). Note the alt-screen limitation.
-6. [ ] Gate + known limitations + digest line; report.
+6. [x] Gate + known limitations + digest line; report.
 
 ## 2B — key-table (`feat/tmux-keytable`)
 
