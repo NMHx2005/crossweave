@@ -402,12 +402,12 @@ export function Sidebar(props: SidebarProps) {
                           ) : null}
                           {git ? (
                             <span class="cockpit-row__git" aria-label={git.title}>
-                              {git.changed ? <span class="cockpit-row__changed">{git.changed}</span> : null}
-                              {git.ahead ? <span class="cockpit-row__ahead">{git.ahead}</span> : null}
+                              {git.changed ? <span key={`c${git.changed}`} class="cockpit-row__changed">{git.changed}</span> : null}
+                              {git.ahead ? <span key={`a${git.ahead}`} class="cockpit-row__ahead">{git.ahead}</span> : null}
                             </span>
                           ) : null}
                           {overlap ? (
-                            <span class="cockpit-row__overlap" aria-label={`overlaps ${overlap.title}`} title={`Overlaps — ${overlap.title}`}>{overlap.label}</span>
+                            <span key={overlap.label} class="cockpit-row__overlap" aria-label={`overlaps ${overlap.title}`} title={`Overlaps — ${overlap.title}`}>{overlap.label}</span>
                           ) : null}
                           {used ? <span class="cockpit-row__usage" title={used.title}>{used.text}</span> : null}
                           {when ? <span class="cockpit-row__when">{when}</span> : null}

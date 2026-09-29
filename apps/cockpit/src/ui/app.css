@@ -244,6 +244,15 @@ body {
   }
 }
 
+/* The one attention pulse: a status dot that has just started asking lands with a small
+   overshoot (the spring easing) and stays put. Once, never a loop — a session that asks
+   should be noticed, not nagged. */
+@keyframes cockpit-attention {
+  from {
+    transform: scale(0.5);
+  }
+}
+
 html,
 body,
 #app,
@@ -500,6 +509,14 @@ body,
 /* Every tab is rendered so its terminals stay attached; only the active one shows. */
 .cockpit-stage__body[hidden] {
   display: none;
+}
+
+/* A tab — or a whole project, whose active tab is shown again with it — fades in when it
+   appears. The outgoing view is display:none, which cannot fade, so this is enter-only;
+   a two-way cross-fade would need the tabs layered. Opacity only, and nothing here touches
+   the terminal's size or its output. */
+.cockpit-stage__body:not([hidden]) {
+  animation: cockpit-fade var(--cw-dur-slow) var(--cw-ease-out);
 }
 
 .cockpit-split {
@@ -1420,6 +1437,11 @@ body,
   width: calc(var(--cw-space-3) + var(--cw-hairline) * 2);
   height: calc(var(--cw-space-3) + var(--cw-hairline) * 2);
   border-radius: 50%;
+  /* Working, asked, done and failed change colour instead of snapping. */
+  transition:
+    background-color var(--cw-dur) var(--cw-ease),
+    border-color var(--cw-dur) var(--cw-ease),
+    box-shadow var(--cw-dur) var(--cw-ease);
 }
 
 .cockpit-status--working {
@@ -1433,6 +1455,7 @@ body,
 }
 
 .cockpit-status--asked {
+  animation: cockpit-attention var(--cw-dur-slow) var(--cw-ease-spring);
   background: var(--cw-needs-you);
   box-shadow: 0 0 0 var(--cw-hairline) color-mix(in srgb, var(--cw-needs-you) 45%, transparent);
 }
@@ -1790,6 +1813,15 @@ body,
 
 .cockpit-row__ahead {
   color: var(--cw-ready);
+}
+
+/* A count, the land chip or the overlap badge appearing — or changing value, which the
+   markup keys so it remounts — fades in rather than snapping. */
+.cockpit-row__changed,
+.cockpit-row__ahead,
+.cockpit-row__overlap,
+.cockpit-row__done {
+  animation: cockpit-fade var(--cw-dur-enter) var(--cw-ease-out);
 }
 
 /* A session touching files another session is also touching: the passive early warning,
