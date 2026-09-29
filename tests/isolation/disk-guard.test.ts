@@ -57,6 +57,27 @@ describe('measureWorktrees', () => {
     expect(usage.find((u) => u.name === 'b')?.bytes).toBeGreaterThanOrEqual(8192);
   });
 
+  // Regression: a shared session (the shell in the project root, or a plain folder's
+  // shell) has worktreePath === the project root. The guard walked the WHOLE project
+  // and blamed the session for it — 36 GB of the user's own files, blocking every new
+  // session with "over the 2.0GB per-session limit" — and walked it synchronously in
+  // the daemon. That directory is not disk crossweave created.
+  it('does not count a shared session that lives in the project root', async () => {
+    await writeFile(join(fx.root, 'big-project-file'), Buffer.alloc(3 * 1024 * 1024));
+    new SessionRepo(db).insert({
+      id: newId('s'), workspaceId, name: 'shell-1', agentKind: 'shell', adapter: 'shell', status: 'running',
+      worktreePath: fx.root, branch: null,
+      createdAt: '2026-08-10T00:00:00.000Z', lastActiveAt: '2026-08-10T00:00:00.000Z',
+      tokenBudget: null, tokenSpent: 0, costSpentUsd: 0, costBudgetUsd: null, enforcementTier: 'T3', pid: null, launchArgs: null,
+    });
+    await addSessionWithBytes('own', 4096);
+    const usage = measureWorktrees(db, workspaceId);
+    expect(usage.map((u) => u.name)).toEqual(['own']);
+    expect(() => assertDiskAvailable(db, workspaceId, {
+      ...DEFAULT_CONFIG, disk: { perSessionBytes: 1024 * 1024, perWorkspaceBytes: 1024 * 1024 },
+    })).not.toThrow();
+  });
+
   it('reports zero for a session whose worktree is gone', async () => {
     const id = await addSessionWithBytes('c', 1024);
     await rm(join(fx.root, '.crossweave', 'worktrees', id), { recursive: true, force: true });

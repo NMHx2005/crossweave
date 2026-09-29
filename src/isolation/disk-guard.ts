@@ -60,7 +60,9 @@ export function measureWorktrees(db: Database, workspaceId: string): DiskUsage[]
 
   return new SessionRepo(db)
     .listByWorkspace(workspaceId)
-    .filter((s) => s.worktreePath !== null)
+    // A shared session's "worktree" IS the project root: the user's own files, not disk
+    // crossweave created, and often tens of GB. Only a worktree of its own is measured.
+    .filter((s) => s.worktreePath !== null && s.worktreePath !== workspace?.rootPath)
     .map((s) => {
       let bytes = directorySize(s.worktreePath ?? '');
       const counted = new Set<string>();
