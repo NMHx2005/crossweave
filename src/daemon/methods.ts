@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { WorkspaceManager } from '../domain/workspace.js';
 import { SessionManager, type AdapterFactory } from '../domain/session.js';
 import { CrossweaveError } from '../core/errors.js';
+import { daemonLog } from '../core/log.js';
 import { SessionRuntime } from './runtime.js';
 import type { MethodHandler } from './server.js';
 import { SessionRepo, type SessionRow } from '../db/repositories/session.js';
@@ -1100,6 +1101,9 @@ export function buildMethods(
     },
 
     'daemon.shutdown': async () => {
+      // Says how many shells this takes down, because nothing else does: an explicit
+      // `cw daemon stop` and the socket-loss self-shutdown both hang up every session.
+      daemonLog(`daemon.shutdown requested — hanging up ${runtime.pids().size} session(s)`);
       convergenceScheduler.stop();
       if (statusTimer !== undefined) clearInterval(statusTimer);
       await terminals.closeAll();

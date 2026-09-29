@@ -1,7 +1,9 @@
 import { spawn } from 'node:child_process';
+import { closeSync, mkdirSync, openSync, statSync, truncateSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CrossweaveError } from '../core/errors.js';
+import { DAEMON_EXIT_ALREADY_RUNNING } from '../core/exit-codes.js';
 import { crossweaveDir } from '../core/paths.js';
 import { createFrameDecoder, encodeFrame } from '../daemon/rpc.js';
 import { connectablePath } from './socket-path.js';
@@ -157,6 +159,32 @@ export class DaemonClient {
 const DAEMON_START_TIMEOUT_MS = 10_000;
 const DAEMON_POLL_INTERVAL_MS = 100;
 
+/** Keep the daemon's own lifecycle log bounded without ever truncating mid-run. */
+const DAEMON_LOG_MAX_BYTES = 1_000_000;
+
+/**
+ * The fd the spawned daemon writes its stdout/stderr to. Without this, `connectOrStart`
+ * used stdio 'ignore' and the daemon's only record of WHY it stopped — its socket being
+ * removed or replaced, which hangs up every session's shell — went to /dev/null, and
+ * the rows simply read `idle`/`dead` on the next start. `undefined` falls back to
+ * 'ignore' when the directory cannot be made.
+ */
+function openDaemonLog(projectRoot: string): number | undefined {
+  try {
+    const dir = crossweaveDir(projectRoot);
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const logPath = join(dir, 'daemon.log');
+    try {
+      if (statSync(logPath).size > DAEMON_LOG_MAX_BYTES) truncateSync(logPath, 0);
+    } catch {
+      // No file yet, or not stat-able: openSync below creates it.
+    }
+    return openSync(logPath, 'a', 0o600);
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Compiled binaries run as `cw`; from source, `process.execPath` is the bun binary.
  * The two cases need different daemon entry points and different spawn arguments.
@@ -187,12 +215,17 @@ export async function connectOrStart(
     // Nothing listening; start one below.
   }
 
+  const logFd = openDaemonLog(projectRoot);
   const child = spawn(entry.command, entry.args, {
     cwd: projectRoot,
     detached: true,
-    stdio: 'ignore',
+    // stdout and stderr to the daemon's log: a detached daemon has no terminal, so
+    // without this its shutdown reason is lost (see openDaemonLog).
+    stdio: logFd === undefined ? 'ignore' : ['ignore', logFd, logFd],
     ...(entry.env === undefined ? {} : { env: { ...process.env, ...entry.env } }),
   });
+  // The child holds its own copy of the fd now; the parent's is not needed.
+  if (logFd !== undefined) closeSync(logFd);
   // Node reports a spawn failure asynchronously as an 'error' event, and an 'error'
   // with no listener is thrown — an uncaught exception carrying a raw stack trace and
   // internal $bunfs paths, bypassing fail() entirely. Reachable in the ordinary way:
@@ -200,7 +233,9 @@ export async function connectOrStart(
   // correct because the polling loop below is what decides the outcome, and it ends
   // in a proper DAEMON_START_FAILED.
   child.on('error', () => undefined);
-  // A daemon that exits before it listens will never answer: stop waiting at once.
+  // A daemon that exits before it listens will never answer: stop waiting at once —
+  // unless it exited BECAUSE another daemon owns the socket (the bind-race loser),
+  // in which case the winner is the one to wait for.
   let exitCode: number | null | undefined;
   child.on('exit', (code) => { exitCode = code; });
   child.unref();
@@ -210,7 +245,14 @@ export async function connectOrStart(
     try {
       return await DaemonClient.connect(socketPath);
     } catch {
-      if (exitCode !== undefined) {
+      if (exitCode !== undefined && exitCode !== DAEMON_EXIT_ALREADY_RUNNING) {
+        // Final attempt: another daemon may still have won the race between our
+        // child exiting and this check.
+        try {
+          return await DaemonClient.connect(socketPath);
+        } catch {
+          // Genuinely nothing listening.
+        }
         throw new CrossweaveError(
           'DAEMON_START_FAILED',
           `crossweave stopped as it started in ${projectRoot} (exit code ${exitCode ?? 'none'})`,

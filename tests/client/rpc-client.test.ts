@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Database } from 'bun:sqlite';
 import { openDatabase } from '../../src/db/open.js';
@@ -6,6 +7,7 @@ import { createDaemon, type Daemon } from '../../src/daemon/server.js';
 import { buildMethods } from '../../src/daemon/methods.js';
 import { DaemonClient, connectOrStart } from '../../src/client/rpc-client.js';
 import type { ClientTransport } from '../../src/client/transport.js';
+import { DAEMON_EXIT_ALREADY_RUNNING } from '../../src/core/exit-codes.js';
 import { makeGitFixture, type GitFixture } from '../helpers/git-fixture.js';
 
 let fx: GitFixture;
@@ -167,4 +169,45 @@ describe('connectOrStart', () => {
     expect(err.message).toMatch(/stopped as it started/);
     expect(Date.now() - started).toBeLessThan(3000);
   }, 15_000);
+
+  // Regression: with the daemon now exiting on a startup failure, a daemon that merely
+  // lost the bind race to another must not be reported as a start failure — the winner
+  // owns the socket and is exactly what the caller wanted.
+  it('keeps waiting, then connects, when another daemon already owns the socket', async () => {
+    const pending = connectOrStart(fx.root, {
+      command: process.execPath,
+      args: ['-e', `process.exit(${DAEMON_EXIT_ALREADY_RUNNING})`],
+    });
+    let settled = false;
+    void pending.then(() => { settled = true; }, () => { settled = true; });
+
+    await new Promise((r) => setTimeout(r, 400));
+    expect(settled).toBe(false); // the already-running exit did not fail the start
+
+    daemon = createDaemon({ socketPath, methods: buildMethods(db, fx.root) });
+    await daemon.listen();
+
+    const client = await pending;
+    expect(await client.call<{ ok: boolean }>('ping')).toEqual({ ok: true });
+    client.close();
+  }, 30_000);
+
+  // Without the log, a daemon that stopped (its socket removed or replaced) left only
+  // rows reconciled to `idle`/`dead` — no reason anywhere.
+  it('writes the daemon lifecycle log so a stop has a reason', async () => {
+    const client = await connectOrStart(fx.root);
+    expect(await client.call<{ ok: boolean }>('ping')).toEqual({ ok: true });
+    await client.call('daemon.shutdown').catch(() => undefined);
+    client.close();
+
+    const logPath = join(fx.root, '.crossweave', 'daemon.log');
+    const deadline = Date.now() + 3000;
+    let text = '';
+    while (Date.now() < deadline) {
+      try { text = readFileSync(logPath, 'utf8'); } catch { text = ''; }
+      if (text.includes('listening at')) break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    expect(text).toContain('listening at');
+  }, 30_000);
 });
