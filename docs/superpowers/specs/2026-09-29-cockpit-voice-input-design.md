@@ -138,3 +138,15 @@ three seconds and shows the transcript so a broken command is found in Settings,
 - No live captions; the transcript arrives after recording stops.
 - The hotkey works only while the cockpit is focused, until the global opt-in exists.
 - Quality and speed are those of the user's chosen command.
+
+## As built (2026-09-29)
+
+- **Recording is raw samples encoded to WAV in the renderer**, not `MediaRecorder`: Chromium's
+  recorder only produces WebM/Opus, which whisper-style tools cannot read, so this avoids needing
+  a converter. It is a change from the *Recording* paragraph above.
+- **The mic button on the tab strip** was added next to ⌘⇧M (default) — discoverable, and the
+  hotkey stays rebindable under Keyboard.
+- **Settings validation lives in the daemon** (`voice` in `src/core/settings.ts`) like every other
+  setting, so "no daemon change" above meant no new RPC: the existing `settings.get/set` carry it.
+- **Send is a `cockpit:paste` event** the focused pane answers with `term.paste` (bracketed when
+  the program asked), with an optional Enter keystroke.
