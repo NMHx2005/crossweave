@@ -578,7 +578,7 @@ export function App() {
   }), [])
 
   const groups = railGroups()
-  const projectsForPicker = groups.map((g) => ({ projectRoot: g.projectRoot, name: g.name, ...(g.color ? { color: g.color } : {}) }))
+  const projectsForPicker = groups.map((g) => ({ projectRoot: g.projectRoot, name: g.name }))
 
   function viewHost(root: string): ViewHost {
     return {

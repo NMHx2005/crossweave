@@ -9,7 +9,7 @@ import { clampMenu } from '../lib/rail'
 import { planFlip, playFlip, structureKey, type Box } from '../lib/flip'
 import { COCKPIT_TOKENS } from './tokens'
 import { useProjectApi } from './project-context'
-import { AgentMark, DiffIcon, FileIcon, FolderIcon, GlobeIcon, MicIcon, MoreIcon, PanelRightIcon, PlusIcon, SidebarIcon, TerminalIcon } from './icons'
+import { AgentMark, DiffIcon, FileIcon, GlobeIcon, MicIcon, MoreIcon, PanelRightIcon, PlusIcon, SidebarIcon, TerminalIcon } from './icons'
 
 export type StageStatus = 'loading' | 'ready' | 'empty' | 'error' | 'welcome'
 
@@ -50,9 +50,6 @@ export type StageProps = {
   sidebarHidden: boolean
   onToggleSidebar: () => void
   /** The tab strip's `+`: a new session in the active project. */
-  /** Which folder these tabs belong to, shown when more than one project is open. */
-  projectName?: string
-  projectColor?: string
   onNewTab: () => void
   /** Open the voice composer and start recording (the ⌘⇧M command). */
   onVoice?: () => void
@@ -334,12 +331,6 @@ export function Stage(props: StageProps) {
           <button type="button" class="cockpit-iconbtn" title="Show sidebar (⌘\\)" aria-label="Show sidebar" onClick={props.onToggleSidebar}>
             <SidebarIcon />
           </button>
-        ) : null}
-        {props.projectName !== undefined ? (
-          <span class="cockpit-tabs__project" title={`Project: ${props.projectName}`}>
-            {props.projectColor ? <span class="cockpit-dot" style={{ background: `var(--cw-${props.projectColor})` }} aria-hidden="true" /> : <FolderIcon />}
-            <span class="cockpit-tabs__project-name">{props.projectName}</span>
-          </span>
         ) : null}
         {stage.tabs.map((tab, index) => (
           <div

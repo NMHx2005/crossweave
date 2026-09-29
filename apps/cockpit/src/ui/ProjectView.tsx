@@ -123,7 +123,7 @@ export type ViewHost = {
   /** The ⌘T picker chose another project: create it there. */
   createElsewhere: (request: NewSessionRequest) => void
   defaultsFor: (projectRoot: string) => { launcher?: string; worktree: boolean; base?: string; plain?: boolean }
-  projects: Array<{ projectRoot: string; name: string; color?: string }>
+  projects: Array<{ projectRoot: string; name: string }>
   notify: NotifyPrefs
   sidebarHidden: boolean
   onToggleSidebar: () => void
@@ -970,8 +970,6 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
           }}
           sidebarHidden={host.sidebarHidden}
           onToggleSidebar={host.onToggleSidebar}
-          projectName={host.projects.length > 1 ? host.projects.find((x) => x.projectRoot === projectRoot)?.name : undefined}
-          projectColor={host.projects.find((x) => x.projectRoot === projectRoot)?.color}
           onNewTab={() => { void handleNew() }}
           onVoice={() => { setVoiceOpen(true); setVoiceSignal((n) => n + 1) }}
           onToggleChanges={toggleChanges}
