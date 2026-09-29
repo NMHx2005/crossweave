@@ -2581,3 +2581,19 @@ body,
   gap: var(--cw-space-2);
   align-items: center;
 }
+
+/* The microphone's level while recording: it moving is the proof the room is being heard. */
+.cockpit-voice__meter {
+  flex: 1;
+  min-width: calc(var(--cw-row-h) * 4);
+  height: var(--cw-space-2);
+  background: var(--cw-surface-control);
+  border-radius: var(--cw-radius-sm);
+  overflow: hidden;
+}
+
+.cockpit-voice__meter > div {
+  height: 100%;
+  background: var(--cw-ready);
+  transition: width var(--cw-dur-fast) var(--cw-ease);
+}

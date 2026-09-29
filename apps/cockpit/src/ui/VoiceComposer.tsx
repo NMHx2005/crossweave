@@ -4,6 +4,7 @@ import { cockpitApi } from '../host/cockpit-api'
 import { appendSnippet, initialVoiceState, voiceReducer } from '../lib/voice-state'
 import { startRecording, type Recording } from '../lib/voice-recorder'
 import { MIN_RECORDING_MS } from '../lib/voice-defaults'
+import { isPhantomTranscript, isSilent, SILENCE_MESSAGE } from '../lib/voice-audio'
 
 /** The draft survives closing the composer (Esc) until it is sent or cleared. */
 let keptDraft = ''
@@ -44,6 +45,7 @@ export function VoiceComposer({ getSettings, toggleSignal, contextText, onSend, 
   const [voice, setVoice] = useState<VoiceSettings | undefined>(undefined)
   const [loaded, setLoaded] = useState(false)
   const [elapsed, setElapsed] = useState(0)
+  const [level, setLevel] = useState(0)
   const [pressEnter, setPressEnter] = useState(readEnter)
   const recording = useRef<Recording | null>(null)
   const stateRef = useRef(state)
@@ -69,7 +71,7 @@ export function VoiceComposer({ getSettings, toggleSignal, contextText, onSend, 
   // A recording shows its running time.
   useEffect(() => {
     if (state.phase !== 'recording') return
-    const t = setInterval(() => setElapsed(recording.current?.elapsedMs() ?? 0), 200)
+    const t = setInterval(() => { setElapsed(recording.current?.elapsedMs() ?? 0); setLevel(recording.current?.level() ?? 0) }, 100)
     return () => clearInterval(t)
   }, [state.phase])
 
@@ -92,9 +94,18 @@ export function VoiceComposer({ getSettings, toggleSignal, contextText, onSend, 
       dispatch({ type: 'failed', reason: 'That was too short to be speech.' })
       return
     }
-    const result = await cockpitApi.voiceTranscribe(audio)
+    // A silent take is not sent: a model given silence invents a sentence.
+    if (isSilent(audio.stats)) {
+      dispatch({ type: 'failed', reason: SILENCE_MESSAGE })
+      return
+    }
+    const result = await cockpitApi.voiceTranscribe(audio.wav)
     if (!result.ok) {
       dispatch({ type: 'failed', reason: result.reason })
+      return
+    }
+    if (isPhantomTranscript(result.text, audio.stats.peak)) {
+      dispatch({ type: 'failed', reason: SILENCE_MESSAGE })
       return
     }
     dispatch({ type: 'transcribed', text: result.text })
@@ -184,6 +195,11 @@ export function VoiceComposer({ getSettings, toggleSignal, contextText, onSend, 
             <button type="button" class="cockpit-btn cockpit-btn--sm cockpit-btn--primary" onClick={() => dispatch({ type: 'accept' })}>Accept</button>
             <button type="button" class="cockpit-btn cockpit-btn--sm" onClick={() => dispatch({ type: 'revert' })}>Revert</button>
           </div>
+        </div>
+      ) : null}
+      {state.phase === 'recording' ? (
+        <div class="cockpit-voice__meter" role="meter" aria-label="Microphone level" aria-valuemin={0} aria-valuemax={1} aria-valuenow={Math.min(1, level)}>
+          <div style={{ width: `${Math.round(Math.min(1, level * 4) * 100)}%` }} />
         </div>
       ) : null}
       {state.error !== null ? (

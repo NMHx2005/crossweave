@@ -9,6 +9,7 @@ import { effectiveKeys, keyConflicts } from '../lib/keymap'
 import { cockpitApi, type TerminalImport } from '../host/cockpit-api'
 import { startRecording } from '../lib/voice-recorder'
 import { DEFAULT_REFINE_INSTRUCTION } from '../lib/voice-defaults'
+import { isPhantomTranscript, isSilent, SILENCE_MESSAGE } from '../lib/voice-audio'
 import { xtermLook } from '../lib/terminal-look'
 import { createCommitter } from '../lib/settings-commit'
 import { SETTINGS_SECTIONS, findSection, searchSettings } from '../lib/settings-sections'
@@ -263,7 +264,7 @@ export function SettingsPage({ initialSection, initialRow, initial, availability
   }
   const snippets = draft.voice?.snippets ?? []
   const setSnippets = (list: NonNullable<VoiceSettings['snippets']>): void => setVoice({ snippets: list.length === 0 ? undefined : list })
-  const [voiceTest, setVoiceTest] = useState<{ phase: 'idle' | 'recording' | 'working'; result?: string; error?: string }>({ phase: 'idle' })
+  const [voiceTest, setVoiceTest] = useState<{ phase: 'idle' | 'recording' | 'working'; result?: string; error?: string; level?: number }>({ phase: 'idle' })
   // Records three seconds and runs the SAVED transcribe command (the main process reads
   // the settings file itself), so a broken command is found here and not mid-prompt.
   const runVoiceTest = async (): Promise<void> => {
@@ -275,11 +276,21 @@ export function SettingsPage({ initialSection, initialRow, initial, availability
         return
       }
       const rec = await startRecording({ maxSeconds: 5, onLimit: () => undefined })
-      await new Promise((r) => setTimeout(r, 3000))
+      // Three seconds, with the level shown so a dead microphone is obvious.
+      for (let i = 0; i < 30; i++) {
+        await new Promise((r) => setTimeout(r, 100))
+        setVoiceTest({ phase: 'recording', level: rec.level() })
+      }
       setVoiceTest({ phase: 'working' })
       const audio = await rec.stop()
-      const result = await cockpitApi.voiceTranscribe(audio)
-      setVoiceTest(result.ok ? { phase: 'idle', result: result.text } : { phase: 'idle', error: result.reason })
+      if (isSilent(audio.stats)) {
+        setVoiceTest({ phase: 'idle', error: SILENCE_MESSAGE })
+        return
+      }
+      const result = await cockpitApi.voiceTranscribe(audio.wav)
+      if (!result.ok) setVoiceTest({ phase: 'idle', error: result.reason })
+      else if (isPhantomTranscript(result.text, audio.stats.peak)) setVoiceTest({ phase: 'idle', error: SILENCE_MESSAGE })
+      else setVoiceTest({ phase: 'idle', result: result.text })
     } catch (err) {
       setVoiceTest({ phase: 'idle', error: err instanceof Error ? err.message : String(err) })
     }
@@ -559,6 +570,11 @@ export function SettingsPage({ initialSection, initialRow, initial, availability
             <button type="button" class="cockpit-btn cockpit-btn--sm" disabled={voiceTest.phase !== 'idle'} onClick={() => { void runVoiceTest() }}>
               {voiceTest.phase === 'recording' ? 'Listening… speak now' : voiceTest.phase === 'working' ? 'Transcribing…' : 'Record 3 seconds'}
             </button>
+            {voiceTest.phase === 'recording' ? (
+              <div class="cockpit-voice__meter" role="meter" aria-label="Microphone level" aria-valuemin={0} aria-valuemax={1} aria-valuenow={Math.min(1, voiceTest.level ?? 0)}>
+                <div style={{ width: `${Math.round(Math.min(1, (voiceTest.level ?? 0) * 4) * 100)}%` }} />
+              </div>
+            ) : null}
             {voiceTest.result !== undefined ? <p role="status">Heard: “{voiceTest.result}”</p> : null}
             {voiceTest.error !== undefined ? <p class="cockpit-error" role="alert">{voiceTest.error}</p> : null}
           </div>
