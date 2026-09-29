@@ -199,6 +199,22 @@ export function newlyFinished(
 }
 
 /**
+ * Sessions that just said, with `cw notify`, that they are done: a signal that is new (there was none, or it is a
+ * later one). The screen-reading `newlyFinished` cannot see these — a plain shell or an unknown agent has no
+ * "working" to finish from — so an explicit word counts on its own. A first sight (a reload) is not news.
+ */
+export function newlySignalled(
+  prev: ReadonlyArray<Pick<ListedSession, 'id' | 'signal'>>,
+  next: readonly ListedSession[],
+): ListedSession[] {
+  const before = new Map(prev.map((s) => [s.id, s]))
+  return next.filter((s) => {
+    const was = before.get(s.id)
+    return was !== undefined && s.signal?.kind === 'done' && (was.signal === undefined || was.signal.at !== s.signal.at)
+  })
+}
+
+/**
  * What the empty-rail menu offers under Open Recent: recently opened projects not
  * already in the rail, newest first, as many as fit a menu.
  */

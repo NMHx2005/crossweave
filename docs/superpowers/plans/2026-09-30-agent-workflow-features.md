@@ -5,11 +5,11 @@ Tier: Large (four phases, stacked branches). A phase ends with the gate, a known
 
 ## Phase 1 — `cw notify` (`feat/cw-notify`)
 
-1. [ ] Tracker: `signalled(id, kind)`; cleared by `input`; `session.list` carries `signal`. Tests first.
-2. [ ] RPC `session.notify` (validation, closed kinds, one-line message) + CLI `cw notify`.
-3. [ ] Cockpit: a new `done` signal marks the row ✓ and notifies when away; `ask` is the amber path already there.
-4. [ ] Measure on the real app (`scripts/notify-check.ts`).
-5. [ ] Docs.
+1. [x] Tracker: `signalled(id, kind)`; cleared by `input`; `session.list` carries `signal`. Tests first.
+2. [x] RPC `session.notify` (validation, closed kinds, one-line message) + CLI `cw notify`.
+3. [x] Cockpit: a new `done` signal marks the row ✓ and notifies when away; `ask` is the amber path already there.
+4. [x] Measure on the real app (`scripts/notify-check.ts`).
+5. [x] Docs.
 
 ## Phase 2 — session checks (`feat/session-checks`)
 

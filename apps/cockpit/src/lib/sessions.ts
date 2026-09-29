@@ -46,6 +46,8 @@ export type ListedSession = {
   usage?: SessionUsage
   /** It rang the bell since the user last typed: asking, not just finished. */
   rang?: boolean
+  /** What the session itself said with `cw notify` (done / ask), until the next keystroke in it. */
+  signal?: { kind: 'done' | 'ask'; message: string; at: number }
   /** The user's one-line note on it, shown in the rail instead of the agent's words. */
   note?: string
   /** Other sessions touching the same files, and which paths — the early warning before a trial merge. */
@@ -78,6 +80,10 @@ export function parseSessionList(value: unknown): ListedSession[] {
       row.git = { changed: git.changed, ahead: typeof git.ahead === 'number' ? git.ahead : null }
     }
     if (typeof record.rang === 'boolean') row.rang = record.rang
+    const sig = record.signal as { kind?: unknown; message?: unknown; at?: unknown } | null | undefined
+    if (sig !== null && typeof sig === 'object' && (sig.kind === 'done' || sig.kind === 'ask') && typeof sig.message === 'string' && typeof sig.at === 'number') {
+      row.signal = { kind: sig.kind, message: sig.message, at: sig.at }
+    }
     if (typeof record.note === 'string' && record.note.trim() !== '') row.note = record.note
     const overlaps = record.overlaps
     if (Array.isArray(overlaps)) {

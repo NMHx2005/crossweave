@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { agentName, gitBadge, landChip, newlyAsking, overlapBadge, railOrder, relativeTime, rowState, glyphState, ROW_STATE_LABEL, rowTitle, visibleRows, jumpTargets, clampMenu, newlyFinished, recentToOffer, submenuPosition } from '../src/lib/rail'
+import { agentName, gitBadge, landChip, newlyAsking, overlapBadge, railOrder, relativeTime, rowState, glyphState, ROW_STATE_LABEL, rowTitle, visibleRows, jumpTargets, clampMenu, newlyFinished, newlySignalled, recentToOffer, submenuPosition } from '../src/lib/rail'
 import { parseSessionList } from '../src/lib/sessions'
 
 describe('relativeTime', () => {
@@ -242,5 +242,39 @@ describe('submenuPosition', () => {
   test('is pulled up to stay on screen, never above the margin', () => {
     expect(submenuPosition({ left: 40, right: 240, top: 780 }, { width: 200, height: 300 }, view).top).toBe(492)
     expect(submenuPosition({ left: 40, right: 240, top: 10 }, { width: 200, height: 2000 }, view).top).toBe(8)
+  })
+})
+
+describe('newlySignalled', () => {
+  const session = (id: string, signal?: { kind: 'done' | 'ask'; message: string; at: number }) => ({ id, name: id, ...(signal ? { signal } : {}) })
+
+  test('a done signal that was not there before is news, even with no agent and no earlier "working"', () => {
+    expect(newlySignalled([session('a')], [session('a', { kind: 'done', message: 'x', at: 5 })]).map((s) => s.id)).toEqual(['a'])
+  })
+
+  test('the same signal seen again is not news; a later one is', () => {
+    const sig = { kind: 'done' as const, message: 'x', at: 5 }
+    expect(newlySignalled([session('a', sig)], [session('a', sig)])).toEqual([])
+    expect(newlySignalled([session('a', sig)], [session('a', { ...sig, at: 9 })]).map((s) => s.id)).toEqual(['a'])
+  })
+
+  test('a first sight (a reload) is not news, and an ask is the amber path, not this one', () => {
+    expect(newlySignalled([], [session('a', { kind: 'done', message: '', at: 1 })])).toEqual([])
+    expect(newlySignalled([session('a')], [session('a', { kind: 'ask', message: 'which?', at: 1 })])).toEqual([])
+  })
+})
+
+describe('parseSessionList carries the signal', () => {
+  test('a well-formed signal is kept; anything else is dropped', () => {
+    const [ok, badKind, badAt, none] = parseSessionList([
+      { id: 'a', name: 'a', signal: { kind: 'done', message: 'x', at: 3 } },
+      { id: 'b', name: 'b', signal: { kind: 'run', message: 'x', at: 3 } },
+      { id: 'c', name: 'c', signal: { kind: 'done', message: 'x', at: 'later' } },
+      { id: 'd', name: 'd' },
+    ])
+    expect(ok?.signal).toEqual({ kind: 'done', message: 'x', at: 3 })
+    expect(badKind?.signal).toBeUndefined()
+    expect(badAt?.signal).toBeUndefined()
+    expect(none?.signal).toBeUndefined()
   })
 })

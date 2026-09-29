@@ -74,7 +74,7 @@ import type { RowAction } from './Sidebar'
 import { Stage, type StageStatus } from './Stage'
 import { runPaneRequest, type PaneEnv } from '../lib/pane-bridge'
 import { sessionsThatStartedRunning } from '../lib/sessions'
-import { agentName, newlyAsking, newlyFinished } from '../lib/rail'
+import { agentName, newlyAsking, newlyFinished, newlySignalled } from '../lib/rail'
 import { ProjectApiContext } from './project-context'
 import { LAST_LAUNCHER_KEY, readString, readStringList, writeString, writeStringList } from './storage'
 
@@ -213,7 +213,8 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
       if (knownRef.current !== null) {
         const away = !document.hasFocus() || !visibleRef.current
         if (away) for (const s of newlyAsking(sessionsRef.current, loaded.sessions)) notifyAsking(s)
-        const finished = newlyFinished(sessionsRef.current, loaded.sessions)
+        const finished = [...newlyFinished(sessionsRef.current, loaded.sessions), ...newlySignalled(sessionsRef.current, loaded.sessions)]
+          .filter((s, i, all) => all.findIndex((o) => o.id === s.id) === i)
         // Not "unseen" when it finished on screen, in front of the user.
         const unseen = finished.filter((s) => away || s.id !== focusedIdRef.current)
         if (unseen.length > 0) setDoneIds((ids) => [...new Set([...ids, ...unseen.map((s) => s.id)])])
@@ -292,7 +293,7 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
   function notifyFinished(session: ListedSession): void {
     try {
       const note = new Notification(`${session.name} finished`, {
-        body: session.latestWords ?? agentName(session.agent),
+        body: session.signal?.message || session.latestWords || agentName(session.agent),
         tag: `cw-finished-${session.id}`,
         silent: !hostRef.current.notify.sound,
       })
@@ -309,7 +310,7 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
   function notifyAsking(session: ListedSession): void {
     try {
       const note = new Notification(`${session.name} is waiting for you`, {
-        body: session.latestWords ?? agentName(session.agent),
+        body: session.signal?.message || session.latestWords || agentName(session.agent),
         tag: `cw-asked-${session.id}`,
         silent: !hostRef.current.notify.sound,
       })

@@ -26,7 +26,12 @@ export interface SessionStatus {
    * a question) rather than one that finished its turn and went quiet.
    */
   rang: boolean;
+  /** What the agent (or a script) said itself with `cw notify`; cleared by the next keystroke. */
+  signal?: Signal;
 }
+
+export type SignalKind = 'done' | 'ask';
+export interface Signal { kind: SignalKind; message: string; at: number }
 
 interface Track {
   lastOutputAt: number | null;
@@ -44,6 +49,7 @@ interface Track {
   busySinceInput: boolean;
   /** When the screen last showed it working (debounces a repaint between frames). */
   lastBusyAt: number | null;
+  signal: Signal | null;
 }
 
 /**
@@ -78,7 +84,7 @@ export class ActivityTracker {
     this.tracks.set(id, {
       lastOutputAt: null, lastInputAt: null, workedSinceInput: false,
       bellSinceInput: false, failed: false, reported: 'idle',
-      screen: new AgentScreen(cols, rows), screenSpoke: false, busySinceInput: false, lastBusyAt: null,
+      screen: new AgentScreen(cols, rows), screenSpoke: false, busySinceInput: false, lastBusyAt: null, signal: null,
     });
   }
 
@@ -102,6 +108,19 @@ export class ActivityTracker {
     t.workedSinceInput = false;
     t.bellSinceInput = false;
     t.busySinceInput = false;
+    t.signal = null;
+  }
+
+  /**
+   * An explicit word from the session itself (`cw notify`): exact where the screen is a guess. `ask`
+   * rings like a bell would; `done` reads as a finished turn. False when the session is not running.
+   */
+  signalled(id: string, kind: SignalKind, message: string): boolean {
+    const t = this.tracks.get(id);
+    if (t === undefined) return false;
+    t.signal = { kind, message, at: this.now() };
+    t.bellSinceInput = kind === 'ask';
+    return true;
   }
 
   /** `requested`: we stopped it, so its exit code (129 for a hangup) is no failure. */
@@ -124,11 +143,12 @@ export class ActivityTracker {
     const activity = this.activityOf(t, agent);
     // A permission prompt on screen asks as surely as a bell does.
     const rang = t.bellSinceInput || (activity === 'asked' && agent !== null && (t.screenSpoke || SCREEN_AGENTS.has(agent)) && ASKING_ON_SCREEN.test(t.screen.nearCursor()));
-    return { activity, lastActivityAt: lastActivityAt < 0 ? null : lastActivityAt, rang };
+    return { activity, lastActivityAt: lastActivityAt < 0 ? null : lastActivityAt, rang, ...(t.signal === null ? {} : { signal: t.signal }) };
   }
 
   private activityOf(t: Track, agent: string | null): Activity {
     if (t.failed) return 'failed';
+    if (t.signal !== null) return 'asked';
     if (agent !== null) {
       const screen = t.screen.nearCursor();
       const now = this.now();

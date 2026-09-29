@@ -282,3 +282,59 @@ describe('detectAgents', () => {
     expect(found).toEqual(new Map([['a', 'claude'], ['b', null], ['c', 'codex'], ['gone', null]]));
   });
 });
+
+describe('an explicit signal (cw notify)', () => {
+  // The screen is a guess; a signal is what the agent (or its hook) says itself.
+  it('done: the session shows as finished (asked without a ring), even in a plain shell with no agent', () => {
+    const c = clock();
+    const t = new ActivityTracker(c.now, 2000);
+    t.started('s');
+    expect(t.signalled('s', 'done', 'tests written')).toBe(true);
+    const status = t.status('s', null);
+    expect(status.activity).toBe('asked');
+    expect(status.rang).toBe(false);
+    expect(status.signal).toEqual({ kind: 'done', message: 'tests written', at: c.now() });
+  });
+
+  it('ask: it rings, so the row asks for you', () => {
+    const c = clock();
+    const t = new ActivityTracker(c.now, 2000);
+    t.started('s');
+    t.signalled('s', 'ask', 'which branch?');
+    expect(t.status('s', 'claude')).toMatchObject({ activity: 'asked', rang: true, signal: { kind: 'ask' } });
+  });
+
+  it('the next keystroke clears it, like every other wait for the user', () => {
+    const c = clock();
+    const t = new ActivityTracker(c.now, 2000);
+    t.started('s');
+    t.signalled('s', 'done', 'x');
+    t.input('s');
+    expect(t.status('s', null)).toMatchObject({ activity: 'idle', rang: false });
+    expect(t.status('s', null).signal).toBeUndefined();
+  });
+
+  it('a session that is not running cannot be signalled', () => {
+    const t = new ActivityTracker();
+    expect(t.signalled('nope', 'done', 'x')).toBe(false);
+  });
+
+  it('a later signal replaces an earlier one and moves its time', () => {
+    const c = clock();
+    const t = new ActivityTracker(c.now, 2000);
+    t.started('s');
+    t.signalled('s', 'done', 'first');
+    c.advance(5000);
+    t.signalled('s', 'ask', 'second');
+    expect(t.status('s', null).signal).toEqual({ kind: 'ask', message: 'second', at: c.now() });
+  });
+
+  it('is announced as a change so clients redraw', () => {
+    const c = clock();
+    const t = new ActivityTracker(c.now, 2000);
+    t.started('s');
+    t.sweep(() => null);
+    t.signalled('s', 'done', 'x');
+    expect(t.sweep(() => null)).toEqual(['s']);
+  });
+});

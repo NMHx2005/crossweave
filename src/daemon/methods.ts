@@ -48,6 +48,7 @@ import { hardenStateFiles } from './private-files.js';
 import { ActivityTracker, detectAgents } from './session-status.js';
 import { GitCounter } from './git-counts.js';
 import { RepoScanner } from './repo-scan.js';
+import { parseSignal } from './signal.js';
 import { OverlapTracker } from './overlap.js';
 import { UsageReader, UsageTracker } from '../domain/agent-usage.js';
 import { launcherProgram } from '../core/launcher-program.js';
@@ -656,6 +657,7 @@ export function buildMethods(
           activity: status.activity,
           lastActivityAt: status.lastActivityAt,
           rang: status.rang,
+          ...(status.signal === undefined ? {} : { signal: status.signal }),
         };
         const active = leasesRepo
           .listBySession(session.id)
@@ -675,6 +677,14 @@ export function buildMethods(
           },
         };
       });
+    },
+    // `cw notify`: the session (or its agent's hook) says itself that it is done or needs an answer.
+    'session.notify': (p) => {
+      const row = sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName'));
+      const { kind, message } = parseSignal(p);
+      if (!activity.signalled(row.id, kind, message)) throw new CrossweaveError('SESSION_NOT_RUNNING', `Session is not running: ${row.name}`);
+      broadcastRegistry.broadcast('tui.invalidate', {});
+      return { ok: true };
     },
     'session.note': (p) => {
       const row = sessions.setNote(str(p, 'workspaceId'), str(p, 'idOrName'), str(p, 'note'));

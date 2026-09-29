@@ -341,7 +341,7 @@ export function Sidebar(props: SidebarProps) {
                           role="button"
                           tabIndex={0}
                           class={`cockpit-row${session.id === focusedId ? ' is-focused' : ''} is-${state}`}
-                          title={`${session.name} — ${ROW_STATE_LABEL[state]} · ${agentName(session.agent)}${meta ? ` · ${meta}` : ''}${git ? ` · ${git.title}` : ''}${n ? ` · ⌘${n}` : ''}`}
+                          title={`${session.name} — ${ROW_STATE_LABEL[state]}${session.signal?.message ? `: ${session.signal.message}` : ''} · ${agentName(session.agent)}${meta ? ` · ${meta}` : ''}${git ? ` · ${git.title}` : ''}${n ? ` · ⌘${n}` : ''}`}
                           onClick={() => { if (!renamingRow && !notingRow) props.onSelect(project.projectRoot, session.id) }}
                           onDblClick={() => props.onRenaming({ kind: 'session', projectRoot: project.projectRoot, sessionId: session.id })}
                           onKeyDown={(e) => {
