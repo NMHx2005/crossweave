@@ -10,6 +10,7 @@ import type { PaneSource } from '../lib/pane-source'
 import { findFileLinks } from '../lib/file-links'
 import { stripFocusReports, stripTerminalReports } from '../../../../src/client/terminal-reports.js'
 import { clipboardWriteFromOsc52 } from '../../../../src/client/osc52.js'
+import { droppedPathsText } from '../lib/dropped-paths'
 import { xtermLook } from '../lib/terminal-look'
 import { usePaneTheme, useTerminalLook } from './terminal-look-context'
 
@@ -175,7 +176,26 @@ export function XtermPane({ source, focused }: XtermPaneProps) {
     observer.observe(container)
     applyFit()
 
+    // A file dragged from Finder types its path, as in Ghostty and iTerm2. Without a
+    // dragover default the browser refuses the drop, and Electron would navigate to it.
+    const onDragOver = (e: DragEvent) => {
+      if (e.dataTransfer?.types.includes('Files')) e.preventDefault()
+    }
+    const onDrop = (e: DragEvent) => {
+      const files = Array.from(e.dataTransfer?.files ?? [])
+      if (files.length === 0) return
+      e.preventDefault()
+      const text = droppedPathsText(files.map((f) => window.cockpit.pathForFile(f)))
+      // paste(), not input: a shell or agent that asked for bracketed paste gets one.
+      if (text !== '') term.paste(text)
+      term.focus()
+    }
+    container.addEventListener('dragover', onDragOver)
+    container.addEventListener('drop', onDrop)
+
     return () => {
+      container.removeEventListener('dragover', onDragOver)
+      container.removeEventListener('drop', onDrop)
       cancelled = true
       links.dispose()
       osc52.dispose()
