@@ -201,6 +201,11 @@ export class TerminalRegistry {
     clearTimeout(timer);
   }
 
+  /** How many extra terminals are open right now. */
+  count(): number {
+    return this.open_.size;
+  }
+
   async closeForSession(sessionId: string): Promise<void> {
     const ids = [...this.open_.values()].filter((t) => t.sessionId === sessionId).map((t) => t.terminalId);
     await Promise.all(ids.map((id) => this.close(id)));

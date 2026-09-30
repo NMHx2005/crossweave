@@ -38,7 +38,8 @@ import { NotificationGate } from '../notify/gate.js';
 import { notify, type NotifyDispatcherDeps } from '../notify/dispatcher.js';
 import { platformSend } from '../notify/macos.js';
 import { BroadcastRegistry } from './broadcast.js';
-import { measureWorktrees } from '../isolation/disk-guard.js';
+import { sessionDiskPaths } from '../isolation/disk-guard.js';
+import { DiskTracker } from './disk-usage.js';
 import { LeaseRepo } from '../db/repositories/lease.js';
 import { spawnShell } from '../adapters/shell.js';
 import { latestWords } from '../domain/agent-logs.js';
@@ -108,6 +109,19 @@ function optionalEventKind(params: Record<string, unknown>, key: string): Notify
  * instead of failing: an unreadable HEAD is a legitimate repository condition
  * (an unborn branch, for one), not an internal fault.
  */
+/** `YYYY-MM-DD` (UTC) of an ISO timestamp, or undefined when it is not a date — a broken row must not break the page. */
+function dayKey(iso: string): string | undefined {
+  const t = Date.parse(iso);
+  return Number.isFinite(t) ? new Date(t).toISOString().slice(0, 10) : undefined;
+}
+
+/** The last `n` UTC days, today included. */
+function lastDays(n: number, now = Date.now()): Set<string> {
+  const days = new Set<string>();
+  for (let i = 0; i < n; i++) days.add(new Date(now - i * 86_400_000).toISOString().slice(0, 10));
+  return days;
+}
+
 function readBaseHead(projectRoot: string): string | null {
   try {
     return execFileSync('git', ['rev-parse', '--verify', 'HEAD'], {
@@ -222,21 +236,13 @@ export function buildMethods(
   }
 
   /**
-   * `workspace.info`'s disk-usage figure is a synchronous, recursive filesystem walk
-   * (`measureWorktrees` → `directorySize`, src/isolation/disk-guard.ts) that blocks
-   * this single-threaded daemon for its whole duration. M1's original callers
-   * (`assertDiskAvailable`, `cw gc`) invoked it rarely; the TUI (Task 4) now calls
-   * this same handler on every `tui.invalidate` — after every session mutation,
-   * including N times back-to-back during `L` (land-all)'s loop. A short TTL cache
-   * per workspace id avoids re-walking the filesystem for calls that land within the
-   * same window. 3000ms: long enough to absorb a burst of back-to-back invalidates
-   * (a single land-all run, or several panes refreshing together) while still short
-   * enough that `cw workspace info`/`cw workspace list` (which read this same
-   * handler) never show a figure more than a few seconds stale. Lives for the
-   * daemon process's lifetime, same as `notifyGate`/`broadcastRegistry` above.
+   * How much disk each session holds, measured OFF the event loop. The figure used to be a synchronous recursive walk that blocked
+   * this single-threaded daemon for its whole duration (and the TUI asked for it on every `tui.invalidate`); the tracker walks
+   * asynchronously, at most one walk per path, with a deadline and a cache. `workspace.info` accepts 3 s-old figures, as its
+   * own TTL cache did, so a burst of invalidates costs one walk; the dashboard's `stats.overview` accepts a minute.
    */
-  const DISK_USAGE_CACHE_TTL_MS = 3000;
-  const diskUsageCache = new Map<string, { value: { usedBytes: number; limitBytes: number }; computedAt: number }>();
+  const DISK_INFO_MAX_AGE_MS = 3000;
+  const diskTracker = new DiskTracker();
 
   const userHome = (): string => process.env.HOME || homedir();
   // What each session is doing (working / asked / idle / failed) and which agent runs
@@ -535,30 +541,83 @@ export function buildMethods(
     // rely on; `measureWorktrees` (M1's Disk Guard, already the basis for
     // `assertDiskAvailable` and `collectGarbage`) is real, already-tested disk data,
     // not a placeholder.
-    'workspace.info': (p) => {
+    'workspace.info': async (p) => {
       const id = str(p, 'id');
       const info = workspaces.info(id);
-      const cached = diskUsageCache.get(id);
-      const now = Date.now();
-      let disk: { usedBytes: number; limitBytes: number };
-      if (cached && now - cached.computedAt < DISK_USAGE_CACHE_TTL_MS) {
-        disk = cached.value;
-      } else {
-        // `measureWorktrees` sums EVERY worktree, including the internal integration/
-        // scratch session — correct for its original M1 callers (assertDiskAvailable,
-        // collectGarbage), which legitimately want total-including-everything. A
-        // user-facing figure must not, same as `info.sessions` itself already excludes
-        // it (see WorkspaceManager.info()'s own filter) — so restrict the sum to the
-        // session ids `info.sessions` actually shows the user, rather than changing
-        // `measureWorktrees`'s own signature/behavior.
-        const visibleIds = new Set(info.sessions.map((s) => s.id));
-        const usedBytes = measureWorktrees(db, id)
-          .filter((d) => visibleIds.has(d.sessionId))
-          .reduce((sum, d) => sum + d.bytes, 0);
-        disk = { usedBytes, limitBytes: config.disk.perWorkspaceBytes };
-        diskUsageCache.set(id, { value: disk, computedAt: now });
-      }
+      // `info.sessions` already leaves out the internal integration/scratch session; a user-facing figure must not count it either,
+      // so only the sessions shown are summed. A shared session (the project folder itself) has no paths of its own.
+      const paths = info.sessions.flatMap((s) => sessionDiskPaths(info.workspace.rootPath, s, leasesRepo));
+      const measured = await Promise.all(paths.map((path) => diskTracker.measure(path, { maxAgeMs: DISK_INFO_MAX_AGE_MS })));
+      const disk = { usedBytes: measured.reduce((sum, m) => sum + m.bytes, 0), limitBytes: config.disk.perWorkspaceBytes };
       return { ...info, disk };
+    },
+    /**
+     * What this project's sessions cost: one row per visible session (disk, uncommitted files, commits to land, usage) and the daemon's own
+     * figures, for the cockpit's dashboard. It answers at once: a disk figure not measured yet is `null` (and `diskMeasuring`) while the
+     * walk runs in the background, so asking again a moment later finds it. A shared session (the project folder itself) is never sized.
+     */
+    'stats.overview': (p) => {
+      const workspaceId = str(p, 'workspaceId');
+      const info = workspaces.info(workspaceId);
+      const root = info.workspace.rootPath;
+      const allPaths: string[] = [];
+      const rows = info.sessions.map((row) => {
+        const shared = row.worktreePath === null || row.worktreePath === root;
+        const paths = shared ? [] : sessionDiskPaths(root, row, leasesRepo);
+        allPaths.push(...paths);
+        const figures = paths.map((path) => diskTracker.get(path));
+        const measured = !shared && paths.length > 0 && figures.every((f) => f !== undefined);
+        const agent = agents.get(row.id) ?? null;
+        const live = activity.status(row.id, agent);
+        const git = gitCounts.get(row.id);
+        const used = usage.get(row.id);
+        return {
+          id: row.id, name: row.name, status: row.status, branch: row.branch, worktreePath: row.worktreePath, shared,
+          agent, activity: live.activity, createdAt: row.createdAt, lastActiveAt: row.lastActiveAt, lastActivityAt: live.lastActivityAt,
+          diskBytes: measured ? figures.reduce((sum, f) => sum + (f?.bytes ?? 0), 0) : null,
+          diskApprox: figures.some((f) => f?.approx === true),
+          diskMeasuring: !shared && !measured,
+          ahead: git?.ahead ?? null,
+          changed: git?.changed ?? null,
+          tokens: used === undefined ? null : Object.values(used.total).reduce((a, b) => a + b, 0),
+          costUsd: row.costSpentUsd,
+        };
+      });
+      diskTracker.refresh(allPaths);
+      if (hasGit) {
+        void gitCounts.refresh(() => {
+          const baseHead = readBaseHead(projectRoot);
+          return info.sessions
+            .filter((s) => s.worktreePath !== null && s.status !== 'landed' && existsSync(s.worktreePath))
+            .map((s) => ({ id: s.id, folder: s.worktreePath as string, baseHead: s.worktreePath === projectRoot ? null : baseHead }));
+        }).then((changed) => { if (changed) broadcastRegistry.broadcast('tui.invalidate', {}); });
+      }
+      const started: Record<string, number> = {};
+      const landed: Record<string, number> = {};
+      const window = lastDays(14);
+      const bump = (into: Record<string, number>, iso: string): void => {
+        const day = dayKey(iso);
+        if (day !== undefined && window.has(day)) into[day] = (into[day] ?? 0) + 1;
+      };
+      for (const row of info.sessions) {
+        bump(started, row.createdAt);
+        if (row.status === 'landed') bump(landed, row.lastActiveAt);
+      }
+      for (const h of sessionHistory.listByWorkspace(workspaceId, 500)) {
+        bump(started, h.createdAt);
+        if (h.finalStatus === 'landed') bump(landed, h.endedAt);
+      }
+      const mem = process.memoryUsage();
+      return {
+        workspaceId, root, measuredAt: Date.now(),
+        process: { pid: process.pid, uptimeMs: Math.round(process.uptime() * 1000), rssBytes: mem.rss, heapUsedBytes: mem.heapUsed },
+        running: runtime.pids().size,
+        terminals: terminals.count(),
+        limits: { perSessionBytes: config.disk.perSessionBytes, perWorkspaceBytes: config.disk.perWorkspaceBytes },
+        sessions: rows,
+        startedPerDay: started,
+        landedPerDay: landed,
+      };
     },
     'workspace.openFile': (p) => {
       const rel = str(p, 'path');
@@ -590,10 +649,9 @@ export function buildMethods(
         onBeforeRemove: (session) => teardownFor(session),
       });
       await closeOrphanTerminals(id);
-      // Otherwise `workspace.info`'s disk figure (Important 3's TTL cache) can keep
-      // showing pre-gc usage for up to `DISK_USAGE_CACHE_TTL_MS` after a gc, even
-      // though the session list itself refreshes immediately via the broadcast below.
-      diskUsageCache.delete(id);
+      // Otherwise the disk figures can keep showing pre-gc usage until their cache expires, even though the session list itself
+      // refreshes immediately via the broadcast below.
+      diskTracker.clear();
       broadcastRegistry.broadcast('tui.invalidate', {});
       return result;
     },

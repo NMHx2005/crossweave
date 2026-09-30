@@ -53,10 +53,35 @@ export function directorySize(path: string): number {
   return total;
 }
 
+/**
+ * The directories that count as one session's disk: its own worktree, plus the cache and database directories or files its
+ * leases point at inside the workspace's `.crossweave` (a lease path that is missing, escapes it or is not absolute
+ * contributes nothing). A shared session (its "worktree" IS the project root: the user's own files) has none.
+ */
+export function sessionDiskPaths(
+  workspaceRoot: string | undefined,
+  session: { id: string; worktreePath: string | null },
+  leases: LeaseRepo,
+): string[] {
+  if (session.worktreePath === null || session.worktreePath === workspaceRoot) return [];
+  const paths = [session.worktreePath];
+  const leaseRoot = workspaceRoot === undefined ? undefined : crossweaveDir(workspaceRoot);
+  if (leaseRoot === undefined) return paths;
+  for (const lease of leases.listBySession(session.id)) {
+    if ((lease.kind !== 'cache' && lease.kind !== 'db') || !isAbsolute(lease.value)) continue;
+    try {
+      const path = assertContained(leaseRoot, lease.value);
+      if (!paths.includes(path)) paths.push(path);
+    } catch {
+      // An escaped or malformed lease path contributes no bytes.
+    }
+  }
+  return paths;
+}
+
 export function measureWorktrees(db: Database, workspaceId: string): DiskUsage[] {
   const workspace = new WorkspaceRepo(db).findById(workspaceId);
   const leases = new LeaseRepo(db);
-  const leaseRoot = workspace ? crossweaveDir(workspace.rootPath) : undefined;
 
   return new SessionRepo(db)
     .listByWorkspace(workspaceId)
@@ -64,20 +89,14 @@ export function measureWorktrees(db: Database, workspaceId: string): DiskUsage[]
     // crossweave created, and often tens of GB. Only a worktree of its own is measured.
     .filter((s) => s.worktreePath !== null && s.worktreePath !== workspace?.rootPath)
     .map((s) => {
-      let bytes = directorySize(s.worktreePath ?? '');
-      const counted = new Set<string>();
-      if (leaseRoot !== undefined) {
-        for (const lease of leases.listBySession(s.id)) {
-          if ((lease.kind !== 'cache' && lease.kind !== 'db') || !isAbsolute(lease.value)) continue;
-          try {
-            const path = assertContained(leaseRoot, lease.value);
-            if (counted.has(path)) continue;
-            counted.add(path);
-            const stat = statSync(path);
-            bytes += stat.isDirectory() ? directorySize(path) : stat.isFile() ? stat.size : 0;
-          } catch {
-            // Missing, unreadable and escaped lease paths contribute no bytes.
-          }
+      const [worktree, ...extras] = sessionDiskPaths(workspace?.rootPath, s, leases);
+      let bytes = directorySize(worktree ?? '');
+      for (const path of extras) {
+        try {
+          const stat = statSync(path);
+          bytes += stat.isDirectory() ? directorySize(path) : stat.isFile() ? stat.size : 0;
+        } catch {
+          // Missing and unreadable lease paths contribute no bytes.
         }
       }
       return { sessionId: s.id, name: s.name, bytes };
