@@ -1,80 +1,86 @@
-# Progress — crossweave × SpaceVibe Deck Long Roadmap
+# Progress — crossweave
 
-**Last updated:** 2026-09-24 (main = 2575a92)
-**Roadmap:** `docs/superpowers/plans/2026-09-21-long-roadmap-spacevibe-crossweave.md`
+**Last updated:** 2026-09-30
+**Product:** `cw` (CLI), `cwd` (daemon) and the Electron **Cockpit** run N parallel sessions on one repository and land them
+back. A session is a git worktree plus the user's shell in it; what runs there is the user's to type.
+**Where the known gaps are:** `docs/superpowers/specs/2026-08-14-known-limitations-digest.md` (one line per milestone, newest
+last) and the `*-known-limitations.md` next to each spec.
 
-## Done
+## Built and on `main`
 
-| Date | Milestone | Commit | Gate |
-|---|---|---|---|
-| 2026-09-21 | Rail active polish (Cursor material) | `d79d401` | typecheck + tokens.test |
-| 2026-09-21 | Linux bwrap provider | `c692c86` | sandbox.test 22 pass |
-| 2026-09-21 | bwrap hardening (7 escape probes) | `4c225b4` | sandbox.test + spec table |
-| 2026-09-21 | Sandbox surface (list + rail) | `0c1d60f` / `2a3ba2d` | typecheck + build |
-| 2026-09-21 | Gateway Stage 0 (WS shuttling) | `4d43672` | gateway.test 3 pass |
-| 2026-09-21 | Gateway Stage 1 (token auth) | `d26a577` | gateway-auth.test |
-| 2026-09-21 | Gateway Stage 1b (read/control + audit) | `8fc3edc` | gateway-auth.test 4 pass |
-| 2026-09-21 | Gateway Stage 1c (TLS gating) | `0952d07` | gateway-tls.test 3 pass |
-| 2026-09-21 | Gateway Stage 2 (web pane) | `24ed07a` | gateway-web.test |
-| 2026-09-21 | Gateway serve polish (static + WS upgrade) | `c09ea7b` / `d88ad1b` | build |
-| 2026-09-21 | Gateway Stage 3 relay skeleton | `34aafde` | gateway-relay.test |
-| 2026-09-21 | Cockpit tests fix (worktreePath compat) | `5675e7b` | cockpit-host/session-data pass |
-| 2026-09-21 | Horizon A — Deck bridge — skeleton | `94d4115` | typecheck + 1 test |
-| 2026-09-24 | Horizon A — Deck bridge — **wired** (attention lift + card + waiting) | `d99893d` | deck-bridge 5 + attention 8 + session.wait 2 + typecheck + build |
-| 2026-09-21 | Horizon B — Journal + activity — **đã wire** | `6c53e9f` / `0856efb` + `798df0b` | journal-activity + methods-journal + cockpit-host/activity/tokens + live app (restore + unread row) |
-| 2026-09-24 | Horizon C — Usage spec | `87ae992` | design `2026-09-24-horizon-c-usage-design.md` |
-| 2026-09-24 | Horizon C — Usage aggregate + RPC | `bea4bc6` | usage-aggregate.test + methods-usage.test + typecheck + build |
-| 2026-09-24 | Horizon C — Cockpit usage pane | `0d8759c` | cockpit channels/api/App + app.css tokens + cockpit build |
-| 2026-09-24 | Horizon D — Design + plan | `ab8ed61` | spec + plan `2026-09-24-horizon-d-*` |
-| 2026-09-24 | Horizon D — Relay + sandbox parity | `5322f7c` | relay docs + sandbox.ts parity note + CI sandbox-linux job (pending sudo) |
-| 2026-09-24 | Horizon D — E2E helpers | `accafc2` | e2e.ts + e2e.test 4 pass + typecheck + build |
-| 2026-09-24 | Horizon E/F — file explorer + distribution | `92bbafd` | workspace.openFile 2 pass + web client + install.sh bwrap check + runtime hook |
-| 2026-09-24 | C/D hardening sprint — telemetry + E2E wire | `eff82d9` | telemetry 1 pass + e2e wire decrypt + typecheck + build |
-| 2026-09-24 | Web browser tabs + file explorer wiring | `5680cd4` | tab strip pin/close/reorder + file explorer web |
-| 2026-09-24 | Gateway E2E encrypt at source | `95213ae` | runtime encryptChunk + decrypt wire + typecheck + build |
-| 2026-09-24 | Stage 3 relay Worker + hosted stub | `e64003b` | relay dumb forwarder + Worker stub + relay.test 1 pass |
-| 2026-09-24 | Web workspace.listFiles + explorer tree | `3003a73` | listFiles 2 pass + listFiles web client + explorer tree |
-| 2026-09-24 | Web Monaco + drag reorder | `2501ff9` | openMonaco + drag reorder + typecheck + build |
-| 2026-09-24 | Gateway relay Worker routing | `d418545` | extractWorkspaceId 3 pass + handleRelayUpgrade |
-| 2026-09-27 | Gateway, E2E sealing and browser phone access removed (for a native iOS app later; tag `v0.4-remote-web`) | this branch | typecheck + full suite |
+### Engine (`cwd`, `cw`)
 
-## Nợ kỹ thuật
+| Area | What it does | Notes |
+|---|---|---|
+| Workspaces and sessions | `cw init`, `cw session new/start/stop/attach/list/path/rename/note/kill/rm`, plain (non-git) folders | schema is at **v17**; migrations are append-only |
+| Isolation | per-session port block (`$PORT`), cache dir, optional DB/Docker names, disk guard | leases are cooperative, not a sandbox |
+| Convergence | background trial merges, conflict graph, recommended order, `cw land`, `cw land all`, pre-land test command (`cw config trust`) | evidence-gated |
+| Status | what a session is doing is inferred from its shell (screen words, output, bell, process tree) | reliable for Claude Code, Codex, Gemini; approximate for the rest |
+| **`cw notify`** (2026-09-30) | a session or its agent's hook says it is done or needs an answer; exact where the screen is a guess | `2026-09-30-cw-notify-known-limitations.md` |
+| **`cw check`** (2026-09-30) | the trusted `converge.testCommand` run in one session's worktree; verdict on the rail | `2026-09-30-session-checks-known-limitations.md` |
+| **Command bridge** (2026-09-29) | a shell command asks the running cockpit to do something, through the daemon; closed namespaces, first come first served | `2026-09-29-cockpit-command-bridge-known-limitations.md` |
+| **`cw pane`** (2026-09-29) | arrange the running cockpit's panes from a shell; it asks the person before anything more than layout | `2026-09-29-cockpit-pane-bridge-known-limitations.md` |
+| **`cw browser`** (2026-09-30) | an agent reads and drives a Browser pane (console, network, dom, screenshot, navigate, click, type, eval) behind a per-pane Off/Read/Control switch | `2026-09-30-cockpit-browser-agent-known-limitations.md` |
+| Terminal persistence (2026-09-29) | opt-in: extra terminals reopen after a daemon restart | off by default |
+| Session history (2026-09-28) | `cw session history`; survives deleting the session | `2026-09-28-session-history-known-limitations.md` |
+| Setup-hook exit code (2026-09-28) | a failed `hooks.sessionSetup` shows on the rail | `2026-09-28-session-setup-exit-code-known-limitations.md` |
+| Distribution | `install.sh`, `cw update`, release workflow | app is signed with a development certificate, **not notarized** |
 
-**A đã wire phía crossweave** (`d99893d`) — chi tiết: `docs/superpowers/specs/2026-09-21-deck-bridge-known-limitations.md` — còn lại: Deck extension/sidecar register, worktree creation reuse, land button/palette, session.data tail wiring.
+### Cockpit (macOS arm64)
 
-**B đã wired** (daemon sở hữu journal qua `journal.get`/`journal.set`, cockpit restore
-thứ tự pane + focus, rail có unread/View all/ack) — phần còn thiếu được ghi ở
-`docs/superpowers/specs/2026-09-21-journal-activity-known-limitations.md`: scrollback
-snapshot, `needs_you` chưa có producer, `fileSurfaces` luôn rỗng, TUI chưa tham gia.
+Rail of projects and sessions with live status; tabs of shells, files, web pages and Changes; tmux-style panes (zoom, focus by
+direction, presets, swap, pane → tab, synchronize, copy-mode, a `Ctrl-A` key-table); Settings page like Cursor's; terminal speed
+(WebGL under a budget, output coalescing) and motion; file drops become paths; launchers; project tools; themes; notifications;
+usage per session; and, new on 2026-09-30:
 
-Ghi chú cấu trúc: `deriveAttention` đã lift lên `src/domain/attention.ts` (d99893d) — A/C dùng chung engine version.
+| Feature | Where |
+|---|---|
+| Prompt composer (⌘⇧P, pen button): write once, optional **Refine** by your own command, send to several sessions | `2026-09-30-prompt-composer-known-limitations.md` |
+| Compare two sessions side by side and land one | `2026-09-30-session-compare-known-limitations.md` |
+| Session **presets**: one click starts a session, its terminals (each running a command) and a browser on its port | `2026-09-30-session-presets-known-limitations.md` |
+| Session history dialog (⌘⇧H) | `2026-09-28-session-history-known-limitations.md` |
+| Status marks: loading ring while an agent works, ✓ until you look at a finished one, nothing for a quiet shell | this file's changelog below |
+| Rail keeps the newest answer (out-of-order loads are dropped); typing no longer counts as work; landing asks when the tests last failed | `docs/releases/v0.4.0.md` |
 
-## In progress / Next
+## Removed on purpose (do not reintroduce)
 
-- **Done:** Horizon C — Usage accounting wired (usage engine + cockpit + telemetry opt-in `src/gateway/telemetry.ts` wired; server flush POST stub)
-- **Done:** Horizon A — Deck bridge wired crossweave-side (attention lift + card + waiting); Deck UI deferred
-- **Done:** Horizon D — Sandbox + Gateway hardening (CI + E2E helpers wired, relay infra deferred)
-- **Done:** Horizon E — File explorer READ + browser tabs strip (openFile + listFiles + Monaco placeholder + drag reorder)
-- **Done:** Horizon F — Distribution (install.sh unified + bwrap check)
-- **Done:** C/D hardening sprint — telemetry opt-in + session.data E2E wire + Stage 3 relay Worker routing + E web Monaco
-- **Next:** Stage 3 hosted relay deploy (`api.deck.spacevibe.dev` Worker) + Gateway web Monaco bundle Stage 3 hosted relay deploy + Horizon F Windows (deferred)
-- Deferred: Stage 3 hosted relay E2E + infra, Windows packaging (until `cwd` on Windows)
+| Date | What | Last version with it |
+|---|---|---|
+| 2026-09-27 | collision guard, tiers / Safe Mode, agent adapters and launch flags, MCP server, OS sandbox | tag `v0.3-radar` |
+| 2026-09-27 | `cw gateway` and the phone web page (browser remote control) | tag `v0.4-remote-web` |
+| 2026-09-30 | in-app voice input (dictation is left to a system-wide tool such as Handy or Superwhisper) | tag `v0.5-voice-input` |
 
-## Horizon overview
+## Next
 
-- **A** Deck × crossweave bridge — wired crossweave-side (`d99893d`), Deck UI deferred
-- **B** Session journal + Recent activity — đã wire (journal RPC + restore + activity rail)
-- **C** Usage accounting — engine + cockpit + telemetry opt-in wired (`src/gateway/telemetry.ts` consent 0600 + per-day file, `POST /v1/ping` best-effort)
-- **D** Sandbox + Gateway hardening — wired (E2E HKDF+aes-gcm + decrypt at client, relay dumb forwarder + Worker routing; hosted deploy deferred)
-- **E** File explorer — workspace.openFile + workspace.listFiles + web explorer + browser tabs strip wired
-- **F** Distribution — install.sh unified + bwrap check
+1. **Cut 0.4.0**: tag, release workflow, install the app, restart project daemons (that ends running sessions, so the owner picks the
+   moment).
+2. Use it for a week and fix what is annoying: wire `cw notify` into agent hooks, try presets and the composer for real.
+3. Notarize the app and give it an icon (both need the owner: a developer account and a design).
+4. Later: a native iOS app for remote control (designed from scratch), a Linux cockpit, per-session one-line summaries on the rail,
+   an optional "land only when the tests passed" gate.
+
+## Changelog (newest first)
+
+- **2026-09-30** — `cw notify`, `cw check`, compare, prompt composer, presets, session history, setup exit-code, hooks review
+  fixes, rail/status polish; voice removed; version 0.4.0 prepared.
+- **2026-09-29** — command bridge, tmux parity (commands, panes, key-table, terminal persistence, `cw pane`), browser-agent
+  access, settings page, terminal speed, motion, daemon lifecycle.
+- **2026-09-27** — collision guard and agent model removed; browser remote removed; cockpit roadmap (notifications, usage, ⌘F,
+  notes, shortcuts, themes, panes).
+- **2026-09-17 … 2026-09-24** — cockpit design system, launchers, live projects, plain folders, project tools; the earlier
+  Deck-bridge / gateway horizons (later removed).
+- **2026-08-10 … 2026-08-14** — engine milestones M1–M9: workspaces, worktrees, leases, convergence, land, notifications, TUI.
 
 ## How to verify
 
 ```bash
-bun run typecheck
-bun run build        # dist/cw, dist/cwd
-bun test             # outside sandbox for socket tests
+bun run typecheck                      # tsc --noEmit (src/ and tests/; the cockpit typechecks in its own build)
+bun test --max-concurrency=1           # root suite (includes the cockpit's tests); outside a sandbox for pty and socket tests
+bun run build                          # dist/cw, dist/cwd
+cd apps/cockpit && bun test && bun run build
 ```
 
-All horizons follow subagent-driven-development; `main` stays linear (fast-forward merges).
+Each feature also has a script under `apps/cockpit/scripts/` that exercises it on the **running app** over CDP (see
+`apps/cockpit/README.md`); they are run on a scratch `HOME` and repository, never on real projects.
+
+`main` stays linear (fast-forward merges).

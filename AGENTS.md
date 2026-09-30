@@ -56,19 +56,26 @@ test against `main` before blaming a change, and say so in the report.
 **Trap — `rm -rf` is blocked by a hook in this environment.** Move to `~/.Trash`
 instead of fighting it.
 
+**Trap — a scratch daemon outlives the app.** The end-to-end scripts in `apps/cockpit/scripts/` start a daemon in a scratch repo; it keeps
+answering with the code it started with. Stop it (find it by its cwd: `lsof -a -d cwd -c bun | grep <scratch>`) before a run that needs a
+new daemon method.
+
+**Trap — the environment's hooks match words, not intent.** A heredoc containing text such as a destructive command or the word for
+emptying a table can be blocked even as test data. Write such files with the editor tool and use a harmless payload.
+
 ## Map
 
 | Path | What lives there |
 |---|---|
-| `src/core` | config (validated hard — `ports.named` may not shadow `PATH`/`PORT`), path containment (`assertContained`, symlink-by-symlink), framing, ids, errors |
+| `src/core` | config (validated hard — `ports.named` may not shadow `PATH`/`PORT`), path containment (`assertContained`, symlink-by-symlink), framing, ids, errors, user settings (`settings.ts`: launchers, prompt refine, session presets, persistence — each block validated), `layout/` (pure pane-layout reducers and copy-mode), `browser-agent/` (permission matrix, local-origin rule, redaction, bounded CDP capture) |
 | `src/db` | schema + forward-only migrations (applied inside `BEGIN IMMEDIATE`), repositories |
 | `src/domain` | workspace, session lifecycle, event ledger, gc, reconciliation, session diff, latest words from agent logs |
 | `src/isolation` | worktrees, leases (port/db/docker/cache), disk guard |
 | `src/convergence` | trial merges, conflict graph, `classifyLandability`, `land.ts` |
-| `src/daemon` | RPC method table, session runtime (pty), extra terminals, convergence scheduler |
+| `src/daemon` | RPC method table, session runtime (pty), extra terminals (+ opt-in persistence), convergence scheduler, status inference (`session-status.ts`), command bridge registry, `cw notify` signals (`signal.ts`), session checks (`checks.ts`) |
 | `src/adapters` | the pty and the session shell — the only process a session runs |
 | `src/notify` | desktop notifications for land and convergence, and their throttle |
-| `apps/cockpit` | Electron thin client (macOS arm64 v1) |
+| `apps/cockpit` | Electron thin client (macOS arm64 v1). `electron/` is the main process (bridge server, browser agent, prompt refine, settings guard); `src/lib/` holds the pure logic (rail, compare, presets, prompt-send, pane-bridge, keymap, load-gate) and `src/ui/` the components; `scripts/` drives the running app over CDP |
 
 ## House conventions that are load-bearing
 
@@ -87,6 +94,18 @@ instead of fighting it.
   explicit OK.
 
 ## Decisions already made (do not relitigate)
+
+- **Migrations are append-only.** `SCHEMA_VERSION` is 17 (15 terminals, 16 setup exit code, 17 session history). Never edit or merge into
+  a migration that may have run on someone's database; a new one is a new version, and a branch ported from an older base renumbers its
+  migration instead of colliding.
+- **Settings blocks newer than a running daemon are mended by the cockpit's main process** (`electron/settings-guard.ts`: `persistence`,
+  `prompt`, `presets`), because an older daemon drops what it does not know and rewrites the whole file. A new block goes in that list.
+- **Commands the user wrote run for the user; commands a repository carries need a trust step.** Presets, the composer's refine command
+  and launchers live in `~/.crossweave/settings.json` and need none; `converge.testCommand` and hooks come from the repo and are
+  trusted with `cw config trust`. `cw check` is bound by the same trust gate as `land`.
+- **The command bridge's caller is unauthenticated by design** (same-user unix socket) — so every kind is a closed list, decides in the
+  cockpit's main process or window, and asks the person where it does more than arrange things. `cw notify` follows the same rule: it can
+  only show a mark and one plain line.
 
 - **No collision guard, no agent model (2026-09-27).** Collision Radar, tiers/Safe
   Mode, agent adapters, launch flags, resume, the MCP server and the OS sandbox were

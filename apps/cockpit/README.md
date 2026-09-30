@@ -38,7 +38,10 @@ text/background pair the UI paints measuring ≥ 4.5:1.
 
 ## Stage
 
-The stage mounts xterm panes for listed sessions (up to four). **New** creates a session and `session.resume`s it (same as `cw attach --start`) so the pane can attach. Bytes go raw into xterm (no ANSI strip).
+The stage holds tabs, each a tree of panes (up to 20 per tab): a session's shell, an extra terminal, a file, a web page, or a session's
+Changes. **New** (⌘T) creates a session, or starts a **preset**, and `session.resume`s it (same as `cw attach --start`) so the pane can
+attach. Bytes go raw into xterm (no ANSI strip). Panes can be split, zoomed, arranged by preset, moved between tabs, synchronized and
+copied from in a vi-style copy mode; `Ctrl-A` (rebindable, unbindable) then one key runs a command.
 
 ## Install (macOS arm64)
 
@@ -117,6 +120,36 @@ found four things that unit tests could not see (all fixed in `fix/cockpit-flow-
 | Reduced motion | OS setting, or `Emulation.setEmulatedMedia` | every transition collapses to ~0 |
 
 The resize/focus half of the gate stays automated: `bun run fidelity:resize`.
+
+## What the window has, and the script that checks each on the running app
+
+Each script drives the **running** app over CDP and the real daemon. Start the app on a *scratch* `HOME` and repository (never a real
+project), then run the script outside a sandbox:
+
+```bash
+HOME=/tmp/cwhome COCKPIT_PROJECT_ROOT=/path/to/scratch/repo \
+  node_modules/electron/dist/Electron.app/Contents/MacOS/Electron . --remote-debugging-port=9333 --user-data-dir=/tmp/cwud &
+HOME=/tmp/cwhome COCKPIT_PROJECT_ROOT=/path/to/scratch/repo bun apps/cockpit/scripts/<script>.ts
+```
+
+| Feature | Script | What it proves |
+|---|---|---|
+| Command bridge | `bridge-check.ts` | a shell command reaches the cockpit and gets its answer; unknown kinds and namespaces are refused |
+| `cw pane` | `pane-check.ts` | layout commands change the window; close / sync on / open ask first and do nothing when refused |
+| `cw browser` | `browser-check.ts` | off by default, reads redacted and marked untrusted, control needs its level, `eval` always asks, the webview has no Node |
+| `cw notify` | `notify-check.ts` | the ✓ and the amber row, the words in the tooltip, cleared by opening or typing |
+| `cw check` | `checks-check.ts` | untrusted command refused, ✗ then ✓ on the row, dim when the work moved on |
+| Compare | `compare-check.ts` | shared files marked, per-side land buttons, patches open, Escape closes |
+| Prompt composer | `prompt-check.ts` | refine only proposes, an agent gets one bracketed paste with no Enter, a plain shell is refused multi-line |
+| Presets | `preset-check.ts` | one click: session, extra terminal running its command, browser on the leased port |
+| Key-table | `keytable-check.ts` | prefix then key runs a command; prefix twice types the literal |
+| Terminal persistence | `persist-check.ts` | with it on, an extra terminal survives a daemon restart; off, nothing does |
+| Settings | `settings-check.ts` | search, sections, save |
+| Motion / speed | `motion-check.ts`, `bench-terminal.ts` | FLIP and fades; output coalescing and the WebGL budget |
+
+`prompt-check.ts` and `preset-check.ts` need a settings file written *before* the app starts (their headers say what goes in it).
+If a daemon from an earlier run is still alive for the scratch repository, it keeps answering with old code: stop it (its cwd is the
+scratch repo) before a run that depends on a new daemon method.
 
 ## Scripts
 
