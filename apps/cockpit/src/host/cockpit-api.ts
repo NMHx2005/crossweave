@@ -128,6 +128,10 @@ function makeApi(invoke: Invoke, listen: Listen) {
       return invoke('settings.set', { settings })
     },
     /** One line on the session ('' clears it). */
+    /** Everything the dashboard shows, from the main process; parse it with `parseDashboard`. */
+    dashboardGet(): Promise<unknown> {
+      return invoke('dashboard.get')
+    },
     /** The composer's Refine: the draft through the user's own refine command; only a proposal comes back. */
     promptRefine(text: string, context?: string): Promise<{ ok: true; text: string } | { ok: false; reason: string }> {
       return invoke('prompt.refine', { text, ...(context === undefined ? {} : { context }) }) as Promise<{ ok: true; text: string } | { ok: false; reason: string }>
@@ -283,7 +287,7 @@ const WINDOW_CHANNELS = new Set<CockpitChannel>([
   'folder.inspect', 'folder.initGit', 'folder.openPlain',
   'projects.close', 'app.badge', 'folder.reveal', 'folder.openInEditor',
   'terminal.importSources', 'terminal.import', 'fonts.list', 'menu.refresh',
-  'bridge.reply', 'prompt.refine',
+  'bridge.reply', 'prompt.refine', 'dashboard.get',
 ])
 
 /** `payload` with `projectRoot` added, unless the call already names one or is window-wide. */

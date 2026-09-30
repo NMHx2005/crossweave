@@ -73,6 +73,9 @@ export const COCKPIT_CHANNELS = [
   'fonts.list',
   // Settings saved new shortcuts: rebuild the menu from the settings file.
   'menu.refresh',
+  // The dashboard: every open project's numbers plus the app's own (gathered in main), and one project's raw overview.
+  'dashboard.get',
+  'stats.overview',
   // The prompt composer's Refine: the draft through the user's own command (from the saved settings), back as a proposal.
   'prompt.refine',
   // A shell command's request (cw pane) was carried out or refused by the window: the answer.

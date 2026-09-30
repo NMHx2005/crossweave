@@ -21,6 +21,7 @@ import { listFonts } from './fonts'
 import { CommandBridgeServer } from './command-bridge'
 import { RendererBridge } from './renderer-bridge'
 import { BrowserAgent } from './browser-agent'
+import { collectDashboard } from './dashboard'
 import { MAX_DRAFT_CHARS, refine as refineDraft, resolveCommand, type RefineDeps } from './prompt-refine'
 import { BROWSER_COMMANDS } from '../../../src/core/browser-agent/permission.js'
 import { PANE_KINDS } from '../src/lib/pane-bridge'
@@ -315,6 +316,13 @@ function registerHandlers(bridge: DaemonBridge): void {
       if (channel === 'folder.openInEditor') return openFolder(bridge, payload, 'editor')
       if (channel === 'app.badge') return setBadge(payload)
       if (channel === 'prompt.refine') return promptRefine(payload)
+      if (channel === 'dashboard.get') {
+        return collectDashboard({
+          roots: async () => ((await bridge.handle('projects.list')) as { open?: string[] }).open ?? [],
+          overview: (root) => bridge.handle('stats.overview', { projectRoot: root }),
+          metrics: () => app.getAppMetrics().map((m) => ({ type: m.type, memoryKb: m.memory.workingSetSize, cpu: m.cpu.percentCPUUsage })),
+        })
+      }
       if (channel === 'bridge.reply') { rendererBridge.reply(payload); return { ok: true } }
       if (channel === 'browser.setAccess') return browserAgent.setAccess(payload)
       if (channel === 'terminal.importSources') return importSources(importDeps())
