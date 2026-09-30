@@ -2796,6 +2796,9 @@ body,
   border-right: var(--cw-hairline) solid var(--cw-border);
 }
 
+/* In a short window the column scrolls; without this its children (the search box first) were squeezed instead. */
+.cockpit-settings-nav > * { flex-shrink: 0; }
+
 /* The traffic lights sit in the top-left; this band drags the window, everything else does not. */
 .cockpit-settings-nav__drag,
 .cockpit-settings-content__drag {
@@ -3044,7 +3047,7 @@ body,
   transition: background-color var(--cw-dur) var(--cw-ease);
 }
 
-.cockpit-switch[aria-checked='true'] { background: color-mix(in srgb, var(--cw-ready) 62%, var(--cw-surface)); }
+.cockpit-switch[aria-checked='true'] { background: var(--cw-ready); }
 .cockpit-switch:disabled { opacity: 0.5; cursor: default; }
 
 .cockpit-switch__thumb {
@@ -3060,6 +3063,8 @@ body,
 }
 
 .cockpit-switch[aria-checked='true'] .cockpit-switch__thumb {
+  /* The lit track is the theme's "ready" green in both themes; the knob takes the page colour, as the primary button's label does on the accent. */
+  background: var(--cw-surface);
   transform: translate(calc(var(--cw-row-h) * 0.85 - var(--cw-hairline) * 2), -50%);
 }
 
