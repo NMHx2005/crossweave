@@ -22,6 +22,7 @@ import { MergeTrialRepo, isPairwiseTrial } from '../db/repositories/merge-trial.
 import { baseConflictFiles, commitsAhead } from '../convergence/trial.js';
 import { sessionDiff } from '../domain/session-diff.js';
 import { ConfigTrustRepo } from '../db/repositories/config-trust.js';
+import { SessionCheckRepo } from '../db/repositories/session-check.js';
 import { SessionSetupRepo } from '../db/repositories/session-setup.js';
 import { SessionHistoryRepo } from '../db/repositories/session-history.js';
 import { decideSetup, runTeardown, SETUP_UNTRUSTED_NOTICE, withSetup, wrapWithSentinel } from '../domain/session-setup.js';
@@ -280,6 +281,7 @@ export function buildMethods(
   // "Is this session's work fit to land?": the trusted test command, run in the session's own worktree on request.
   const checks = new CheckRunner({
     run: runShell,
+    store: new SessionCheckRepo(db),
     onChange: () => broadcastRegistry.broadcast('tui.invalidate', {}),
     markAtFinish: (id, cwd) => gitCounts.readNow(id, cwd, cwd === projectRoot ? null : readBaseHead(projectRoot)),
   });

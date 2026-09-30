@@ -8,6 +8,26 @@ export interface CheckDeps {
   onChange: (sessionId: string) => void;
   /** The session's git counts as of now, read when a run ends so the verdict is pinned to the work it judged. */
   markAtFinish?: (sessionId: string, cwd: string) => Promise<GitMark | null>;
+  /** Where finished verdicts outlive the daemon. Optional, and never allowed to break a run: a store that throws is ignored. */
+  store?: CheckStore;
+}
+
+/** A finished verdict as kept on disk (`running` is never stored: a run does not survive its daemon). */
+export interface PersistedCheck {
+  state: 'pass' | 'fail';
+  at: number;
+  finishedAt: number;
+  ms: number;
+  code?: number;
+  tail?: string;
+  changed: number | null;
+  ahead: number | null;
+}
+
+export interface CheckStore {
+  load(): Map<string, PersistedCheck>;
+  save(sessionId: string, check: PersistedCheck): void;
+  remove(sessionId: string): void;
 }
 
 export interface GitMark { changed: number; ahead: number | null }
@@ -41,7 +61,8 @@ const ACTIVITY_GRACE_MS = 2000;
 
 /**
  * The verdict of the project's trusted test command run in ONE session's worktree, so the rail can say whether
- * that work is fit to land before anyone opens it. In memory only. The daemon never decides WHAT to run here:
+ * that work is fit to land before anyone opens it. Held in memory; finished verdicts are also kept in the optional store, so a
+ * restart does not blank the rail. The daemon never decides WHAT to run here:
  * the caller passes the command only after the trust gate that `land` uses.
  *
  * A verdict is remembered with the session's git counts at the time; it shows as stale when those change or the
@@ -51,7 +72,22 @@ const ACTIVITY_GRACE_MS = 2000;
 export class CheckRunner {
   private readonly entries = new Map<string, Entry>();
 
-  constructor(private readonly deps: CheckDeps) {}
+  constructor(private readonly deps: CheckDeps) {
+    let stored = new Map<string, PersistedCheck>();
+    try { stored = deps.store?.load() ?? stored; } catch { /* an unreadable store is an empty one: verdicts are a convenience */ }
+    for (const [id, c] of stored) {
+      this.entries.set(id, {
+        state: c.state, at: c.at, finishedAt: c.finishedAt, ms: c.ms,
+        ...(c.code === undefined ? {} : { code: c.code }),
+        ...(c.tail === undefined ? {} : { tail: c.tail }),
+        mark: c.changed === null ? null : { changed: c.changed, ahead: c.ahead },
+      });
+    }
+  }
+
+  private persist(fn: (store: CheckStore) => void): void {
+    try { if (this.deps.store !== undefined) fn(this.deps.store); } catch { /* see CheckDeps.store */ }
+  }
 
   private now(): number { return this.deps.now?.() ?? Date.now(); }
 
@@ -61,6 +97,8 @@ export class CheckRunner {
     }
     const entry: Entry = { state: 'running', at: this.now(), mark };
     this.entries.set(sessionId, entry);
+    // The old verdict is being replaced: were the daemon to stop mid-run it must not come back as if it described the new work.
+    this.persist((store) => store.remove(sessionId));
     const finish = async (code: number, tail: string): Promise<void> => {
       // The counts as the run ended (best effort): the mark taken when it began may predate an edit made just before.
       const ended = await this.deps.markAtFinish?.(sessionId, cwd).catch(() => null) ?? null;
@@ -72,6 +110,12 @@ export class CheckRunner {
       entry.finishedAt = this.now();
       entry.ms = entry.finishedAt - entry.at;
       if (code !== 0) entry.tail = tail.slice(-TAIL_KEPT);
+      this.persist((store) => store.save(sessionId, {
+        state: entry.state === 'pass' ? 'pass' : 'fail', at: entry.at, finishedAt: entry.finishedAt as number, ms: entry.ms as number,
+        ...(entry.code === undefined ? {} : { code: entry.code }),
+        ...(entry.tail === undefined ? {} : { tail: entry.tail }),
+        changed: entry.mark?.changed ?? null, ahead: entry.mark?.ahead ?? null,
+      }));
       this.deps.onChange(sessionId);
     };
     void this.deps.run(command, cwd, env).then((r) => finish(r.code, r.tail), (err: unknown) => finish(-1, String((err as Error)?.message ?? err)));
@@ -98,6 +142,7 @@ export class CheckRunner {
 
   forget(sessionId: string): void {
     this.entries.delete(sessionId);
+    this.persist((store) => store.remove(sessionId));
   }
 }
 

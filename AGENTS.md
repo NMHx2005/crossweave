@@ -95,7 +95,7 @@ emptying a table can be blocked even as test data. Write such files with the edi
 
 ## Decisions already made (do not relitigate)
 
-- **Migrations are append-only.** `SCHEMA_VERSION` is 17 (15 terminals, 16 setup exit code, 17 session history). Never edit or merge into
+- **Migrations are append-only.** `SCHEMA_VERSION` is 18 (15 terminals, 16 setup exit code, 17 session history, 18 persisted check verdicts). Never edit or merge into
   a migration that may have run on someone's database; a new one is a new version, and a branch ported from an older base renumbers its
   migration instead of colliding.
 - **Settings blocks newer than a running daemon are mended by the cockpit's main process** (`electron/settings-guard.ts`: `persistence`,

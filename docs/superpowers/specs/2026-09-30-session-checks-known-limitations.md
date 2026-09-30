@@ -14,7 +14,11 @@ Measured on the real app with `apps/cockpit/scripts/checks-check.ts` (8 checks).
 
 ## Limitations
 
-- **The result lives in the daemon's memory.** A restart forgets every verdict.
+- **A finished verdict is kept in `session_check` (schema v18, 2026-10-01)** and survives a daemon restart; it is deleted with its
+  session and when a new run starts. A run that was going when the daemon stopped leaves no verdict. The end of a *failing* run's output
+  (≤ 2000 chars) is stored in the project's own `.crossweave/state.db`. After a restart the verdict can only go stale (the terminals
+  are new, so activity after `finished_at` marks it stale, never fresh). A v17 build refuses a v18 database: run `cw update` after the
+  first restart with this version.
 - **A verdict is pinned to the session's git counts** (changed files, commits ahead) as the run ended, and shows *stale*
   when they change or when the session's terminal was active more than 2 s after the run ended. It errs toward stale.
   Two things it cannot see: an edit that keeps both counts the same while nothing runs in the session's terminal, and any

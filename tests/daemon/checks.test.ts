@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { CheckRunner, type CheckDeps } from '../../src/daemon/checks.js';
+import { CheckRunner, type CheckDeps, type CheckStore, type PersistedCheck } from '../../src/daemon/checks.js';
 
 function setup(over: Partial<CheckDeps> = {}) {
   let now = 1_000_000;
@@ -161,5 +161,58 @@ describe('runShell', () => {
   it('has no stdin: a command that reads it ends instead of waiting for a person', async () => {
     const r = await runShell('cat; echo done', dir, { PATH: process.env['PATH'] ?? '' }, 5000);
     expect(r).toMatchObject({ code: 0 });
+  });
+});
+
+function memoryStore(initial: Record<string, PersistedCheck> = {}): CheckStore & { rows: Map<string, PersistedCheck> } {
+  const rows = new Map(Object.entries(initial));
+  return { rows, load: () => new Map(rows), save: (id, r) => { rows.set(id, r); }, remove: (id) => { rows.delete(id); } };
+}
+
+describe('CheckRunner with a store', () => {
+  it('a finished verdict is saved, and a new runner over the same store still shows it', async () => {
+    const store = memoryStore();
+    const t = setup({ store });
+    t.runner.start('s1', 'bun test', '/wt', {}, { changed: 2, ahead: 1 });
+    t.tick(3000);
+    t.finish(1, 'boom');
+    await settle();
+    expect(store.rows.get('s1')).toMatchObject({ state: 'fail', code: 1, tail: 'boom', ms: 3000, changed: 2, ahead: 1 });
+    const again = new CheckRunner({ run: async () => ({ code: 0, tail: '' }), onChange: () => undefined, store });
+    expect(again.get('s1', { changed: 2, ahead: 1 }, null)).toMatchObject({ state: 'fail', tail: 'boom', ms: 3000, stale: false });
+  });
+
+  it('a restored verdict is stale once the counts moved or the terminal was active afterwards', () => {
+    const store = memoryStore({ s1: { state: 'pass', at: 100, finishedAt: 200, ms: 100, code: 0, changed: 1, ahead: 0 } });
+    const r = new CheckRunner({ run: async () => ({ code: 0, tail: '' }), onChange: () => undefined, store });
+    expect(r.get('s1', { changed: 1, ahead: 0 }, null)?.stale).toBe(false);
+    expect(r.get('s1', { changed: 2, ahead: 0 }, null)?.stale).toBe(true);
+    expect(r.get('s1', { changed: 1, ahead: 0 }, 200 + 5000)?.stale).toBe(true);
+  });
+
+  it('starting a run removes the old verdict, and running is never stored', () => {
+    const store = memoryStore({ s1: { state: 'pass', at: 1, finishedAt: 2, ms: 1, code: 0, changed: 0, ahead: 0 } });
+    const t = setup({ store });
+    t.runner.start('s1', 'bun test', '/wt', {}, null);
+    expect(store.rows.has('s1')).toBe(false);
+  });
+
+  it('forget removes it', async () => {
+    const store = memoryStore();
+    const t = setup({ store });
+    t.runner.start('s1', 'x', '/wt', {}, null);
+    t.finish(0);
+    await settle();
+    t.runner.forget('s1');
+    expect(store.rows.has('s1')).toBe(false);
+  });
+
+  it('a store that throws never breaks a run or a read', async () => {
+    const broken: CheckStore = { load: () => { throw new Error('disk'); }, save: () => { throw new Error('disk'); }, remove: () => { throw new Error('disk'); } };
+    const t = setup({ store: broken });
+    t.runner.start('s1', 'x', '/wt', {}, null);
+    t.finish(0);
+    await settle();
+    expect(t.runner.get('s1', null, null)).toMatchObject({ state: 'pass' });
   });
 });

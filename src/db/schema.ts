@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 17;
+export const SCHEMA_VERSION = 18;
 
 /**
  * Each migration is a list of single statements, never one multi-statement blob.
@@ -301,5 +301,22 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
     note           TEXT
   )`,
     `CREATE INDEX session_history_by_workspace ON session_history (workspace_id, ended_at)`,
+  ],
+  [
+    // Persisted `cw check` verdicts (2026-10-01): the last finished run of the project's test command in one session's worktree, so
+    // the rail's tests chip survives a daemon restart. Unlike session_history this DOES cascade: a verdict about a session that no
+    // longer exists is noise. `running` is deliberately not a state here — a run does not outlive its daemon. `changed`/`ahead` are
+    // the git counts the verdict judged (NULL = not known), which is what later marks it stale.
+    `CREATE TABLE session_check (
+    session_id  TEXT PRIMARY KEY REFERENCES session(id) ON DELETE CASCADE,
+    state       TEXT NOT NULL CHECK (state IN ('pass','fail')),
+    at          INTEGER NOT NULL,
+    finished_at INTEGER NOT NULL,
+    ms          INTEGER NOT NULL,
+    code        INTEGER,
+    tail        TEXT,
+    changed     INTEGER,
+    ahead       INTEGER
+  )`,
   ],
 ];

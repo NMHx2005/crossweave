@@ -12,7 +12,7 @@ last) and the `*-known-limitations.md` next to each spec.
 
 | Area | What it does | Notes |
 |---|---|---|
-| Workspaces and sessions | `cw init`, `cw session new/start/stop/attach/list/path/rename/note/kill/rm`, plain (non-git) folders | schema is at **v17**; migrations are append-only |
+| Workspaces and sessions | `cw init`, `cw session new/start/stop/attach/list/path/rename/note/kill/rm`, plain (non-git) folders | schema is at **v18**; migrations are append-only |
 | Isolation | per-session port block (`$PORT`), cache dir, optional DB/Docker names, disk guard | leases are cooperative, not a sandbox |
 | Convergence | background trial merges, conflict graph, recommended order, `cw land`, `cw land all`, pre-land test command (`cw config trust`) | evidence-gated |
 | Status | what a session is doing is inferred from its shell (screen words, output, bell, process tree) | reliable for Claude Code, Codex, Gemini; approximate for the rest |
