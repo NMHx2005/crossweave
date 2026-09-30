@@ -188,8 +188,9 @@ Pty and unix-socket tests need to run outside a restricted sandbox. Each cockpit
 script under `apps/cockpit/scripts/` that drives the *running app* over CDP on a scratch `HOME`
 (see `apps/cockpit/README.md`). Release notes live in `docs/releases/`.
 
-See `docs/superpowers/plans/` and `docs/superpowers/specs/` for how each
-milestone was designed and implemented.
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the ground rules and the gate, `AGENTS.md` for the map of the code and the decisions
+already made, and `docs/superpowers/plans/` and `docs/superpowers/specs/` for how each milestone was designed and implemented.
+Security problems: [`SECURITY.md`](SECURITY.md) (please do not open a public issue).
 
 ## License
 
