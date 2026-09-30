@@ -1,6 +1,6 @@
 {
   "name": "crossweave",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Run N parallel coding sessions on one repo — a git worktree plus your shell each — with per-session ports, background trial merges and evidence-gated landing",
   "license": "MIT",
   "type": "module",

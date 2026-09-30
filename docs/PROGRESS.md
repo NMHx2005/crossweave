@@ -41,6 +41,7 @@ usage per session; its own app icon (`apps/cockpit/build/icon.svg`, four warp th
 | Session history dialog (⌘⇧H) | `2026-09-28-session-history-known-limitations.md` |
 | Status marks: loading ring while an agent works, ✓ until you look at a finished one, nothing for a quiet shell | this file's changelog below |
 | Rail keeps the newest answer (out-of-order loads are dropped); typing no longer counts as work; landing asks when the tests last failed | `docs/releases/v0.4.0.md` |
+| **Settings redesigned after Cursor's** and a **Dashboard** (projects, sessions, disk, memory; proposals to clean up, delete or stop idle work — always asks first) | `2026-09-30-settings-dashboard-known-limitations.md` |
 
 ## Removed on purpose (do not reintroduce)
 
@@ -52,8 +53,8 @@ usage per session; its own app icon (`apps/cockpit/build/icon.svg`, four warp th
 
 ## Next
 
-1. **Cut 0.4.0**: tag, release workflow, install the app, restart project daemons (that ends running sessions, so the owner picks the
-   moment).
+1. **0.5.0 is tagged**; the owner restarts the app and, when no session is mid-task, the project daemons (that ends running
+   sessions) so the Dashboard has numbers for existing projects.
 2. Use it for a week and fix what is annoying: wire `cw notify` into agent hooks, try presets and the composer for real.
 3. Notarize the app (needs the owner's Apple Developer account and a hardened-runtime pass; the app has its own icon since 0.4.0 but is still signed only with a development certificate).
 4. Later: a native iOS app for remote control (designed from scratch), a Linux cockpit, per-session one-line summaries on the rail,
@@ -61,6 +62,8 @@ usage per session; its own app icon (`apps/cockpit/build/icon.svg`, four warp th
 
 ## Changelog (newest first)
 
+- **2026-09-30 (later)** — Cursor-style Settings and the resource Dashboard (`DiskTracker`, `stats.overview`), Search box with icon,
+  rail frame no longer shifts on switch, CI runs the cockpit's view test on macOS; version 0.5.0.
 - **2026-09-30** — `cw notify`, `cw check`, compare, prompt composer, presets, session history, setup exit-code, hooks review
   fixes, rail/status polish; voice removed; version 0.4.0 prepared.
 - **2026-09-29** — command bridge, tmux parity (commands, panes, key-table, terminal persistence, `cw pane`), browser-agent
