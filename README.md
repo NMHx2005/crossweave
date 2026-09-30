@@ -148,7 +148,8 @@ it with a program you name (Settings → Prompt) and send it to one or several s
 **Compare with another…** (session menu) to put two sessions' changes side by side and land
 the better one; **presets** (Settings → Presets, then ⌘T) that start a session, its dev
 terminals and a browser on its port in one click; **Run checks** and a session **history**
-(⌘⇧H); tmux-style panes (`Ctrl-A` then a key, synchronize, copy-mode, optional terminal
+(⌘⇧H); a Cursor-style **Settings** page with a **Dashboard** (projects, sessions, the disk their
+worktrees hold, memory, and proposals to stop or delete what is idle — nothing happens until you confirm); tmux-style panes (`Ctrl-A` then a key, synchronize, copy-mode, optional terminal
 persistence); and a per-pane **Agent** switch (Off / Read / Control) for `cw browser`.
 Same daemon and evidence gate as the CLI; the app never spawns anything itself.
 On macOS arm64 the standard installer includes it when the selected release

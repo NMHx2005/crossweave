@@ -45,7 +45,7 @@ Shows what the open projects and their sessions cost, and **suggests** what to s
 | **Disk per session's worktree** (+ lease dirs), per project total, the limit | `directorySize` over each worktree, **measured off the event loop, cached** | **yes** — `DiskTracker` |
 | Commits ahead / uncommitted files (what deleting would lose) | `GitCounter` (already on `session.list`) | no |
 | Tokens and cost | `usage` on `session.list` and the priced models in Settings → Usage | no |
-| **Daemon memory** per project (RSS, uptime, terminals, sessions) | `process.memoryUsage()` in the daemon | **yes** — `daemon.stats` RPC |
+| **Daemon memory** per project (RSS, uptime, terminals, sessions) | `process.memoryUsage()` in the daemon | **yes** — folded into `stats.overview` (no separate `daemon.stats` RPC was needed) |
 | **App memory and CPU** (main, renderer, GPU, webviews) | Electron `app.getAppMetrics()` | **yes** — one IPC channel |
 | Sessions started / landed per day | session rows + `session_history` | no |
 
