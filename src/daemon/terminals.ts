@@ -7,6 +7,7 @@ import { OutputCoalescer } from './output-coalescer.js';
 import { existsSync } from 'node:fs';
 import type { TerminalRepo, TerminalRow } from '../db/repositories/terminal.js';
 import { prepareSnapshot, restoreScrollback } from './terminal-snapshot.js';
+import { daemonLog } from '../core/log.js';
 
 /** Same budget as a session's replay: enough to redraw a screen or two. */
 const SCROLLBACK_LIMIT = 64 * 1024;
@@ -82,6 +83,8 @@ export class TerminalRegistry {
   /** True while the daemon is going down: terminals ending then are kept for the next start. */
   private shuttingDown = false;
   private flushTimer: unknown;
+  /** The periodic flush says once that it cannot write; it would otherwise repeat every tick. */
+  private flushFailureLogged = false;
 
   open(session: SessionRow): TerminalInfo {
     const terminalId = newId('t');
@@ -242,7 +245,18 @@ export class TerminalRegistry {
       setInterval: (fn: () => void, ms: number) => { const h = setInterval(fn, ms); h.unref?.(); return h; },
       clearInterval: (h: unknown) => clearInterval(h as ReturnType<typeof setInterval>),
     };
-    this.flushTimer = clock.setInterval(() => this.flush(), persist.flushMs ?? DEFAULT_FLUSH_MS);
+    // A timer callback has no caller to handle an error: whatever the database does (it is closed while the daemon goes
+    // down, and a test closes it under a live registry), nothing may escape from here as an uncaught exception.
+    this.flushTimer = clock.setInterval(() => {
+      try {
+        this.flush();
+      } catch (err) {
+        if (!this.flushFailureLogged) {
+          this.flushFailureLogged = true;
+          daemonLog(`could not save terminal output: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+    }, persist.flushMs ?? DEFAULT_FLUSH_MS);
   }
 
   private stopFlushing(): void {

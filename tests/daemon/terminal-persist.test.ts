@@ -231,3 +231,40 @@ describe('restore', () => {
     expect(t.repo.get(info.terminalId)).toBeUndefined();
   });
 });
+
+describe('the periodic flush never throws', () => {
+  // Found by repeating the whole suite: a registry's 30 s timer outlived a test that closed its database, fired
+  // during ANOTHER test and threw "Cannot use a closed database" there, failing an unrelated test at random. A timer
+  // callback has no caller to handle an error, so whatever the database does, it must not escape.
+  test('a tick after the database is gone is swallowed, with persistence on and off', () => {
+    for (const enabled of [true, false]) {
+      const t = setup({ enabled });
+      const reg = t.make();
+      reg.open(t.row());
+      t.shells[0]!.print('output\r\n');
+      t.db.close();
+      expect(() => t.flush()).not.toThrow();
+      void reg;
+    }
+  });
+
+  test('and it says so once, not on every tick', () => {
+    const lines: string[] = [];
+    const original = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((chunk: string | Uint8Array) => { lines.push(String(chunk)); return true; }) as typeof process.stderr.write;
+    try {
+      const t = setup({ enabled: true });
+      const reg = t.make();
+      reg.open(t.row());
+      t.shells[0]!.print('x');
+      t.db.close();
+      t.flush();
+      t.flush();
+      t.flush();
+      void reg;
+    } finally {
+      process.stderr.write = original;
+    }
+    expect(lines.filter((l) => l.includes('could not save terminal output'))).toHaveLength(1);
+  });
+});
