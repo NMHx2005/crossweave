@@ -57,7 +57,11 @@ usage per session; its own app icon (`apps/cockpit/build/icon.svg`, four warp th
    sessions) so the Dashboard has numbers for existing projects.
 2. Use it for a week and fix what is annoying: wire `cw notify` into agent hooks, try presets and the composer for real.
 3. Notarize the app (needs the owner's Apple Developer account and a hardened-runtime pass; the app has its own icon since 0.4.0 but is still signed only with a development certificate).
-4. Later: a native iOS app for remote control (designed from scratch), a Linux cockpit, per-session one-line summaries on the rail,
+4. **Update notice and auto-update (owner's word, 2026-10-01: after the Apple Developer account exists).** Two steps: (a) a small
+   corner notice when a newer `vX.Y.Z` release exists (main process reads GitHub `releases/latest`, compares with `app.getVersion()`,
+   "Download" opens the release page, "Later" hides that version, a Settings switch turns the check off; offline/403/garbage are silent);
+   (b) real "Restart to update" — needs a notarized, properly signed app, so it waits for item 3.
+5. Later: a native iOS app for remote control (designed from scratch), a Linux cockpit, per-session one-line summaries on the rail,
    an optional "land only when the tests passed" gate.
 
 ## Changelog (newest first)
