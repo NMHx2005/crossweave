@@ -19,6 +19,7 @@
   files*; the suggestion excludes those and any session whose counts are unknown, so it never promises what gc would refuse.
 - **Dropped from the design:** a "stop the daemon / close project" suggestion — closing a project does not stop its daemon and the window
   restarts daemons on demand, so it would not free anything reliably.
-- Per-day charts use UTC days and the last 14 only; tokens and cost are not shown on the dashboard.
+- Per-day charts use UTC days and the last 14 only. A session row shows its tokens and an *estimated* cost (from the prices in
+  Settings → Usage; a model with no price adds nothing); there is no per-project total.
 - Thresholds (7 / 14 days, 24 h, 5 MiB) are constants, not settings.
 - `apps/cockpit/scripts/dashboard-check.ts` is destructive and needs a scratch repo and HOME; it is not part of the gate.

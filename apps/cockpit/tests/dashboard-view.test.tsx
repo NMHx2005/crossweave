@@ -1,7 +1,7 @@
 /** @jsxImportSource preact */
 import { describe, expect, test } from 'bun:test'
 import type { ComponentChildren, VNode } from 'preact'
-import { DashboardView, SESSIONS_SHOWN, stateOf, type DashboardViewProps } from '../src/ui/SettingsDashboard'
+import { DashboardView, SESSIONS_SHOWN, stateOf, usageText, type DashboardViewProps } from '../src/ui/SettingsDashboard'
 import { DayBars, DiskBars } from '../src/ui/DashCharts'
 import { ConfirmDialog } from '../src/ui/ConfirmDialog'
 import type { DashboardData, ProjectEntry, SessionStat } from '../src/lib/dashboard'
@@ -175,5 +175,19 @@ describe('stateOf', () => {
     expect(stateOf('dead')).toBe('ended')
     expect(stateOf('idle')).toBe('stopped')
     expect(stateOf('whatever')).toBe('stopped')
+  })
+})
+
+describe('usageText', () => {
+  test('tokens and an estimated cost when the session used any; nothing otherwise', () => {
+    expect(usageText(session({ id: 'a', tokens: 1_200_000, costUsd: 3.4 }))).toBe(' · 1.2M tokens · ≈ $3.40')
+    expect(usageText(session({ id: 'a', tokens: 5000, costUsd: 0 }))).toBe(' · 5.0k tokens')
+    expect(usageText(session({ id: 'a', tokens: null }))).toBe('')
+    expect(usageText(session({ id: 'a', tokens: 0, costUsd: 1 }))).toBe('')
+  })
+
+  test('the session row shows it', () => {
+    const d = data([okProject('/a', [session({ id: 'x', tokens: 2_000_000, costUsd: 5 })])])
+    expect(text(view({ data: d }))).toContain('2.0M tokens')
   })
 })

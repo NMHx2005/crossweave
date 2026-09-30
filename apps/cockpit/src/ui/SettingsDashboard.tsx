@@ -8,6 +8,7 @@ import {
   type DashboardData, type SessionSort, type SessionRow, type Suggestion,
 } from '../lib/dashboard'
 import { relativeTime } from '../lib/rail'
+import { formatCost, formatTokens } from '../lib/usage'
 import { ConfirmDialog, type ConfirmRequest } from './ConfirmDialog'
 import { DayBars, DiskBars } from './DashCharts'
 import { Segmented, SettingsGroup } from './SettingsKit'
@@ -24,6 +25,9 @@ const ageText = (s: SessionRow['session'], now: number): string => {
   const rel = relativeTime(lastTouched(s), now)
   return rel === undefined ? 'no activity recorded' : rel === 'now' ? 'active now' : `${rel} ago`
 }
+/** " · 1.2M tokens · ≈ $3.40" — what the agent in this session used, when it used any; the cost is an estimate from the prices in Settings. */
+export const usageText = (s: SessionRow['session']): string =>
+  s.tokens === null || s.tokens <= 0 ? '' : ` · ${formatTokens(s.tokens)} tokens${s.costUsd > 0 ? ` · ≈ ${formatCost(s.costUsd)}` : ''}`
 const STATE_WORDS = { running: 'running', stopped: 'stopped', ended: 'ended' } as const
 export const stateOf = (status: string): keyof typeof STATE_WORDS => (status === 'running' || status === 'waiting' ? 'running' : status === 'dead' || status === 'landed' ? 'ended' : 'stopped')
 
@@ -181,7 +185,7 @@ export function DashboardView(p: DashboardViewProps) {
                       {(s.ahead ?? 0) > 0 ? <span class="cockpit-pill is-warn" title="Commits not landed yet">↑{s.ahead}</span> : null}
                       {(s.changed ?? 0) > 0 ? <span class="cockpit-pill is-warn" title="Uncommitted files">✎{s.changed}</span> : null}
                     </div>
-                    <div class="cockpit-srow__desc">{r.projectLabel} · {ageText(s, now)}{s.shared ? ' · works in the project folder' : ''}</div>
+                    <div class="cockpit-srow__desc">{r.projectLabel} · {ageText(s, now)}{s.shared ? ' · works in the project folder' : ''}{usageText(s)}</div>
                   </div>
                   <div class="cockpit-srow__control">
                     <span class="cockpit-dash__size">{s.shared ? '—' : s.diskBytes === null ? 'measuring…' : `${s.diskApprox ? '≥ ' : ''}${formatBytes(s.diskBytes)}`}</span>
