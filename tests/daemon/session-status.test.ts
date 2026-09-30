@@ -338,3 +338,74 @@ describe('an explicit signal (cw notify)', () => {
     expect(t.sweep(() => null)).toEqual(['s']);
   });
 });
+
+describe('typing is not work', () => {
+  // A plain shell counts as working while it prints; the echo of the user's own keystrokes must not, or a
+  // shell with nothing running shows a spinner every time someone types.
+  it('the echo of typed characters leaves a plain shell idle', () => {
+    const c = clock();
+    const t = new ActivityTracker(c.now, 2000);
+    t.started('s');
+    t.input('s', 'l');
+    c.advance(5);
+    t.output('s', 'l');
+    t.input('s', 's');
+    c.advance(5);
+    t.output('s', 's');
+    expect(t.status('s', null).activity).toBe('idle');
+  });
+
+  it('after Enter what the shell prints is a command running: working', () => {
+    const c = clock();
+    const t = new ActivityTracker(c.now, 2000);
+    t.started('s');
+    t.input('s', 'ls');
+    c.advance(5);
+    t.output('s', 'ls');
+    t.input('s', '\r');
+    c.advance(5);
+    t.output('s', '\r\ntotal 8\r\n');
+    expect(t.status('s', null).activity).toBe('working');
+  });
+
+  it('output that comes on its own, long after the last keystroke, is work', () => {
+    const c = clock();
+    const t = new ActivityTracker(c.now, 2000);
+    t.started('s');
+    t.input('s', 'x');
+    c.advance(1000);
+    t.output('s', 'build finished\r\n');
+    expect(t.status('s', null).activity).toBe('working');
+  });
+
+  it('a pasted block with a newline in it is a command, not typing', () => {
+    const c = clock();
+    const t = new ActivityTracker(c.now, 2000);
+    t.started('s');
+    t.input('s', 'echo hi\n');
+    c.advance(5);
+    t.output('s', 'hi\r\n');
+    expect(t.status('s', null).activity).toBe('working');
+  });
+
+  it('an unknown input (no data given) keeps the old rule: its output counts', () => {
+    const c = clock();
+    const t = new ActivityTracker(c.now, 2000);
+    t.started('s');
+    t.input('s');
+    c.advance(5);
+    t.output('s', 'something\r\n');
+    expect(t.status('s', null).activity).toBe('working');
+  });
+
+  it('the echo of typing does not make an agent look like it worked either', () => {
+    const c = clock();
+    const t = new ActivityTracker(c.now, 2000);
+    t.started('s');
+    t.input('s', 'h');
+    c.advance(5);
+    t.output('s', 'h');
+    c.advance(3000);
+    expect(t.status('s', 'aider').activity).toBe('idle');
+  });
+});

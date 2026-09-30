@@ -46,7 +46,7 @@ export interface RuntimeObserver {
   started(sessionId: string, cols?: number, rows?: number): void;
   resized?(sessionId: string, cols: number, rows: number): void;
   output(sessionId: string, chunk: string): void;
-  input(sessionId: string): void;
+  input(sessionId: string, data?: string): void;
   exited(sessionId: string, code: number, requested: boolean): void;
 }
 
@@ -70,7 +70,7 @@ export function combineObservers(...observers: RuntimeObserver[]): RuntimeObserv
     started: (id, cols, rows) => forEach((o) => o.started(id, cols, rows)),
     resized: (id, cols, rows) => forEach((o) => o.resized?.(id, cols, rows)),
     output: (id, chunk) => forEach((o) => o.output(id, chunk)),
-    input: (id) => forEach((o) => o.input(id)),
+    input: (id, data) => forEach((o) => o.input(id, data)),
     exited: (id, code, requested) => forEach((o) => o.exited(id, code, requested)),
   };
 }
@@ -160,7 +160,7 @@ export class SessionRuntime {
 
   write(sessionId: string, name: string, data: string): void {
     this.require(sessionId, name).proc.write(data);
-    this.observer?.input(sessionId);
+    this.observer?.input(sessionId, data);
   }
 
   resize(sessionId: string, name: string, cols: number, rows: number): void {

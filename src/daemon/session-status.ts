@@ -50,6 +50,8 @@ interface Track {
   /** When the screen last showed it working (debounces a repaint between frames). */
   lastBusyAt: number | null;
   signal: Signal | null;
+  /** Output before this instant is the echo of what the user just typed, not work. */
+  echoUntil: number;
 }
 
 /**
@@ -66,6 +68,9 @@ function rings(chunk: string): boolean {
  * is trusted from the start. For any other, only once it has shown those words — until
  * then its output is the only sign of work, as for a plain shell.
  */
+/** How long after a keystroke its echo can arrive. */
+const ECHO_WINDOW_MS = 150;
+
 const SCREEN_AGENTS: ReadonlySet<string> = new Set(['claude', 'codex', 'gemini']);
 
 export class ActivityTracker {
@@ -84,15 +89,18 @@ export class ActivityTracker {
     this.tracks.set(id, {
       lastOutputAt: null, lastInputAt: null, workedSinceInput: false,
       bellSinceInput: false, failed: false, reported: 'idle',
-      screen: new AgentScreen(cols, rows), screenSpoke: false, busySinceInput: false, lastBusyAt: null, signal: null,
+      screen: new AgentScreen(cols, rows), screenSpoke: false, busySinceInput: false, lastBusyAt: null, signal: null, echoUntil: 0,
     });
   }
 
   output(id: string, chunk: string): void {
     const t = this.tracks.get(id);
     if (t === undefined) return;
-    t.lastOutputAt = this.now();
-    t.workedSinceInput = true;
+    // The shell echoing the user's own keystrokes is not work; anything it prints once a line is submitted is.
+    if (this.now() >= t.echoUntil) {
+      t.lastOutputAt = this.now();
+      t.workedSinceInput = true;
+    }
     if (rings(chunk)) t.bellSinceInput = true;
     t.screen.write(chunk);
   }
@@ -101,10 +109,12 @@ export class ActivityTracker {
     this.tracks.get(id)?.screen.resize(cols, rows);
   }
 
-  input(id: string): void {
+  /** `data` is what was typed; without it the input is assumed to submit something (the conservative reading). */
+  input(id: string, data?: string): void {
     const t = this.tracks.get(id);
     if (t === undefined) return;
     t.lastInputAt = this.now();
+    t.echoUntil = data !== undefined && !/[\r\n]/.test(data) ? this.now() + ECHO_WINDOW_MS : 0;
     t.workedSinceInput = false;
     t.bellSinceInput = false;
     t.busySinceInput = false;
