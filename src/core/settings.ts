@@ -128,6 +128,24 @@ export interface PromptSettings {
   };
 }
 
+/**
+ * A one-click way to start a session: which launcher, an own worktree or not, shells to open beside it with a
+ * command typed and run in each, and a Browser pane on the session's leased port. They live in the USER's own
+ * settings file (not the repository's), so the commands are the person's own — unlike a repository's hooks, nothing
+ * here arrives from a clone and needs a trust step.
+ */
+export interface SessionPreset {
+  name: string;
+  /** A launcher id from Settings; absent means a plain terminal. */
+  launcher?: string;
+  /** Own worktree (default true). */
+  worktree?: boolean;
+  /** One command per extra terminal, typed and run in order. */
+  terminals?: string[];
+  /** Open a Browser pane on the session's leased port, at this path (default `/`). */
+  browser?: { path?: string };
+}
+
 export interface UserSettings {
   launchers: LauncherDef[];
   editor: EditorSetting;
@@ -143,6 +161,7 @@ export interface UserSettings {
   keybindings?: Record<string, string | null>;
   persistence?: PersistenceSettings;
   prompt?: PromptSettings;
+  presets?: SessionPreset[];
 }
 
 /** A font family as it reaches xterm's CSS font string: nothing that could end the quotes. */
@@ -322,6 +341,54 @@ export function cleanPrompt(raw: unknown): { prompt: PromptSettings | undefined;
   return { prompt: Object.keys(refine).length === 0 ? undefined : { refine }, problems };
 }
 
+const MAX_PRESETS = 12;
+const MAX_PRESET_NAME = 40;
+const MAX_PRESET_TERMINALS = 4;
+const MAX_PRESET_COMMAND = 500;
+const MAX_PRESET_PATH = 200;
+
+export function cleanPresets(raw: unknown): { presets: SessionPreset[] | undefined; problems: string[] } {
+  const problems: string[] = [];
+  if (raw === undefined || raw === null) return { presets: undefined, problems };
+  if (!Array.isArray(raw)) return { presets: undefined, problems: ['presets must be a list'] };
+  if (raw.length > MAX_PRESETS) problems.push(`presets: at most ${MAX_PRESETS}`);
+  const out: SessionPreset[] = [];
+  const seen = new Set<string>();
+  for (const item of (raw as unknown[]).slice(0, MAX_PRESETS)) {
+    const r = item as Record<string, unknown> | null;
+    if (r === null || typeof r !== 'object' || Array.isArray(r)) { problems.push('preset must be an object'); continue; }
+    const before = problems.length;
+    const name = typeof r.name === 'string' ? r.name.trim() : '';
+    if (name === '' || name.length > MAX_PRESET_NAME || /[\x00-\x1f\x7f]/.test(name)) problems.push(`preset name: one line of 1 to ${MAX_PRESET_NAME} characters`);
+    else if (seen.has(name)) problems.push(`preset name "${name}" is used twice`);
+    const preset: SessionPreset = { name };
+    if (r.launcher !== undefined) {
+      if (typeof r.launcher === 'string' && LAUNCHER_ID.test(r.launcher)) preset.launcher = r.launcher;
+      else problems.push(`preset "${name}" launcher must be a launcher id`);
+    }
+    if (r.worktree !== undefined) {
+      if (typeof r.worktree === 'boolean') preset.worktree = r.worktree;
+      else problems.push(`preset "${name}" worktree must be true or false`);
+    }
+    if (r.terminals !== undefined) {
+      if (!Array.isArray(r.terminals) || r.terminals.length > MAX_PRESET_TERMINALS) problems.push(`preset "${name}" terminals: a list of at most ${MAX_PRESET_TERMINALS} commands`);
+      else if (!(r.terminals as unknown[]).every((c) => typeof c === 'string' && c.trim() !== '' && c.length <= MAX_PRESET_COMMAND && !/[\x00-\x1f\x7f]/.test(c))) {
+        problems.push(`preset "${name}" terminal commands: one plain line each, up to ${MAX_PRESET_COMMAND} characters`);
+      } else if (r.terminals.length > 0) preset.terminals = (r.terminals as string[]).map((c) => c.trim());
+    }
+    if (r.browser !== undefined) {
+      const b = r.browser as Record<string, unknown> | null;
+      const path = b === null || typeof b !== 'object' || Array.isArray(b) ? undefined : b.path;
+      if (b === null || typeof b !== 'object' || Array.isArray(b)) problems.push(`preset "${name}" browser must be an object`);
+      else if (path === undefined) preset.browser = {};
+      else if (typeof path === 'string' && path.startsWith('/') && !path.startsWith('//') && path.length <= MAX_PRESET_PATH && !/[\s\x00-\x1f\x7f]/.test(path)) preset.browser = { path };
+      else problems.push(`preset "${name}" browser path: starts with a single /, no spaces, up to ${MAX_PRESET_PATH} characters`);
+    }
+    if (problems.length === before) { seen.add(name); out.push(preset); }
+  }
+  return { presets: out.length === 0 ? undefined : out, problems };
+}
+
 export function cleanPersistence(raw: unknown): { persistence: PersistenceSettings | undefined; problems: string[] } {
   if (raw === undefined || raw === null) return { persistence: undefined, problems: [] };
   if (typeof raw !== 'object' || Array.isArray(raw)) return { persistence: undefined, problems: ['persistence must be an object'] };
@@ -401,6 +468,7 @@ function validate(settings: UserSettings): void {
     ...cleanKeybindings(settings.keybindings).problems,
     ...cleanPersistence(settings.persistence).problems,
     ...cleanPrompt(settings.prompt).problems,
+    ...cleanPresets(settings.presets).problems,
   ];
   if (problems.length > 0) invalid(problems[0] as string);
 }
@@ -427,6 +495,7 @@ export function loadSettings(homeDir?: string): UserSettings {
   const { keybindings } = cleanKeybindings(saved.keybindings);
   const { persistence } = cleanPersistence(saved.persistence);
   const { prompt } = cleanPrompt(saved.prompt);
+  const { presets } = cleanPresets(saved.presets);
   return {
     launchers: mergeLaunchers(saved.launchers), editor, layouts,
     ...(terminal === undefined ? {} : { terminal }),
@@ -435,6 +504,7 @@ export function loadSettings(homeDir?: string): UserSettings {
     ...(keybindings === undefined ? {} : { keybindings }),
     ...(persistence === undefined ? {} : { persistence }),
     ...(prompt === undefined ? {} : { prompt }),
+    ...(presets === undefined ? {} : { presets }),
   };
 }
 
@@ -496,6 +566,7 @@ export function saveSettings(settings: UserSettings, homeDir?: string): void {
     ...(settings.keybindings === undefined ? {} : { keybindings: cleanKeybindings(settings.keybindings).keybindings }),
     ...(settings.persistence === undefined ? {} : { persistence: cleanPersistence(settings.persistence).persistence }),
     ...(settings.prompt === undefined ? {} : { prompt: cleanPrompt(settings.prompt).prompt }),
+    ...(settings.presets === undefined ? {} : { presets: cleanPresets(settings.presets).presets }),
   };
   writeFileSync(tmp, `${JSON.stringify(normalized, null, 2)}\n`, { mode: 0o600 });
   chmodSync(tmp, 0o600);

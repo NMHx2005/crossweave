@@ -74,6 +74,13 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
     ],
   },
   {
+    id: 'presets',
+    title: 'Presets',
+    rows: [
+      { id: 'preset-list', label: 'Session presets', description: 'One-click recipes in the new-session picker: a launcher, an own worktree or not, terminals that run a command, a Browser pane on the session\'s port', keywords: 'template recipe workflow dev server terminal browser worktree launcher' },
+    ],
+  },
+  {
     id: 'prompt',
     title: 'Prompt',
     rows: [

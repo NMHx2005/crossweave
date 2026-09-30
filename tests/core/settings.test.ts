@@ -252,6 +252,54 @@ describe('prompt settings (the composer\'s refine command)', () => {
   });
 });
 
+describe('session presets', () => {
+  const dev = { name: 'web dev', launcher: 'claude', worktree: true, terminals: ['bun dev', 'bun test --watch'], browser: { path: '/admin' } };
+
+  it('round-trips through save and load, and is absent by default', () => {
+    expect(loadSettings(home).presets).toBeUndefined();
+    saveSettings({ ...loadSettings(home), presets: [dev] }, home);
+    expect(loadSettings(home).presets).toEqual([dev]);
+  });
+
+  it('a name alone is a valid preset (a plain terminal in its own worktree)', () => {
+    saveSettings({ ...loadSettings(home), presets: [{ name: 'scratch' }] }, home);
+    expect(loadSettings(home).presets).toEqual([{ name: 'scratch' }]);
+  });
+
+  it('refuses a bad name: empty, multi-line, too long, or a duplicate', () => {
+    for (const name of ['', '   ', 'a\nb', 'x'.repeat(41)]) {
+      expect(() => saveSettings({ ...loadSettings(home), presets: [{ name }] }, home)).toThrow(/preset/i);
+    }
+    expect(() => saveSettings({ ...loadSettings(home), presets: [{ name: 'a' }, { name: 'a' }] }, home)).toThrow(/preset/i);
+  });
+
+  it('refuses more than 12 presets, more than 4 terminals, and terminal commands that are not one plain line', () => {
+    const many = Array.from({ length: 13 }, (_, i) => ({ name: `p${i}` }));
+    expect(() => saveSettings({ ...loadSettings(home), presets: many }, home)).toThrow(/preset/i);
+    expect(() => saveSettings({ ...loadSettings(home), presets: [{ name: 'a', terminals: ['1', '2', '3', '4', '5'] }] }, home)).toThrow(/terminal/i);
+    for (const bad of ['', 'a\nb', 'x'.repeat(501), 'a\0b', 'a\u001b[31m']) {
+      expect(() => saveSettings({ ...loadSettings(home), presets: [{ name: 'a', terminals: [bad] }] }, home)).toThrow(/terminal/i);
+    }
+  });
+
+  it('refuses a launcher id that is not a plain id, and a browser path that is not a path', () => {
+    for (const launcher of ['', 'a b', 'x'.repeat(41), '../x', 'A;B']) {
+      expect(() => saveSettings({ ...loadSettings(home), presets: [{ name: 'a', launcher }] }, home)).toThrow(/launcher/i);
+    }
+    for (const path of ['admin', '/a b', '/x'.repeat(101), '/a\n', 'http://evil.example/']) {
+      expect(() => saveSettings({ ...loadSettings(home), presets: [{ name: 'a', browser: { path } }] }, home)).toThrow(/browser/i);
+    }
+  });
+
+  it('a corrupt presets block in the file is dropped on load rather than breaking other settings', () => {
+    mkdirSync(join(home, '.crossweave'), { recursive: true });
+    writeFileSync(file(), JSON.stringify({ editor: { kind: 'zed' }, presets: 'nope' }));
+    const s = loadSettings(home);
+    expect(s.editor).toEqual({ kind: 'zed' });
+    expect(s.presets).toBeUndefined();
+  });
+});
+
 describe('key-table bindings in the keybindings', () => {
   it('accepts prefix:<key> for a character or a named key, and stores it as given', () => {
     saveSettings({ ...loadSettings(home), keybindings: { 'split-right': 'prefix:|', 'focus-left': 'prefix:Left', 'zoom-pane': 'prefix:%', 'x': 'prefix:đ' } }, home);

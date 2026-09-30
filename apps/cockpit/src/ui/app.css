@@ -1564,6 +1564,38 @@ body,
   to { transform: rotate(360deg); }
 }
 
+/* One preset in Settings. */
+.cockpit-settings__preset {
+  border: var(--cw-hairline) solid var(--cw-border);
+  border-radius: var(--cw-radius-sm);
+  margin: var(--cw-space-2) 0;
+  padding: var(--cw-space-2);
+}
+
+/* One-click presets under the new-session choices. */
+.cockpit-picker__presets {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cw-space-1);
+  margin: var(--cw-space-2) 0;
+}
+
+.cockpit-picker__preset {
+  display: flex;
+  align-items: baseline;
+  gap: var(--cw-space-2);
+  padding: var(--cw-space-1) var(--cw-space-2);
+  border: none;
+  border-radius: var(--cw-radius-sm);
+  background: transparent;
+  color: var(--cw-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cockpit-picker__preset:hover { background: var(--cw-surface-hover); }
+
 /* The prompt composer: a draft, an optional refine proposal, the sessions to send to, and exactly what will be sent. */
 .cockpit-prompt {
   width: calc(var(--cw-row-h) * 34);

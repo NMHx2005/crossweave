@@ -75,6 +75,9 @@ import { Stage, type StageStatus } from './Stage'
 import { runPaneRequest, type PaneEnv } from '../lib/pane-bridge'
 import { CompareView } from './CompareView'
 import { PromptComposer } from './PromptComposer'
+import { planPreset, presetUrl } from '../lib/presets'
+import { suggestSessionName } from '../lib/quick-picker'
+import type { SessionPreset } from '../../../../src/core/settings.js'
 import { defaultCompareTarget } from '../lib/compare'
 import { sessionsThatStartedRunning } from '../lib/sessions'
 import { agentName, newlyAsking, newlyFinished, newlySignalled } from '../lib/rail'
@@ -185,6 +188,7 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
   const [colors, setColors] = useState<Record<string, SessionColor>>(() => readColors(projectRoot))
   /** The launchers a new session can start with, as of the last picker or command bar. */
   const [launchers, setLaunchers] = useState<LauncherOption[]>([])
+  const [presets, setPresets] = useState<SessionPreset[]>([])
   const [paneAttachEpoch, setPaneAttachEpoch] = useState(0)
   const [paneAttachBumps, setPaneAttachBumps] = useState<Record<string, number>>({})
   const lastJournalRef = useRef('')
@@ -547,12 +551,14 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
 
   async function handleNew(): Promise<void> {
     // Fetched on open: a CLI installed a minute ago, or a launcher just edited, shows.
-    const [branchList, launcherList] = await Promise.all([
+    const [branchList, launcherList, settings] = await Promise.all([
       api.listBranches().catch(() => [] as string[]),
       api.listLaunchers().catch(() => [] as LauncherOption[]),
+      api.getSettings().catch(() => null),
     ])
     setBranches(branchList)
     setLaunchers(launcherList)
+    setPresets((settings as { presets?: SessionPreset[] } | null)?.presets ?? [])
     setPickerOpen(true)
   }
 
@@ -566,6 +572,38 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
       await load()
       focusSession(created.id)
     })
+  }
+
+  /**
+   * One click: a session with the preset's launcher, then its extra terminals each with their command typed and run,
+   * then a Browser pane on the session's leased port. The commands are the person's own, from their settings file.
+   */
+  async function startPreset(preset: SessionPreset, name: string): Promise<void> {
+    setPickerOpen(false)
+    const plan = planPreset(preset)
+    const base = host.defaultsFor(projectRoot).base
+    let sessionId: string | undefined
+    await runAction(async () => {
+      const created = await api.newSession({ name, worktree: plan.worktree, ...(plan.worktree && base !== undefined && base !== '' ? { base } : {}) }) as { id?: string }
+      if (typeof created?.id !== 'string') return
+      sessionId = created.id
+      await api.resumeSession(created.id, plan.launcher)
+      writeString(LAST_LAUNCHER_KEY, plan.launcher)
+      await load()
+      focusSession(created.id)
+    })
+    if (sessionId === undefined) return
+    for (const command of plan.terminals) {
+      const terminalId = await openShell(sessionId)
+      if (terminalId !== undefined) await api.terminalInput(terminalId, `${command}\r`).catch(() => undefined)
+    }
+    if (plan.browserPath !== undefined) {
+      const fresh = await api.listSessions().catch(() => [] as ListedSession[])
+      const url = presetUrl(fresh.find((s) => s.id === sessionId)?.portBase, plan.browserPath)
+      if (url === undefined) hostRef.current.toast('No port was leased to this session, so no Browser pane was opened', 'info')
+      else handleOpenBrowser(url)
+    }
+    hostRef.current.toast(`Started ${preset.name}`, 'info')
   }
 
   async function handlePickerCreate(request: NewSessionRequest): Promise<void> {
@@ -714,9 +752,11 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
   }
 
   /** A shell for `sessionId`, split beside `at` (or in a tab of its own). */
-  async function openShell(sessionId: string, at?: { tabId: string; paneId: string; dir: SplitDir }): Promise<void> {
+  async function openShell(sessionId: string, at?: { tabId: string; paneId: string; dir: SplitDir }): Promise<string | undefined> {
+    let terminalId: string | undefined
     await runAction(async () => {
       const opened = await api.openTerminal(sessionId)
+      terminalId = opened.terminalId
       const pane: PaneRef = { kind: 'terminal', terminalId: opened.terminalId, sessionId }
       setStage((s) => {
         // A load that raced this call may have opened it already.
@@ -727,6 +767,7 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
         return placeBeside(s, pane, `${opened.sessionName} · shell`)
       })
     })
+    return terminalId
   }
 
   /** A file or browser pane: beside the focused pane, or in a tab of its own. */
@@ -954,6 +995,8 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
             launchers={launchers}
             lastLauncher={readString(LAST_LAUNCHER_KEY)}
             defaultsFor={host.defaultsFor}
+            presets={presets}
+            onPreset={(preset, name) => { void startPreset(preset, name) }}
             onCreate={(request) => {
               void handlePickerCreate(request)
             }}

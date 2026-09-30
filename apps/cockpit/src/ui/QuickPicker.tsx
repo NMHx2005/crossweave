@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'preact/hooks'
 import type { LauncherOption } from '../host/cockpit-api'
 import { sessionNameError, suggestSessionName } from '../lib/quick-picker'
 import { AgentMark } from './icons'
+import { describePreset } from '../lib/presets'
+import type { SessionPreset } from '../../../../src/core/settings.js'
 
 export type NewSessionOptions = {
   /** Branch to start the worktree from; HEAD when undefined. */
@@ -30,6 +32,9 @@ export type QuickPickerProps = {
   lastLauncher: string | undefined
   /** A project's own defaults (Project settings): launcher, own worktree or not, base. */
   defaultsFor: (projectRoot: string) => { launcher?: string; worktree: boolean; base?: string; plain?: boolean }
+  /** One-click recipes from Settings → Presets; offered for the active project only. */
+  presets?: readonly SessionPreset[]
+  onPreset?: (preset: SessionPreset, name: string) => void
   onCreate: (request: NewSessionRequest) => void
   onCancel: () => void
 }
@@ -164,6 +169,19 @@ export function QuickPicker(props: QuickPickerProps) {
             </li>
           ))}
         </ul>
+
+        {props.presets && props.presets.length > 0 && props.onPreset && !otherProject && !plain ? (
+          <div class="cockpit-picker__presets" role="group" aria-label="Presets">
+            <span class="cockpit-muted">Or start a preset</span>
+            {props.presets.map((preset) => (
+              <button key={preset.name} type="button" class="cockpit-picker__preset" title="Starts it now, with the name below unless you changed it"
+                onClick={() => props.onPreset?.(preset, nameTouched ? name : suggestSessionName(preset.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'preset', takenNames))}>
+                <span class="cockpit-picker__agent-label">{preset.name}</span>
+                <span class="cockpit-muted cockpit-picker__agent-detail">{describePreset(preset, (id) => launchers.find((l) => l.id === id)?.label ?? id)}</span>
+              </button>
+            ))}
+          </div>
+        ) : null}
 
         <label class="cockpit-picker__field">
           <span class="cockpit-muted">Name</span>

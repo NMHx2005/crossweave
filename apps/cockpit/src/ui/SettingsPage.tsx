@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type { ComponentChildren } from 'preact'
 import { formatEnvLines, launcherIdFor, parseEnvLines } from '../lib/launchers'
 import { AgentMark } from './icons'
-import type { InterfaceAppearance, ModelPrice, PersistenceSettings, TerminalAppearance, UsageSettings, PromptSettings } from '../../../../src/core/settings.js'
+import type { InterfaceAppearance, ModelPrice, PersistenceSettings, TerminalAppearance, UsageSettings, PromptSettings, SessionPreset } from '../../../../src/core/settings.js'
 import { FontPicker, type InstalledFont } from './FontPicker'
 import { ShortcutList } from './ShortcutsPanel'
 import { effectiveKeys, keyConflicts } from '../lib/keymap'
@@ -31,6 +31,7 @@ export type UserSettings = {
   keybindings?: Record<string, string | null>
   persistence?: PersistenceSettings
   prompt?: PromptSettings
+  presets?: SessionPreset[]
 }
 
 const EDITORS: Array<{ kind: EditorSetting['kind']; label: string }> = [
@@ -249,6 +250,21 @@ export function SettingsPage({ initialSection, initialRow, initial, availability
     return () => clearTimeout(t)
   }, [target, section, searching])
 
+  const presets = draft.presets ?? []
+  /** Replace preset `i` with `next`, or remove it (null); an empty list is no block at all. */
+  const setPreset = (i: number, next: SessionPreset | null): void => {
+    setDraft((d) => {
+      const list = [...(d.presets ?? [])]
+      if (next === null) list.splice(i, 1)
+      else list[i] = next
+      return { ...d, presets: list.length === 0 ? undefined : list }
+    })
+  }
+  const patchPreset = (i: number, patch: Partial<SessionPreset>): void => {
+    const next: SessionPreset = { ...presets[i]!, ...patch }
+    for (const key of Object.keys(next) as Array<keyof SessionPreset>) if (next[key] === undefined) delete next[key]
+    setPreset(i, next)
+  }
   const setRefine = (patch: Partial<NonNullable<PromptSettings['refine']>>): void => {
     setDraft((d) => {
       const next = { ...d.prompt?.refine, ...patch }
@@ -499,6 +515,54 @@ export function SettingsPage({ initialSection, initialRow, initial, availability
           <input type="checkbox" checked={notify.dockBadge} onChange={(e) => onNotify({ ...notify, dockBadge: (e.target as HTMLInputElement).checked })} />
           <span>Count them on the Dock icon</span>
         </label>
+      </>
+    ),
+    presets: (
+      <>
+        <p class="cockpit-muted" data-setting="preset-list">
+          A preset starts a session in one click from the new-session picker (⌘T): the launcher, an own worktree or not, shells
+          that each run a command, and a Browser pane on the session's leased port. The commands are typed and run for you,
+          so they are yours alone: they live in this settings file, never in a repository.
+        </p>
+        {presets.map((preset, i) => (
+          <fieldset key={i} class="cockpit-settings__preset">
+            <label class="cockpit-picker__field">
+              <span class="cockpit-muted">Name</span>
+              <input value={preset.name} spellcheck={false} maxLength={40} onInput={(e) => patchPreset(i, { name: (e.target as HTMLInputElement).value })} />
+            </label>
+            <label class="cockpit-picker__field">
+              <span class="cockpit-muted">Start with</span>
+              <select value={preset.launcher ?? 'terminal'}
+                onChange={(e) => { const v = (e.target as HTMLSelectElement).value; patchPreset(i, { launcher: v === 'terminal' ? undefined : v }) }}>
+                <option value="terminal">Terminal</option>
+                {draft.launchers.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
+              </select>
+            </label>
+            <label class="cockpit-settings__toggle">
+              <input type="checkbox" checked={preset.worktree !== false} onChange={(e) => patchPreset(i, { worktree: (e.target as HTMLInputElement).checked ? undefined : false })} />
+              <span>Own worktree (off: the project folder itself)</span>
+            </label>
+            <label class="cockpit-picker__field">
+              <span class="cockpit-muted">Terminals (one command per line, up to 4)</span>
+              <textarea rows={3} spellcheck={false} value={(preset.terminals ?? []).join('\n')} placeholder="bun dev"
+                onInput={(e) => { const lines = (e.target as HTMLTextAreaElement).value.split('\n').filter((l) => l.trim() !== ''); patchPreset(i, { terminals: lines.length === 0 ? undefined : lines }) }} />
+            </label>
+            <label class="cockpit-settings__toggle">
+              <input type="checkbox" checked={preset.browser !== undefined} onChange={(e) => patchPreset(i, { browser: (e.target as HTMLInputElement).checked ? {} : undefined })} />
+              <span>Open a Browser pane on the session's port</span>
+            </label>
+            {preset.browser !== undefined ? (
+              <label class="cockpit-picker__field">
+                <span class="cockpit-muted">Browser path</span>
+                <input class="cockpit-settings__command" value={preset.browser.path ?? ''} spellcheck={false} placeholder="/"
+                  onInput={(e) => { const v = (e.target as HTMLInputElement).value; patchPreset(i, { browser: v === '' ? {} : { path: v } }) }} />
+              </label>
+            ) : null}
+            <button type="button" class="cockpit-btn cockpit-btn--sm" onClick={() => setPreset(i, null)}>Remove {preset.name || 'preset'}</button>
+          </fieldset>
+        ))}
+        <button type="button" class="cockpit-btn cockpit-btn--sm" disabled={presets.length >= 12}
+          onClick={() => setPreset(presets.length, { name: `preset ${presets.length + 1}` })}>Add a preset</button>
       </>
     ),
     prompt: (

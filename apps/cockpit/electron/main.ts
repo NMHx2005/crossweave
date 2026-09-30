@@ -349,12 +349,12 @@ function registerHandlers(bridge: DaemonBridge): void {
         if (from !== 'ghostty' && from !== 'iterm2') return { ok: false, reason: 'Import from ghostty or iterm2' }
         return importTerminal(from, importDeps())
       }
-      // The project's daemon may predate `persistence` or `prompt` and would drop them: see settings-guard.ts.
-      if (channel === 'settings.get') { const file = loadSettings(); return withGuardedFromFile(await bridge.handle(channel, payload), { persistence: file.persistence, prompt: file.prompt }) }
+      // The project's daemon may predate `persistence`, `prompt` or `presets` and would drop them: see settings-guard.ts.
+      if (channel === 'settings.get') { const file = loadSettings(); return withGuardedFromFile(await bridge.handle(channel, payload), { persistence: file.persistence, prompt: file.prompt, presets: file.presets }) }
       if (channel === 'settings.set') {
         const answer = await bridge.handle(channel, payload)
         const file = loadSettings()
-        const lost = restoreGuarded(payload, { persistence: file.persistence, prompt: file.prompt })
+        const lost = restoreGuarded(payload, { persistence: file.persistence, prompt: file.prompt, presets: file.presets })
         if (Object.keys(lost).length === 0) return answer
         try {
           saveSettings({ ...file, ...lost })

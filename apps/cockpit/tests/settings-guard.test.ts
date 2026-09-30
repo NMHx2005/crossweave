@@ -16,6 +16,13 @@ describe('withGuardedFromFile', () => {
     expect(restoreGuarded({ settings: { prompt } }, {})).toEqual({ prompt })
   })
 
+  test('presets (a list) are mended too, and an empty list is not worth restoring', () => {
+    const presets = [{ name: 'web dev' }]
+    expect(withGuardedFromFile({}, { presets })).toEqual({ presets })
+    expect(restoreGuarded({ settings: { presets } }, {})).toEqual({ presets })
+    expect(restoreGuarded({ settings: { presets: [] } }, {})).toEqual({})
+  })
+
   test("leaves a daemon's own block alone (a current daemon is authoritative)", () => {
     const own = { terminals: false }
     expect(withGuardedFromFile({ persistence: own }, { persistence })).toEqual({ persistence: own })
