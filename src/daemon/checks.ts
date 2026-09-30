@@ -103,10 +103,59 @@ export class CheckRunner {
 
 const RUN_TIMEOUT_MS = 10 * 60_000;
 const OUTPUT_KEPT = 8000;
+/** After the shell is gone, how long a child that still holds the output open may keep us waiting for the last bytes. */
+const DRAIN_GRACE_MS = 250;
+
+/** Every descendant of `pid`, found from one `ps` listing (the same way the status sweep finds an agent under a shell). */
+function descendantsOf(pid: number): number[] {
+  const listing = Bun.spawnSync(['ps', '-A', '-o', 'pid=,ppid='], { stdout: 'pipe', stderr: 'ignore' }).stdout.toString();
+  const children = new Map<number, number[]>();
+  for (const line of listing.split('\n')) {
+    const m = /^\s*(\d+)\s+(\d+)\s*$/.exec(line);
+    if (m === null) continue;
+    const parent = Number(m[2]);
+    children.set(parent, [...(children.get(parent) ?? []), Number(m[1])]);
+  }
+  const out: number[] = [];
+  const queue = [pid];
+  while (queue.length > 0) {
+    for (const child of children.get(queue.shift() as number) ?? []) { out.push(child); queue.push(child); }
+  }
+  return out;
+}
+
+/** Kill `pid` and everything it started. The daemon's own process group is not ours to signal, so the tree is walked. */
+function killTree(pid: number): void {
+  for (const p of [...descendantsOf(pid).reverse(), pid]) {
+    try { process.kill(p, 'SIGKILL'); } catch { /* already gone */ }
+  }
+}
+
+/** Collects a stream as it arrives, so what was read is kept even if we stop waiting for its end. */
+function collect(stream: ReadableStream<Uint8Array>): { text: () => string; ended: Promise<void>; stop: () => void } {
+  const chunks: Uint8Array[] = [];
+  const reader = stream.getReader();
+  const ended = (async () => {
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) return;
+        chunks.push(value);
+      }
+    } catch { /* cancelled or broken: keep what came */ }
+  })();
+  return {
+    text: () => Buffer.concat(chunks).toString('utf8'),
+    ended,
+    stop: () => { void reader.cancel().catch(() => undefined); },
+  };
+}
 
 /**
- * `sh -c command` in `cwd`, stdin closed, stopped after `timeoutMs`. Resolves with the exit code (124 for a
- * timeout, like `timeout(1)`) and the END of stdout+stderr: a test run's verdict is at the bottom.
+ * `sh -c command` in `cwd`, stdin closed, stopped after `timeoutMs` (the shell AND what it started are killed).
+ * Resolves with the exit code (124 for a timeout, like `timeout(1)`) and the END of stdout+stderr: a test run's
+ * verdict is at the bottom. It never waits on a child that outlives the shell while holding the output open: a shell
+ * that forks its last command (dash, on Linux) left `sleep` alive after the kill and this used to wait for it.
  */
 export async function runShell(
   command: string,
@@ -115,11 +164,21 @@ export async function runShell(
   timeoutMs = RUN_TIMEOUT_MS,
 ): Promise<{ code: number; tail: string }> {
   const proc = Bun.spawn(['sh', '-c', command], { cwd, env, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' });
+  const out = collect(proc.stdout);
+  const err = collect(proc.stderr);
   let timedOut = false;
-  const timer = setTimeout(() => { timedOut = true; proc.kill('SIGKILL'); }, timeoutMs);
+  const timer = setTimeout(() => { timedOut = true; killTree(proc.pid); }, timeoutMs);
   try {
-    const [code, out, err] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
-    const tail = (out + err).slice(-OUTPUT_KEPT);
+    const code = await proc.exited;
+    let grace: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      Promise.all([out.ended, err.ended]),
+      new Promise<void>((resolve) => { grace = setTimeout(resolve, DRAIN_GRACE_MS); }),
+    ]);
+    if (grace !== undefined) clearTimeout(grace);
+    out.stop();
+    err.stop();
+    const tail = (out.text() + err.text()).slice(-OUTPUT_KEPT);
     return timedOut ? { code: 124, tail: `${tail}\ntimed out after ${Math.round(timeoutMs / 1000)}s` } : { code, tail };
   } finally {
     clearTimeout(timer);

@@ -24,6 +24,9 @@ Measured on the real app with `apps/cockpit/scripts/checks-check.ts` (8 checks).
 - **Lease environment is not injected.** The command runs with the daemon's environment plus `CW_SESSION_ID`,
   `CW_SESSION_NAME` and `CW_CHECK=1`; the session's port/db/cache leases are not applied, so a test that binds a fixed port
   can collide with the session's dev server.
-- **A timeout kills the `sh` only.** A test runner that forked children can leave them running after the 10 minutes.
+- **A timeout kills the whole process tree** the shell started (walked from one `ps` listing; the daemon's own process group is not
+  signalled). Found by CI on Linux: there `sh` forks even a lone command, and killing only the shell left the child holding the output
+  open, so the run never returned. The run also stops waiting 250 ms after the shell exits for a child that still holds the output.
+  A background child left running by a run that ended normally is not killed.
 - A plain project folder (no git) has no counts, so a verdict there can only go stale through terminal activity.
 - One command per project: there is no per-session or per-path command, and no `lint`/`typecheck` split.

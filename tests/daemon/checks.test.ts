@@ -116,7 +116,7 @@ describe('CheckRunner', () => {
 });
 
 import { runShell } from '../../src/daemon/checks.js';
-import { mkdtempSync, realpathSync } from 'node:fs';
+import { mkdtempSync, readFileSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -141,6 +141,21 @@ describe('runShell', () => {
     const r = await runShell('sleep 30', dir, { PATH: process.env['PATH'] ?? '' }, 200);
     expect(r.code).toBe(124);
     expect(r.tail).toContain('timed out');
+  });
+
+  it('stops a run whose CHILD keeps the output open, and does not leave the child running', async () => {
+    // `sh -c 'a; b'` forks `a` on every platform (a lone command is exec'd by some shells and forked by others):
+    // killing only the shell left the child holding the pipe, and the run never came back until it ended by itself.
+    const marker = join(dir, `child-${Date.now()}`);
+    const started = Date.now();
+    const r = await runShell(`sleep 20 & echo $! > ${marker}; wait`, dir, { PATH: process.env['PATH'] ?? '' }, 300);
+    expect(r.code).toBe(124);
+    expect(Date.now() - started).toBeLessThan(4000);
+    const pid = Number(readFileSync(marker, 'utf8').trim());
+    await new Promise((res) => setTimeout(res, 300));
+    let alive = true;
+    try { process.kill(pid, 0); } catch { alive = false; }
+    expect(alive).toBe(false);
   });
 
   it('has no stdin: a command that reads it ends instead of waiting for a person', async () => {
