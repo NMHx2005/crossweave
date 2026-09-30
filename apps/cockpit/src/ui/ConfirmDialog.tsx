@@ -1,3 +1,4 @@
+/** @jsxImportSource preact */
 import { useEffect, useRef } from 'preact/hooks'
 
 export type ConfirmRequest = {

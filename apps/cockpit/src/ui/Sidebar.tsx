@@ -225,11 +225,12 @@ export function Sidebar(props: SidebarProps) {
 
       {projects.length > 0 ? (
         <div class="cockpit-sidebar__filter">
+          <SearchIcon />
           <input
             type="search"
             value={query}
-            placeholder="Filter sessions"
-            aria-label="Filter sessions"
+            placeholder="Search"
+            aria-label="Search sessions"
             spellcheck={false}
             onInput={(e) => props.onQuery((e.target as HTMLInputElement).value)}
             onKeyDown={(e) => {

@@ -686,7 +686,8 @@ body,
 }
 
 .cockpit-placeholder {
-  margin-top: var(--cw-space-4);
+  /* All four sides: on the stage this box has no padded parent, so a bare top margin left it glued to the pane's edges. */
+  margin: var(--cw-space-4);
   padding: var(--cw-space-4);
   border: var(--cw-hairline) dashed var(--cw-border-strong);
   border-radius: var(--cw-radius);
@@ -1564,6 +1565,180 @@ body,
   to { transform: rotate(360deg); }
 }
 
+/* ---- the dashboard ---- */
+
+.cockpit-dash__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--cw-space-3);
+  padding: 0 var(--cw-space-3);
+  font-size: var(--cw-fs-sm);
+}
+
+.cockpit-dash__notice {
+  margin: 0;
+  padding: var(--cw-space-3) var(--cw-space-4);
+  background: var(--cw-surface-overlay);
+  border: var(--cw-hairline) solid var(--cw-border-strong);
+  border-radius: calc(var(--cw-radius-lg) * 1.5);
+  font-size: var(--cw-fs-sm);
+  color: var(--cw-text);
+}
+
+.cockpit-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(calc(var(--cw-row-h) * 6), 1fr));
+  gap: var(--cw-space-3);
+}
+
+.cockpit-stat {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--cw-hairline) * 2);
+  min-width: 0;
+  padding: var(--cw-space-3);
+  background: var(--cw-surface);
+  border: var(--cw-hairline) solid var(--cw-border);
+  border-radius: var(--cw-radius-lg);
+}
+
+.cockpit-stat__label { font-size: var(--cw-fs-sm); color: var(--cw-text-dim); }
+.cockpit-stat__value { font-size: calc(var(--cw-fs-project) * 1.5); font-weight: 600; color: var(--cw-text-bright); font-variant-numeric: tabular-nums; }
+.cockpit-stat__sub { font-size: var(--cw-fs-micro); color: var(--cw-text-dim); overflow-wrap: anywhere; }
+
+.cockpit-dash__reclaim,
+.cockpit-dash__size {
+  font-size: var(--cw-fs-sm);
+  color: var(--cw-text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.cockpit-dash__name {
+  display: inline-block;
+  max-width: calc(var(--cw-row-h) * 12);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+.cockpit-srow__label { display: flex; align-items: center; gap: var(--cw-space-2); flex-wrap: wrap; }
+
+/* A word, never a colour alone: running, stopped, ended, and the marks of work that would be lost. */
+.cockpit-pill {
+  padding: 0 var(--cw-space-2);
+  border: var(--cw-hairline) solid var(--cw-border-strong);
+  border-radius: var(--cw-radius-sm);
+  font-size: var(--cw-fs-micro);
+  font-weight: 500;
+  color: var(--cw-text);
+}
+
+.cockpit-pill.is-running { border-color: color-mix(in srgb, var(--cw-ready) 60%, var(--cw-surface)); }
+.cockpit-pill.is-warn { border-color: color-mix(in srgb, var(--cw-needs-you) 70%, var(--cw-surface)); }
+
+.cockpit-dtable__wrap { overflow-x: auto; }
+
+.cockpit-dtable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--cw-fs-sm);
+  color: var(--cw-text);
+}
+
+.cockpit-dtable th {
+  padding: var(--cw-space-1) var(--cw-space-3) var(--cw-space-2) 0;
+  text-align: left;
+  font-weight: 500;
+  color: var(--cw-text-dim);
+  border-bottom: var(--cw-hairline) solid var(--cw-border);
+  white-space: nowrap;
+}
+
+.cockpit-dtable td { padding: var(--cw-space-2) var(--cw-space-3) var(--cw-space-2) 0; border-bottom: var(--cw-hairline) solid var(--cw-border); }
+.cockpit-dtable tr:last-child td { border-bottom: 0; }
+.cockpit-dtable .is-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.cockpit-chart { margin: 0; display: flex; flex-direction: column; gap: var(--cw-space-3); width: 100%; }
+.cockpit-chart__head { display: flex; align-items: center; justify-content: space-between; gap: var(--cw-space-3); flex-wrap: wrap; }
+.cockpit-chart__head figcaption { font-size: var(--cw-fs-sm); font-weight: 500; color: var(--cw-text-bright); }
+.cockpit-chart__empty { margin: 0; }
+
+/* One hue, a thin bar with a rounded data end anchored at the baseline; the value sits beside it in text ink. */
+.cockpit-hbars { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--cw-space-2); }
+
+.cockpit-hbar {
+  position: relative;
+  display: grid;
+  grid-template-columns: calc(var(--cw-row-h) * 7) 1fr calc(var(--cw-row-h) * 3.5);
+  align-items: center;
+  gap: var(--cw-space-3);
+  font-size: var(--cw-fs-sm);
+  color: var(--cw-text);
+  border-radius: var(--cw-radius-sm);
+}
+
+.cockpit-hbar__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cockpit-hbar__track { height: var(--cw-space-3); display: flex; align-items: center; }
+.cockpit-hbar__fill { display: block; height: 100%; background: var(--cw-accent); border-radius: 0 var(--cw-radius) var(--cw-radius) 0; }
+.cockpit-hbar__value { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.cockpit-vbars {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(14, 1fr);
+  gap: var(--cw-space-1);
+  align-items: end;
+  height: calc(var(--cw-row-h) * 5);
+}
+
+.cockpit-vbar {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  height: 100%;
+  gap: var(--cw-hairline);
+  font-size: var(--cw-fs-micro);
+  color: var(--cw-text);
+  border-radius: var(--cw-radius-sm);
+}
+
+.cockpit-vbar__col { display: flex; align-items: flex-end; flex: 1; width: 100%; min-height: 0; border-bottom: var(--cw-hairline) solid var(--cw-border-strong); }
+.cockpit-vbar__fill { display: block; width: 100%; background: var(--cw-accent); border-radius: var(--cw-radius) var(--cw-radius) 0 0; }
+.cockpit-vbar__count { height: calc(var(--cw-fs-micro) * 1.4); font-variant-numeric: tabular-nums; }
+.cockpit-vbar__day { height: calc(var(--cw-fs-micro) * 1.4); white-space: nowrap; color: var(--cw-text-dim); }
+
+/* A tooltip on hover and on keyboard focus, from the mark's own words. */
+.cockpit-hbar[data-tip]:hover::after,
+.cockpit-hbar[data-tip]:focus-visible::after,
+.cockpit-vbar[data-tip]:hover::after,
+.cockpit-vbar[data-tip]:focus-visible::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + var(--cw-space-1));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  padding: var(--cw-space-1) var(--cw-space-2);
+  background: var(--cw-surface-overlay);
+  border: var(--cw-hairline) solid var(--cw-border-strong);
+  border-radius: var(--cw-radius);
+  box-shadow: 0 var(--cw-space-1) var(--cw-space-4) var(--cw-shadow);
+  color: var(--cw-text-bright);
+  font-size: var(--cw-fs-sm);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.cockpit-hbar:focus-visible,
+.cockpit-vbar:focus-visible { outline: calc(var(--cw-hairline) * 2) solid var(--cw-accent); outline-offset: var(--cw-hairline); }
+
 /* One preset in Settings. */
 .cockpit-settings__preset {
   border: var(--cw-hairline) solid var(--cw-border);
@@ -1986,12 +2161,26 @@ body,
 
 /* The filter box under the title row: narrows every project's rows as you type. */
 .cockpit-sidebar__filter {
+  position: relative;
   flex: none;
   padding: 0 var(--cw-space-2) var(--cw-space-1);
 }
 
+/* The icon sits inside the box; the input keeps its own field look and only makes room for it. */
+.cockpit-sidebar__filter > svg {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--cw-space-2) + var(--cw-space-2));
+  transform: translateY(calc(-50% - var(--cw-space-1) / 2));
+  width: var(--cw-space-3);
+  height: var(--cw-space-3);
+  color: var(--cw-text-dim);
+  pointer-events: none;
+}
+
 .cockpit-sidebar__filter input {
   width: 100%;
+  padding-left: calc(var(--cw-space-2) + var(--cw-space-4));
   font-size: var(--cw-fs);
 }
 
@@ -2581,124 +2770,350 @@ body,
   color: var(--cw-text-dim);
 }
 
-/* The settings page: a window-sized layer over the stage with its own navigation and a
-   pane of rows. It is not a dialog, so it has no backdrop and does not close on a click
-   outside; Esc and Back leave it. */
+/* The settings page, after Cursor's: a window-sized layer with a left panel (Back, search, grouped sections) and a centred column
+   of groups. Each group is a small heading over a rounded card of rows: name and description on the left, the control on the
+   right. It is not a dialog: no backdrop, no click-outside close; Esc and Back leave it. */
 .cockpit-settings-page {
   position: fixed;
   inset: 0;
   z-index: 30;
   display: flex;
-  flex-direction: column;
   background: var(--cw-surface);
   color: var(--cw-text);
   animation: cockpit-fade var(--cw-dur-enter) var(--cw-ease-out);
 }
 
-/* The traffic lights sit in the top-left; the band drags the window, its controls do not. */
-.cockpit-settings-page__top {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: var(--cw-space-3);
-  height: var(--cw-titlebar-h);
-  padding: 0 var(--cw-space-4) 0 var(--cw-traffic-w);
-  border-bottom: var(--cw-hairline) solid var(--cw-border);
-  -webkit-app-region: drag;
-}
-
-.cockpit-settings-page__top > button {
-  -webkit-app-region: no-drag;
-}
-
-.cockpit-settings-page__title {
-  margin: 0;
-  font-size: var(--cw-fs-project);
-  font-weight: 600;
-  color: var(--cw-text-bright);
-}
-
-.cockpit-settings-page__body {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-}
-
 .cockpit-settings-nav {
   flex: none;
-  width: var(--cw-rail-w);
+  width: calc(var(--cw-rail-w) * 1.05);
   display: flex;
   flex-direction: column;
-  gap: var(--cw-space-3);
-  padding: var(--cw-space-3);
+  padding: 0 var(--cw-space-3) var(--cw-space-4);
   overflow: auto;
   background: var(--cw-surface-sidebar);
   border-right: var(--cw-hairline) solid var(--cw-border);
 }
 
-.cockpit-settings-nav ul {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: var(--cw-hairline);
+/* The traffic lights sit in the top-left; this band drags the window, everything else does not. */
+.cockpit-settings-nav__drag,
+.cockpit-settings-content__drag {
+  flex: none;
+  height: var(--cw-titlebar-h);
+  -webkit-app-region: drag;
 }
 
-.cockpit-settings-nav__item {
+.cockpit-settings-nav__back {
+  display: flex;
+  align-items: center;
+  gap: var(--cw-space-3);
   width: 100%;
-  height: var(--cw-row-h);
+  height: calc(var(--cw-row-h) * 1.25);
   padding: 0 var(--cw-space-3);
   border: 0;
   border-radius: var(--cw-radius);
   background: transparent;
   color: var(--cw-text);
-  font-size: var(--cw-fs-rail);
+  font-size: var(--cw-fs);
   text-align: left;
   cursor: pointer;
 }
 
-.cockpit-settings-nav__item:hover {
-  background: var(--cw-surface-hover);
+.cockpit-settings-nav__back:hover { background: var(--cw-surface-hover); color: var(--cw-text-bright); }
+
+.cockpit-settings-nav__search {
+  width: 100%;
+  box-sizing: border-box;
+  height: calc(var(--cw-row-h) * 1.2);
+  margin: var(--cw-space-3) 0 var(--cw-space-2);
+  padding: 0 var(--cw-space-3);
+  background: var(--cw-surface-input);
+  border: var(--cw-hairline) solid var(--cw-border);
+  border-radius: var(--cw-radius);
+  color: var(--cw-text-bright);
+  font: inherit;
+  font-size: var(--cw-fs);
 }
+
+.cockpit-settings-nav__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cw-hairline);
+  padding: var(--cw-space-3) 0;
+}
+
+.cockpit-settings-nav__group + .cockpit-settings-nav__group { border-top: var(--cw-hairline) solid var(--cw-border); }
+
+.cockpit-settings-nav__item {
+  display: flex;
+  align-items: center;
+  gap: var(--cw-space-3);
+  width: 100%;
+  height: calc(var(--cw-row-h) * 1.25);
+  padding: 0 var(--cw-space-3);
+  border: 0;
+  border-radius: var(--cw-radius);
+  background: transparent;
+  color: var(--cw-text);
+  font-size: var(--cw-fs);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--cw-dur-fast) var(--cw-ease);
+}
+
+.cockpit-settings-nav__item .cockpit-icon { flex: none; color: var(--cw-text-dim); }
+.cockpit-settings-nav__item:hover { background: var(--cw-surface-hover); }
 
 .cockpit-settings-nav__item.is-active {
   background: var(--cw-surface-active);
   color: var(--cw-text-bright);
 }
 
+.cockpit-settings-nav__item.is-active .cockpit-icon { color: var(--cw-text-bright); }
+
 .cockpit-settings-content {
   flex: 1;
   min-width: 0;
   overflow: auto;
-  padding: var(--cw-space-4) calc(var(--cw-space-4) * 2);
-}
-
-/* A comfortable measure: rows do not stretch across a wide window. */
-.cockpit-settings-content > section,
-.cockpit-settings-results {
-  max-width: calc(var(--cw-row-h) * 30);
   display: flex;
   flex-direction: column;
-  gap: var(--cw-space-3);
 }
 
-.cockpit-settings-content > section > * {
-  flex: none;
+.cockpit-settings-content__drag { position: sticky; top: 0; z-index: 2; background: var(--cw-surface); }
+
+/* A comfortable measure: the column does not stretch across a wide window. */
+.cockpit-settings-content__inner {
+  width: min(calc(var(--cw-row-h) * 30), 100%);
+  box-sizing: border-box;
+  margin: 0 auto;
+  padding: var(--cw-space-2) var(--cw-space-4) calc(var(--cw-row-h) * 3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--cw-space-4);
 }
 
-.cockpit-settings-content > section > .cockpit-settings__heading {
-  font-size: var(--cw-fs-project);
+.cockpit-settings-content__inner > section { display: flex; flex-direction: column; gap: var(--cw-space-4); }
+.cockpit-settings-content__inner > section > * { flex: none; }
+
+.cockpit-settings-content__title {
+  margin: 0;
+  padding: 0 var(--cw-space-3);
+  font-size: calc(var(--cw-fs-project) * 1.2);
+  font-weight: 600;
+  color: var(--cw-text-bright);
 }
 
 .cockpit-settings-content__unsaved {
   position: sticky;
-  top: 0;
+  top: var(--cw-titlebar-h);
   z-index: 1;
   padding: var(--cw-space-2) var(--cw-space-3);
   background: var(--cw-surface-overlay);
   border: var(--cw-hairline) solid var(--cw-border-strong);
   border-radius: var(--cw-radius);
+}
+
+/* ---- the kit: groups, cards, rows, switches ---- */
+
+/* A block of free content inside a card (a preview, a form, a button), padded like a row. */
+.cockpit-scard__block {
+  padding: var(--cw-space-3) var(--cw-space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--cw-space-3);
+}
+
+.cockpit-scard > * + * { border-top: var(--cw-hairline) solid var(--cw-border); }
+
+.cockpit-slauncher.is-open { background: color-mix(in srgb, var(--cw-surface-hover) 40%, transparent); }
+.cockpit-slauncher__id { display: flex; align-items: center; gap: var(--cw-space-3); min-width: 0; flex: 1; }
+
+/* A search hit: a whole row that jumps to its setting. */
+.cockpit-sresult {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--cw-hairline) * 2);
+  width: 100%;
+  padding: var(--cw-space-3) var(--cw-space-4);
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cockpit-sresult:hover,
+.cockpit-sresult:focus-visible { background: var(--cw-surface-hover); }
+.cockpit-settings-content__empty { padding: 0 var(--cw-space-3); }
+
+.cockpit-sgroup { display: flex; flex-direction: column; gap: var(--cw-space-2); }
+
+.cockpit-sgroup__title {
+  margin: 0;
+  padding: 0 var(--cw-space-3);
+  font-size: var(--cw-fs-sm);
+  font-weight: 500;
+  color: var(--cw-text-dim);
+}
+
+.cockpit-sgroup__note {
+  margin: 0;
+  padding: 0 var(--cw-space-3);
+  font-size: var(--cw-fs-sm);
+  color: var(--cw-text-dim);
+}
+
+.cockpit-scard {
+  background: var(--cw-surface-overlay);
+  border: var(--cw-hairline) solid var(--cw-border);
+  border-radius: calc(var(--cw-radius-lg) * 1.5);
+  overflow: hidden;
+}
+
+.cockpit-srow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--cw-space-4);
+  min-height: calc(var(--cw-row-h) * 2.2);
+  box-sizing: border-box;
+  padding: var(--cw-space-3) var(--cw-space-4);
+}
+
+.cockpit-srow__text { min-width: 0; flex: 1; }
+
+.cockpit-srow__label {
+  font-size: var(--cw-fs);
+  font-weight: 500;
+  color: var(--cw-text-bright);
+}
+
+.cockpit-srow__desc {
+  margin-top: calc(var(--cw-hairline) * 2);
+  font-size: var(--cw-fs-sm);
+  line-height: 1.45;
+  color: var(--cw-text-dim);
+}
+
+.cockpit-srow__control {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--cw-space-2);
+  max-width: 55%;
+}
+
+.cockpit-srow.is-stacked { flex-direction: column; align-items: stretch; gap: var(--cw-space-3); }
+.cockpit-srow.is-stacked > .cockpit-srow__text { flex: none; }
+.cockpit-srow.is-stacked > .cockpit-srow__control { max-width: none; width: 100%; justify-content: flex-start; flex-wrap: wrap; }
+
+/* Compact controls inside a row, on the same footing as the reference's small selects and buttons. */
+.cockpit-srow__control select,
+.cockpit-srow__control input:not([type='checkbox']):not([type='radio']):not([type='range']),
+.cockpit-srow__control textarea {
+  box-sizing: border-box;
+  min-width: 0;
+  height: calc(var(--cw-row-h) * 1.1);
+  padding: 0 var(--cw-space-3);
+  background: var(--cw-surface-input);
+  border: var(--cw-hairline) solid var(--cw-border-strong);
+  border-radius: var(--cw-radius);
+  color: var(--cw-text-bright);
+  font: inherit;
+  font-size: var(--cw-fs);
+}
+
+.cockpit-srow__control textarea { height: auto; padding: var(--cw-space-2) var(--cw-space-3); resize: vertical; }
+.cockpit-srow.is-stacked .cockpit-srow__control select,
+.cockpit-srow.is-stacked .cockpit-srow__control input:not([type='checkbox']):not([type='radio']),
+.cockpit-srow.is-stacked .cockpit-srow__control textarea { width: 100%; }
+
+.cockpit-switch {
+  position: relative;
+  flex: none;
+  width: calc(var(--cw-row-h) * 1.5);
+  height: calc(var(--cw-row-h) * 0.85);
+  padding: 0;
+  border: 0;
+  border-radius: calc(var(--cw-radius-lg) * 3);
+  background: var(--cw-surface-active);
+  cursor: pointer;
+  transition: background-color var(--cw-dur) var(--cw-ease);
+}
+
+.cockpit-switch[aria-checked='true'] { background: color-mix(in srgb, var(--cw-ready) 62%, var(--cw-surface)); }
+.cockpit-switch:disabled { opacity: 0.5; cursor: default; }
+
+.cockpit-switch__thumb {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--cw-hairline) * 2);
+  width: calc(var(--cw-row-h) * 0.65);
+  height: calc(var(--cw-row-h) * 0.65);
+  border-radius: 50%;
+  background: var(--cw-text-bright);
+  transform: translateY(-50%);
+  transition: transform var(--cw-dur) var(--cw-ease);
+}
+
+.cockpit-switch[aria-checked='true'] .cockpit-switch__thumb {
+  transform: translate(calc(var(--cw-row-h) * 0.85 - var(--cw-hairline) * 2), -50%);
+}
+
+.cockpit-segmented {
+  display: inline-flex;
+  padding: calc(var(--cw-hairline) * 2);
+  gap: var(--cw-hairline);
+  background: var(--cw-surface);
+  border: var(--cw-hairline) solid var(--cw-border);
+  border-radius: var(--cw-radius);
+}
+
+.cockpit-segmented__option {
+  height: calc(var(--cw-row-h) * 0.85);
+  padding: 0 var(--cw-space-3);
+  border: 0;
+  border-radius: var(--cw-radius-sm);
+  background: transparent;
+  color: var(--cw-text);
+  font: inherit;
+  font-size: var(--cw-fs-sm);
+  cursor: pointer;
+}
+
+.cockpit-segmented__option:hover:not(:disabled) { background: var(--cw-surface-hover); }
+.cockpit-segmented__option.is-on { background: var(--cw-surface-active); color: var(--cw-text-bright); }
+.cockpit-segmented__option:disabled { opacity: 0.5; cursor: default; }
+
+.cockpit-sbanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--cw-space-4);
+  padding: var(--cw-space-3) var(--cw-space-4);
+  background: color-mix(in srgb, var(--cw-accent) 8%, var(--cw-surface));
+  border: var(--cw-hairline) solid color-mix(in srgb, var(--cw-accent) 55%, var(--cw-surface));
+  border-radius: calc(var(--cw-radius-lg) * 1.5);
+}
+
+.cockpit-sbanner__text { display: flex; flex-direction: column; gap: var(--cw-hairline); font-size: var(--cw-fs); color: var(--cw-text); }
+.cockpit-sbanner__text strong { color: var(--cw-text-bright); font-weight: 500; }
+.cockpit-sbanner__text span { font-size: var(--cw-fs-sm); color: var(--cw-text-dim); }
+.cockpit-sbanner__actions { flex: none; display: flex; gap: var(--cw-space-2); }
+
+.cockpit-switch:focus-visible,
+.cockpit-segmented__option:focus-visible,
+.cockpit-settings-nav__item:focus-visible,
+.cockpit-settings-nav__back:focus-visible {
+  outline: calc(var(--cw-hairline) * 2) solid var(--cw-accent);
+  outline-offset: var(--cw-hairline);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cockpit-switch,
+  .cockpit-switch__thumb,
+  .cockpit-settings-nav__item { transition: none; }
 }
 
 .cockpit-settings-results ul {

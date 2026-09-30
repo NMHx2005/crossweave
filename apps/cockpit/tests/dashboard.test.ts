@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import {
-  IDLE_SHELL_HOURS, STALE_EMPTY_DAYS, STALE_UNLANDED_DAYS,
+  IDLE_SHELL_HOURS, MIN_DELETE_BYTES, STALE_EMPTY_DAYS, STALE_UNLANDED_DAYS,
   diskByProject, formatBytes, parseDashboard, perDaySeries, projectRows, sessionRows, suggestions, summarize,
   type DashboardData, type ProjectEntry, type ProjectOverview, type SessionStat,
 } from '../src/lib/dashboard'
@@ -155,6 +155,19 @@ describe('suggestions', () => {
     expect(gc?.reclaimBytes).toBe(1000)
   })
 
+  test('uncommitted files keep a killed session out of a clean-up too (gc keeps it), and unknown counts are not promised', () => {
+    const d = data([project('/a', [
+      session({ id: 'dirty', status: 'dead', diskBytes: 3000, changed: 1 }),
+      session({ id: 'unknown', status: 'dead', diskBytes: 2000, ahead: null, changed: null }),
+      session({ id: 'clean', status: 'dead', diskBytes: 1000 }),
+    ])])
+    const gc = suggestions(d, NOW).find((s) => s.kind === 'cleanup')
+    expect(gc?.sessionIds).toEqual(['clean'])
+    expect(gc?.reclaimBytes).toBe(1000)
+    const onlyDirty = data([project('/a', [session({ id: 'dirty', status: 'dead', changed: 1 })])])
+    expect(suggestions(onlyDirty, NOW).some((s) => s.kind === 'cleanup')).toBe(false)
+  })
+
   test('a shared session (the project folder) and an ended session with no worktree are never counted', () => {
     const d = data([project('/a', [session({ id: 'sh', status: 'dead', shared: true, worktreePath: '/a', diskBytes: 9999 }), session({ id: 'nowt', status: 'dead', worktreePath: null, diskBytes: null })])])
     expect(suggestions(d, NOW)).toEqual([])
@@ -162,12 +175,21 @@ describe('suggestions', () => {
 
   test(`a stopped session with nothing to lose, untouched for ${STALE_EMPTY_DAYS} days, is a delete suggestion`, () => {
     const d = data([project('/a', [
-      session({ id: 'old', lastActiveAt: ago((STALE_EMPTY_DAYS + 1) * DAY), diskBytes: 900 }),
+      session({ id: 'old', lastActiveAt: ago((STALE_EMPTY_DAYS + 1) * DAY), diskBytes: 900 * 1024 * 1024 }),
       session({ id: 'recent', lastActiveAt: ago((STALE_EMPTY_DAYS - 1) * DAY) }),
     ])])
     const list = suggestions(d, NOW).filter((s) => s.kind === 'delete')
     expect(list.map((s) => s.sessionIds)).toEqual([['old']])
-    expect(list[0]).toMatchObject({ danger: 'confirm', reclaimBytes: 900, consequences: { ahead: 0, changed: 0 } })
+    expect(list[0]).toMatchObject({ danger: 'confirm', reclaimBytes: 900 * 1024 * 1024, consequences: { ahead: 0, changed: 0 } })
+  })
+
+  test('a stale empty session that frees next to nothing, or has not been measured yet, is not worth suggesting', () => {
+    const d = data([project('/a', [
+      session({ id: 'tiny', lastActiveAt: ago(30 * DAY), diskBytes: MIN_DELETE_BYTES - 1 }),
+      session({ id: 'unmeasured', lastActiveAt: ago(30 * DAY), diskBytes: null, diskMeasuring: true }),
+      session({ id: 'enough', lastActiveAt: ago(30 * DAY), diskBytes: MIN_DELETE_BYTES }),
+    ])])
+    expect(suggestions(d, NOW).filter((s) => s.kind === 'delete').map((s) => s.sessionIds)).toEqual([['enough']])
   })
 
   test('it will not call a session empty when it cannot prove it: unknown counts are never "nothing to lose"', () => {
@@ -208,14 +230,15 @@ describe('suggestions', () => {
   })
 
   test('biggest reclaim first, unknown sizes last, ties by name; a session is suggested once', () => {
+    const MB = 1024 * 1024
     const d = data([project('/a', [
-      session({ id: 'small', lastActiveAt: ago(30 * DAY), diskBytes: 10 }),
-      session({ id: 'big', lastActiveAt: ago(30 * DAY), diskBytes: 9000 }),
-      session({ id: 'unknown', lastActiveAt: ago(30 * DAY), diskBytes: null, diskMeasuring: true }),
-      session({ id: 'gone', status: 'dead', diskBytes: 500 }),
+      session({ id: 'small', lastActiveAt: ago(30 * DAY), diskBytes: 6 * MB }),
+      session({ id: 'big', lastActiveAt: ago(30 * DAY), diskBytes: 90 * MB }),
+      session({ id: 'gone', status: 'dead', diskBytes: 50 * MB }),
+      session({ id: 'idle-shell', status: 'running', agent: null, activity: 'idle', lastActivityAt: NOW - 30 * 3_600_000, diskBytes: 1 }),
     ])])
     const list = suggestions(d, NOW)
-    expect(list.map((s) => s.kind + ':' + s.sessionIds.join(','))).toEqual(['delete:big', 'cleanup:gone', 'delete:small', 'delete:unknown'])
+    expect(list.map((s) => s.kind + ':' + s.sessionIds.join(','))).toEqual(['delete:big', 'cleanup:gone', 'delete:small', 'stop:idle-shell'])
     const ids = list.flatMap((s) => s.sessionIds)
     expect(new Set(ids).size).toBe(ids.length)
   })

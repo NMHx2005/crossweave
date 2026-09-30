@@ -19,7 +19,25 @@ export interface SettingsSection {
   rows: SettingsRow[]
 }
 
+/** The nav's groups (a hairline apart, like Cursor's): each names its sections, in order. Every section is in exactly one. */
+export const SETTINGS_GROUPS: ReadonlyArray<{ id: string; sections: readonly string[] }> = [
+  { id: 'general', sections: ['dashboard', 'appearance', 'notifications'] },
+  { id: 'sessions', sections: ['launchers', 'presets', 'prompt', 'editor'] },
+  { id: 'terminal', sections: ['terminal', 'keyboard'] },
+  { id: 'usage', sections: ['usage'] },
+]
+
 export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
+  {
+    id: 'dashboard',
+    title: 'Dashboard',
+    rows: [
+      { id: 'dashboard-summary', label: 'Overview', description: 'Projects, sessions, the disk their worktrees hold and the memory the app and its daemons use', keywords: 'stats statistics usage resources ram memory disk space size' },
+      { id: 'dashboard-suggestions', label: 'Suggestions to free space', description: 'Sessions and worktrees that could be stopped, cleaned up or deleted to lighten the machine', keywords: 'clean cleanup delete remove gc reclaim free space slow heavy' },
+      { id: 'dashboard-projects', label: 'Projects', description: 'Each open project: its sessions, disk and daemon memory', keywords: 'daemon table' },
+      { id: 'dashboard-sessions', label: 'Sessions', description: 'Every session across projects, biggest disk first, with stop and delete', keywords: 'worktree kill stop remove' },
+    ],
+  },
   {
     id: 'appearance',
     title: 'Appearance',

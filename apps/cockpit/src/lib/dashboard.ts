@@ -57,6 +57,8 @@ export type DashboardData = { projects: ProjectEntry[]; app: AppFigures | null; 
 export const STALE_EMPTY_DAYS = 7
 export const STALE_UNLANDED_DAYS = 14
 export const IDLE_SHELL_HOURS = 24
+/** A stopped, empty session is only worth suggesting for deletion when it frees at least this much: below it, it is clutter, not weight. */
+export const MIN_DELETE_BYTES = 5 * 1024 * 1024
 const DAY_MS = 86_400_000
 const HOUR_MS = 3_600_000
 
@@ -302,8 +304,9 @@ export function suggestions(d: DashboardData, now: number): Suggestion[] {
     const base = { projectRoot: entry.root, projectName: entry.name }
 
     const ended = overview.sessions.filter((s) => isEnded(s) && hasOwnWorktree(s))
-    // `gc` reclaims a landed session always, and a killed one unless it still holds unlanded work.
-    const reclaimable = ended.filter((s) => s.status === 'landed' || !(s.ahead !== null && s.ahead > 0))
+    // `gc` reclaims a landed session always, and a killed one unless it still holds unlanded work — commits not landed or
+    // uncommitted files. Counts that are unknown are not proof of nothing to lose, so such a session is not promised either.
+    const reclaimable = ended.filter((s) => s.status === 'landed' || (s.ahead === 0 && s.changed === 0))
     const kept = ended.length - reclaimable.length
     if (reclaimable.length > 0) {
       const known = reclaimable.filter((s) => s.diskBytes !== null)
@@ -323,6 +326,8 @@ export function suggestions(d: DashboardData, now: number): Suggestion[] {
       const idleMs = now - touched
       if (s.status === 'idle' && hasOwnWorktree(s)) {
         if (s.ahead === 0 && s.changed === 0 && idleMs >= STALE_EMPTY_DAYS * DAY_MS) {
+          // Measured and big enough: an unmeasured session is not suggested yet (it would flicker in and out), a tiny one never.
+          if (s.diskBytes === null || s.diskBytes < MIN_DELETE_BYTES) continue
           out.push({
             ...base, id: `delete:${entry.root}:${s.id}`, kind: 'delete', sessionIds: [s.id], sessionNames: [s.name],
             title: `Delete ${s.name}`, reason: `Stopped for ${Math.floor(idleMs / DAY_MS)} days with nothing to land and nothing uncommitted.`,

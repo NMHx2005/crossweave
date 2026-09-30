@@ -28,6 +28,16 @@ export const PenIcon = (p: IconProps) => <Svg {...p}><path d="M10.5 3l2.5 2.5L6 
 export const MoreIcon = (p: IconProps) => <Svg {...p}><path d="M4 8h.01M8 8h.01M12 8h.01" stroke-width="2.2" /></Svg>
 export const GearIcon = (p: IconProps) => <Svg {...p}><path d="M6.54 3.22 L6.97 1.48 L9.03 1.48 L9.46 3.22 L10.35 3.59 L11.88 2.66 L13.34 4.12 L12.41 5.65 L12.78 6.54 L14.52 6.97 L14.52 9.03 L12.78 9.46 L12.41 10.35 L13.34 11.88 L11.88 13.34 L10.35 12.41 L9.46 12.78 L9.03 14.52 L6.97 14.52 L6.54 12.78 L5.65 12.41 L4.12 13.34 L2.66 11.88 L3.59 10.35 L3.22 9.46 L1.48 9.03 L1.48 6.97 L3.22 6.54 L3.59 5.65 L2.66 4.12 L4.12 2.66 L5.65 3.59Z" /><circle cx="8" cy="8" r="2.1" /></Svg>
 
+export const DashboardIcon = (p: IconProps) => <Svg {...p}><rect x="2.5" y="2.5" width="4.5" height="5.5" rx="1" /><rect x="9" y="2.5" width="4.5" height="3.5" rx="1" /><rect x="2.5" y="10" width="4.5" height="3.5" rx="1" /><rect x="9" y="8" width="4.5" height="5.5" rx="1" /></Svg>
+export const AppearanceIcon = (p: IconProps) => <Svg {...p}><circle cx="8" cy="8" r="5.5" /><path d="M8 2.5v11a5.5 5.5 0 0 0 0-11z" fill="currentColor" stroke="none" /></Svg>
+export const BellIcon = (p: IconProps) => <Svg {...p}><path d="M4 11V7.5a4 4 0 0 1 8 0V11l1 1.5H3zM6.5 14h3" /></Svg>
+export const LauncherIcon = (p: IconProps) => <Svg {...p}><rect x="2.5" y="2.5" width="11" height="11" rx="2.5" /><path d="M6.5 5.5l4 2.5-4 2.5z" /></Svg>
+export const PresetsIcon = (p: IconProps) => <Svg {...p}><path d="M8 2.5l5.5 3L8 8.5l-5.5-3zM2.5 8.5L8 11.5l5.5-3M2.5 11.5L8 14.5l5.5-3" /></Svg>
+export const CodeIcon = (p: IconProps) => <Svg {...p}><path d="M5.5 4.5L2 8l3.5 3.5M10.5 4.5L14 8l-3.5 3.5M9 3.5l-2 9" /></Svg>
+export const KeyboardIcon = (p: IconProps) => <Svg {...p}><rect x="1.5" y="4" width="13" height="8" rx="1.5" /><path d="M4 6.5h.01M6.5 6.5h.01M9 6.5h.01M11.5 6.5h.01M4.5 9.5h7" /></Svg>
+export const UsageIcon = (p: IconProps) => <Svg {...p}><path d="M3 13V8.5M6.5 13V4M10 13V7M13.5 13V2.5" /></Svg>
+export const BackIcon = (p: IconProps) => <Svg {...p}><path d="M13 8H3M7 4L3 8l4 4" /></Svg>
+
 export const ChevronIcon = (p: IconProps) => <Svg {...p}><path d="M6 4l4 4-4 4" /></Svg>
 export const CloseIcon = (p: IconProps) => <Svg {...p}><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" /></Svg>
 export const SearchIcon = (p: IconProps) => <Svg {...p}><circle cx="7" cy="7" r="4" /><path d="M10 10l3.5 3.5" /></Svg>

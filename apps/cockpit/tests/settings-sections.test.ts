@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { SETTINGS_SECTIONS, findSection, foldText, searchSettings } from '../src/lib/settings-sections'
+import { SETTINGS_GROUPS, SETTINGS_SECTIONS, findSection, foldText, searchSettings } from '../src/lib/settings-sections'
 
 describe('registry', () => {
   test('every row id is unique across the whole page', () => {
@@ -63,5 +63,19 @@ describe('searchSettings', () => {
 
   test('a query that matches nothing returns an empty list', () => {
     expect(searchSettings('zzzzqqqq')).toEqual([])
+  })
+})
+
+describe('nav groups', () => {
+  test('every section is in exactly one group, and a group names only real sections', () => {
+    const grouped = SETTINGS_GROUPS.flatMap((g) => g.sections)
+    expect(new Set(grouped).size).toBe(grouped.length)
+    expect([...grouped].sort()).toEqual(SETTINGS_SECTIONS.map((s) => s.id).sort())
+  })
+
+  test('the dashboard is searchable by what a person would type', () => {
+    for (const q of ['free space', 'disk', 'delete']) {
+      expect(searchSettings(q).some((h) => h.section.id === 'dashboard')).toBe(true)
+    }
   })
 })

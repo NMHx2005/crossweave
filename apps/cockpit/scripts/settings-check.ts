@@ -68,10 +68,10 @@ await waitFor(`document.querySelector('.cockpit-settings-page') !== null`, 'the 
 ok('opens from the gear')
 
 // 2. Every section renders something.
-const sections: string[] = await evaluate(`[...document.querySelectorAll('.cockpit-settings-nav__item')].map((b) => b.textContent)`)
+const sections: string[] = await evaluate(`[...document.querySelectorAll('.cockpit-settings-nav__item')].map((b) => b.textContent.trim())`)
 if (sections.length < 7) fail(`only ${sections.length} sections in the navigation`)
 for (const title of sections) {
-  await evaluate(`[...document.querySelectorAll('.cockpit-settings-nav__item')].find((b) => b.textContent === ${JSON.stringify(title)}).click()`)
+  await evaluate(`[...document.querySelectorAll('.cockpit-settings-nav__item')].find((b) => b.textContent.trim() === ${JSON.stringify(title)}).click()`)
   await sleep(250)
   const heading = await evaluate(`document.querySelector('.cockpit-settings-content h2')?.textContent`)
   const rows = await evaluate(`document.querySelectorAll('.cockpit-settings-content [data-setting]').length`)
@@ -83,16 +83,16 @@ ok(`all ${sections.length} sections render (${sections.join(', ')})`)
 
 // 3. Search, then jump to the row.
 await evaluate(`(() => { const i = document.querySelector('.cockpit-settings-nav__search'); i.value = 'cursor'; i.dispatchEvent(new Event('input', { bubbles: true })) })()`)
-await waitFor(`document.querySelector('.cockpit-settings-results') !== null`, 'search results')
+await waitFor(`document.querySelector('.cockpit-sresult') !== null`, 'search results')
 await shot('search')
-const hit = await evaluate(`[...document.querySelectorAll('.cockpit-settings-results__row')].map((b) => b.textContent)`)
+const hit = await evaluate(`[...document.querySelectorAll('.cockpit-sresult')].map((b) => b.textContent)`)
 if (!hit.some((t: string) => t.startsWith('Cursor'))) fail(`search for "cursor" found ${JSON.stringify(hit)}`)
-await evaluate(`[...document.querySelectorAll('.cockpit-settings-results__row')].find((b) => b.textContent.startsWith('Cursor')).click()`)
+await evaluate(`[...document.querySelectorAll('.cockpit-sresult')].find((b) => b.textContent.startsWith('Cursor')).click()`)
 await waitFor(`document.querySelector('[data-setting="terminal-cursor"].is-target') !== null`, 'the searched row to be highlighted', 3000)
 ok('a search hit opens its section and marks the row')
 
 // 4. A change saves itself.
-await evaluate(`[...document.querySelectorAll('.cockpit-settings-nav__item')].find((b) => b.textContent === 'Appearance').click()`)
+await evaluate(`[...document.querySelectorAll('.cockpit-settings-nav__item')].find((b) => b.textContent.trim() === 'Appearance').click()`)
 await sleep(200)
 const clickSize = (label: string): Promise<unknown> =>
   evaluate(`[...document.querySelectorAll('[data-setting="appearance-text-size"] button')].find((b) => b.textContent === ${JSON.stringify(label)}).click()`)

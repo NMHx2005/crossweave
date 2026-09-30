@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type { ComponentChildren } from 'preact'
 import { formatEnvLines, launcherIdFor, parseEnvLines } from '../lib/launchers'
-import { AgentMark } from './icons'
+import { AgentMark, AppearanceIcon, BackIcon, BellIcon, CodeIcon, DashboardIcon, KeyboardIcon, LauncherIcon, PenIcon, PresetsIcon, TerminalIcon, UsageIcon } from './icons'
+import { Banner, Segmented, SettingRow, SettingsGroup, Switch } from './SettingsKit'
+import { SettingsDashboard } from './SettingsDashboard'
 import type { InterfaceAppearance, ModelPrice, PersistenceSettings, TerminalAppearance, UsageSettings, PromptSettings, SessionPreset } from '../../../../src/core/settings.js'
 import { FontPicker, type InstalledFont } from './FontPicker'
 import { ShortcutList } from './ShortcutsPanel'
@@ -10,7 +12,7 @@ import { cockpitApi, type TerminalImport } from '../host/cockpit-api'
 import { xtermLook } from '../lib/terminal-look'
 import { createCommitter } from '../lib/settings-commit'
 import { DEFAULT_REFINE_INSTRUCTION } from '../lib/prompt-defaults'
-import { SETTINGS_SECTIONS, findSection, searchSettings } from '../lib/settings-sections'
+import { SETTINGS_GROUPS, SETTINGS_SECTIONS, findSection, searchSettings } from '../lib/settings-sections'
 
 export type EditorSetting = { kind: 'vscode' | 'cursor' | 'zed' | 'custom' | 'cockpit'; command?: string }
 export type LauncherSetting = {
@@ -66,6 +68,21 @@ const TEXT_SIZES: Array<{ id: NonNullable<InterfaceAppearance['textSize']>; labe
   { id: 'default', label: 'Default' },
   { id: 'large', label: 'Large' },
 ]
+
+const CURSORS: Array<{ id: NonNullable<TerminalAppearance['cursorStyle']>; label: string }> = [
+  { id: 'block', label: 'Block' },
+  { id: 'bar', label: 'Bar' },
+  { id: 'underline', label: 'Underline' },
+]
+
+const SECTION_ICONS: Record<string, (p: { class?: string; title?: string }) => preact.JSX.Element> = {
+  dashboard: DashboardIcon, appearance: AppearanceIcon, notifications: BellIcon, launchers: LauncherIcon, presets: PresetsIcon,
+  prompt: PenIcon, editor: CodeIcon, terminal: TerminalIcon, keyboard: KeyboardIcon, usage: UsageIcon,
+}
+
+/** Which news banners the person dismissed: kept in this browser's storage, and the page works without it. */
+const BANNER_KEY = 'cw.settings.banner.dashboard.v1'
+const readBannerGone = (): boolean => { try { return window.localStorage.getItem(BANNER_KEY) === '1' } catch { return false } }
 
 const TERMINAL_APPS: Array<{ id: 'ghostty' | 'iterm2'; label: string }> = [
   { id: 'ghostty', label: 'Ghostty' },
@@ -231,6 +248,11 @@ export function SettingsPage({ initialSection, initialRow, initial, availability
     onClose()
   }
 
+  const [bannerGone, setBannerGone] = useState(readBannerGone)
+  const dismissBanner = (): void => {
+    setBannerGone(true)
+    try { window.localStorage.setItem(BANNER_KEY, '1') } catch { /* storage can be full or disabled: the banner just comes back next time */ }
+  }
   const [section, setSection] = useState(() => findSection(initialSection ?? '')?.id ?? SETTINGS_SECTIONS[0]!.id)
   const [query, setQuery] = useState('')
   const [target, setTarget] = useState<string | null>(initialRow ?? null)
@@ -274,363 +296,318 @@ export function SettingsPage({ initialSection, initialRow, initial, availability
   }
 
   const bodies: Record<string, ComponentChildren> = {
+    dashboard: <SettingsDashboard />,
     appearance: (
       <>
-        <p class="cockpit-muted">The window's fonts and text size — shown as you choose, saved as you choose.</p>
-        <div class="cockpit-settings__fonts">
-          <div class="cockpit-picker__field" data-setting="appearance-ui-font">
-            <span class="cockpit-muted">Interface font</span>
+        <SettingsGroup title="Fonts" note="Shown as you choose, saved as you choose.">
+          <SettingRow id="appearance-ui-font">
             <FontPicker label="Interface font" value={draft.appearance?.uiFont} fonts={fonts} suggestions={UI_FONTS}
               defaultLabel="System (SF Pro)" onChange={(uiFont) => setAppearance({ uiFont })} />
-          </div>
-          <div class="cockpit-picker__field" data-setting="appearance-code-font">
-            <span class="cockpit-muted" title="Commands, paths, branches and the file editor">Code font</span>
+          </SettingRow>
+          <SettingRow id="appearance-code-font">
             <FontPicker label="Code font" value={draft.appearance?.codeFont} fonts={fonts} suggestions={CODE_FONTS} mono
               defaultLabel="Menlo" onChange={(codeFont) => setAppearance({ codeFont })} />
-          </div>
-        </div>
-        <div class="cockpit-settings__segmented" role="radiogroup" aria-label="Theme" data-setting="appearance-theme">
-          <span class="cockpit-muted">Theme</span>
-          {THEMES.map((t) => {
-            const disabled = t.id === 'terminal' && !hasTerminalColors && draft.terminal?.colors === undefined
-            const on = (draft.appearance?.theme ?? 'system') === t.id
-            return (
-              <button key={t.id} type="button" role="radio" aria-checked={on} disabled={disabled}
-                title={disabled ? 'Import colors under Terminal first (from Ghostty or iTerm2)' : t.title}
-                class={`cockpit-btn cockpit-btn--sm${on ? ' cockpit-btn--primary' : ''}`}
-                onClick={() => setAppearance({ theme: t.id === 'system' ? undefined : t.id })}>
-                {t.label}
-              </button>
-            )
-          })}
-        </div>
-        <div class="cockpit-settings__segmented" role="radiogroup" aria-label="Text size" data-setting="appearance-text-size">
-          <span class="cockpit-muted">Text size</span>
-          {TEXT_SIZES.map((size) => (
-            <button key={size.id} type="button" role="radio" aria-checked={(draft.appearance?.textSize ?? 'default') === size.id}
-              class={`cockpit-btn cockpit-btn--sm${(draft.appearance?.textSize ?? 'default') === size.id ? ' cockpit-btn--primary' : ''}`}
-              onClick={() => setAppearance({ textSize: size.id === 'default' ? undefined : size.id })}>
-              {size.label}
-            </button>
-          ))}
-        </div>
+          </SettingRow>
+        </SettingsGroup>
+        <SettingsGroup title="Window">
+          <SettingRow id="appearance-theme">
+            <Segmented label="Theme" value={draft.appearance?.theme ?? 'system'} options={THEMES}
+              disabledIds={!hasTerminalColors && draft.terminal?.colors === undefined ? ['terminal'] : []}
+              onChange={(id) => setAppearance({ theme: id === 'system' ? undefined : id })} />
+          </SettingRow>
+          <SettingRow id="appearance-text-size">
+            <Segmented label="Text size" value={draft.appearance?.textSize ?? 'default'} options={TEXT_SIZES}
+              onChange={(id) => setAppearance({ textSize: id === 'default' ? undefined : id })} />
+          </SettingRow>
+        </SettingsGroup>
       </>
     ),
     terminal: (
       <>
-        <p class="cockpit-muted">
-          How the panes look. Import from the terminal you use — font, size, colors, cursor and the Option key — then adjust.
-        </p>
-        <div class="cockpit-term__actions" data-setting="terminal-import">
-          {TERMINAL_APPS.map((app) => (
-            <button key={app.id} type="button" class="cockpit-btn cockpit-btn--sm"
-              disabled={!importSources[app.id] || importing !== null}
-              title={importSources[app.id] ? `Read ${app.label}'s settings (it is applied as you go)` : `No ${app.label} settings found on this Mac`}
-              onClick={() => { void runImport(app.id, app.label) }}>
-              {importing === app.id ? 'Importing…' : `Import from ${app.label}`}
+        <SettingsGroup title="Import" note={importNote ? <span class={importNote.error ? 'cockpit-error' : ''} role={importNote.error ? 'alert' : 'status'}>{importNote.text}</span> : undefined}>
+          <SettingRow id="terminal-import">
+            {TERMINAL_APPS.map((app) => (
+              <button key={app.id} type="button" class="cockpit-btn cockpit-btn--sm"
+                disabled={!importSources[app.id] || importing !== null}
+                title={importSources[app.id] ? `Read ${app.label}'s settings (it is applied as you go)` : `No ${app.label} settings found on this Mac`}
+                onClick={() => { void runImport(app.id, app.label) }}>
+                {importing === app.id ? 'Importing…' : app.label}
+              </button>
+            ))}
+            <button type="button" class="cockpit-btn cockpit-btn--sm cockpit-btn--ghost" disabled={draft.terminal === undefined}
+              onClick={() => { setDraft({ ...draft, terminal: undefined }); setImportNote(null) }}>
+              Use default
             </button>
-          ))}
-          <span class="cockpit-sidebar__spring" />
-          <button type="button" class="cockpit-btn cockpit-btn--sm cockpit-btn--ghost" disabled={draft.terminal === undefined}
-            onClick={() => { setDraft({ ...draft, terminal: undefined }); setImportNote(null) }}>
-            Use cockpit default
-          </button>
-        </div>
-        {importNote ? <p class={importNote.error ? 'cockpit-error' : 'cockpit-muted'} role={importNote.error ? 'alert' : 'status'}>{importNote.text}</p> : null}
-        {/* The preview paints with the imported colors themselves: they are data, not the chrome's tokens. */}
-        <div class="cockpit-term__preview" aria-label="Terminal preview"
-          style={{ background: look.theme.background, color: look.theme.foreground, fontFamily: look.fontFamily, fontSize: `${look.fontSize}px` }}>
-          <div>
-            <span style={{ color: look.theme.blue }}>~/project</span> <span style={{ color: look.theme.magenta }}>main</span>{' '}
-            <span style={{ color: look.theme.green }}>❯</span> claude --continue
-            <span class={`cockpit-term__cursor is-${look.cursorStyle}`} style={{ background: look.cursorStyle === 'block' ? look.theme.cursor : undefined, borderColor: look.theme.cursor }} />
+          </SettingRow>
+        </SettingsGroup>
+        <SettingsGroup title="Preview">
+          {/* The preview paints with the imported colors themselves: they are data, not the chrome's tokens. */}
+          <div class="cockpit-scard__block">
+            <div class="cockpit-term__preview" aria-label="Terminal preview"
+              style={{ background: look.theme.background, color: look.theme.foreground, fontFamily: look.fontFamily, fontSize: `${look.fontSize}px` }}>
+              <div>
+                <span style={{ color: look.theme.blue }}>~/project</span> <span style={{ color: look.theme.magenta }}>main</span>{' '}
+                <span style={{ color: look.theme.green }}>❯</span> claude --continue
+                <span class={`cockpit-term__cursor is-${look.cursorStyle}`} style={{ background: look.cursorStyle === 'block' ? look.theme.cursor : undefined, borderColor: look.theme.cursor }} />
+              </div>
+              <div class="cockpit-term__ansi">
+                {ansi.map((color, i) => <span key={i} style={{ background: color }} title={`ANSI ${i}`} />)}
+              </div>
+            </div>
           </div>
-          <div class="cockpit-term__ansi">
-            {ansi.map((color, i) => <span key={i} style={{ background: color }} title={`ANSI ${i}`} />)}
-          </div>
-        </div>
-        <div class="cockpit-term__fields">
-          <div class="cockpit-picker__field" data-setting="terminal-font">
-            <span class="cockpit-muted">Font</span>
+        </SettingsGroup>
+        <SettingsGroup title="Text">
+          <SettingRow id="terminal-font">
             <FontPicker label="Terminal font" value={draft.terminal?.fontFamily} fonts={fonts} suggestions={CODE_FONTS} mono
               defaultLabel="Menlo" onChange={(fontFamily) => setTerminal({ fontFamily })} />
-          </div>
-          <label class="cockpit-picker__field" data-setting="terminal-size">
-            <span class="cockpit-muted">Size</span>
-            <input type="number" min={8} max={32} value={draft.terminal?.fontSize ?? ''} placeholder="13"
+          </SettingRow>
+          <SettingRow id="terminal-size">
+            <input type="number" min={8} max={32} value={draft.terminal?.fontSize ?? ''} placeholder="13" aria-label="Terminal font size"
               onInput={(e) => {
                 const n = Number((e.target as HTMLInputElement).value)
                 setTerminal({ fontSize: Number.isInteger(n) && n > 0 ? n : undefined })
               }} />
-          </label>
-          <label class="cockpit-picker__field" data-setting="terminal-cursor">
-            <span class="cockpit-muted">Cursor</span>
-            <select value={draft.terminal?.cursorStyle ?? 'block'}
-              onChange={(e) => setTerminal({ cursorStyle: (e.target as HTMLSelectElement).value as TerminalAppearance['cursorStyle'] })}>
-              <option value="block">Block</option>
-              <option value="bar">Bar</option>
-              <option value="underline">Underline</option>
-            </select>
-          </label>
-        </div>
-        <label class="cockpit-settings__toggle" data-setting="terminal-blink">
-          <input type="checkbox" checked={draft.terminal?.cursorBlink ?? true} onChange={(e) => setTerminal({ cursorBlink: (e.target as HTMLInputElement).checked })} />
-          <span>Blinking cursor</span>
-        </label>
-        <label class="cockpit-settings__toggle" data-setting="terminal-persist">
-          <input type="checkbox" checked={draft.persistence?.terminals === true}
-            onChange={(e) => setDraft((d) => ({ ...d, persistence: (e.target as HTMLInputElement).checked ? { ...d.persistence, terminals: true } : undefined }))} />
-          <span>Keep terminals across a daemon restart (off by default). Their recent output is saved in this project's private database and shown again above a new shell; nothing else survives.</span>
-        </label>
-        <label class="cockpit-settings__toggle" data-setting="terminal-option-meta">
-          <input type="checkbox" checked={draft.terminal?.optionAsMeta ?? false} onChange={(e) => setTerminal({ optionAsMeta: (e.target as HTMLInputElement).checked })} />
-          <span>Option key sends Meta (Esc+), for Alt shortcuts in the shell and in agents</span>
-        </label>
+          </SettingRow>
+          <SettingRow id="terminal-cursor">
+            <Segmented label="Cursor" value={draft.terminal?.cursorStyle ?? 'block'} options={CURSORS}
+              onChange={(cursorStyle) => setTerminal({ cursorStyle })} />
+          </SettingRow>
+          <SettingRow id="terminal-blink">
+            <Switch label="Blinking cursor" checked={draft.terminal?.cursorBlink ?? true} onChange={(cursorBlink) => setTerminal({ cursorBlink })} />
+          </SettingRow>
+        </SettingsGroup>
+        <SettingsGroup title="Behavior">
+          <SettingRow id="terminal-persist">
+            <Switch label="Keep terminals across a daemon restart" checked={draft.persistence?.terminals === true}
+              onChange={(on) => setDraft((d) => ({ ...d, persistence: on ? { ...d.persistence, terminals: true } : undefined }))} />
+          </SettingRow>
+          <SettingRow id="terminal-option-meta">
+            <Switch label="Option key sends Meta" checked={draft.terminal?.optionAsMeta ?? false} onChange={(optionAsMeta) => setTerminal({ optionAsMeta })} />
+          </SettingRow>
+        </SettingsGroup>
       </>
     ),
     keyboard: (
-      <>
-        <p class="cockpit-muted">Every command's shortcut. Change records the next keys you press; the menu updates as it is saved.</p>
-        <div data-setting="keyboard-shortcuts">
-        <ShortcutList keybindings={draft.keybindings}
-          onChange={(next) => setDraft((d) => ({ ...d, keybindings: Object.keys(next).length === 0 ? undefined : next }))} />
-        </div>
-      </>
+      <SettingsGroup note="Change records the next keys you press; the menu updates as it is saved.">
+        <SettingRow id="keyboard-shortcuts" stacked>
+          <ShortcutList keybindings={draft.keybindings}
+            onChange={(next) => setDraft((d) => ({ ...d, keybindings: Object.keys(next).length === 0 ? undefined : next }))} />
+        </SettingRow>
+      </SettingsGroup>
     ),
     launchers: (
-      <>
-        <p class="cockpit-muted">
-          What a new session can start with. The command is typed into the session's shell, in its
-          worktree; when it exits you are back at the prompt. Your aliases and wrappers work (e.g. <code>cx</code>).
-        </p>
-        <div data-setting="launchers-list">
-        <ul class="cockpit-launchers">
-          {draft.launchers.map((l) => {
-            const available = availability[l.id]
-            const expanded = open === l.id
-            return (
-              <li key={l.id} class={`cockpit-launcher${expanded ? ' is-open' : ''}`}>
-                <div class="cockpit-launcher__row">
-                  <input type="checkbox" checked={l.enabled} aria-label={`${l.label} on`}
-                    onChange={(e) => update(l.id, { enabled: (e.target as HTMLInputElement).checked })} />
+      <SettingsGroup
+        title="Launchers"
+        dataSetting="launchers-list"
+        note={<>What a new session can start with. The command is typed into the session's shell, in its worktree; when it exits you are back at the prompt. Your aliases and wrappers work (e.g. <code>cx</code>).</>}
+      >
+        {draft.launchers.map((l) => {
+          const available = availability[l.id]
+          const expanded = open === l.id
+          return (
+            <div key={l.id} class={`cockpit-slauncher${expanded ? ' is-open' : ''}`}>
+              <div class="cockpit-srow">
+                <div class="cockpit-slauncher__id">
+                  <Switch label={`${l.label} on`} checked={l.enabled} onChange={(enabled) => update(l.id, { enabled })} />
                   <AgentMark agent={l.id} />
-                  <span class="cockpit-launcher__label">{l.label}</span>
-                  <code class="cockpit-launcher__command">{l.command || '—'}</code>
+                  <div class="cockpit-srow__text">
+                    <div class="cockpit-srow__label">{l.label}</div>
+                    <div class="cockpit-srow__desc"><code>{l.command || '—'}</code></div>
+                  </div>
+                </div>
+                <div class="cockpit-srow__control">
                   <span class={`cockpit-launcher__state${available ? ' is-ok' : ''}`}>
                     {available === undefined ? 'unsaved' : available ? 'installed' : 'not installed'}
                   </span>
-                  <button type="button" class="cockpit-btn cockpit-btn--sm cockpit-launcher__edit" aria-expanded={expanded}
+                  <button type="button" class="cockpit-btn cockpit-btn--sm" aria-expanded={expanded}
                     onClick={() => setOpen(expanded ? null : l.id)}>{expanded ? 'Done' : 'Edit'}</button>
                 </div>
-                {expanded ? (
-                  <div class="cockpit-launcher__form">
-                    <label class="cockpit-picker__field">
-                      <span class="cockpit-muted">Name</span>
-                      <input value={l.label} onInput={(e) => update(l.id, { label: (e.target as HTMLInputElement).value })} />
-                    </label>
-                    <label class="cockpit-picker__field">
-                      <span class="cockpit-muted">Command — one line, flags included</span>
-                      <input class="cockpit-settings__command" value={l.command} spellcheck={false}
-                        placeholder="claude --model opus --dangerously-skip-permissions"
-                        onInput={(e) => update(l.id, { command: (e.target as HTMLInputElement).value })} />
-                    </label>
-                    <label class="cockpit-picker__field">
-                      <span class="cockpit-muted">Environment — NAME=value per line</span>
-                      <textarea class="cockpit-settings__env" rows={3} spellcheck={false}
-                        value={envText[l.id] ?? formatEnvLines(l.env)}
-                        placeholder={'ANTHROPIC_MODEL=claude-opus\nHTTPS_PROXY=http://127.0.0.1:8080'}
-                        onInput={(e) => {
-                          const text = (e.target as HTMLTextAreaElement).value
-                          setEnvText({ ...envText, [l.id]: text })
-                          const parsed = parseEnvLines(text)
-                          if (parsed.ok) update(l.id, { env: parsed.env })
-                        }} />
-                    </label>
-                    <div class="cockpit-launcher__actions">
-                      {l.builtin ? (
-                        <button type="button" class="cockpit-btn cockpit-btn--sm" onClick={() => {
-                          const d = defaults[l.id]
-                          if (d) update(l.id, { label: d.label, command: d.command, env: {} })
-                          const rest = { ...envText }
-                          delete rest[l.id]
-                          setEnvText(rest)
-                        }}>Reset to default</button>
-                      ) : (
-                        <button type="button" class="cockpit-btn cockpit-btn--sm cockpit-btn--danger" onClick={() => {
-                          setDraft({ ...draft, launchers: draft.launchers.filter((x) => x.id !== l.id) })
-                          setOpen(null)
-                        }}>Delete</button>
-                      )}
-                    </div>
+              </div>
+              {expanded ? (
+                <div class="cockpit-scard__block cockpit-launcher__form">
+                  <label class="cockpit-picker__field">
+                    <span class="cockpit-muted">Name</span>
+                    <input value={l.label} onInput={(e) => update(l.id, { label: (e.target as HTMLInputElement).value })} />
+                  </label>
+                  <label class="cockpit-picker__field">
+                    <span class="cockpit-muted">Command — one line, flags included</span>
+                    <input class="cockpit-settings__command" value={l.command} spellcheck={false}
+                      placeholder="claude --model opus --dangerously-skip-permissions"
+                      onInput={(e) => update(l.id, { command: (e.target as HTMLInputElement).value })} />
+                  </label>
+                  <label class="cockpit-picker__field">
+                    <span class="cockpit-muted">Environment — NAME=value per line</span>
+                    <textarea class="cockpit-settings__env" rows={3} spellcheck={false}
+                      value={envText[l.id] ?? formatEnvLines(l.env)}
+                      placeholder={'ANTHROPIC_MODEL=claude-opus\nHTTPS_PROXY=http://127.0.0.1:8080'}
+                      onInput={(e) => {
+                        const text = (e.target as HTMLTextAreaElement).value
+                        setEnvText({ ...envText, [l.id]: text })
+                        const parsed = parseEnvLines(text)
+                        if (parsed.ok) update(l.id, { env: parsed.env })
+                      }} />
+                  </label>
+                  <div class="cockpit-launcher__actions">
+                    {l.builtin ? (
+                      <button type="button" class="cockpit-btn cockpit-btn--sm" onClick={() => {
+                        const d = defaults[l.id]
+                        if (d) update(l.id, { label: d.label, command: d.command, env: {} })
+                        const rest = { ...envText }
+                        delete rest[l.id]
+                        setEnvText(rest)
+                      }}>Reset to default</button>
+                    ) : (
+                      <button type="button" class="cockpit-btn cockpit-btn--sm cockpit-btn--danger" onClick={() => {
+                        setDraft({ ...draft, launchers: draft.launchers.filter((x) => x.id !== l.id) })
+                        setOpen(null)
+                      }}>Delete</button>
+                    )}
                   </div>
-                ) : null}
-              </li>
-            )
-          })}
-        </ul>
-        <button type="button" class="cockpit-btn cockpit-btn--ghost cockpit-launchers__add" onClick={addLauncher}>+ Add launcher</button>
+                </div>
+              ) : null}
+            </div>
+          )
+        })}
+        <div class="cockpit-scard__block">
+          <button type="button" class="cockpit-btn cockpit-btn--sm" onClick={addLauncher}>+ Add launcher</button>
         </div>
-      </>
+      </SettingsGroup>
     ),
     editor: (
-      <>
-        <div class="cockpit-settings__editors" role="radiogroup" aria-label="Editor" data-setting="editor-open-in">
-          {EDITORS.map((e) => (
-            <label key={e.kind} class="cockpit-settings__toggle">
-              <input
-                type="radio"
-                name="editor"
-                checked={draft.editor.kind === e.kind}
-                onChange={() => setDraft({ ...draft, editor: { kind: e.kind, ...(e.kind === 'custom' ? { command: draft.editor.command ?? '' } : {}) } })}
-              />
-              <span>{e.label}</span>
-            </label>
-          ))}
-        </div>
+      <SettingsGroup title="Cmd+click opens files in">
+        <SettingRow id="editor-open-in">
+          <select aria-label="Editor" value={draft.editor.kind}
+            onChange={(e) => {
+              const kind = (e.target as HTMLSelectElement).value as EditorSetting['kind']
+              setDraft({ ...draft, editor: { kind, ...(kind === 'custom' ? { command: draft.editor.command ?? '' } : {}) } })
+            }}>
+            {EDITORS.map((e) => <option key={e.kind} value={e.kind}>{e.label}</option>)}
+          </select>
+        </SettingRow>
         {draft.editor.kind === 'custom' ? (
-          <label class="cockpit-picker__field">
-            <span class="cockpit-muted">Command — {'{file}'}, {'{line}'} and {'{col}'} are filled in</span>
-            <input
-              value={draft.editor.command ?? ''}
-              placeholder='subl "{file}:{line}:{col}"'
-              spellcheck={false}
-              onInput={(e) => setDraft({ ...draft, editor: { kind: 'custom', command: (e.target as HTMLInputElement).value } })}
-            />
-          </label>
+          <SettingRow id="editor-command" label="Command" description={<>{'{file}'}, {'{line}'} and {'{col}'} are filled in</>} stacked>
+            <input value={draft.editor.command ?? ''} placeholder='subl "{file}:{line}:{col}"' spellcheck={false} aria-label="Editor command"
+              onInput={(e) => setDraft({ ...draft, editor: { kind: 'custom', command: (e.target as HTMLInputElement).value } })} />
+          </SettingRow>
         ) : null}
-      </>
+      </SettingsGroup>
     ),
     notifications: (
-      <>
-        <p class="cockpit-muted">When a session waits for you, or its agent finishes, while you look elsewhere (another app, project or tab). These apply right away.</p>
-        <label class="cockpit-settings__toggle" data-setting="notify-finish">
-          <input type="checkbox" checked={notify.finish} onChange={(e) => onNotify({ ...notify, finish: (e.target as HTMLInputElement).checked })} />
-          <span>Also when an agent finishes (it stopped working without asking)</span>
-        </label>
-        <label class="cockpit-settings__toggle" data-setting="notify-sound">
-          <input type="checkbox" checked={notify.sound} onChange={(e) => onNotify({ ...notify, sound: (e.target as HTMLInputElement).checked })} />
-          <span>Play a sound</span>
-        </label>
-        <label class="cockpit-settings__toggle" data-setting="notify-dock">
-          <input type="checkbox" checked={notify.dockBadge} onChange={(e) => onNotify({ ...notify, dockBadge: (e.target as HTMLInputElement).checked })} />
-          <span>Count them on the Dock icon</span>
-        </label>
-      </>
+      <SettingsGroup title="When a session needs you" note="When a session waits for you, or its agent finishes, while you look elsewhere (another app, project or tab). These apply right away.">
+        <SettingRow id="notify-finish">
+          <Switch label="Also when an agent finishes" checked={notify.finish} onChange={(finish) => onNotify({ ...notify, finish })} />
+        </SettingRow>
+        <SettingRow id="notify-sound">
+          <Switch label="Play a sound" checked={notify.sound} onChange={(sound) => onNotify({ ...notify, sound })} />
+        </SettingRow>
+        <SettingRow id="notify-dock">
+          <Switch label="Count them on the Dock icon" checked={notify.dockBadge} onChange={(dockBadge) => onNotify({ ...notify, dockBadge })} />
+        </SettingRow>
+      </SettingsGroup>
     ),
     presets: (
       <>
-        <p class="cockpit-muted" data-setting="preset-list">
-          A preset starts a session in one click from the new-session picker (⌘T): the launcher, an own worktree or not, shells
-          that each run a command, and a Browser pane on the session's leased port. The commands are typed and run for you,
-          so they are yours alone: they live in this settings file, never in a repository.
-        </p>
+        <SettingsGroup
+          dataSetting="preset-list"
+          note="A preset starts a session in one click from the new-session picker (⌘T): the launcher, an own worktree or not, shells that each run a command, and a Browser pane on the session's leased port. The commands are typed and run for you, so they are yours alone: they live in this settings file, never in a repository."
+        >
+          <div class="cockpit-scard__block">
+            <button type="button" class="cockpit-btn cockpit-btn--sm" disabled={presets.length >= 12}
+              onClick={() => setPreset(presets.length, { name: `preset ${presets.length + 1}` })}>Add a preset</button>
+          </div>
+        </SettingsGroup>
         {presets.map((preset, i) => (
-          <fieldset key={i} class="cockpit-settings__preset">
-            <label class="cockpit-picker__field">
-              <span class="cockpit-muted">Name</span>
-              <input value={preset.name} spellcheck={false} maxLength={40} onInput={(e) => patchPreset(i, { name: (e.target as HTMLInputElement).value })} />
-            </label>
-            <label class="cockpit-picker__field">
-              <span class="cockpit-muted">Start with</span>
-              <select value={preset.launcher ?? 'terminal'}
+          <SettingsGroup key={i} title={preset.name || 'Preset'}>
+            <SettingRow id={`preset-${i}-name`} label="Name">
+              <input value={preset.name} spellcheck={false} maxLength={40} aria-label="Preset name" onInput={(e) => patchPreset(i, { name: (e.target as HTMLInputElement).value })} />
+            </SettingRow>
+            <SettingRow id={`preset-${i}-launcher`} label="Start with">
+              <select aria-label="Start with" value={preset.launcher ?? 'terminal'}
                 onChange={(e) => { const v = (e.target as HTMLSelectElement).value; patchPreset(i, { launcher: v === 'terminal' ? undefined : v }) }}>
                 <option value="terminal">Terminal</option>
                 {draft.launchers.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
               </select>
-            </label>
-            <label class="cockpit-settings__toggle">
-              <input type="checkbox" checked={preset.worktree !== false} onChange={(e) => patchPreset(i, { worktree: (e.target as HTMLInputElement).checked ? undefined : false })} />
-              <span>Own worktree (off: the project folder itself)</span>
-            </label>
-            <label class="cockpit-picker__field">
-              <span class="cockpit-muted">Terminals (one command per line, up to 4)</span>
-              <textarea rows={3} spellcheck={false} value={(preset.terminals ?? []).join('\n')} placeholder="bun dev"
+            </SettingRow>
+            <SettingRow id={`preset-${i}-worktree`} label="Own worktree" description="Off: the project folder itself">
+              <Switch label="Own worktree" checked={preset.worktree !== false} onChange={(on) => patchPreset(i, { worktree: on ? undefined : false })} />
+            </SettingRow>
+            <SettingRow id={`preset-${i}-terminals`} label="Terminals" description="One command per line, up to 4; each runs in its own shell beside the session" stacked>
+              <textarea rows={3} spellcheck={false} aria-label="Terminal commands" value={(preset.terminals ?? []).join('\n')} placeholder="bun dev"
                 onInput={(e) => { const lines = (e.target as HTMLTextAreaElement).value.split('\n').filter((l) => l.trim() !== ''); patchPreset(i, { terminals: lines.length === 0 ? undefined : lines }) }} />
-            </label>
-            <label class="cockpit-settings__toggle">
-              <input type="checkbox" checked={preset.browser !== undefined} onChange={(e) => patchPreset(i, { browser: (e.target as HTMLInputElement).checked ? {} : undefined })} />
-              <span>Open a Browser pane on the session's port</span>
-            </label>
+            </SettingRow>
+            <SettingRow id={`preset-${i}-browser`} label="Browser pane" description="Open a Browser pane on the session's port">
+              <Switch label="Browser pane" checked={preset.browser !== undefined} onChange={(on) => patchPreset(i, { browser: on ? {} : undefined })} />
+            </SettingRow>
             {preset.browser !== undefined ? (
-              <label class="cockpit-picker__field">
-                <span class="cockpit-muted">Browser path</span>
-                <input class="cockpit-settings__command" value={preset.browser.path ?? ''} spellcheck={false} placeholder="/"
+              <SettingRow id={`preset-${i}-path`} label="Browser path">
+                <input class="cockpit-settings__command" value={preset.browser.path ?? ''} spellcheck={false} placeholder="/" aria-label="Browser path"
                   onInput={(e) => { const v = (e.target as HTMLInputElement).value; patchPreset(i, { browser: v === '' ? {} : { path: v } }) }} />
-              </label>
+              </SettingRow>
             ) : null}
-            <button type="button" class="cockpit-btn cockpit-btn--sm" onClick={() => setPreset(i, null)}>Remove {preset.name || 'preset'}</button>
-          </fieldset>
+            <div class="cockpit-scard__block">
+              <button type="button" class="cockpit-btn cockpit-btn--sm cockpit-btn--danger" onClick={() => setPreset(i, null)}>Remove {preset.name || 'preset'}</button>
+            </div>
+          </SettingsGroup>
         ))}
-        <button type="button" class="cockpit-btn cockpit-btn--sm" disabled={presets.length >= 12}
-          onClick={() => setPreset(presets.length, { name: `preset ${presets.length + 1}` })}>Add a preset</button>
       </>
     ),
     prompt: (
-      <>
-        <p class="cockpit-muted">
-          The prompt composer (⌘⇧P) writes one prompt and sends it to one or several sessions. Refine is optional: the program
-          below is yours (this app does not choose an AI); it reads the draft and prints a better one, which you read before it
-          goes anywhere. Empty means the composer has no Refine button.
-        </p>
-        <label class="cockpit-picker__field" data-setting="prompt-refine-command">
-          <span class="cockpit-muted">Refine command</span>
-          <input class="cockpit-settings__command" value={draft.prompt?.refine?.command ?? ''} spellcheck={false} placeholder="claude -p"
+      <SettingsGroup title="Refine" note="The prompt composer (⌘⇧P) writes one prompt and sends it to one or several sessions. Refine is optional: the program below is yours (this app does not choose an AI); it reads the draft and prints a better one, which you read before it goes anywhere. Empty means the composer has no Refine button.">
+        <SettingRow id="prompt-refine-command">
+          <input class="cockpit-settings__command" value={draft.prompt?.refine?.command ?? ''} spellcheck={false} placeholder="claude -p" aria-label="Refine command"
             onInput={(e) => setRefine({ command: (e.target as HTMLInputElement).value })} />
-        </label>
-        <label class="cockpit-picker__field" data-setting="prompt-refine-instruction">
-          <span class="cockpit-muted">Instruction</span>
-          <textarea rows={5} spellcheck={false} value={draft.prompt?.refine?.instruction ?? ''} placeholder={DEFAULT_REFINE_INSTRUCTION}
+        </SettingRow>
+        <SettingRow id="prompt-refine-instruction" stacked>
+          <textarea rows={5} spellcheck={false} value={draft.prompt?.refine?.instruction ?? ''} placeholder={DEFAULT_REFINE_INSTRUCTION} aria-label="Refine instruction"
             onInput={(e) => setRefine({ instruction: (e.target as HTMLTextAreaElement).value })} />
-        </label>
-        <label class="cockpit-settings__toggle" data-setting="prompt-refine-context">
-          <input type="checkbox" checked={draft.prompt?.refine?.includeContext === true}
-            onChange={(e) => setRefine({ includeContext: (e.target as HTMLInputElement).checked ? true : undefined })} />
-          <span>Include the session's name, branch and changed-file count with the draft</span>
-        </label>
-      </>
+        </SettingRow>
+        <SettingRow id="prompt-refine-context">
+          <Switch label="Include session context" checked={draft.prompt?.refine?.includeContext === true} onChange={(on) => setRefine({ includeContext: on ? true : undefined })} />
+        </SettingRow>
+      </SettingsGroup>
     ),
     usage: (
       <>
-        <p class="cockpit-muted">
-          Tokens the agents in each session have used, read from their own logs (Claude Code, Codex). The logs carry no
-          prices — add yours (USD per million tokens) to see cost; a model without a price shows as tokens.
-        </p>
-        <label class="cockpit-settings__toggle" data-setting="usage-show">
-          <input type="checkbox" checked={draft.usage?.show ?? true}
-            onChange={(e) => setDraft({ ...draft, usage: { ...draft.usage, show: (e.target as HTMLInputElement).checked } })} />
-          <span>Show usage on the rail</span>
-        </label>
-        <div data-setting="usage-prices">
-        {pricedModels.length > 0 ? (
-          <table class="cockpit-prices">
-            <thead><tr><th>Model</th><th>Input</th><th>Output</th><th>Cache write</th><th>Cache read</th><th /></tr></thead>
-            <tbody>
-              {pricedModels.map((model) => (
-                <tr key={model}>
-                  <td><code>{model}</code></td>
-                  {(['input', 'output', 'cacheWrite', 'cacheRead'] as const).map((kind) => (
-                    <td key={kind}>
-                      <input type="number" min={0} step="0.01" aria-label={`${model} ${kind} price`} placeholder="—"
-                        value={prices[model]?.[kind] ?? ''} onInput={(e) => setPrice(model, kind, (e.target as HTMLInputElement).value)} />
-                    </td>
+        <SettingsGroup title="Tokens and cost" note="Tokens the agents in each session have used, read from their own logs (Claude Code, Codex). The logs carry no prices — add yours (USD per million tokens) to see cost; a model without a price shows as tokens.">
+          <SettingRow id="usage-show" label="Show usage on the rail" description="Each row's token count (and cost, for a model you priced)">
+            <Switch label="Show usage on the rail" checked={draft.usage?.show ?? true}
+              onChange={(show) => setDraft({ ...draft, usage: { ...draft.usage, show } })} />
+          </SettingRow>
+        </SettingsGroup>
+        <SettingsGroup title="Prices">
+          <SettingRow id="usage-prices" stacked label="Prices per million tokens" description={pricedModels.length === 0 ? 'No agent usage seen yet in the open projects.' : undefined}>
+            {pricedModels.length > 0 ? (
+              <table class="cockpit-prices">
+                <thead><tr><th>Model</th><th>Input</th><th>Output</th><th>Cache write</th><th>Cache read</th><th /></tr></thead>
+                <tbody>
+                  {pricedModels.map((model) => (
+                    <tr key={model}>
+                      <td><code>{model}</code></td>
+                      {(['input', 'output', 'cacheWrite', 'cacheRead'] as const).map((kind) => (
+                        <td key={kind}>
+                          <input type="number" min={0} step="0.01" aria-label={`${model} ${kind} price`} placeholder="—"
+                            value={prices[model]?.[kind] ?? ''} onInput={(e) => setPrice(model, kind, (e.target as HTMLInputElement).value)} />
+                        </td>
+                      ))}
+                      <td>{prices[model] ? <button type="button" class="cockpit-iconbtn" aria-label={`Remove ${model} price`} onClick={() => removePrice(model)}>×</button> : null}</td>
+                    </tr>
                   ))}
-                  <td>{prices[model] ? <button type="button" class="cockpit-iconbtn" aria-label={`Remove ${model} price`} onClick={() => removePrice(model)}>×</button> : null}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : <p class="cockpit-muted">No agent usage seen yet in the open projects.</p>}
-        <div class="cockpit-prices__add">
-          <input class="cockpit-field--mono" value={newModel} placeholder="another model, e.g. claude-opus-5-5" spellcheck={false}
-            onInput={(e) => setNewModel((e.target as HTMLInputElement).value.trim())} />
-          <button type="button" class="cockpit-btn cockpit-btn--sm" disabled={newModel === '' || newModel in prices}
-            onClick={() => { setPrice(newModel, 'input', '0'); setNewModel('') }}>Add model</button>
-        </div>
-        </div>
+                </tbody>
+              </table>
+            ) : null}
+            <div class="cockpit-prices__add">
+              <input class="cockpit-field--mono" value={newModel} placeholder="another model, e.g. claude-opus-5-5" spellcheck={false} aria-label="Another model"
+                onInput={(e) => setNewModel((e.target as HTMLInputElement).value.trim())} />
+              <button type="button" class="cockpit-btn cockpit-btn--sm" disabled={newModel === '' || newModel in prices}
+                onClick={() => { setPrice(newModel, 'input', '0'); setNewModel('') }}>Add model</button>
+            </div>
+          </SettingRow>
+        </SettingsGroup>
       </>
     ),
   }
 
+  const title = findSection(section)?.title
   return (
     <div
       class="cockpit-settings-page"
@@ -639,58 +616,65 @@ export function SettingsPage({ initialSection, initialRow, initial, availability
       aria-label="Settings"
       onKeyDown={(e) => { if (e.key === 'Escape') void close() }}
     >
-      <div class="cockpit-settings-page__top">
-        <button type="button" class="cockpit-btn cockpit-btn--sm cockpit-btn--ghost" onClick={() => { void close() }}>‹ Back</button>
-        <h1 class="cockpit-settings-page__title">Settings</h1>
-      </div>
-      <div class="cockpit-settings-page__body">
-        <nav class="cockpit-settings-nav" aria-label="Settings sections">
-          <input class="cockpit-settings-nav__search" type="search" placeholder="Search settings" aria-label="Search settings" spellcheck={false}
-            value={query} onInput={(e) => setQuery((e.target as HTMLInputElement).value)} />
-          <ul>
-            {SETTINGS_SECTIONS.map((s) => (
-              <li key={s.id}>
-                <button type="button" class={`cockpit-settings-nav__item${!searching && section === s.id ? ' is-active' : ''}`}
-                  aria-current={!searching && section === s.id ? 'page' : undefined}
-                  onClick={() => { setQuery(''); setSection(s.id) }}>{s.title}</button>
-              </li>
-            ))}
-          </ul>
-        </nav>
-        <main class="cockpit-settings-content" ref={contentRef}>
+      <nav class="cockpit-settings-nav" aria-label="Settings sections">
+        <div class="cockpit-settings-nav__drag" />
+        <button type="button" class="cockpit-settings-nav__back" onClick={() => { void close() }}><BackIcon /> Back</button>
+        <input class="cockpit-settings-nav__search" type="search" placeholder="Search settings" aria-label="Search settings" spellcheck={false}
+          value={query} onInput={(e) => setQuery((e.target as HTMLInputElement).value)} />
+        {SETTINGS_GROUPS.map((g) => (
+          <div key={g.id} class="cockpit-settings-nav__group" role="group">
+            {g.sections.map((id) => {
+              const s = findSection(id)
+              if (s === undefined) return null
+              const Icon = SECTION_ICONS[id]
+              return (
+                <button key={id} type="button" class={`cockpit-settings-nav__item${!searching && section === id ? ' is-active' : ''}`}
+                  aria-current={!searching && section === id ? 'page' : undefined}
+                  onClick={() => { setQuery(''); setSection(id) }}>
+                  {Icon ? <Icon /> : null}
+                  <span>{s.title}</span>
+                </button>
+              )
+            })}
+          </div>
+        ))}
+      </nav>
+      <main class="cockpit-settings-content" ref={contentRef}>
+        <div class="cockpit-settings-content__drag" />
+        <div class="cockpit-settings-content__inner">
+          {!bannerGone && !searching && section !== 'dashboard' ? (
+            <Banner title="New: Dashboard" actionLabel="Open Dashboard" onAction={() => setSection('dashboard')} onDismiss={dismissBanner}>
+              See what your sessions and worktrees cost in disk and memory, and what you could stop or delete to lighten the machine.
+            </Banner>
+          ) : null}
           {notSaved !== null ? (
             <p class="cockpit-error cockpit-settings-content__unsaved" role="alert">Not saved — {notSaved}</p>
           ) : null}
           {error ? <p class="cockpit-error" role="alert">{error}</p> : null}
           {searching ? (
-            hits.length === 0 ? <p class="cockpit-muted">No settings match “{query.trim()}”.</p> : (
-              <div class="cockpit-settings-results">
+            hits.length === 0 ? <p class="cockpit-muted cockpit-settings-content__empty">No settings match “{query.trim()}”.</p> : (
+              <>
                 {hits.map((g) => (
-                  <section key={g.section.id}>
-                    <h2 class="cockpit-settings__heading">{g.section.title}</h2>
-                    <ul>
-                      {g.rows.map((r) => (
-                        <li key={r.id}>
-                          <button type="button" class="cockpit-settings-results__row"
-                            onClick={() => { setQuery(''); setSection(g.section.id); setTarget(r.id) }}>
-                            <span>{r.label}</span>
-                            <span class="cockpit-muted">{r.description}</span>
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  </section>
+                  <SettingsGroup key={g.section.id} title={g.section.title}>
+                    {g.rows.map((r) => (
+                      <button key={r.id} type="button" class="cockpit-sresult"
+                        onClick={() => { setQuery(''); setSection(g.section.id); setTarget(r.id) }}>
+                        <span class="cockpit-srow__label">{r.label}</span>
+                        <span class="cockpit-srow__desc">{r.description}</span>
+                      </button>
+                    ))}
+                  </SettingsGroup>
                 ))}
-              </div>
+              </>
             )
           ) : (
             <section>
-              <h2 class="cockpit-settings__heading">{findSection(section)?.title}</h2>
+              <h2 class="cockpit-settings-content__title">{title}</h2>
               {bodies[section]}
             </section>
           )}
-        </main>
-      </div>
+        </div>
+      </main>
     </div>
   )
 }
