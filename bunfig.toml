@@ -1,0 +1,3 @@
+[test]
+# Needs preact, which only apps/cockpit installs (and only on macOS): the ci `cockpit` job runs it with `bun test` there.
+pathIgnorePatterns = ["apps/cockpit/tests/dashboard-view.test.tsx"]

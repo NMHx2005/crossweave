@@ -41,3 +41,7 @@ jobs:
       - name: typecheck and bundle
         run: bun run build
         working-directory: apps/cockpit
+      # The view tests render preact components, which only this job has installed.
+      - name: cockpit tests
+        run: bun test
+        working-directory: apps/cockpit
