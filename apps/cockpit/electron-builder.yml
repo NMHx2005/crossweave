@@ -19,6 +19,8 @@ extraResources:
 
 mac:
   category: public.app-category.developer-tools
+  # From build/icon.svg (scripts/make-icon.sh).
+  icon: build/icon.icns
   target:
     - dmg
     - zip
