@@ -70,6 +70,12 @@ Artifacts land in `apps/cockpit/release/` (`crossweave Cockpit-<version>-arm64.d
 
 Open the app, choose your crossweave project folder (or set `COCKPIT_PROJECT_ROOT` before launch). Unsigned builds: first open may require **System Settings → Privacy & Security → Open Anyway** (or right-click → Open).
 
+### The app icon
+
+`build/icon.svg` is the source (its colours are the design tokens in `src/ui/tokens.ts`); `scripts/make-icon.sh` renders
+`build/icon.png` and `build/icon.icns` (macOS: `rsvg-convert` from librsvg, and `iconutil`), and `electron-builder.yml` points `mac.icon`
+at the `.icns`. Change the SVG, run the script, commit the three files.
+
 ## Run packaged build
 
 ```bash
@@ -143,6 +149,7 @@ HOME=/tmp/cwhome COCKPIT_PROJECT_ROOT=/path/to/scratch/repo bun apps/cockpit/scr
 | Prompt composer | `prompt-check.ts` | refine only proposes, an agent gets one bracketed paste with no Enter, a plain shell is refused multi-line |
 | Presets | `preset-check.ts` | one click: session, extra terminal running its command, browser on the leased port |
 | Key-table | `keytable-check.ts` | prefix then key runs a command; prefix twice types the literal |
+| Vietnamese composition | `ime-check.ts` | text composed with Chromium's IME simulation reaches the shell as UTF-8; a composing key never runs a key-table command (a simulation, not macOS's input source) |
 | Terminal persistence | `persist-check.ts` | with it on, an extra terminal survives a daemon restart; off, nothing does |
 | Settings | `settings-check.ts` | search, sections, save |
 | Motion / speed | `motion-check.ts`, `bench-terminal.ts` | FLIP and fades; output coalescing and the WebGL budget |

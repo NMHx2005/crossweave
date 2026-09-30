@@ -30,6 +30,9 @@
   accelerator leaves its default key-table key; rebinding it to another `prefix:<key>` replaces it.
 - **A daemon older than the app refuses a `prefix:` binding** (its validation predates it): the settings page shows
   "Not saved — …" until that project's daemon is restarted.
-- **IME behaviour is unit-tested** (a composing press passes through and ends prefix mode); it was not exercised
-  with a real Telex keyboard here.
+- **IME behaviour is unit-tested and, since 2026-09-30, exercised on the running app with Chromium's IME simulation**
+  (`apps/cockpit/scripts/ime-check.ts`: `Input.imeSetComposition` + `Input.insertText` build "tiếng", "ắ", "đ", "ô", "ư" in a terminal pane;
+  a composing key after the prefix runs no command, ends prefix mode and its text still arrives). That simulates the browser's composition
+  events, **not macOS's Vietnamese input source**: it was still not typed on a real Telex keyboard, and a person should try one line of
+  Vietnamese with the prefix held before relying on it.
 - The hint is a fixed three-column list; a table with many user additions may become long.

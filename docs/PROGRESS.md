@@ -31,7 +31,7 @@ last) and the `*-known-limitations.md` next to each spec.
 Rail of projects and sessions with live status; tabs of shells, files, web pages and Changes; tmux-style panes (zoom, focus by
 direction, presets, swap, pane → tab, synchronize, copy-mode, a `Ctrl-A` key-table); Settings page like Cursor's; terminal speed
 (WebGL under a budget, output coalescing) and motion; file drops become paths; launchers; project tools; themes; notifications;
-usage per session; and, new on 2026-09-30:
+usage per session; its own app icon (`apps/cockpit/build/icon.svg`, four warp threads in the agents' colours crossed by a weft); and, new on 2026-09-30:
 
 | Feature | Where |
 |---|---|
@@ -55,7 +55,7 @@ usage per session; and, new on 2026-09-30:
 1. **Cut 0.4.0**: tag, release workflow, install the app, restart project daemons (that ends running sessions, so the owner picks the
    moment).
 2. Use it for a week and fix what is annoying: wire `cw notify` into agent hooks, try presets and the composer for real.
-3. Notarize the app and give it an icon (both need the owner: a developer account and a design).
+3. Notarize the app (needs the owner's Apple Developer account and a hardened-runtime pass; the app has its own icon since 0.4.0 but is still signed only with a development certificate).
 4. Later: a native iOS app for remote control (designed from scratch), a Linux cockpit, per-session one-line summaries on the rail,
    an optional "land only when the tests passed" gate.
 
