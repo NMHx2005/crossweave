@@ -1422,15 +1422,17 @@ body,
 
 .cockpit-rows {
   margin: var(--cw-space-1) 0 0;
-  padding: 0;
+  /* Every project reserves the frame's box (padding + a clear border); the active one only colours it. Adding the box on
+     activation moved the rows and grew the list each time the stage switched project or session. */
+  padding: var(--cw-space-1);
+  border: var(--cw-hairline) solid transparent;
+  border-radius: var(--cw-radius-lg);
   list-style: none;
 }
 
 /* The project on the stage is framed, as Deck frames the checkout you are in. */
 .cockpit-project.is-active .cockpit-rows {
-  padding: var(--cw-space-1);
-  border: var(--cw-hairline) solid var(--cw-border-strong);
-  border-radius: var(--cw-radius-lg);
+  border-color: var(--cw-border-strong);
 }
 
 .cockpit-rows__empty button {
