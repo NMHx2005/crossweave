@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { agentName, gitBadge, landChip, newlyAsking, overlapBadge, railOrder, relativeTime, rowState, glyphState, ROW_STATE_LABEL, rowTitle, visibleRows, jumpTargets, clampMenu, newlyFinished, newlySignalled, checkChip, recentToOffer, submenuPosition } from '../src/lib/rail'
+import { agentName, gitBadge, landChip, newlyAsking, overlapBadge, railOrder, relativeTime, rowState, glyphState, ROW_STATE_LABEL, rowTitle, visibleRows, jumpTargets, clampMenu, newlyFinished, newlySignalled, checkChip, landCheckWarning, recentToOffer, submenuPosition } from '../src/lib/rail'
 import { parseSessionList } from '../src/lib/sessions'
 
 describe('relativeTime', () => {
@@ -314,5 +314,34 @@ describe('parseSessionList carries the check verdict', () => {
     ])
     expect(ok?.check).toEqual({ state: 'fail', at: 5, ms: 10, code: 1, tail: 'boom', stale: true })
     expect(bad?.check).toBeUndefined()
+  })
+})
+
+describe('landCheckWarning', () => {
+  test('failing tests that still describe the work ask first, naming the session and the exit code', () => {
+    const w = landCheckWarning('alpha', { state: 'fail', at: 1, code: 2, stale: false })
+    expect(w?.title).toContain('alpha')
+    expect(w?.body).toContain('exit 2')
+    expect(w?.confirmLabel).toBe('Land anyway')
+  })
+
+  test('a run that has not finished asks too', () => {
+    expect(landCheckWarning('alpha', { state: 'running', at: 1, stale: false })?.title).toContain('while its tests run')
+  })
+
+  test('nothing to say for a pass, a session never checked, or a verdict the work has moved past', () => {
+    expect(landCheckWarning('a', { state: 'pass', at: 1, stale: false })).toBeUndefined()
+    expect(landCheckWarning('a', undefined)).toBeUndefined()
+    expect(landCheckWarning('a', { state: 'fail', at: 1, code: 1, stale: true })).toBeUndefined()
+    expect(landCheckWarning('a', { state: 'running', at: 1, stale: true })).toBeUndefined()
+  })
+})
+
+describe('rowTitle with a notify message', () => {
+  test('what the session said itself beats the log, but the user\'s own note beats both', () => {
+    const signal = { kind: 'done' as const, message: 'tests written', at: 1 }
+    expect(rowTitle({ name: 'a', latestWords: 'Tracing…', signal })).toBe('tests written')
+    expect(rowTitle({ name: 'a', latestWords: 'Tracing…', note: 'fix login', signal })).toBe('fix login')
+    expect(rowTitle({ name: 'a', latestWords: 'Tracing…', signal: { kind: 'done', message: '', at: 1 } })).toBe('Tracing…')
   })
 })

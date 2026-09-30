@@ -21,8 +21,9 @@ export function relativeTime(at: number | null | undefined, now: number): string
 
 /** The row's title: what the agent last said, else the session's name. */
 /** The user's note when there is one, else what the agent last said, else the name. */
-export function rowTitle(session: Pick<ListedSession, 'name' | 'latestWords' | 'note'>): string {
-  return session.note ?? session.latestWords ?? session.name
+export function rowTitle(session: Pick<ListedSession, 'name' | 'latestWords' | 'note' | 'signal'>): string {
+  // What the session said itself (`cw notify`) is more current than what its log last recorded.
+  return session.note ?? (session.signal?.message ? session.signal.message : undefined) ?? session.latestWords ?? session.name
 }
 
 export type RowState = 'working' | 'done' | 'asked' | 'failed' | 'idle' | 'stopped' | 'ended'
@@ -78,6 +79,22 @@ export function checkChip(check: ListedSession['check']): { label: string; tone:
     stale: check.stale,
     title: check.stale ? `${base} — the work has changed since; run the checks again` : base,
   }
+}
+
+/**
+ * A word before landing a session whose last check did not pass: failed tests that still describe the work, or a run
+ * that has not finished. A verdict the work has moved past (stale) and a session never checked say nothing: nagging
+ * about what may no longer be true, or about a check nobody asked for, would only teach people to click through.
+ */
+export function landCheckWarning(name: string, check: ListedSession['check']): { title: string; body: string; confirmLabel: string } | undefined {
+  if (check === undefined || check.stale) return undefined
+  if (check.state === 'fail') {
+    return { title: `Land ${name} with failing tests?`, body: `The last tests run in ${name} failed${check.code === undefined ? '' : ` (exit ${check.code})`}. Run them again, or land anyway.`, confirmLabel: 'Land anyway' }
+  }
+  if (check.state === 'running') {
+    return { title: `Land ${name} while its tests run?`, body: `The tests in ${name} have not finished, so nothing says yet whether this work is fit to land.`, confirmLabel: 'Land anyway' }
+  }
+  return undefined
 }
 
 /** The land chip: only the two verdicts worth acting on from the rail. */

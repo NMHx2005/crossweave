@@ -76,11 +76,12 @@ import { runPaneRequest, type PaneEnv } from '../lib/pane-bridge'
 import { CompareView } from './CompareView'
 import { PromptComposer } from './PromptComposer'
 import { planPreset, presetUrl } from '../lib/presets'
+import { createLoadGate } from '../lib/load-gate'
 import { suggestSessionName } from '../lib/quick-picker'
 import type { SessionPreset } from '../../../../src/core/settings.js'
 import { defaultCompareTarget } from '../lib/compare'
 import { sessionsThatStartedRunning } from '../lib/sessions'
-import { agentName, newlyAsking, newlyFinished, newlySignalled } from '../lib/rail'
+import { agentName, landCheckWarning, newlyAsking, newlyFinished, newlySignalled } from '../lib/rail'
 import { ProjectApiContext } from './project-context'
 import { LAST_LAUNCHER_KEY, readString, readStringList, writeString, writeStringList } from './storage'
 
@@ -202,12 +203,16 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
   /** Actions that arrived before the first load: they need the session list. */
   const queuedRef = useRef<ViewAction[]>([])
 
+  const loadGate = useRef(createLoadGate()).current
   const load = useCallback(async (opts?: { bumpAttach?: boolean }): Promise<void> => {
+    const seq = loadGate.start()
     try {
       // Never `workspace.ensure` here: that would take the stage for this project. The
       // bridge reaches it through its root (and reconnects to it after daemon.gone).
       const loaded = await loadWorkspace({ ...api, ensureWorkspace: async () => ({ projectRoot }) })
       if (cancelledRef.current) return
+      // A load that started after this one has already been shown: this answer is older than what is on screen.
+      if (!loadGate.accept(seq)) return
       const started = sessionsThatStartedRunning(sessionsRef.current, loaded.sessions)
       if (started.length > 0) {
         // Re-key only those panes: a global bump would remount every live terminal.
@@ -271,7 +276,7 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
       setError(plainErrorMessage(err))
       setStatus(stageStatusAfterFailure(sessionsRef.current.length))
     }
-  }, [api, projectRoot])
+  }, [api, projectRoot, loadGate])
 
   useEffect(() => {
     cancelledRef.current = false
@@ -875,6 +880,9 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
   async function handleLand(targetId?: string): Promise<void> {
     const target = sessionById(targetId)
     if (!target || landBusy) return
+    // Failing (or unfinished) tests that still describe this work: say so, and let the person decide.
+    const warning = landCheckWarning(target.name, target.check)
+    if (warning !== undefined && !(await hostRef.current.askConfirm(warning))) return
     setLandBusy(true)
     const toast = hostRef.current.toast
     try {
