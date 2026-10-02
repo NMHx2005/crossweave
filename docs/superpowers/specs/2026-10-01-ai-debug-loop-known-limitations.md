@@ -26,7 +26,8 @@ final milestone limitations will replace this when Phases 2–6 land.
   the person can retick others.
 - The pane mounts only when a session row says it exists; a landed/removed session's
   pane renders nothing.
-- Browser pane errors are NOT in this pane yet (Phase 6 pulls them in).
+- Its BROWSER half comes from main and shows only this project's panes above Off (see
+  the Phase 5–6 section); with no such pane the section is empty.
 
 ## Drag panes — the live preview (on main)
 
@@ -37,6 +38,8 @@ final milestone limitations will replace this when Phases 2–6 land.
   (the common case) mounts nothing.
 - A cross-tab drag keeps the old target-highlight behaviour; no arrangement preview.
 - Cancelling a drag slides the panes back to where they were (one flip animation).
+- The preview runs `movePane`, which drops the tab's zoom: starting a drag in a zoomed
+  tab un-zooms it visually until the drag ends.
 
 ## Phase 1 — status across split panes (on main)
 
@@ -63,6 +66,9 @@ final milestone limitations will replace this when Phases 2–6 land.
   `Traceback`, `FAIL`, ✗/✖, `Segmentation fault`) over ANSI-stripped lines — not a
   parser of any toolchain; it will miss unusual formats and can show a line that
   merely looks like one. Labelled "(heuristic)" on every surface.
+- The plain `error:` shape is anchored to the START of a line, so a PREFIXED line
+  (`[build] error: …`) is missed — the trade that keeps `no error: none` out. A toolchain
+  that prefixes its diagnostics needs the `file:line:col: error:` or `error TS…` shapes.
 - Error lines are **RAM only**: they die with the daemon (honest debug state).
 - The scrubber is a heuristic too: known token shapes + secret-named key=value
   pairs. A custom-format secret in a log can still slip through — labelled so.
@@ -90,6 +96,9 @@ final milestone limitations will replace this when Phases 2–6 land.
 - Provenance read-modify-write has **no lock**: two `cw hooks install` running at the
   same moment can lose one's record (the entries themselves are still found by the
   args match). One invocation at a time is the assumption.
+- `writeTextAtomic` writes through a symlink's TARGET (a dotfiles manager keeps the
+  link). A DANGLING symlink is the exception: its target cannot be resolved, so the link
+  itself is replaced by a plain file.
 - `cwHookPrefix` prefixes `bun` for any `.ts` entry — a checkout where the CLI is
   NOT run through bun would embed the wrong runner (today cw only runs on bun).
 - `$CW_SESSION_ID` inside a hook process is verified only by reasoning (env
