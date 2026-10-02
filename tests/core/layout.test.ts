@@ -353,6 +353,20 @@ describe('panesForSession', () => {
     expect(panesForSession(s, 'b').map((p) => p.pane.kind)).toEqual(['session'])
     expect(panesForSession(s, 'gone')).toEqual([])
   })
+
+  test('closing the session pane leaves the Terminal pane, focused — what the rail row then focuses', () => {
+    let s = openInNewTab(emptyStage(), session('a'), 'a')
+    const tabId = s.tabs[0]!.id
+    s = splitPane(s, tabId, s.tabs[0]!.focusedPaneId, 'row', terminal('t1', 'a'))
+    const own = panesForSession(s, 'a').find((p) => p.pane.kind === 'session')!
+    s = focusPane(s, tabId, own.paneId)
+    s = closePane(s, tabId, own.paneId)
+    expect(paneKeys(s)).toEqual(['terminal:t1'])
+    const tab = s.tabs[0]!
+    expect(findPane(tab.root, tab.focusedPaneId)?.pane.kind).toBe('terminal')
+    // The row now finds a pane for the session, so it focuses it rather than opening a tab.
+    expect(panesForSession(s, 'a').map((p) => p.pane.kind)).toEqual(['terminal'])
+  })
 })
 
 describe('cycling the layout preset (tmux Space)', () => {

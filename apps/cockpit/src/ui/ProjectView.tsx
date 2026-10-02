@@ -842,6 +842,10 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
     // Closing an extra shell's pane ends it; closing a session's pane only hides it.
     if (pane.kind === 'terminal') void api.closeTerminal(pane.terminalId).catch(() => undefined)
     setStage((s) => closePane(s, tabId, paneId))
+    // Re-read the rail here: closing a pane changes no session, so the daemon broadcasts
+    // nothing — and a status that changed just before (a missed invalidate) would leave
+    // the row stale exactly when the person is looking at the panes.
+    void load()
   }
 
   async function saveLayouts(next: Record<string, SavedLayout>): Promise<void> {
