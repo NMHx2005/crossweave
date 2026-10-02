@@ -51,13 +51,24 @@ export interface RuntimeObserver {
 }
 
 /**
+ * An observer that only watches the output stream (the error-line detector): a
+ * NARROW type, so it composes with the full ones without loosening them — a typo in
+ * a method name is a type error, not a silent skip.
+ */
+export interface OutputObserver {
+  output(sessionId: string, chunk: string): void;
+}
+
+/**
  * Fans every `RuntimeObserver` call out to several observers — `SessionRuntime` takes
  * only one, but activity tracking and the setup-sentinel watcher are independent
  * concerns that both need to see the same output stream. Mirrors `notifyAll` above: one
  * observer throwing must not stop the others from seeing the event.
  */
-export function combineObservers(...observers: RuntimeObserver[]): RuntimeObserver {
-  const forEach = (fn: (o: RuntimeObserver) => void): void => {
+export function combineObservers(
+  ...observers: Array<RuntimeObserver | OutputObserver>
+): RuntimeObserver {
+  const forEach = (fn: (o: RuntimeObserver | OutputObserver) => void): void => {
     for (const o of observers) {
       try {
         fn(o);
@@ -67,11 +78,12 @@ export function combineObservers(...observers: RuntimeObserver[]): RuntimeObserv
     }
   };
   return {
-    started: (id, cols, rows) => forEach((o) => o.started(id, cols, rows)),
-    resized: (id, cols, rows) => forEach((o) => o.resized?.(id, cols, rows)),
-    output: (id, chunk) => forEach((o) => o.output(id, chunk)),
-    input: (id, data) => forEach((o) => o.input(id, data)),
-    exited: (id, code, requested) => forEach((o) => o.exited(id, code, requested)),
+    // The `in` guards narrow the union: only a full observer gets the full calls.
+    started: (id, cols, rows) => forEach((o) => { if ('started' in o) o.started(id, cols, rows); }),
+    resized: (id, cols, rows) => forEach((o) => { if ('resized' in o) o.resized?.(id, cols, rows); }),
+    output: (id, chunk) => forEach((o) => { if ('output' in o) o.output(id, chunk); }),
+    input: (id, data) => forEach((o) => { if ('input' in o) o.input(id, data); }),
+    exited: (id, code, requested) => forEach((o) => { if ('exited' in o) o.exited(id, code, requested); }),
   };
 }
 

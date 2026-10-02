@@ -12,13 +12,13 @@ describe('ActivityTracker', () => {
     const c = clock();
     const t = new ActivityTracker(c.now, 2000);
     t.started('s');
-    expect(t.status('s', null).activity).toBe('idle');
+    expect(t.status('s', null, () => null).activity).toBe('idle');
     t.input('s');
     t.output('s', 'total 8\r\n');
-    expect(t.status('s', null).activity).toBe('working');
+    expect(t.status('s', null, () => null).activity).toBe('working');
     c.advance(2500);
     // No agent in this shell: `ls` finishing is not a question to the user.
-    expect(t.status('s', null).activity).toBe('idle');
+    expect(t.status('s', null, () => null).activity).toBe('idle');
   });
 
   // For an agent whose screen says nothing about work (aider), its turn ends when its
@@ -31,9 +31,9 @@ describe('ActivityTracker', () => {
     t.input('s');
     t.output('s', '⠋ Thinking…');
     c.advance(2500);
-    expect(t.status('s', 'aider').activity).toBe('asked');
+    expect(t.status('s', 'aider', () => null).activity).toBe('asked');
     t.input('s');
-    expect(t.status('s', 'aider').activity).toBe('idle');
+    expect(t.status('s', 'aider', () => null).activity).toBe('idle');
   });
 
   it('a bell asks for you, even from a plain shell; a bell that ends an OSC title does not', () => {
@@ -42,10 +42,10 @@ describe('ActivityTracker', () => {
     t.started('s');
     t.output('s', '\x1b]0;my title\x07prompt$ ');
     c.advance(2500);
-    expect(t.status('s', null).activity).toBe('idle');
+    expect(t.status('s', null, () => null).activity).toBe('idle');
     t.output('s', 'done\x07');
     c.advance(2500);
-    expect(t.status('s', null).activity).toBe('asked');
+    expect(t.status('s', null, () => null).activity).toBe('asked');
   });
 
   // "Asked" covers two things: an agent that rang for the user (a permission prompt, a
@@ -58,39 +58,39 @@ describe('ActivityTracker', () => {
     t.input('s');
     t.output('s', 'working…');
     c.advance(2500);
-    expect(t.status('s', 'aider')).toMatchObject({ activity: 'asked', rang: false });
+    expect(t.status('s', 'aider', () => null)).toMatchObject({ activity: 'asked', rang: false });
     t.output('s', 'Allow this edit? \x07');
     c.advance(2500);
-    expect(t.status('s', 'aider')).toMatchObject({ activity: 'asked', rang: true });
+    expect(t.status('s', 'aider', () => null)).toMatchObject({ activity: 'asked', rang: true });
     t.input('s');
-    expect(t.status('s', 'aider').rang).toBe(false);
-    expect(t.status('unknown', null).rang).toBe(false);
+    expect(t.status('s', 'aider', () => null).rang).toBe(false);
+    expect(t.status('unknown', null, () => null).rang).toBe(false);
   });
 
   it('a shell that died on its own with a failure code has failed; one we stopped has not', () => {
     const t = new ActivityTracker(() => 0, 2000);
     t.started('a');
     t.exited('a', 1, false);
-    expect(t.status('a', null).activity).toBe('failed');
+    expect(t.status('a', null, () => null).activity).toBe('failed');
     t.started('b');
     t.exited('b', 129, true);
-    expect(t.status('b', null).activity).toBe('idle');
+    expect(t.status('b', null, () => null).activity).toBe('idle');
     // Starting again clears a failure.
     t.started('a');
-    expect(t.status('a', null).activity).toBe('idle');
+    expect(t.status('a', null, () => null).activity).toBe('idle');
   });
 
   it('reports the last output or input time, and which sessions changed since the last sweep', () => {
     const c = clock();
     const t = new ActivityTracker(c.now, 2000);
     t.started('s');
-    expect(t.sweep(() => null)).toEqual([]);
+    expect(t.sweep(() => null, () => null)).toEqual([]);
     t.output('s', 'x');
-    expect(t.status('s', null).lastActivityAt).toBe(c.now());
-    expect(t.sweep(() => null)).toEqual(['s']);
-    expect(t.sweep(() => null)).toEqual([]);
+    expect(t.status('s', null, () => null).lastActivityAt).toBe(c.now());
+    expect(t.sweep(() => null, () => null)).toEqual(['s']);
+    expect(t.sweep(() => null, () => null)).toEqual([]);
     c.advance(2500);
-    expect(t.sweep(() => null)).toEqual(['s']);
+    expect(t.sweep(() => null, () => null)).toEqual(['s']);
   });
 });
 
@@ -112,7 +112,7 @@ describe('ActivityTracker — agents that say when they work', () => {
     t.output('s', CLAUDE_PROMPT);
     for (let i = 0; i < 10; i++) t.output('s', STATUSLINE);
     await settle();
-    expect(t.status('s', 'claude').activity).toBe('idle');
+    expect(t.status('s', 'claude', () => null).activity).toBe('idle');
   });
 
   it('working while "esc to interrupt" is on screen; done (not asking) once it goes', async () => {
@@ -122,20 +122,20 @@ describe('ActivityTracker — agents that say when they work', () => {
     t.input('s');
     t.output('s', CLAUDE_BUSY);
     await settle();
-    expect(t.status('s', 'claude').activity).toBe('working');
+    expect(t.status('s', 'claude', () => null).activity).toBe('working');
     // Minutes of a tool running with no new output: still its turn.
     c.advance(120_000);
-    expect(t.status('s', 'claude').activity).toBe('working');
+    expect(t.status('s', 'claude', () => null).activity).toBe('working');
     t.output('s', CLAUDE_PROMPT);
     for (let i = 0; i < 3; i++) t.output('s', STATUSLINE);
     await settle();
     c.advance(1600);
-    expect(t.status('s', 'claude')).toMatchObject({ activity: 'asked', rang: false });
+    expect(t.status('s', 'claude', () => null)).toMatchObject({ activity: 'asked', rang: false });
     // The user starts typing: nothing is waiting any more.
     t.input('s');
     t.output('s', 'h');
     await settle();
-    expect(t.status('s', 'claude').activity).toBe('idle');
+    expect(t.status('s', 'claude', () => null).activity).toBe('idle');
   });
 
   it('a permission prompt on screen asks for the user, bell or no bell', async () => {
@@ -145,11 +145,11 @@ describe('ActivityTracker — agents that say when they work', () => {
     t.input('s');
     t.output('s', CLAUDE_BUSY);
     await settle();
-    t.status('s', 'claude');
+    t.status('s', 'claude', () => null);
     t.output('s', '\x1b[3A\x1b[J Bash command\r\n   rm -rf dist\r\n Do you want to proceed?\r\n ❯ 1. Yes\r\n   2. No\r\n');
     await settle();
     c.advance(1600);
-    expect(t.status('s', 'claude')).toMatchObject({ activity: 'asked', rang: true });
+    expect(t.status('s', 'claude', () => null)).toMatchObject({ activity: 'asked', rang: true });
   });
 
   // Codex repaints only the cells that change: "esc to interrupt" is sent once, then
@@ -161,17 +161,17 @@ describe('ActivityTracker — agents that say when they work', () => {
     t.input('s');
     t.output('s', '\x1b[22;1H• Working (1s • esc to interrupt)');
     await settle();
-    expect(t.status('s', 'codex').activity).toBe('working');
+    expect(t.status('s', 'codex', () => null).activity).toBe('working');
     for (let i = 2; i < 9; i++) {
       c.advance(1000);
       t.output('s', `\x1b[22;12H${i}`);
       await settle();
-      expect(t.status('s', 'codex').activity).toBe('working');
+      expect(t.status('s', 'codex', () => null).activity).toBe('working');
     }
     t.output('s', '\x1b[22;1H\x1b[2K› ');
     await settle();
     c.advance(1600);
-    expect(t.status('s', 'codex')).toMatchObject({ activity: 'asked', rang: false });
+    expect(t.status('s', 'codex', () => null)).toMatchObject({ activity: 'asked', rang: false });
   });
 
   it('follows the pty size, so a status line on a wide screen is read whole', async () => {
@@ -182,7 +182,7 @@ describe('ActivityTracker — agents that say when they work', () => {
     t.input('s');
     t.output('s', `\x1b[40;1H${' '.repeat(90)}(12s · esc to interrupt)`);
     await settle();
-    expect(t.status('s', 'claude').activity).toBe('working');
+    expect(t.status('s', 'claude', () => null).activity).toBe('working');
   });
 
   // Claude Code 2.1 (seen live, 2026-09-28): no "esc to interrupt" any more — only the
@@ -194,12 +194,12 @@ describe('ActivityTracker — agents that say when they work', () => {
     t.input('s');
     t.output('s', '❯ reply with just the word ok\r\n✢ Crunching… \r\n\r\n────\r\n❯ \r\n────\r\n  📂 s_01 │ [medium] │ Opus 5.5 │ ⏱ 0m\x1b[3A\x1b[3C');
     await settle();
-    expect(t.status('s', 'claude').activity).toBe('working');
+    expect(t.status('s', 'claude', () => null).activity).toBe('working');
     t.output('s', '\x1b[4A\r\x1b[2K⏺ ok\r\n\x1b[2K✻ Churned for 1s · done 1:39 PM\r\n\x1b[2B\x1b[3C');
     for (let i = 0; i < 5; i++) t.output('s', '\x1b7\x1b[20;1H\x1b[2K  📂 s_01 │ $0.02 │ ctx 5%\x1b8');
     await settle();
     c.advance(1600);
-    expect(t.status('s', 'claude')).toMatchObject({ activity: 'asked', rang: false });
+    expect(t.status('s', 'claude', () => null)).toMatchObject({ activity: 'asked', rang: false });
   });
 
   it('text that merely resembles the spinner line is not work', () => {
@@ -220,7 +220,7 @@ describe('ActivityTracker — agents that say when they work', () => {
     t.output('s', ' Do you trust the files in this folder?\r\n ❯ 1. Yes, I trust this folder\r\n   2. No, exit\r\n Enter to confirm · Esc to cancel\r\n');
     await settle();
     c.advance(1600);
-    expect(t.status('s', 'claude')).toMatchObject({ activity: 'asked', rang: true });
+    expect(t.status('s', 'claude', () => null)).toMatchObject({ activity: 'asked', rang: true });
   });
 
   it("Gemini's own \"(esc to cancel, 5s)\" is work", async () => {
@@ -230,7 +230,7 @@ describe('ActivityTracker — agents that say when they work', () => {
     t.input('s');
     t.output('s', '⠏ Thinking about it (esc to cancel, 5s)\r\n> ');
     await settle();
-    expect(t.status('s', 'gemini').activity).toBe('working');
+    expect(t.status('s', 'gemini', () => null).activity).toBe('working');
   });
 
   it('an agent that never shows the words is judged by its output', async () => {
@@ -240,7 +240,142 @@ describe('ActivityTracker — agents that say when they work', () => {
     t.input('s');
     t.output('s', 'thinking…');
     await settle();
-    expect(t.status('s', 'aider').activity).toBe('working');
+    expect(t.status('s', 'aider', () => null).activity).toBe('working');
+  });
+});
+
+describe('ActivityTracker — extra terminals (split panes)', () => {
+  // The regression seen live (2026-10-01): an agent typed into an extra Terminal pane
+  // of a session never moved the rail — only the session's own pty was tracked.
+  const CLAUDE_NARROW = '\r\n✢ Crunching… (2s · esc to interrupt)\r\n❯ \r\n';
+
+  it('an agent working in an extra terminal keeps the session working', async () => {
+    const c = clock();
+    const t = new ActivityTracker(c.now, 2000, 1500);
+    t.started('s', 80, 24);
+    t.startedTerminal({ sessionId: 's', terminalId: 't1' });
+    expect(t.status('s', null, () => null).activity).toBe('idle');
+    t.input('s');
+    t.terminalOutput('t1', CLAUDE_NARROW);
+    await settle();
+    expect(t.status('s', null, () => 'claude')).toMatchObject({ activity: 'working', rang: false });
+  });
+
+  it('a permission prompt in an extra terminal asks on the row, bell or no bell', async () => {
+    const c = clock();
+    const t = new ActivityTracker(c.now, 2000, 1500);
+    t.started('s', 80, 24);
+    t.startedTerminal({ sessionId: 's', terminalId: 't1' });
+    t.terminalInput('t1');
+    t.terminalOutput('t1', CLAUDE_NARROW);
+    await settle();
+    t.terminalOutput('t1', '\x1b[2A\x1b[J Do you want to proceed?\r\n ❯ 1. Yes\r\n');
+    await settle();
+    c.advance(1600);
+    expect(t.status('s', null, () => 'claude')).toMatchObject({ activity: 'asked', rang: true });
+  });
+
+  it('once the extra terminal is gone its contribution disappears', async () => {
+    const c = clock();
+    const t = new ActivityTracker(c.now, 2000, 1500);
+    t.started('s', 80, 24);
+    t.startedTerminal({ sessionId: 's', terminalId: 't1' });
+    t.terminalInput('t1');
+    t.terminalOutput('t1', CLAUDE_NARROW);
+    await settle();
+    c.advance(1600);
+    expect(t.status('s', null, () => 'claude').activity).toBe('working');
+    t.terminalExited('t1');
+    expect(t.status('s', null, () => 'claude').activity).toBe('idle');
+  });
+
+  it('the echo of typing in an extra terminal is not work', async () => {
+    const c = clock();
+    const t = new ActivityTracker(c.now, 2000, 1500);
+    t.started('s', 80, 24);
+    t.startedTerminal({ sessionId: 's', terminalId: 't1' });
+    t.terminalInput('t1', 'l');
+    c.advance(5);
+    t.terminalOutput('t1', 'l');
+    expect(t.status('s', null, () => null).activity).toBe('idle');
+  });
+
+  it('a quiet plain shell in an extra terminal does not ask for the user', async () => {
+    const c = clock();
+    const t = new ActivityTracker(c.now, 2000, 1500);
+    t.started('s', 80, 24);
+    t.startedTerminal({ sessionId: 's', terminalId: 't1' });
+    t.terminalInput('t1');
+    t.terminalOutput('t1', 'total 8\r\n');
+    c.advance(2500);
+    expect(t.status('s', null, () => null)).toMatchObject({ activity: 'idle', rang: false });
+  });
+
+  it('sweep reports the session changed when a terminal track moves it', async () => {
+    const c = clock();
+    const t = new ActivityTracker(c.now, 2000, 1500);
+    t.started('s', 80, 24);
+    t.startedTerminal({ sessionId: 's', terminalId: 't1' });
+    expect(t.sweep(() => null, () => 'claude')).toEqual([]);
+    t.terminalInput('t1');
+    t.terminalOutput('t1', CLAUDE_NARROW);
+    await settle();
+    expect(t.sweep(() => null, () => 'claude')).toEqual(['s']);
+  });
+
+  it('typing in an extra terminal clears the session\'s cw notify word', () => {
+    const c = clock();
+    const t = new ActivityTracker(c.now, 2000, 1500);
+    t.started('s', 80, 24);
+    t.startedTerminal({ sessionId: 's', terminalId: 't1' });
+    t.signalled('s', 'done', 'tests written');
+    expect(t.status('s', null, () => null).signal).toBeDefined();
+    t.terminalInput('t1');
+    expect(t.status('s', null, () => null).signal).toBeUndefined();
+  });
+
+  it('a pane asking beats a pane working: the row shows needs-you first', async () => {
+    const c = clock();
+    const t = new ActivityTracker(c.now, 2000, 1500);
+    t.started('s', 80, 24);
+    t.startedTerminal({ sessionId: 's', terminalId: 't-working' });
+    t.startedTerminal({ sessionId: 's', terminalId: 't-asking' });
+    t.terminalInput('t-working');
+    t.terminalOutput('t-working', CLAUDE_NARROW);
+    await settle();
+    t.terminalInput('t-asking');
+    t.terminalOutput('t-asking', '\r\n\x1b[2K✻ Moseying… (4s · esc to interrupt)\r\n> \r\n');
+    await settle();
+    t.terminalOutput('t-asking', '\x1b[2A\x1b[J Do you want to proceed?\r\n ❯ 1. Yes\r\n');
+    await settle();
+    c.advance(1600);
+    // The working pane keeps its busy words on screen (no repaint cleared them), yet
+    // the pane that now waits for the user wins the row.
+    expect(t.status('s', null, () => 'claude')).toMatchObject({ activity: 'asked', rang: true });
+  });
+
+  it('a pane working does not hide that the session shell died on its own', async () => {
+    const c = clock();
+    const t = new ActivityTracker(c.now, 2000, 1500);
+    t.started('s', 80, 24);
+    t.startedTerminal({ sessionId: 's', terminalId: 't1' });
+    t.terminalInput('t1');
+    t.terminalOutput('t1', CLAUDE_NARROW);
+    await settle();
+    t.exited('s', 1, false);
+    expect(t.status('s', null, () => 'claude').activity).toBe('failed');
+  });
+
+  it('follows the pane size: a status line on a wide pane is read whole', async () => {
+    const c = clock();
+    const t = new ActivityTracker(c.now, 2000, 1500);
+    t.started('s', 80, 24);
+    t.startedTerminal({ sessionId: 's', terminalId: 't1', cols: 40, rows: 10 });
+    t.terminalResized('t1', 160, 40);
+    t.terminalInput('t1');
+    t.terminalOutput('t1', `\x1b[40;1H${' '.repeat(90)}(12s · esc to interrupt)`);
+    await settle();
+    expect(t.status('s', null, () => 'claude').activity).toBe('working');
   });
 });
 
@@ -290,7 +425,7 @@ describe('an explicit signal (cw notify)', () => {
     const t = new ActivityTracker(c.now, 2000);
     t.started('s');
     expect(t.signalled('s', 'done', 'tests written')).toBe(true);
-    const status = t.status('s', null);
+    const status = t.status('s', null, () => null);
     expect(status.activity).toBe('asked');
     expect(status.rang).toBe(false);
     expect(status.signal).toEqual({ kind: 'done', message: 'tests written', at: c.now() });
@@ -301,7 +436,7 @@ describe('an explicit signal (cw notify)', () => {
     const t = new ActivityTracker(c.now, 2000);
     t.started('s');
     t.signalled('s', 'ask', 'which branch?');
-    expect(t.status('s', 'claude')).toMatchObject({ activity: 'asked', rang: true, signal: { kind: 'ask' } });
+    expect(t.status('s', 'claude', () => null)).toMatchObject({ activity: 'asked', rang: true, signal: { kind: 'ask' } });
   });
 
   it('the next keystroke clears it, like every other wait for the user', () => {
@@ -310,8 +445,8 @@ describe('an explicit signal (cw notify)', () => {
     t.started('s');
     t.signalled('s', 'done', 'x');
     t.input('s');
-    expect(t.status('s', null)).toMatchObject({ activity: 'idle', rang: false });
-    expect(t.status('s', null).signal).toBeUndefined();
+    expect(t.status('s', null, () => null)).toMatchObject({ activity: 'idle', rang: false });
+    expect(t.status('s', null, () => null).signal).toBeUndefined();
   });
 
   it('a session that is not running cannot be signalled', () => {
@@ -326,16 +461,16 @@ describe('an explicit signal (cw notify)', () => {
     t.signalled('s', 'done', 'first');
     c.advance(5000);
     t.signalled('s', 'ask', 'second');
-    expect(t.status('s', null).signal).toEqual({ kind: 'ask', message: 'second', at: c.now() });
+    expect(t.status('s', null, () => null).signal).toEqual({ kind: 'ask', message: 'second', at: c.now() });
   });
 
   it('is announced as a change so clients redraw', () => {
     const c = clock();
     const t = new ActivityTracker(c.now, 2000);
     t.started('s');
-    t.sweep(() => null);
+    t.sweep(() => null, () => null);
     t.signalled('s', 'done', 'x');
-    expect(t.sweep(() => null)).toEqual(['s']);
+    expect(t.sweep(() => null, () => null)).toEqual(['s']);
   });
 });
 
@@ -352,7 +487,7 @@ describe('typing is not work', () => {
     t.input('s', 's');
     c.advance(5);
     t.output('s', 's');
-    expect(t.status('s', null).activity).toBe('idle');
+    expect(t.status('s', null, () => null).activity).toBe('idle');
   });
 
   it('after Enter what the shell prints is a command running: working', () => {
@@ -365,7 +500,7 @@ describe('typing is not work', () => {
     t.input('s', '\r');
     c.advance(5);
     t.output('s', '\r\ntotal 8\r\n');
-    expect(t.status('s', null).activity).toBe('working');
+    expect(t.status('s', null, () => null).activity).toBe('working');
   });
 
   it('output that comes on its own, long after the last keystroke, is work', () => {
@@ -375,7 +510,7 @@ describe('typing is not work', () => {
     t.input('s', 'x');
     c.advance(1000);
     t.output('s', 'build finished\r\n');
-    expect(t.status('s', null).activity).toBe('working');
+    expect(t.status('s', null, () => null).activity).toBe('working');
   });
 
   it('a pasted block with a newline in it is a command, not typing', () => {
@@ -385,7 +520,7 @@ describe('typing is not work', () => {
     t.input('s', 'echo hi\n');
     c.advance(5);
     t.output('s', 'hi\r\n');
-    expect(t.status('s', null).activity).toBe('working');
+    expect(t.status('s', null, () => null).activity).toBe('working');
   });
 
   it('an unknown input (no data given) keeps the old rule: its output counts', () => {
@@ -395,7 +530,7 @@ describe('typing is not work', () => {
     t.input('s');
     c.advance(5);
     t.output('s', 'something\r\n');
-    expect(t.status('s', null).activity).toBe('working');
+    expect(t.status('s', null, () => null).activity).toBe('working');
   });
 
   it('the echo of typing does not make an agent look like it worked either', () => {
@@ -406,6 +541,6 @@ describe('typing is not work', () => {
     c.advance(5);
     t.output('s', 'h');
     c.advance(3000);
-    expect(t.status('s', 'aider').activity).toBe('idle');
+    expect(t.status('s', 'aider', () => null).activity).toBe('idle');
   });
 });

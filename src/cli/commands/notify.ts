@@ -1,6 +1,6 @@
 import { defineCommand } from 'citty';
 import { CrossweaveError } from '../../core/errors.js';
-import { currentWorkspaceId, fail, withClient } from '../context.js';
+import { currentWorkspaceId, fail, sessionForCwd, withClient } from '../context.js';
 
 export interface NotifyRequest {
   idOrName: string;
@@ -47,10 +47,27 @@ export const notifyCommand = defineCommand({
         if (a.startsWith('--kind=') || a.startsWith('--session=')) continue;
         words.push(a);
       }
-      const req = buildNotifyRequest(words, {
+      const flags = {
         ...(typeof args.kind === 'string' ? { kind: args.kind } : {}),
         ...(typeof args.session === 'string' ? { session: args.session } : {}),
-      }, process.env);
+      };
+      if (flags.session === undefined && process.env['CW_SESSION_ID'] === undefined) {
+        // A hook shell can run with the variable gone (an agent launched from a
+        // launcher that dropped the env): resolve by where the shell stands — the
+        // session's own worktree. The daemon validates again.
+        await withClient(async (client) => {
+          const workspaceId = await currentWorkspaceId(client);
+          const rows = await client.call<Array<{ name: string; worktreePath: string | null }>>('session.list', { workspaceId });
+          const name = sessionForCwd(rows, process.cwd());
+          if (name === undefined) {
+            throw new CrossweaveError('INVALID_ARGUMENTS', 'Name the session with --session (or run this from a session shell)');
+          }
+          const req = buildNotifyRequest(words, flags, { CW_SESSION_ID: name });
+          await client.call('session.notify', { workspaceId, ...req });
+        });
+        return;
+      }
+      const req = buildNotifyRequest(words, flags, process.env);
       await withClient(async (client) => {
         const workspaceId = await currentWorkspaceId(client);
         await client.call('session.notify', { workspaceId, ...req });

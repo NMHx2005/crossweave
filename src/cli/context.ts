@@ -2,6 +2,7 @@ import { findProjectRoot } from '../core/paths.js';
 import { loadConfig } from '../core/config.js';
 import { connectOrStart, type DaemonClient } from '../client/rpc-client.js';
 import { CrossweaveError } from '../core/errors.js';
+import { realpathSync } from 'node:fs';
 
 export async function withClient<T>(
   fn: (client: DaemonClient, projectRoot: string) => Promise<T>,
@@ -39,4 +40,35 @@ export function fail(err: unknown): never {
 export async function currentWorkspaceId(client: DaemonClient): Promise<string> {
   const ws = await client.call<{ id: string }>('workspace.init', {});
   return ws.id;
+}
+
+/**
+ * The session standing at `cwd` (used by `cw notify` and `cw debug` when neither
+ * `--session` nor `$CW_SESSION_ID` names one): exact path match after canonicalising
+ * BOTH sides — the stored worktree path may be written `/var/...` where the shell
+ * stands at `/private/var/...` (macOS symlink), and a trailing slash or a symlink in
+ * between must not make a legitimate session unfindable.
+ */
+export function sessionForCwd(
+  rows: ReadonlyArray<{ name: string; worktreePath: string | null }>,
+  cwd: string,
+): string | undefined {
+  let here: string;
+  try {
+    here = realpathSync(cwd);
+  } catch {
+    here = cwd.replace(/\/+$/, '');
+  }
+  for (const row of rows) {
+    const raw = row.worktreePath;
+    if (raw === null || raw === '') continue;
+    let wt: string;
+    try {
+      wt = realpathSync(raw);
+    } catch {
+      continue;
+    }
+    if (wt === here) return row.name;
+  }
+  return undefined;
 }

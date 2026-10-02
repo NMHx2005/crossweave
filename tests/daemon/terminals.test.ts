@@ -91,4 +91,27 @@ describe('TerminalRegistry', () => {
     const reg = new TerminalRegistry(shell);
     expect(() => reg.subscribe('t_nope', recorder())).toThrow(/No such terminal/);
   });
+
+  // The rail's status for a session must include what its split panes do: the observer
+  // is the wire from a pane's shell to the status tracker (see methods.ts's wiring).
+  it('tells its observer a pane opened, streamed, took input, resized and exited', async () => {
+    const events: Array<[string, ...unknown[]]> = [];
+    const reg = new TerminalRegistry(shell, undefined, undefined, {
+      started: (terminalId, sessionId, cols, rows) => events.push(['started', terminalId, sessionId, cols, rows]),
+      output: (terminalId, chunk) => events.push(['output', terminalId, chunk]),
+      input: (terminalId, data) => events.push(['input', terminalId, data]),
+      resized: (terminalId, cols, rows) => events.push(['resized', terminalId, cols, rows]),
+      exited: (terminalId, code) => events.push(['exited', terminalId, code]),
+    });
+    const { terminalId } = reg.open(session('s1'));
+    await until(() => events.some(([m]) => m === 'started'));
+    reg.resize(terminalId, 100, 30);
+    reg.write(terminalId, 'echo observed\n');
+    await until(() => events.some(([m, , chunk]) => m === 'output' && String(chunk).includes('observed')));
+    expect(events).toContainEqual(['input', terminalId, 'echo observed\n']);
+    expect(events).toContainEqual(['resized', terminalId, 100, 30]);
+    expect(events.some(([m]) => m === 'started')).toBe(true);
+    reg.close(terminalId);
+    await until(() => events.some(([m]) => m === 'exited'));
+  });
 });

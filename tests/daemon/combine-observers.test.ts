@@ -51,7 +51,7 @@ describe('combineObservers', () => {
       output: () => undefined, input: () => undefined, exited: () => undefined,
     };
     const combined = combineObservers(a.observer, throwing, b.observer);
-    expect(() => combined.started('s_1')).not.toThrow();
+    expect(() => combined.started?.('s_1')).not.toThrow();
     expect(a.calls).toEqual(['started:s_1:undefined:undefined']);
     expect(b.calls).toEqual(['started:s_1:undefined:undefined']);
   });

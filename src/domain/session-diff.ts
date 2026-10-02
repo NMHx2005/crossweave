@@ -41,7 +41,16 @@ export function sessionDiff(
   projectRoot: string,
   branch: string,
   worktreePath: string | null,
-  opts: { maxPatchBytes?: number } = {},
+  opts: {
+    maxPatchBytes?: number;
+    /**
+     * Skip the unified diff (the debug bundle wants the diffstat only). Note: with
+     * `patch: false` the returned `patch` is '' and `truncated` is false — '' cannot
+     * distinguish "no diff" from "patch disabled"; a surface that shows a patch must
+     * not call this with patch off.
+     */
+    patch?: boolean;
+  } = {},
 ): SessionDiff {
   const ref = `refs/heads/${branch}`;
   let from: string;
@@ -68,15 +77,19 @@ export function sessionDiff(
   }
   files.sort((x, y) => x.path.localeCompare(y.path));
 
-  const max = opts.maxPatchBytes ?? DEFAULT_MAX_PATCH_BYTES;
-  const full = git(projectRoot, ['diff', '--no-renames', '--no-color', range]);
-  const buf = Buffer.from(full);
-  const truncated = buf.length > max;
-  // Cut on a line boundary so the last line shown is a whole line.
-  let patch = full;
-  if (truncated) {
-    const cut = buf.subarray(0, max).toString('utf8');
-    patch = cut.slice(0, cut.lastIndexOf('\n') + 1);
+  let patch = '';
+  let truncated = false;
+  if (opts.patch !== false) {
+    const max = opts.maxPatchBytes ?? DEFAULT_MAX_PATCH_BYTES;
+    const full = git(projectRoot, ['diff', '--no-renames', '--no-color', range]);
+    const buf = Buffer.from(full);
+    truncated = buf.length > max;
+    // Cut on a line boundary so the last line shown is a whole line.
+    patch = full;
+    if (truncated) {
+      const cut = buf.subarray(0, max).toString('utf8');
+      patch = cut.slice(0, cut.lastIndexOf('\n') + 1);
+    }
   }
 
   let uncommitted = 0;

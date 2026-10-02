@@ -75,6 +75,11 @@ const SCREEN_AGENTS: ReadonlySet<string> = new Set(['claude', 'codex', 'gemini']
 
 export class ActivityTracker {
   private readonly tracks = new Map<string, Track>();
+  /** Extra Terminal panes keyed by terminalId, folded into their session's status. */
+  private readonly childTracks = new Map<string, Track>();
+  private readonly childParent = new Map<string, string>();
+  /** session → its panes' terminalIds, so `status`/`sweep` never scan every pane. */
+  private readonly bySession = new Map<string, Set<string>>();
 
   constructor(
     private readonly now: () => number = () => Date.now(),
@@ -86,11 +91,76 @@ export class ActivityTracker {
 
   started(id: string, cols = 80, rows = 24): void {
     this.tracks.get(id)?.screen.dispose();
-    this.tracks.set(id, {
+    this.tracks.set(id, this.freshTrack(cols, rows));
+  }
+
+  private freshTrack(cols: number, rows: number): Track {
+    return {
       lastOutputAt: null, lastInputAt: null, workedSinceInput: false,
       bellSinceInput: false, failed: false, reported: 'idle',
       screen: new AgentScreen(cols, rows), screenSpoke: false, busySinceInput: false, lastBusyAt: null, signal: null, echoUntil: 0,
-    });
+    };
+  }
+
+  /**
+   * An extra Terminal pane of a session (a split): its own shell, therefore its own
+   * screen, echo window and bell — and often its own agent. Its track folds into the
+   * session's status (see `status`), so an agent the user started in a split pane still
+   * moves the rail row.
+   *
+   * Options object, not positional: sessionId and terminalId are both opaque strings —
+   * a swap would typecheck.
+   */
+  startedTerminal(opts: { sessionId: string; terminalId: string; cols?: number; rows?: number }): void {
+    const { sessionId, terminalId, cols = 80, rows = 24 } = opts;
+    this.childTracks.get(terminalId)?.screen.dispose();
+    this.childTracks.set(terminalId, this.freshTrack(cols, rows));
+    this.childParent.set(terminalId, sessionId);
+    let ids = this.bySession.get(sessionId);
+    if (ids === undefined) {
+      ids = new Set();
+      this.bySession.set(sessionId, ids);
+    }
+    ids.add(terminalId);
+  }
+
+  terminalOutput(terminalId: string, chunk: string): void {
+    const t = this.childTracks.get(terminalId);
+    if (t === undefined) return;
+    if (this.now() >= t.echoUntil) {
+      t.lastOutputAt = this.now();
+      t.workedSinceInput = true;
+    }
+    if (rings(chunk)) t.bellSinceInput = true;
+    t.screen.write(chunk);
+  }
+
+  terminalInput(terminalId: string, data?: string): void {
+    const t = this.childTracks.get(terminalId);
+    if (t === undefined) return;
+    this.noteInput(t, data);
+    // The user is present in this session (they typed in one of its panes): a `cw
+    // notify` word left on the row is answered, not pending.
+    const parent = this.childParent.get(terminalId);
+    if (parent !== undefined) {
+      const p = this.tracks.get(parent);
+      if (p !== undefined) p.signal = null;
+    }
+  }
+
+  terminalResized(terminalId: string, cols: number, rows: number): void {
+    this.childTracks.get(terminalId)?.screen.resize(cols, rows);
+  }
+
+  /** The pane is gone; its shell's exit code must not mark the session `failed`. */
+  terminalExited(terminalId: string): void {
+    this.childTracks.get(terminalId)?.screen.dispose();
+    this.childTracks.delete(terminalId);
+    const sessionId = this.childParent.get(terminalId);
+    if (sessionId !== undefined) {
+      this.childParent.delete(terminalId);
+      this.bySession.get(sessionId)?.delete(terminalId);
+    }
   }
 
   output(id: string, chunk: string): void {
@@ -113,6 +183,11 @@ export class ActivityTracker {
   input(id: string, data?: string): void {
     const t = this.tracks.get(id);
     if (t === undefined) return;
+    this.noteInput(t, data);
+  }
+
+  /** Shared by a session's own input and an extra pane's input: same echo rules. */
+  private noteInput(t: Track, data?: string): void {
     t.lastInputAt = this.now();
     t.echoUntil = data !== undefined && !/[\r\n]/.test(data) ? this.now() + ECHO_WINDOW_MS : 0;
     t.workedSinceInput = false;
@@ -144,16 +219,56 @@ export class ActivityTracker {
   forget(id: string): void {
     this.tracks.get(id)?.screen.dispose();
     this.tracks.delete(id);
+    // A session's panes are deliberately NOT forgotten here: they are separate shells
+    // that may outlive the session's own track (the shell stopped, the panes did not),
+    // and the row must not go blind to them. `closeForSession` removes the panes
+    // themselves, through the observer, in every removal path.
   }
 
-  status(id: string, agent: string | null): SessionStatus {
+  /**
+   * `terminalAgentOf` is required, not optional: a caller that omits it would silently
+   * fold its panes in as agent-less plain shells (screen words unread). Passing one
+   * even when no panes exist costs nothing.
+   */
+  status(id: string, agent: string | null, terminalAgentOf: (terminalId: string) => string | null): SessionStatus {
     const t = this.tracks.get(id);
-    if (t === undefined) return { activity: 'idle', lastActivityAt: null, rang: false };
-    const lastActivityAt = Math.max(t.lastOutputAt ?? -1, t.lastInputAt ?? -1);
+    // No track (never started, or the daemon restarted and the session has not been):
+    // the panes' activity is still the row's truth.
+    const own = t === undefined ? { activity: 'idle' as Activity, rang: false } : this.judge(t, agent);
+    let activity: Activity = own.activity;
+    let rang = own.rang;
+    let lastActivityAt = t === undefined ? -1 : Math.max(t.lastOutputAt ?? -1, t.lastInputAt ?? -1);
+    for (const terminalId of this.bySession.get(id) ?? []) {
+      const child = this.childTracks.get(terminalId);
+      if (child === undefined) continue;
+      const childStatus = this.judge(child, terminalAgentOf(terminalId));
+      // Priority on one row: a session shell that died non-zero > a pane asking for the
+      // user (ring/permission prompt) > a pane working > a finished turn > idle. A pane
+      // working cannot downgrade an explicit `cw notify` word, though: the signal was
+      // the session speaking for itself.
+      const signalPresent = t !== undefined && t.signal !== null;
+      if (!signalPresent) {
+        if (childStatus.rang && activity !== 'failed') {
+          activity = 'asked';
+          rang = true;
+        } else if (childStatus.activity === 'working' && activity !== 'failed' && !rang) {
+          activity = 'working';
+        } else if (childStatus.activity === 'asked' && activity === 'idle') {
+          activity = 'asked';
+        }
+      }
+      lastActivityAt = Math.max(lastActivityAt, child.lastOutputAt ?? -1, child.lastInputAt ?? -1);
+    }
+    if (t === undefined) return { activity, lastActivityAt: lastActivityAt < 0 ? null : lastActivityAt, rang };
+    return { activity, lastActivityAt: lastActivityAt < 0 ? null : lastActivityAt, rang, ...(t.signal === null ? {} : { signal: t.signal }) };
+  }
+
+  /** One track's activity and whether it is waiting for the user, not merely done. */
+  private judge(t: Track, agent: string | null): { activity: Activity; rang: boolean } {
     const activity = this.activityOf(t, agent);
     // A permission prompt on screen asks as surely as a bell does.
     const rang = t.bellSinceInput || (activity === 'asked' && agent !== null && (t.screenSpoke || SCREEN_AGENTS.has(agent)) && ASKING_ON_SCREEN.test(t.screen.nearCursor()));
-    return { activity, lastActivityAt: lastActivityAt < 0 ? null : lastActivityAt, rang, ...(t.signal === null ? {} : { signal: t.signal }) };
+    return { activity, rang };
   }
 
   private activityOf(t: Track, agent: string | null): Activity {
@@ -183,11 +298,16 @@ export class ActivityTracker {
     return 'idle';
   }
 
-  /** Ids whose activity changed since the last sweep. */
-  sweep(agentOf: (id: string) => string | null): string[] {
+  /**
+   * Ids whose activity changed since the last sweep. `agentOf` serves the session
+   * shells' tracks; `terminalAgentOf` the extra panes' shells (a `t…` id, distinct
+   * from a session's `s…`). Sweeping the aggregates keeps one truth: a pane moving a
+   * session announces the session, not itself.
+   */
+  sweep(agentOf: (id: string) => string | null, terminalAgentOf: (terminalId: string) => string | null): string[] {
     const changed: string[] = [];
     for (const [id, t] of this.tracks) {
-      const now = this.activityOf(t, agentOf(id));
+      const now = this.status(id, agentOf(id), terminalAgentOf).activity;
       if (now !== t.reported) {
         t.reported = now;
         changed.push(id);

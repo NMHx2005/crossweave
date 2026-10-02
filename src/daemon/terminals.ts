@@ -51,6 +51,19 @@ interface OpenTerminal extends TerminalInfo {
   restored: boolean;
 }
 
+/**
+ * A pane's life, told to the status tracker (`src/daemon/session-status.ts`): an agent
+ * typed into a split pane is as real as one in the session's own shell, and the rail
+ * must not miss it. All optional — a registry built without an observer behaves as before.
+ */
+export interface TerminalObserver {
+  started?(terminalId: string, sessionId: string, cols: number, rows: number): void;
+  output?(terminalId: string, chunk: string): void;
+  input?(terminalId: string, data?: string): void;
+  resized?(terminalId: string, cols: number, rows: number): void;
+  exited?(terminalId: string, code: number): void;
+}
+
 function notifyAll(subscribers: Iterable<MethodContext>, method: string, params: unknown): void {
   for (const sub of subscribers) {
     try {
@@ -78,6 +91,8 @@ export class TerminalRegistry {
     /** Called whenever the set of terminals changes, so clients can redraw. */
     private readonly onChange?: () => void,
     private readonly persist?: PersistDeps,
+    /** Told everything a pane's shell does, for status inference. See TerminalObserver. */
+    private readonly observer?: TerminalObserver,
   ) {}
 
   /** True while the daemon is going down: terminals ending then are kept for the next start. */
@@ -137,8 +152,12 @@ export class TerminalRegistry {
       exited: new Promise<void>((r) => { resolveExited = r; }),
     };
     this.open_.set(terminalId, entry);
+    // The grid the shell was born with: the same contract as a session's own pty
+    // (spawned 80×24, the client fits and resizes at once — see runtime.ts).
+    this.observer?.started?.(terminalId, session.id, 80, 24);
 
     proc.onData((chunk) => {
+      this.observer?.output?.(terminalId, chunk);
       entry.scrollback = (entry.scrollback + chunk).slice(-SCROLLBACK_LIMIT);
       entry.dirty = true;
       for (const sub of entry.subscribers) entry.out.push(sub, chunk);
@@ -147,6 +166,7 @@ export class TerminalRegistry {
       // Bookkeeping before notifying: a throwing subscriber must not leave a dead
       // shell listed (the same ordering SessionRuntime learned the hard way).
       this.open_.delete(terminalId);
+      this.observer?.exited?.(terminalId, code);
       // A terminal that ended (or was closed) is gone for good; only the daemon going down keeps its row.
       if (!this.shuttingDown) this.persist?.repo.delete(terminalId);
       resolveExited();
@@ -186,10 +206,26 @@ export class TerminalRegistry {
 
   write(terminalId: string, data: string): void {
     this.require(terminalId).proc.write(data);
+    // Every write counts as "the user is present", app-injected text included: a
+    // "Send to session" prompt IS the person speaking, and it must clear a stale
+    // `cw notify` word like a keystroke does. (A deliberate decision, 2026-10-01.)
+    this.observer?.input?.(terminalId, data);
   }
 
   resize(terminalId: string, cols: number, rows: number): void {
     this.require(terminalId).proc.resize(cols, rows);
+    this.observer?.resized?.(terminalId, cols, rows);
+  }
+
+  /**
+   * The pane shells' pids, for the `ps` agent sweep (a pane's agent is a child of its
+   * shell). A spawn failure throws, so `pid` is a real process; the guard is for an
+   * adapter that ever hands back something else.
+   */
+  processes(): Array<{ terminalId: string; sessionId: string; pid: number }> {
+    return [...this.open_.values()]
+      .filter((t) => Number.isFinite(t.proc.pid) && t.proc.pid > 0)
+      .map((t) => ({ terminalId: t.terminalId, sessionId: t.sessionId, pid: t.proc.pid }));
   }
 
   /** Hang up the shell and wait until it is gone, escalating if it ignores SIGHUP. */

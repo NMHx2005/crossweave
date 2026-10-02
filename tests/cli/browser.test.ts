@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { BROWSER_CONTROL_TIMEOUT_MS, buildBrowserRequest, formatBrowserResult } from '../../src/cli/commands/browser.js';
+import { BROWSER_CONTROL_TIMEOUT_MS, buildBrowserRequest, buildBrowserRequests, formatBrowserErrors, formatBrowserResult } from '../../src/cli/commands/browser.js';
 
 const build = (sub: string, positionals: string[] = [], flags: Record<string, string | boolean | undefined> = {}) => buildBrowserRequest(sub, positionals, flags);
 const codeOf = (fn: () => unknown): string => { try { fn(); return 'ok'; } catch (e) { return (e as { code?: string }).code ?? 'no-code'; } };
@@ -53,5 +53,30 @@ describe('formatBrowserResult', () => {
   it('prints an object on one line', () => {
     expect(formatBrowserResult('eval', { value: 42 })).toBe('{"value":42}');
     expect(formatBrowserResult('click', { ok: true })).toBe('{"ok":true}');
+  });
+});
+
+describe('cw browser errors (console errors + failed requests together)', () => {
+  it('asks for both, one bridge call each, sharing pane/since/limit', () => {
+    expect(buildBrowserRequests('errors', [], { pane: 'p2', since: '5', limit: '3' })).toEqual([
+      { kind: 'browser.console', params: { pane: 'p2', since: 5, limit: 3, level: 'error' }, timeoutMs: 10_000 },
+      { kind: 'browser.network', params: { pane: 'p2', since: 5, limit: 3, failed: true }, timeoutMs: 10_000 },
+    ]);
+  });
+
+  it('every other sub is still one call', () => {
+    expect(buildBrowserRequests('list', [], {})).toHaveLength(1);
+    expect(buildBrowserRequests('console', [], { level: 'error' })[0]).toMatchObject({ kind: 'browser.console' });
+  });
+
+  it('tags each row with its source, one JSON object per line', () => {
+    expect(formatBrowserErrors([
+      { source: 'console', rows: [{ level: 'error', text: 'boom' }] },
+      { source: 'network', rows: [{ url: '/x', failed: true }] },
+    ])).toBe('{"source":"console","level":"error","text":"boom"}\n{"source":"network","url":"/x","failed":true}');
+  });
+
+  it('is empty when there is nothing to show', () => {
+    expect(formatBrowserErrors([{ source: 'console', rows: [] }, { source: 'network', rows: [] }])).toBe('');
   });
 });

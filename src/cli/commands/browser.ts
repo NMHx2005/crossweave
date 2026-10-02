@@ -66,6 +66,39 @@ export function buildBrowserRequest(sub: string, positionals: readonly string[],
   }
 }
 
+/**
+ * The bridge calls a `cw browser <sub> …` line stands for: usually one, but `errors`
+ * is the convenience PAIR — the page's console errors and its failed requests — that
+ * the debug loop wants together. Kept as two calls so each kind keeps its own
+ * permission check in the cockpit; the caller merges them.
+ */
+export function buildBrowserRequests(sub: string, positionals: readonly string[], flags: Readonly<Record<string, string | boolean | undefined>>): BrowserRequest[] {
+  if (sub === 'errors') {
+    const str = (k: string): string | undefined => (typeof flags[k] === 'string' ? (flags[k] as string) : undefined);
+    const pane = str('pane');
+    const common = defined({
+      ...(pane === undefined ? {} : { pane }),
+      since: number('since', str('since')),
+      limit: number('limit', str('limit')),
+    });
+    return [
+      { kind: 'browser.console', params: { ...common, level: 'error' }, timeoutMs: READ_TIMEOUT_MS },
+      { kind: 'browser.network', params: { ...common, failed: true }, timeoutMs: READ_TIMEOUT_MS },
+    ];
+  }
+  return [buildBrowserRequest(sub, positionals, flags)];
+}
+
+/** `errors` output: every row tagged with where it came from, one JSON object per line. */
+export function formatBrowserErrors(sources: ReadonlyArray<{ source: 'console' | 'network'; rows: unknown }>): string {
+  const out: unknown[] = [];
+  for (const { source, rows } of sources) {
+    if (!Array.isArray(rows)) continue;
+    for (const row of rows) out.push({ source, ...(typeof row === 'object' && row !== null ? (row as Record<string, unknown>) : { value: row }) });
+  }
+  return out.map((r) => JSON.stringify(r)).join('\n');
+}
+
 /** One JSON object per line, so a script or an agent can read it as a stream. `shot` prints just the path. */
 export function formatBrowserResult(sub: string, result: unknown): string {
   if (sub === 'shot' && typeof (result as { path?: unknown } | null)?.path === 'string') return (result as { path: string }).path;
@@ -81,11 +114,23 @@ function sub(name: string, description: string, args: ArgsDef) {
       try {
         const a = given as unknown as Record<string, string | boolean | undefined>;
         const positionals = [a['first'], a['second']].filter((v): v is string => typeof v === 'string');
-        const req = buildBrowserRequest(name, positionals, a);
+        const reqs = buildBrowserRequests(name, positionals, a);
         await withClient(async (client) => {
           const workspaceId = await currentWorkspaceId(client);
-          const result = await bridgeCall(client, workspaceId, req.kind, req.params, req.timeoutMs);
-          const out = formatBrowserResult(name, result);
+          if (reqs.length === 1) {
+            const req = reqs[0] as BrowserRequest;
+            const result = await bridgeCall(client, workspaceId, req.kind, req.params, req.timeoutMs);
+            const out = formatBrowserResult(name, result);
+            if (out !== '') process.stdout.write(`${out}\n`);
+            return;
+          }
+          // `errors`: both kinds, tagged by source so the caller knows which is which.
+          const sources: Array<{ source: 'console' | 'network'; rows: unknown }> = [];
+          for (const req of reqs) {
+            const rows = await bridgeCall(client, workspaceId, req.kind, req.params, req.timeoutMs);
+            sources.push({ source: req.kind === 'browser.console' ? 'console' : 'network', rows });
+          }
+          const out = formatBrowserErrors(sources);
           if (out !== '') process.stdout.write(`${out}\n`);
         });
       } catch (err) { fail(err); }
@@ -103,6 +148,7 @@ export const browserCommand = defineCommand({
   subCommands: {
     list: sub('list', 'The Browser panes of this project and their access level', {}),
     console: sub('console', 'The page\'s console (needs Read)', { level: { type: 'string', description: 'error | warn | info | all' }, since: { type: 'string', description: 'Only entries at or after this time (ms since epoch)' }, limit: { type: 'string', description: 'Newest N (default 50)' } }),
+    errors: sub('errors', 'The console errors and the failed requests together — what the debug loop reads (needs Read)', { since: { type: 'string', description: 'Only entries at or after this time (ms since epoch)' }, limit: { type: 'string', description: 'Newest N per source (default 50)' } }),
     network: sub('network', 'Requests the page made: metadata only, tokens in URLs redacted (needs Read)', { failed: { type: 'boolean', description: 'Only failed requests' }, since: { type: 'string', description: 'ms since epoch' }, limit: { type: 'string', description: 'Newest N (default 50)' } }),
     dom: sub('dom', 'The rendered text of the page or a selector (needs Read; not redacted)', { selector: { type: 'string', description: 'CSS selector (default: the body)' }, max: { type: 'string', description: 'Character cap (default 20000)' } }),
     shot: sub('shot', 'A screenshot; prints the path of the PNG (needs Read; not redacted)', { selector: { type: 'string', description: 'CSS selector to capture' } }),

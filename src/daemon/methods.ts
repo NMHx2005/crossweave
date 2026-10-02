@@ -44,6 +44,8 @@ import { DiskTracker } from './disk-usage.js';
 import { LeaseRepo } from '../db/repositories/lease.js';
 import { spawnShell } from '../adapters/shell.js';
 import { latestWords } from '../domain/agent-logs.js';
+import { ErrorLines } from './error-lines.js';
+import { redactSecrets } from '../core/redact-secrets.js';
 import { listFolderFiles, listWorktreeFiles, readWorktreeFile, writeWorktreeFile } from '../domain/worktree-files.js';
 import { BUILTIN_LAUNCHERS, loadSettings, saveSettings, type LauncherDef, type UserSettings } from '../core/settings.js';
 import { TerminalRegistry } from './terminals.js';
@@ -177,6 +179,8 @@ export function buildMethods(
     shell?: string;
     /** The status tracker's clock, injected so tests never wait on real time. */
     now?: () => number;
+    /** Test seam: hands over `sweepStatus` so a test can run one sweep on its own schedule. */
+    exposeSweep?: (sweepStatus: () => Promise<void>) => void;
   } = {},
 ): Record<string, MethodHandler> {
   const workspaces = new WorkspaceManager(db);
@@ -225,6 +229,11 @@ export function buildMethods(
   // catch.
   reconcile(db, projectRoot);
 
+  // Build/test error lines from each session's terminal stream (a heuristic; see
+  // src/daemon/error-lines.ts): one of the debug bundle's inputs. Bounded in RAM;
+  // dies with the daemon like every other debug state.
+  const errorLines = new ErrorLines();
+
   // Sweep worktrees a previous daemon orphaned. ORPHANS ONLY, deliberately: `cw
   // session kill` without `--rm-worktree` leaves a session `dead` with its worktree
   // and branch intact because M4's `cw land` needs them, so reclaiming ended sessions
@@ -263,7 +272,7 @@ export function buildMethods(
     // A shell that exits on its own (`exit`, a crash) is a status change no RPC
     // announced; every client kept showing it `running` until something else redrew.
     broadcastRegistry.broadcast('tui.invalidate', {});
-  }, combineObservers(activity, setupExitWatcher));
+  }, combineObservers(activity, setupExitWatcher, { output: (sessionId, chunk) => errorLines.observe(sessionId, chunk) }));
   sessions.onKill = (id) => runtime.stop(id);
 
   /**
@@ -285,41 +294,19 @@ export function buildMethods(
     onChange: () => broadcastRegistry.broadcast('tui.invalidate', {}),
     markAtFinish: (id, cwd) => gitCounts.readNow(id, cwd, cwd === projectRoot ? null : readBaseHead(projectRoot)),
   });
-  let sweeping = false;
-  async function sweepStatus(): Promise<void> {
-    if (sweeping) return;
-    sweeping = true;
-    try {
-      const pids = runtime.pids();
-      let agentsChanged = false;
-      if (pids.size > 0) {
-        const ps = await new Promise<string>((resolve) => {
-          execFile('ps', ['-A', '-o', 'pid=,ppid=,args='], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 },
-            (err, stdout) => resolve(err ? '' : String(stdout)));
-        });
-        for (const [id, agent] of detectAgents(ps, pids)) {
-          if (agents.get(id) !== agent) {
-            agents.set(id, agent);
-            agentsChanged = true;
-          }
-        }
-      }
-      for (const id of [...agents.keys()]) if (!pids.has(id)) agents.delete(id);
-      const changed = activity.sweep((id) => agents.get(id) ?? null);
-      if (agentsChanged || changed.length > 0) broadcastRegistry.broadcast('tui.invalidate', {});
-    } finally {
-      sweeping = false;
-    }
-  }
-  const statusTimer = opts.startBackgroundJobs === true
-    ? setInterval(() => { void sweepStatus(); }, STATUS_SWEEP_MS)
-    : undefined;
-
   // Whether terminals are kept across a restart: the user's setting (off by default), read each time.
   // Only a real daemon consults the settings file; the methods a test builds never do.
   const persistTerminals = opts.terminalPersistence ?? (opts.startBackgroundJobs === true ? () => loadSettings().persistence?.terminals === true : () => false);
 
   // Extra shells in a session's worktree (split panes), beside the session's own.
+  // Their panes feed the status tracker like the session's own shell does, so an agent
+  // typed into a split pane still moves the rail row; their shell pids join the `ps`
+  // sweep (sweepStatus below, declared after this on purpose — it runs on a timer,
+  // never during this build).
+  const terminalAgents = new Map<string, string | null>();
+  // A pane's terminalId → its session: pane output joins the SESSION's error lines
+  // (the bundle is per session; the pane is the session's shell, elsewhere).
+  const terminalSessions = new Map<string, string>();
   const terminals = new TerminalRegistry((row) => spawnShell({
     shell: opts.shell ?? process.env.SHELL ?? '/bin/sh',
     cwd: row.worktreePath as string,
@@ -329,11 +316,93 @@ export function buildMethods(
     enabled: persistTerminals,
     repo: new TerminalRepo(db),
     harden: () => hardenStateFiles(crossweaveDir(projectRoot)),
+  }, {
+    started: (terminalId, sessionId, cols, rows) => {
+      activity.startedTerminal({ sessionId, terminalId, cols, rows });
+      terminalSessions.set(terminalId, sessionId);
+    },
+    output: (terminalId, chunk) => {
+      activity.terminalOutput(terminalId, chunk);
+      const sessionId = terminalSessions.get(terminalId);
+      if (sessionId !== undefined) errorLines.observe(sessionId, chunk);
+    },
+    input: (terminalId, data) => activity.terminalInput(terminalId, data),
+    resized: (terminalId, cols, rows) => activity.terminalResized(terminalId, cols, rows),
+    exited: (terminalId) => {
+      activity.terminalExited(terminalId);
+      terminalAgents.delete(terminalId);
+      terminalSessions.delete(terminalId);
+    },
   });
   // A daemon that was stopped left its terminals' rows behind when persistence was on: reopen them.
   if (opts.startBackgroundJobs === true) {
     terminals.restore(new TerminalRepo(db).listAll(), (id) => sessionsRepo.findById(id));
   }
+
+  /**
+   * One sweep: which agent runs under each shell — a session's own and its panes' (a
+   * single `ps` for all of them) — then whose activity changed. Clients redraw on a
+   * change only — a session that keeps working keeps its state and costs no broadcast.
+   */
+  let sweeping = false;
+  async function sweepStatus(): Promise<void> {
+    if (sweeping) return;
+    sweeping = true;
+    try {
+      const pids = runtime.pids();
+      const panes = terminals.processes();
+      const paneIds = new Set(panes.map((pane) => pane.terminalId));
+      let agentsChanged = false;
+      if (pids.size > 0 || panes.length > 0) {
+        const ps = await new Promise<string>((resolve) => {
+          execFile('ps', ['-A', '-o', 'pid=,ppid=,args='], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 },
+            (err, stdout) => resolve(err ? '' : String(stdout)));
+        });
+        // One `ps` for everything: sessions' shells keyed by `s…` id, panes' shells by `t…` id.
+        const shells = new Map(pids);
+        for (const pane of panes) shells.set(pane.terminalId, pane.pid);
+        for (const [id, agent] of detectAgents(ps, shells)) {
+          const into = paneIds.has(id) ? terminalAgents : agents;
+          if (into.get(id) !== agent) {
+            into.set(id, agent);
+            agentsChanged = true;
+          }
+        }
+      }
+      for (const id of [...agents.keys()]) if (!pids.has(id)) agents.delete(id);
+      for (const id of [...terminalAgents.keys()]) if (!paneIds.has(id)) terminalAgents.delete(id);
+      const changed = activity.sweep(
+        (id) => agents.get(id) ?? null,
+        (terminalId) => terminalAgents.get(terminalId) ?? null,
+      );
+      if (agentsChanged || changed.length > 0) broadcastRegistry.broadcast('tui.invalidate', {});
+    } finally {
+      sweeping = false;
+    }
+  }
+  const statusTimer = opts.startBackgroundJobs === true
+    ? setInterval(() => { void sweepStatus(); }, STATUS_SWEEP_MS)
+    : undefined;
+  // The sweep seam for tests: `daemon.shutdown` ends in process.exit, so a test cannot
+  // keep a real interval timer; handing the function over lets a test run one sweep
+  // when it has arranged its processes. No caller in production.
+  opts.exposeSweep?.(sweepStatus);
+
+  /**
+   * The agent a row names: the one under the session's own shell, else one running in
+   * one of its panes. A pane that stopped its agent reports null for itself — the row
+   * then says what is actually left running, not a name that exited.
+   */
+  const agentForRow = (sessionId: string): string | null => {
+    const own = agents.get(sessionId);
+    if (own !== null && own !== undefined) return own;
+    for (const pane of terminals.processes()) {
+      if (pane.sessionId !== sessionId) continue;
+      const agent = terminalAgents.get(pane.terminalId);
+      if (agent !== null && agent !== undefined) return agent;
+    }
+    return null;
+  };
 
   /** The worktree of the session a file RPC names; it must still be on disk. */
   function sessionWorktree(p: Record<string, unknown>): string {
@@ -569,8 +638,11 @@ export function buildMethods(
         allPaths.push(...paths);
         const figures = paths.map((path) => diskTracker.get(path));
         const measured = !shared && paths.length > 0 && figures.every((f) => f !== undefined);
-        const agent = agents.get(row.id) ?? null;
-        const live = activity.status(row.id, agent);
+        // Two different agents: the row DISPLAYS the best-known one (a pane's counts);
+        // the session's own track is judged by ITS shell's agent only — a pane's agent
+        // must not make the bare shell's screen read as an agent's.
+        const agent = agentForRow(row.id);
+        const live = activity.status(row.id, agents.get(row.id) ?? null, (terminalId) => terminalAgents.get(terminalId) ?? null);
         const git = gitCounts.get(row.id);
         const used = usage.get(row.id);
         return {
@@ -714,8 +786,8 @@ export function buildMethods(
         const words = session.worktreePath !== null && session.worktreePath !== projectRoot
           ? latestWords({ home: userHome(), cwd: session.worktreePath })
           : undefined;
-        const agent = agents.get(session.id) ?? null;
-        const status = activity.status(session.id, agent);
+        const agent = agentForRow(session.id);
+        const status = activity.status(session.id, agents.get(session.id) ?? null, (terminalId) => terminalAgents.get(terminalId) ?? null);
         const git = gitCounts.get(session.id);
         const overlaps = overlap.get(session.id);
         const ownWorktree = session.worktreePath !== null && session.worktreePath !== projectRoot;
@@ -793,7 +865,10 @@ export function buildMethods(
       const removeWorktree = bool(p, 'removeWorktree', false);
       // Killing keeps the worktree (it can still be landed), and a shell there is
       // still useful; only a kill that deletes it takes the shells first.
-      if (removeWorktree) await terminals.closeForSession(row.id);
+      if (removeWorktree) {
+        await terminals.closeForSession(row.id);
+        errorLines.forget(row.id);
+      }
       const warnings = await sessions.kill(str(p, 'workspaceId'), str(p, 'idOrName'), {
         removeWorktree,
         onBeforeRemove: (r) => teardownFor(r),
@@ -804,6 +879,7 @@ export function buildMethods(
     'session.rm': async (p) => {
       const row = sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName'));
       await terminals.closeForSession(row.id);
+      errorLines.forget(row.id);
       // Teardown is run by `remove`, AFTER its liveness refusal: a live session's
       // `rm` must be refused without a teardown's side effects (see SessionManager.remove).
       // No explicit sessionSetup.clear here: session_setup.session_id is
@@ -860,6 +936,50 @@ export function buildMethods(
         throw new CrossweaveError('DIFF_UNAVAILABLE', `${row.name} works in the shared checkout; it has no branch of its own to diff.`);
       }
       return sessionDiff(projectRoot, row.branch, row.worktreePath);
+    },
+
+    /**
+     * The debug bundle (`cw debug`, the Debug tab): the check verdict with its tail,
+     * the error lines the terminal streams showed (a heuristic — see error-lines.ts),
+     * the diffstat, and the agent's latest words. Secrets scrubbed before the text
+     * leaves the daemon (heuristic too — `raw` is the user's explicit opt-out).
+     */
+    'session.debug': (p) => {
+      const row = sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName'));
+      const scrub = (text: string): string => (p['raw'] === true ? text : redactSecrets(text));
+      const agent = agentForRow(row.id);
+      const live = activity.status(row.id, agents.get(row.id) ?? null, (terminalId) => terminalAgents.get(terminalId) ?? null);
+      const git = gitCounts.get(row.id) ?? null;
+      const check = checks.get(row.id, git, live.lastActivityAt);
+      const ownWorktree = row.worktreePath !== null && row.worktreePath !== projectRoot;
+      const words = row.worktreePath !== null && row.worktreePath !== projectRoot
+        ? latestWords({ home: userHome(), cwd: row.worktreePath })
+        : undefined;
+      let files: Array<{ path: string; status: string; added: number; deleted: number }> = [];
+      let uncommitted = 0;
+      let total = 0;
+      if (hasGit && row.branch !== null) {
+        try {
+          const diff = sessionDiff(projectRoot, row.branch, row.worktreePath, { patch: false });
+          total = diff.files.length;
+          // Top churn, server-side: the RPC never carries a whole repo's diff.
+          files = [...diff.files].sort((a, b) => (b.added + b.deleted) - (a.added + a.deleted)).slice(0, 50);
+          uncommitted = diff.uncommitted;
+        } catch {
+          // No branch/base to diff against (a plain folder, a landed session): the
+          // rest of the bundle still stands.
+        }
+      }
+      return {
+        session: { id: row.id, name: row.name, status: row.status, branch: row.branch === null ? null : scrub(row.branch), worktreePath: row.worktreePath === null ? null : scrub(row.worktreePath) },
+        agent,
+        activity: live.activity,
+        lastActivityAt: live.lastActivityAt,
+        ...(check === undefined ? {} : { check: { ...check, ...(check.tail === undefined ? {} : { tail: scrub(check.tail) }) } }),
+        errors: errorLines.lines(row.id).map((l) => ({ at: l.at, line: scrub(l.line) })),
+        diff: { files: files.map((f) => ({ ...f, path: scrub(f.path) })), total, uncommitted },
+        ...(words === undefined ? {} : { latestWords: scrub(words) }),
+      };
     },
 
     // The launchers a new session can start with, and whether this machine has each
@@ -1088,6 +1208,7 @@ export function buildMethods(
       const target = sessions.resolve(workspaceId, str(p, 'idOrName'));
       // Landing removes the worktree the session's shells are sitting in.
       await terminals.closeForSession(target.id);
+      errorLines.forget(target.id);
       const force = bool(p, 'force', false);
       // `landSession` only has raw `SessionRepo` access and cannot reach the running
       // agent process — stopping it here, before landing, is what makes `--force`
