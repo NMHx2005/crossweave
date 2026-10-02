@@ -2,34 +2,39 @@ import { useEffect, useRef, useState } from 'preact/hooks'
 import type { Ref } from 'preact'
 import { debugCheckLine, sendableText, type DebugBundle } from '../lib/debug-pane'
 import { plainErrorMessage } from '../lib/cockpit-host'
+import type { BrowserErrorRow } from '../../../../src/core/browser-agent/errors.js'
 
 type DebugPaneProps = {
   sessionName: string
   /** Changes whenever the session list does, so the bundle refetches after new work. */
   revision: number
   loadDebug: () => Promise<DebugBundle>
+  /** The project's readable browser panes' errors, served by main; absent: no browser section. */
+  loadBrowserErrors?: () => Promise<BrowserErrorRow[]>
   /** Drafts the sendable text into the composer for this session (the preview still shows). */
   onSend: (text: string) => void
 }
 
 /**
- * The session's debug bundle in one pane: the check verdict with its failing tail,
- * the errors the terminal streams showed (the daemon's heuristic — labelled), the
- * diffstat, and the agent's latest words. "Send to session" drafts the failing text
- * into the composer — nothing is typed anywhere until the person sends it.
+ * The session's debug bundle in one pane: the check verdict with its failing tail, the
+ * errors the terminal streams showed and the browser panes' own errors (both heuristics,
+ * labelled), the diffstat, and the agent's latest words. "Send to session" drafts the
+ * failing text into the composer — nothing is typed anywhere until the person sends it.
  *
- * The fetch is GATED on visibility + revision: the bundle costs the daemon a git
- * diff and an agent-log read, and hidden panes must not re-run that on every rail
- * invalidate. Becoming visible fetches once; a Refresh button says so on demand.
+ * The fetch is GATED on visibility + revision: the bundle costs the daemon a git diff
+ * and an agent-log read, and hidden panes must not re-run that on every rail invalidate.
+ * Becoming visible fetches once; a Refresh button says so on demand.
  */
 /**
  * The bundle's presentation, PURE (no hooks): the sections, the Send button, the
  * empty/error states — testable by walking the tree, as the house does.
  */
-export function DebugBundleView({ bundle, error, onSend, stale = false, onRefresh, rootRef }: {
+export function DebugBundleView({ bundle, error, onSend, browserErrors = [], stale = false, onRefresh, rootRef }: {
   bundle: DebugBundle | null
   error: string | null
   onSend: (text: string) => void
+  /** The project's browser panes' console errors and failed requests, from main. */
+  browserErrors?: readonly BrowserErrorRow[]
   /** The revision moved while this pane was hidden: the numbers are old. */
   stale?: boolean
   onRefresh?: () => void
@@ -41,7 +46,7 @@ export function DebugBundleView({ bundle, error, onSend, stale = false, onRefres
   if (bundle === null) {
     return <div class="cockpit-debug" ref={rootRef}><p class="cockpit-debug__empty">Reading the session…</p></div>
   }
-  const send = sendableText(bundle)
+  const send = sendableText(bundle, browserErrors)
   const capped = bundle.diff.files.length < bundle.diff.total
   return (
     <div class="cockpit-debug" ref={rootRef}>
@@ -60,23 +65,30 @@ export function DebugBundleView({ bundle, error, onSend, stale = false, onRefres
               {debugCheckLine(bundle.check)}
             </p>
             {bundle.check.tail !== undefined && bundle.check.tail.trim() !== '' ? (
-              <>
-                <pre class="cockpit-debug__tail">{bundle.check.tail.trimEnd()}</pre>
-                {send !== undefined ? <button type="button" class="cockpit-btn" onClick={() => onSend(send)}>Send to session…</button> : null}
-              </>
+              <pre class="cockpit-debug__tail">{bundle.check.tail.trimEnd()}</pre>
             ) : null}
           </>
         )}
       </section>
+      {send !== undefined ? <button type="button" class="cockpit-btn" onClick={() => onSend(send)}>Send to session…</button> : null}
       {bundle.errors.length > 0 ? (
         <section class="cockpit-debug__section">
           <h4 class="cockpit-debug__label">errors seen in the terminal (heuristic)</h4>
           <ul class="cockpit-debug__errors">
             {bundle.errors.map((e) => <li key={`${e.at}:${e.line}`} class="cockpit-debug__error">{e.line}</li>)}
           </ul>
-          {send !== undefined && bundle.check?.tail === undefined ? (
-            <button type="button" class="cockpit-btn" onClick={() => onSend(send)}>Send to session…</button>
-          ) : null}
+        </section>
+      ) : null}
+      {browserErrors.length > 0 ? (
+        <section class="cockpit-debug__section">
+          <h4 class="cockpit-debug__label">browser errors (heuristic)</h4>
+          <ul class="cockpit-debug__errors">
+            {browserErrors.map((e) => (
+              <li key={`${e.paneId}:${e.source}:${e.t}`} class="cockpit-debug__error">
+                {e.source === 'network' ? '⇢ ' : ''}{e.text}
+              </li>
+            ))}
+          </ul>
         </section>
       ) : null}
       <section class="cockpit-debug__section">
@@ -105,11 +117,13 @@ export function DebugBundleView({ bundle, error, onSend, stale = false, onRefres
 }
 
 /**
- * The Debug pane: fetches the bundle when VISIBLE and the revision moved, once on
- * becoming visible, plus a Refresh button; then renders the pure view above.
+ * The Debug pane: fetches the bundle and the project's browser errors when VISIBLE and
+ * the revision moved, once on becoming visible, plus a Refresh button; then renders the
+ * pure view above.
  */
-export function DebugPane({ sessionName, revision, loadDebug, onSend }: DebugPaneProps) {
+export function DebugPane({ sessionName, revision, loadDebug, loadBrowserErrors, onSend }: DebugPaneProps) {
   const [bundle, setBundle] = useState<DebugBundle | null>(null)
+  const [browserErrors, setBrowserErrors] = useState<BrowserErrorRow[]>([])
   const [error, setError] = useState<string | null>(null)
   const [stale, setStale] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -119,6 +133,8 @@ export function DebugPane({ sessionName, revision, loadDebug, onSend }: DebugPan
   const cancelFetchRef = useRef<() => void>(() => undefined)
   const loadRef = useRef(loadDebug)
   loadRef.current = loadDebug
+  const loadBrowserRef = useRef(loadBrowserErrors)
+  loadBrowserRef.current = loadBrowserErrors
 
   const fetchNow = (): void => {
     cancelFetchRef.current()
@@ -126,8 +142,13 @@ export function DebugPane({ sessionName, revision, loadDebug, onSend }: DebugPan
     setStale(false)
     let cancelled = false
     cancelFetchRef.current = () => { cancelled = true }
-    loadRef.current()
-      .then((b) => { if (!cancelled) { setBundle(b); setError(null) } })
+    // The browser half is best effort: a page that is not readable (or main failing)
+    // leaves the section empty rather than the whole pane in an error state.
+    const browser = loadBrowserRef.current === undefined
+      ? Promise.resolve<BrowserErrorRow[]>([])
+      : loadBrowserRef.current().catch(() => [] as BrowserErrorRow[])
+    Promise.all([loadRef.current(), browser])
+      .then(([b, rows]) => { if (!cancelled) { setBundle(b); setBrowserErrors(rows); setError(null) } })
       .catch((err: unknown) => { if (!cancelled) setError(plainErrorMessage(err)) })
   }
 
@@ -146,5 +167,5 @@ export function DebugPane({ sessionName, revision, loadDebug, onSend }: DebugPan
     return () => { cancelFetchRef.current(); observer.disconnect() }
   }, [revision])
 
-  return <DebugBundleView bundle={bundle} error={error} onSend={onSend} stale={stale} onRefresh={fetchNow} rootRef={rootRef} />
+  return <DebugBundleView bundle={bundle} error={error} onSend={onSend} browserErrors={browserErrors} stale={stale} onRefresh={fetchNow} rootRef={rootRef} />
 }

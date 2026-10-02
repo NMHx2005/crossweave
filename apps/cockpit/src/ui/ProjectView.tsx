@@ -1115,6 +1115,7 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
                   sessionName={session.name}
                   revision={sessionsRevision}
                   loadDebug={() => api.debugBundle(session.id)}
+                  loadBrowserErrors={() => api.browserErrors(projectRoot).then((r) => r.rows)}
                   onSend={(text) => { setComposerDraft(text); openComposer(session.id) }}
                 />
               )

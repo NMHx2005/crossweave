@@ -37,6 +37,9 @@ export const COCKPIT_CHANNELS = [
   'session.diff',
   // The session's debug bundle (the Debug pane; scrubbed in the daemon).
   'session.debug',
+  // The Debug pane's browser half: a project's readable browser panes' console errors
+  // and failed requests (served in main, where the browser agent lives).
+  'browser.errors',
   // Every project open in this window (handled by the bridge itself).
   'projects.list',
   'projects.sessions',

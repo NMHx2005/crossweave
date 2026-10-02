@@ -1,7 +1,10 @@
+import type { BrowserErrorRow } from '../../../../src/core/browser-agent/errors.js'
+
 /**
  * The session's debug bundle (`session.debug` RPC), as the Debug pane reads it, and
  * the small pure pieces of its presentation: the check line, and the text "Send to
  * session" carries. Scrubbing happens in the daemon — this surface shows the bundle.
+ * Its browser half comes separately, from main (`browser.errors`).
  *
  * The shape mirrors the CLI's `DebugBundle` (`src/cli/commands/debug.ts`) by design:
  * two processes, two copies. Keep them in step when a field changes.
@@ -37,12 +40,14 @@ export function debugCheckLine(c: NonNullable<DebugBundle['check']>): string {
 }
 
 /**
- * What "Send to session" carries: the failing tail, else the error lines, else
- * nothing (the button is not offered). A prompt is the person's; the app only
- * drafts this text into the composer, where the exact preview still shows.
+ * What "Send to session" carries: the failing tail, else the session's error lines,
+ * else the browser's errors, else nothing (the button is not offered). A prompt is the
+ * person's; the app only drafts this text into the composer, where the exact preview
+ * still shows.
  */
-export function sendableText(b: DebugBundle): string | undefined {
+export function sendableText(b: DebugBundle, browserErrors: readonly BrowserErrorRow[] = []): string | undefined {
   if (b.check?.tail !== undefined && b.check.tail.trim() !== '') return b.check.tail.trim()
   if (b.errors.length > 0) return b.errors.map((e) => e.line).join('\n')
+  if (browserErrors.length > 0) return browserErrors.map((e) => e.text).join('\n')
   return undefined
 }

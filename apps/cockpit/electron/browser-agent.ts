@@ -1,6 +1,7 @@
 import { mkdirSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Capture, DEFAULT_LIMIT, queryConsole, queryNetwork } from '../../../src/core/browser-agent/capture.js'
+import { collectBrowserErrors, type BrowserErrorRow } from '../../../src/core/browser-agent/errors.js'
 import { isLocalOrigin, originOf } from '../../../src/core/browser-agent/origin.js'
 import { BROWSER_COMMANDS, decide, type AccessLevel, type BrowserCommand } from '../../../src/core/browser-agent/permission.js'
 import { clip } from '../../../src/core/browser-agent/ring.js'
@@ -118,6 +119,17 @@ export class BrowserAgent {
       if (e instanceof CrossweaveError) return { ok: false, code: e.code, message: e.message }
       return { ok: false, code: 'BROWSER_FAILED', message: 'The cockpit could not change that pane' }
     }
+  }
+
+  /**
+   * What the Debug pane shows from this project's READABLE browser panes: their console
+   * errors and failed requests, tagged and bounded. Read-only — it asks nobody and writes
+   * no activity line — and a bad payload reads as nothing rather than failing the pane.
+   */
+  readErrors(projectRoot: unknown): { rows: BrowserErrorRow[] } {
+    if (typeof projectRoot !== 'string' || projectRoot === '' || projectRoot.length > 4096) return { rows: [] }
+    const mine = [...this.panes.values()].filter((x) => x.projectRoot === projectRoot && x.level !== 'off')
+    return { rows: collectBrowserErrors(mine.map((x) => ({ paneId: x.paneId, console: x.capture?.console() ?? [], network: x.capture?.network() ?? [] }))) }
   }
 
   private apply(paneId: string, projectRoot: string, guest: GuestLike, level: AccessLevel): void {

@@ -325,6 +325,7 @@ function registerHandlers(bridge: DaemonBridge): void {
       }
       if (channel === 'bridge.reply') { rendererBridge.reply(payload); return { ok: true } }
       if (channel === 'browser.setAccess') return browserAgent.setAccess(payload)
+      if (channel === 'browser.errors') return browserAgent.readErrors((payload as { projectRoot?: unknown } | null)?.projectRoot)
       if (channel === 'terminal.importSources') return importSources(importDeps())
       if (channel === 'fonts.list') return listFonts(importDeps().run)
       if (channel === 'folder.inspect') {

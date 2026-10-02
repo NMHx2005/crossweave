@@ -51,6 +51,11 @@ describe('sendableText', () => {
     expect(sendableText(bundle({ errors: [{ at: 1, line: 'error x' }, { at: 2, line: 'error y' }] }))).toBe('error x\nerror y')
     expect(sendableText(bundle())).toBeUndefined()
   })
+
+  test('the browser errors are the last fallback', () => {
+    expect(sendableText(bundle({ errors: [{ at: 1, line: 'error x' }] }), [{ paneId: 'p', source: 'console', t: 1, text: 'boom' }])).toBe('error x')
+    expect(sendableText(bundle(), [{ paneId: 'p', source: 'console', t: 1, text: 'boom' }])).toBe('boom')
+  })
 })
 
 describe('DebugPane', () => {
@@ -84,5 +89,16 @@ describe('DebugPane', () => {
     expect(buttonNodes(f, 'Send to session…')).toHaveLength(0)
     expect(text(f)).toContain('never run')
     expect(text(f)).toContain('nothing to land yet')
+  })
+
+  test('browser errors get their own section, and become what Send carries when nothing else does', () => {
+    const sent: string[] = []
+    const browserErrors = [{ paneId: 'p1', source: 'console' as const, t: 1, text: 'Uncaught boom' }]
+    const f = walk(<DebugBundleView bundle={bundle()} error={null} onSend={(t) => sent.push(t)} browserErrors={browserErrors} />)
+    expect(text(f)).toContain('browser errors (heuristic)')
+    expect(text(f)).toContain('Uncaught boom')
+    const click = buttonNodes(f, 'Send to session…')[0]?.props['onClick'] as () => void
+    click()
+    expect(sent).toEqual(['Uncaught boom'])
   })
 })

@@ -1,5 +1,6 @@
 import type { SessionDiff } from '../lib/patch'
 import type { DebugBundle } from '../lib/debug-pane'
+import type { BrowserErrorRow } from '../../../../src/core/browser-agent/errors.js'
 import type { CockpitChannel, CockpitEvent } from '../../electron/channels'
 import { parseSessionList, type ListedSession } from '../lib/sessions'
 import { parseSessionHistory, type SessionHistoryEntry } from '../lib/session-history'
@@ -185,6 +186,10 @@ function makeApi(invoke: Invoke, listen: Listen) {
     /** What an agent just did to a Browser pane, for the activity line. */
     onBrowserActivity(cb: (payload: unknown) => void): () => void {
       return listen('browser.activity', cb)
+    },
+    /** The Debug pane's browser half: this project's readable browser panes' console errors and failed requests. */
+    browserErrors(projectRoot: string): Promise<{ rows: BrowserErrorRow[] }> {
+      return invoke('browser.errors', { projectRoot }) as Promise<{ rows: BrowserErrorRow[] }>
     },
     onCommand(cb: (payload: unknown) => void): () => void {
       return listen('cockpit.command', cb)
