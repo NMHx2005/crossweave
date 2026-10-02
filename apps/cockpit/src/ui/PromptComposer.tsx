@@ -20,8 +20,8 @@ type PromptComposerProps = {
   /** Write to a session's terminal. Only called for what the preview showed. */
   send: (id: string, data: string) => Promise<unknown>
   onOpenSettings: () => void
-  /** Sent (or partly sent): a sentence for the window to say, then the dialog closes. */
-  onSent: (summary: string) => void
+  /** Sent (or partly sent): a sentence for the window to say, and which sessions it reached, then the dialog closes. */
+  onSent: (summary: string, sentIds: string[]) => void
   onClose: () => void
 }
 
@@ -32,7 +32,10 @@ type PromptComposerProps = {
  */
 export function PromptComposer({ sessions, focusedId, refineConfigured, draft, onDraft, contextFor, refine, send, onOpenSettings, onSent, onClose }: PromptComposerProps) {
   const [picked, setPicked] = useState<ReadonlySet<string>>(() => {
-    const focused = sessions.find((s) => s.id === focusedId && s.running)
+    // The focused session, running or not: debugging a dead shell is the common
+    // case, and the preview must show its refusal ("its shell is closed") rather
+    // than open with nothing ticked.
+    const focused = sessions.find((s) => s.id === focusedId)
     return new Set(focused ? [focused.id] : [])
   })
   const [enter, setEnter] = useState(false)
@@ -71,11 +74,14 @@ export function PromptComposer({ sessions, focusedId, refineConfigured, draft, o
     if (!canSend) return
     setSending(true)
     const sent: string[] = []
+    /** The ids that actually took the prompt: what the Responses view then lists. */
+    const sentIds: string[] = []
     const failed: string[] = []
     for (const item of sendable) {
       try {
         await send(item.id, item.data as string)
         sent.push(item.name)
+        sentIds.push(item.id)
       } catch {
         failed.push(item.name)
       }
@@ -87,7 +93,7 @@ export function PromptComposer({ sessions, focusedId, refineConfigured, draft, o
       sent.length > 0 ? `Sent to ${sent.join(', ')}` : 'Nothing was sent',
       failed.length > 0 ? `failed: ${failed.join(', ')}` : '',
       skipped.length > 0 ? `skipped: ${skipped.join(', ')}` : '',
-    ].filter(Boolean).join(' · '))
+    ].filter(Boolean).join(' · '), sentIds)
   }
 
   return (

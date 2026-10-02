@@ -38,7 +38,7 @@ const NOTIFY_FINISH_KEY = 'cw.notify-finish.v1' // gitleaks:allow (a localStorag
 const LIVE_VIEWS = 6
 
 /** Row actions that need the project on the stage; the others run where it is. */
-const NEEDS_STAGE = new Set<RowAction | 'focus'>(['focus', 'open', 'terminal', 'changes'])
+const NEEDS_STAGE = new Set<RowAction | 'focus'>(['focus', 'open', 'terminal', 'changes', 'debug'])
 
 /**
  * The window: the rail, the dialogs and toasts every project shares, and one live

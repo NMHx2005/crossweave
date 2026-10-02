@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { acceleratorFromKey, COMMANDS, effectiveKeys, formatAccelerator, formatBinding, keyConflicts, normalizeAccelerator, type MenuName } from '../lib/keymap'
+import { COMMANDS, effectiveKeys, formatAccelerator, formatBinding, keyConflicts, shortcutFromKey, type MenuName, type ShortcutCapture } from '../lib/keymap'
 import { buildTable, tableKeyOf } from '../lib/keytable'
 
 /** `null` is the commands with no menu item: listed last, as "Other". */
@@ -9,16 +9,59 @@ const MENUS: Array<MenuName | null> = ['Session', 'Pane', 'File', 'Edit', 'View'
  * Every command and its shortcut, grouped by menu. Editable in Settings (record a new
  * chord, unbind, reset), read-only as Help → Keyboard Shortcuts. Two commands on one
  * chord are called out, and Settings refuses to save them.
+ *
+ * "Change" opens a capture DIALOG — the row itself is never edited in place: the
+ * list stays a table while a chord is being recorded.
  */
+/** The capture dialog itself — testable as its own unit; the rows never host it. */
+export function ShortcutCaptureDialog({ commandId, label, keybinding, changed, prefix, awaiting, onKey, onClear, onReset, onCancel }: {
+  commandId: string
+  label: string
+  keybinding: string | null
+  /** True when the user has an override for this command (a Reset is offered). */
+  changed: boolean
+  prefix: string | null
+  awaiting: boolean
+  onKey: (capture: ShortcutCapture) => void
+  onClear: () => void
+  onReset: () => void
+  onCancel: () => void
+}) {
+  return (
+    <div class="cockpit-picker__backdrop" onClick={onCancel}>
+      <div class="cockpit-picker cockpit-shortcuts__capture" role="dialog" aria-label={`Change shortcut: ${label}`}
+        onClick={(ev) => ev.stopPropagation()}>
+        <h2 class="cockpit-picker__title">{label}</h2>
+        <button type="button" class="cockpit-btn cockpit-shortcuts__record is-recording" autoFocus
+          onKeyDown={(ev) => {
+            ev.preventDefault()
+            ev.stopPropagation()
+            onKey(shortcutFromKey(ev, { commandId, prefix, awaiting, tableKeyOf }))
+          }}>
+          {awaiting ? `${formatAccelerator(prefix)} then press the key…` : 'Press keys… (Esc cancels)'}
+        </button>
+        <p class="cockpit-shortcuts__capture-hint">
+          The prefix, then a key, records a key-table binding.
+        </p>
+        <div class="cockpit-picker__actions">
+          {keybinding ? <button type="button" class="cockpit-btn" onClick={onClear}>None</button> : null}
+          {changed ? <button type="button" class="cockpit-btn" onClick={onReset}>Reset</button> : null}
+          <button type="button" class="cockpit-btn cockpit-btn--primary" onClick={onCancel}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function ShortcutList({ keybindings, onChange }: {
   keybindings: Readonly<Record<string, string | null>> | undefined
   /** Absent: read-only. */
   onChange?: (next: Record<string, string | null>) => void
 }) {
   const [query, setQuery] = useState('')
-  const [recording, setRecording] = useState<string | null>(null)
-  /** The prefix was pressed while recording: the next key completes a `prefix:<key>` binding. */
-  const [awaitingKey, setAwaitingKey] = useState<string | null>(null)
+  const [recording, setRecording] = useState<{ id: string; label: string } | null>(null)
+  /** The prefix was pressed while capturing: the next key completes a `prefix:<key>` binding. */
+  const [awaiting, setAwaiting] = useState(false)
   const keys = effectiveKeys(keybindings)
   const conflicts = keyConflicts(keys)
   const prefix = keys['prefix'] ?? null
@@ -35,6 +78,8 @@ export function ShortcutList({ keybindings, onChange }: {
     else next[id] = key
     onChange(next)
   }
+
+  const close = (): void => { setRecording(null); setAwaiting(false) }
 
   return (
     <div class="cockpit-shortcuts">
@@ -58,48 +103,13 @@ export function ShortcutList({ keybindings, onChange }: {
                 return (
                   <li key={c.id} class={`cockpit-shortcuts__row${clash.has(c.id) ? ' is-clash' : ''}`}>
                     <span class="cockpit-shortcuts__label">{c.label}</span>
-                    {onChange && recording === c.id ? (
-                      <button type="button" class="cockpit-btn cockpit-btn--sm cockpit-shortcuts__record is-recording" autoFocus
-                        onKeyDown={(ev) => {
-                          ev.preventDefault()
-                          ev.stopPropagation()
-                          if (ev.code === 'Escape' && !ev.metaKey && !ev.ctrlKey && !ev.altKey && !ev.shiftKey) {
-                            setRecording(null)
-                            return
-                          }
-                          // The prefix was just pressed: this key completes a key-table binding.
-                          if (awaitingKey === c.id) {
-                            const k = tableKeyOf({ key: ev.key })
-                            if (k === null) return
-                            set(c.id, `prefix:${k}`)
-                            setAwaitingKey(null)
-                            setRecording(null)
-                            return
-                          }
-                          const accel = acceleratorFromKey(ev)
-                          if (accel === null) return
-                          // The prefix chord itself, for any command but the prefix: a sequence.
-                          if (c.id !== 'prefix' && prefix !== null && normalizeAccelerator(accel) === normalizeAccelerator(prefix)) {
-                            setAwaitingKey(c.id)
-                            return
-                          }
-                          set(c.id, accel)
-                          setRecording(null)
-                        }}
-                        onBlur={() => { setRecording(null); setAwaitingKey(null) }}>
-                        {awaitingKey === c.id ? `${formatAccelerator(prefix)} then press the key…` : 'Press keys… (Esc cancels; the prefix then a key records a key-table binding)'}
-                      </button>
-                    ) : (
-                      <>
-                        <kbd class="cockpit-shortcuts__key">{key ? formatBinding(key, prefix) : '—'}</kbd>
-                        {c.id !== 'prefix' ? Object.entries(table).filter(([, id]) => id === c.id && !(key ?? '').startsWith('prefix:')).map(([k]) => (
-                          <kbd key={k} class="cockpit-shortcuts__key cockpit-shortcuts__seq" title="Key-table: the prefix, then this key">{formatBinding(`prefix:${k}`, prefix)}</kbd>
-                        )) : null}
-                      </>
-                    )}
+                    <kbd class="cockpit-shortcuts__key">{key ? formatBinding(key, prefix) : '—'}</kbd>
+                    {c.id !== 'prefix' ? Object.entries(table).filter(([, id]) => id === c.id && !(key ?? '').startsWith('prefix:')).map(([k]) => (
+                      <kbd key={k} class="cockpit-shortcuts__key cockpit-shortcuts__seq" title="Key-table: the prefix, then this key">{formatBinding(`prefix:${k}`, prefix)}</kbd>
+                    )) : null}
                     {onChange ? (
                       <span class="cockpit-shortcuts__actions">
-                        <button type="button" class="cockpit-btn cockpit-btn--sm cockpit-btn--ghost" onClick={() => setRecording(c.id)}>Change</button>
+                        <button type="button" class="cockpit-btn cockpit-btn--sm cockpit-btn--ghost" onClick={() => { setRecording({ id: c.id, label: c.label }); setAwaiting(false) }}>Change</button>
                         {key ? <button type="button" class="cockpit-btn cockpit-btn--sm cockpit-btn--ghost" onClick={() => set(c.id, null)}>None</button> : null}
                         {changed ? <button type="button" class="cockpit-btn cockpit-btn--sm cockpit-btn--ghost" onClick={() => set(c.id, undefined)}>Reset</button> : null}
                       </span>
@@ -111,6 +121,26 @@ export function ShortcutList({ keybindings, onChange }: {
           </section>
         )
       })}
+      {recording !== null ? (
+        <ShortcutCaptureDialog
+          commandId={recording.id}
+          label={recording.label}
+          keybinding={keys[recording.id] ?? null}
+          changed={keybindings?.[recording.id] !== undefined}
+          prefix={prefix}
+          awaiting={awaiting}
+          onKey={(capture) => {
+            if (capture.kind === 'cancel') { close(); return }
+            if (capture.kind === 'ignore') return
+            if (capture.kind === 'await') { setAwaiting(true); return }
+            set(recording.id, capture.key)
+            close()
+          }}
+          onClear={() => { set(recording.id, null); close() }}
+          onReset={() => { set(recording.id, undefined); close() }}
+          onCancel={close}
+        />
+      ) : null}
     </div>
   )
 }

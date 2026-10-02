@@ -2,10 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { activityFromEvent } from '../../../../src/domain/activity.js'
 import { projectApi, type LauncherOption, type ListedSession, type TerminalInfo } from '../host/cockpit-api'
 import { nextAttentionSession } from '../lib/attention-jump'
+import { responseRows } from '../lib/responses'
 import { QuickPicker, type NewSessionOptions, type NewSessionRequest } from './QuickPicker'
 import { StoppedBar } from './StoppedBar'
 import type { ConfirmRequest } from './ConfirmDialog'
 import { ChangesPane } from './ChangesPane'
+import { DebugPane } from './DebugPane'
+import { ResponsesDialog } from './ResponsesDialog'
 import { CommandBar } from './CommandBar'
 import { rememberLine, type Command } from '../lib/commands'
 import { QuickOpen } from './QuickOpen'
@@ -53,6 +56,7 @@ import {
   moveTab,
   openInNewTab,
   paneKeys,
+  panesForSession,
   adjacentTab,
   cyclePreset,
   movePaneToTab,
@@ -181,6 +185,11 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
   /** The prompt composer: open or not, and its draft (kept until it is sent) and whether a refine command is set. */
   const [composerOpen, setComposerOpen] = useState(false)
   const [composerDraft, setComposerDraft] = useState('')
+  /** The session Send-to-session named; cleared when the composer closes. */
+  const [composerPreselect, setComposerPreselect] = useState<string | null>(null)
+  /** The session ids the last prompt reached, for the Responses view (in memory only). */
+  const [sentTargets, setSentTargets] = useState<string[]>([])
+  const [responsesOpen, setResponsesOpen] = useState(false)
   const [refineConfigured, setRefineConfigured] = useState(false)
   const [commandHistory, setCommandHistory] = useState<string[]>(() => readStringList(COMMAND_HISTORY_KEY))
   const [branches, setBranches] = useState<string[]>([])
@@ -354,7 +363,11 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
    * when unchanged: a `tui.invalidate` arrives after every session mutation.
    */
   useEffect(() => {
-    const ids = [...new Set(paneKeys(stage).filter((k) => k.startsWith('session:')).map((k) => k.slice('session:'.length)))]
+    // The sessions the window shows through a session pane or a debug pane (both
+    // keyed by the session); the report is skipped when unchanged.
+    const ids = [...new Set(paneKeys(stage)
+      .filter((k) => k.startsWith('session:') || k.startsWith('debug:'))
+      .map((k) => k.slice(k.indexOf(':') + 1)))]
     const key = ids.join('\n')
     if (ids.length === 0 || lastJournalRef.current === key) return
     lastJournalRef.current = key
@@ -393,6 +406,12 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
     setStage((s) => {
       const at = locatePane(s, `session:${sessionId}`)
       if (at) return focusPane(s, at.tabId, at.paneId)
+      // The session's own pane is closed, but the person may still be looking at the
+      // session through a Terminal pane they opened: focus that instead of opening a
+      // second tab for the same session (closing the session pane hides it, it does not
+      // end the session).
+      const shown = panesForSession(s, sessionId).find((p) => p.pane.kind === 'terminal')
+      if (shown) return focusPane(s, shown.tabId, shown.paneId)
       const name = sessionsRef.current.find((x) => x.id === sessionId)?.name ?? sessionId
       return openInNewTab(s, { kind: 'session', sessionId }, name)
     })
@@ -429,6 +448,7 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
     else if (action === 'open') { focusSession(sessionId); void handleStart(sessionId) }
     else if (action === 'stop') void handleStop(sessionId)
     else if (action === 'changes') openChanges(sessionId)
+    else if (action === 'debug') openDebug(sessionId)
     else if (action === 'land') void handleLand(sessionId)
     else if (action === 'check') void handleCheck(sessionId)
     else if (action === 'compare') handleCompare(sessionId)
@@ -454,6 +474,7 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
     else if (command === 'sync-panes') onFocusedPane((tabId) => setStage((s) => toggleSync(s, tabId)))
     else if (command === 'cycle-layout') onFocusedPane((tabId) => setStage((s) => cyclePreset(s, tabId)))
     else if (command === 'prompt-composer') openComposer()
+    else if (command === 'show-responses') setResponsesOpen(true)
     else if (command === 'open-file') void handleOpenFile()
     else if (command === 'open-browser') handleOpenBrowser()
     else if (command === 'zoom-pane') onFocusedPane((tabId, paneId) => setStage((s) => toggleZoom(s, tabId, paneId)))
@@ -530,7 +551,7 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
   function paneTitle(pane: PaneRef): string {
     if (pane.kind === 'browser') return 'browser'
     const name = sessionsRef.current.find((x) => x.id === pane.sessionId)?.name ?? pane.sessionId
-    if (pane.kind === 'terminal') return `${name} · shell`
+    if (pane.kind === 'terminal') return `${name} · terminal`
     if (pane.kind === 'changes') return `${name} · changes`
     if (pane.kind === 'file') return pane.path.split('/').pop() ?? pane.path
     return name
@@ -657,6 +678,15 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
     else openSurface({ kind: 'changes', sessionId: target.id }, `${target.name} · changes`)
   }
 
+  /** The debug bundle pane for a session: beside the focused pane, or focused if open. */
+  function openDebug(targetId?: string): void {
+    const target = sessionById(targetId)
+    if (!target) return
+    const at = locatePane(stage, `debug:${target.id}`)
+    if (at) setStage((s) => focusPane(s, at.tabId, at.paneId))
+    else openSurface({ kind: 'debug', sessionId: target.id }, `${target.name} · debug`)
+  }
+
   function openCommandBar(): void {
     setCommandBarOpen(true)
     // Launcher names complete in `new <name> <launcher>`; fetched fresh each time.
@@ -769,7 +799,7 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
         if (existing) return focusPane(s, existing.tabId, existing.paneId)
         // The pane bar's split buttons say exactly where; a shortcut uses placeBeside.
         if (at) return splitPane(s, at.tabId, at.paneId, at.dir, pane)
-        return placeBeside(s, pane, `${opened.sessionName} · shell`)
+        return placeBeside(s, pane, `${opened.sessionName} · terminal`)
       })
     })
     return terminalId
@@ -928,8 +958,11 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
     }
   }
 
-  /** Open the composer; whether Refine is offered is read from the saved settings each time. */
-  function openComposer(): void {
+  /** Open the composer; whether Refine is offered is read from the saved settings each time.
+   * `preselect` targets a session explicitly (Send-to-session): the destination must not
+   * depend on whichever pane happens to be focused. */
+  function openComposer(preselect?: string): void {
+    setComposerPreselect(preselect ?? null)
     setComposerOpen(true)
     void api.getSettings().then(
       (settings) => setRefineConfigured(((settings as { prompt?: { refine?: { command?: string } } } | null)?.prompt?.refine?.command ?? '').trim() !== ''),
@@ -1074,6 +1107,18 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
               )
             }
             if (pane.kind === 'file') return <FilePane sessionId={pane.sessionId} path={pane.path} focused={paneFocused} />
+            if (pane.kind === 'debug') {
+              const session = sessions.find((s) => s.id === pane.sessionId)
+              if (!session) return null
+              return (
+                <DebugPane
+                  sessionName={session.name}
+                  revision={sessionsRevision}
+                  loadDebug={() => api.debugBundle(session.id)}
+                  onSend={(text) => { setComposerDraft(text); openComposer(session.id) }}
+                />
+              )
+            }
             if (pane.kind === 'browser') {
               return (
                 <BrowserPane
@@ -1110,9 +1155,11 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
         {visible && composerOpen ? (
           <PromptComposer
             sessions={sessions
-              .filter((s) => s.status !== 'landed' && s.status !== 'dead')
+              // The DESTINATION (Send-to-session's preselect) stays in the list even
+              // when dead: the preview then says why it cannot receive the prompt.
+              .filter((s) => (s.status !== 'landed' && s.status !== 'dead') || s.id === (composerPreselect ?? focusedId))
               .map((s) => ({ id: s.id, name: s.name, running: s.status === 'running' || s.status === 'waiting', agent: s.agent ?? null }))}
-            focusedId={focusedId}
+            focusedId={composerPreselect ?? focusedId}
             refineConfigured={refineConfigured}
             draft={composerDraft}
             onDraft={setComposerDraft}
@@ -1123,8 +1170,16 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
             refine={(text, context) => api.promptRefine(text, context)}
             send={(id, data) => api.sendInput(id, data)}
             onOpenSettings={() => { setComposerOpen(false); hostRef.current.openSettings('prompt') }}
-            onSent={(summary) => { setComposerOpen(false); hostRef.current.toast(summary, 'info') }}
+            onSent={(summary, ids) => { setSentTargets(ids); setComposerOpen(false); hostRef.current.toast(summary, 'info') }}
             onClose={() => setComposerOpen(false)}
+          />
+        ) : null}
+        {visible && responsesOpen ? (
+          <ResponsesDialog
+            rows={responseRows(sentTargets, new Map(sessions.map((s) => [s.id, s])))}
+            now={Date.now()}
+            onJump={(id) => { setResponsesOpen(false); focusSession(id) }}
+            onClose={() => setResponsesOpen(false)}
           />
         ) : null}
         {visible && compare !== null ? (

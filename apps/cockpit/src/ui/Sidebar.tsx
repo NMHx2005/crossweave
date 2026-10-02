@@ -26,7 +26,7 @@ export type ProjectGroup = {
   plain?: boolean
 }
 
-export type RowAction = 'open' | 'stop' | 'changes' | 'land' | 'kill' | 'delete' | 'terminal' | 'check' | 'compare'
+export type RowAction = 'open' | 'stop' | 'changes' | 'debug' | 'land' | 'kill' | 'delete' | 'terminal' | 'check' | 'compare'
 
 export type ProjectAction =
   | 'new' | 'terminal-here' | 'land-all' | 'gc' | 'toggle-ended' | 'settings' | 'close' | 'move-up' | 'move-down'
@@ -473,6 +473,7 @@ export function Sidebar(props: SidebarProps) {
             <>
               <div class="cockpit-menu__sep" role="separator" />
               <button type="button" role="menuitem" onClick={() => rowMenu('changes')}>Changes</button>
+              <button type="button" role="menuitem" onClick={() => rowMenu('debug')}>Debug…</button>
               <button type="button" role="menuitem" onClick={() => rowMenu('check')}>Run checks</button>
               <button type="button" role="menuitem" onClick={() => rowMenu('compare')}>Compare with another…</button>
               <button type="button" role="menuitem" onClick={() => rowMenu('land')}>Land</button>

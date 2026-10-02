@@ -1,7 +1,7 @@
 import { useCallback, useLayoutEffect, useRef, useState } from 'preact/hooks'
 import { useDismiss } from './useDismiss'
 import type { ListedSession } from '../host/cockpit-api'
-import { liveTabs, type DropSide, type LayoutNode, type PaneRef, type SplitDir, type StageState, type Tab } from '../lib/layout'
+import { liveTabs, movePane, type DropSide, type LayoutNode, type PaneRef, type SplitDir, type StageState, type Tab } from '../lib/layout'
 import { sessionSource, terminalSource, type InAppOpener } from '../lib/pane-source'
 import type { SessionColor } from '../lib/colors'
 import { XtermPane } from './XtermPane'
@@ -9,7 +9,7 @@ import { clampMenu } from '../lib/rail'
 import { planFlip, playFlip, structureKey, type Box } from '../lib/flip'
 import { COCKPIT_TOKENS } from './tokens'
 import { useProjectApi } from './project-context'
-import { AgentMark, DiffIcon, FileIcon, GlobeIcon, MoreIcon, PenIcon, PanelRightIcon, PlusIcon, SidebarIcon, TerminalIcon } from './icons'
+import { AgentMark, BugIcon, DiffIcon, FileIcon, GlobeIcon, MoreIcon, PenIcon, PanelRightIcon, PlusIcon, SidebarIcon, TerminalIcon } from './icons'
 
 export type StageStatus = 'loading' | 'ready' | 'empty' | 'error' | 'welcome'
 
@@ -78,10 +78,11 @@ function paneLabel(pane: PaneRef, names: ReadonlyMap<string, string>, titles: Re
   switch (pane.kind) {
     // What the agent last said, as in Deck; the session name until it said anything.
     case 'session': return titles.get(pane.sessionId) ?? names.get(pane.sessionId) ?? pane.sessionId
-    case 'terminal': return `${names.get(pane.sessionId) ?? pane.sessionId} · shell`
+    case 'terminal': return `${names.get(pane.sessionId) ?? pane.sessionId} · terminal`
     case 'file': return pane.path.split('/').pop() ?? pane.path
     case 'browser': return pane.url.replace(/^https?:\/\//, '')
     case 'changes': return `${names.get(pane.sessionId) ?? pane.sessionId} · changes`
+    case 'debug': return `${names.get(pane.sessionId) ?? pane.sessionId} · debug`
   }
 }
 
@@ -103,6 +104,7 @@ function PaneKindIcon({ pane, agents }: { pane: PaneRef; agents: ReadonlyMap<str
     case 'file': return <FileIcon />
     case 'browser': return <GlobeIcon />
     case 'changes': return <DiffIcon />
+    case 'debug': return <BugIcon />
   }
 }
 
@@ -114,8 +116,6 @@ export function Stage(props: StageProps) {
   const agents = new Map(sessions.map((s) => [s.id, s.agent]))
   const [paneMenu, setPaneMenu] = useState<PaneMenu | null>(null)
   const active = stage.tabs.find((t) => t.id === stage.activeTabId) ?? null
-  const tabs = liveTabs(stage)
-  const shownTabId = tabs.find((t) => t.shown)?.tab.id
   const [menu, setMenu] = useState<TabMenu | null>(null)
   const [layoutsOpen, setLayoutsOpen] = useState(false)
   const [layoutName, setLayoutName] = useState('')
@@ -125,6 +125,12 @@ export function Stage(props: StageProps) {
   const [dropAt, setDropAt] = useState<{ paneId: string; side: DropSide } | null>(null)
   /** The tab a dragged pane is over. */
   const [paneDropTab, setPaneDropTab] = useState<string | null>(null)
+  // LIVE drag preview: while a pane hovers over another's side, the panes already
+  // stand where the drop would put them — the release only commits it. movePane
+  // keeps every node id, so the preview's tree is the drop's tree.
+  const previewStage = dragPreview(stage, dragPane.current, dropAt)
+  const tabs = liveTabs(previewStage)
+  const shownTabId = tabs.find((t) => t.shown)?.tab.id
   const key = (id: string): string => props.shortcut?.(id) ?? ''
 
   // Split, close, swap, preset and move animate (see lib/flip.ts). The shown tab's panes
@@ -136,7 +142,7 @@ export function Stage(props: StageProps) {
   const lastLayout = useRef<{ tabId: string; sig: string; rects: Map<string, Box> } | null>(null)
   useLayoutEffect(() => {
     const root = stageRef.current
-    const tab = stage.tabs.find((t) => t.id === shownTabId)
+    const tab = previewStage.tabs.find((t) => t.id === shownTabId)
     // A project off the stage measures 0x0; keep what we had for when it returns.
     if (!root || !tab || root.clientWidth === 0) return
     const sig = structureKey(tab.root)
@@ -194,11 +200,13 @@ export function Stage(props: StageProps) {
     const focused = tab.focusedPaneId === node.id && tab.id === shownTabId && props.shown !== false
     const zoomed = tab.zoomedPaneId === node.id
     const drop = dropAt?.paneId === node.id ? dropAt.side : null
+    // While a live preview stands, the dragged pane (at its new place) carries the mark.
+    const draggingNow = dragPane.current !== null && dragPane.current.paneId === node.id && (dropAt !== null || paneDropTab !== null)
     return (
       <div
         key={node.id}
         data-pane-id={node.id}
-        class={`cockpit-pane${focused ? ' is-focused' : ''}${zoomed ? ' is-zoomed' : ''}${drop ? ` is-drop-${drop}` : ''}`}
+        class={`cockpit-pane${focused ? ' is-focused' : ''}${zoomed ? ' is-zoomed' : ''}${drop ? ` is-drop-${drop}` : ''}${draggingNow ? ' is-drag-source' : ''}`}
         aria-label={paneLabel(pane, names, titles)}
         onMouseDown={() => { if (!focused) props.onFocusPane(tab.id, node.id) }}
         onDragOver={(e) => {
@@ -518,6 +526,16 @@ export function Stage(props: StageProps) {
 function terminalPaneCount(node: LayoutNode): number {
   if (node.type === 'pane') return node.pane.kind === 'session' || node.pane.kind === 'terminal' ? 1 : 0
   return node.children.reduce((n, c) => n + terminalPaneCount(c), 0)
+}
+
+/** The stage as it would stand after the hovered drop; the drop's own commit when nothing hovers. */
+function dragPreview(
+  stage: StageState,
+  from: { tabId: string; paneId: string } | null,
+  dropAt: { paneId: string; side: DropSide } | null,
+): StageState {
+  if (from === null || dropAt === null || dropAt.paneId === from.paneId) return stage
+  return movePane(stage, from.tabId, from.paneId, dropAt.paneId, dropAt.side)
 }
 
 /** A drag handle between two split cells; reports moves as a fraction of the split. */

@@ -1166,6 +1166,161 @@ body,
 
 .cockpit-changes__note { margin: var(--cw-space-2) var(--cw-space-3); }
 
+/* The debug pane: the bundle as labelled sections, nothing interactive but Send. */
+.cockpit-debug {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--cw-space-2);
+  overflow: auto;
+  padding: var(--cw-space-2) var(--cw-space-3);
+  font-size: var(--cw-fs-sm);
+}
+
+.cockpit-debug__head,
+.cockpit-debug__label,
+.cockpit-debug__check {
+  margin: 0;
+}
+
+.cockpit-debug__label {
+  color: var(--cw-text-dim);
+  font-size: var(--cw-fs-micro);
+  text-transform: uppercase;
+  letter-spacing: var(--cw-tracking-label);
+}
+
+.cockpit-debug__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cw-space-1);
+}
+
+.cockpit-debug__check--fail { color: var(--cw-blocked); }
+.cockpit-debug__check--pass { color: var(--cw-ready); }
+.cockpit-debug__check--running { color: var(--cw-text-dim); }
+
+.cockpit-debug__tail {
+  margin: 0;
+  padding: var(--cw-space-2);
+  overflow: auto;
+  max-height: calc(var(--cw-row-h) * 10);
+  background: var(--cw-surface-input);
+  border: var(--cw-hairline) solid var(--cw-border);
+  border-radius: var(--cw-radius);
+  white-space: pre-wrap;
+  font-family: var(--cw-font-mono);
+}
+
+.cockpit-debug__errors {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cockpit-debug__error {
+  padding: var(--cw-control-pad-y) var(--cw-space-1);
+  border-bottom: var(--cw-hairline) solid var(--cw-border);
+}
+
+.cockpit-debug__files {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: calc(var(--cw-row-h) * 12);
+  overflow: auto;
+}
+
+.cockpit-debug__file {
+  padding: var(--cw-control-pad-y) var(--cw-space-1);
+}
+
+.cockpit-debug__words {
+  margin: 0;
+}
+
+.cockpit-debug__empty {
+  margin: 0;
+  color: var(--cw-text-dim);
+}
+
+/* The Responses view: the sessions the last prompt went to, and what each answered. */
+.cockpit-responses {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(var(--cw-row-h) * 14);
+  overflow: auto;
+}
+
+.cockpit-responses__row {
+  border-bottom: var(--cw-hairline) solid var(--cw-border);
+}
+
+.cockpit-responses__open {
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  gap: var(--cw-space-2);
+  padding: var(--cw-control-pad-y) var(--cw-space-1);
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cockpit-responses__open:hover {
+  background: var(--cw-surface-input);
+}
+
+.cockpit-responses__state {
+  font-size: var(--cw-fs-micro);
+  text-transform: uppercase;
+  letter-spacing: var(--cw-tracking-label);
+  color: var(--cw-text-dim);
+}
+
+.cockpit-responses__state.is-asked,
+.cockpit-responses__state.is-failed {
+  color: var(--cw-blocked);
+}
+
+.cockpit-responses__state.is-working,
+.cockpit-responses__state.is-done {
+  color: var(--cw-ready);
+}
+
+.cockpit-responses__name {
+  font-weight: 600;
+}
+
+.cockpit-responses__check {
+  font-size: var(--cw-fs-micro);
+  color: var(--cw-text-dim);
+}
+
+.cockpit-responses__check.is-pass {
+  color: var(--cw-ready);
+}
+
+.cockpit-responses__check.is-fail {
+  color: var(--cw-blocked);
+}
+
+.cockpit-responses__words {
+  flex: 1;
+  min-width: 0;
+  color: var(--cw-text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .cockpit-changes__files {
   margin: 0;
   padding: 0 var(--cw-space-2) var(--cw-space-2);
@@ -2678,6 +2833,27 @@ body,
   border-color: var(--cw-accent);
 }
 
+/* The capture dialog: the row stays a row while a chord is being recorded. */
+.cockpit-shortcuts__capture {
+  min-width: calc(var(--cw-row-h) * 8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--cw-space-2);
+}
+
+.cockpit-shortcuts__capture .cockpit-shortcuts__record {
+  padding: var(--cw-space-2);
+  width: 100%;
+  text-align: center;
+}
+
+.cockpit-shortcuts__capture-hint {
+  margin: 0;
+  color: var(--cw-text-dim);
+  font-size: var(--cw-fs-micro);
+  text-align: center;
+}
+
 /* tmux's zoom: the pane covers the tab; the others stay mounted (and streaming) under it. */
 .cockpit-pane.is-zoomed {
   position: absolute;
@@ -2718,6 +2894,13 @@ body,
 .cockpit-pane.is-drop-right { box-shadow: inset calc(var(--cw-bar-w) * -2) 0 0 var(--cw-accent); }
 .cockpit-pane.is-drop-top { box-shadow: inset 0 calc(var(--cw-bar-w) * 2) 0 var(--cw-accent); }
 .cockpit-pane.is-drop-bottom { box-shadow: inset 0 calc(var(--cw-bar-w) * -2) 0 var(--cw-accent); }
+
+/* The live preview: the dragged pane stands where the drop would put it. */
+.cockpit-pane.is-drag-source {
+  outline: var(--cw-hairline) solid var(--cw-accent);
+  outline-offset: calc(var(--cw-hairline) * -1);
+  z-index: 2;
+}
 
 /* The user's own note stands out from the agent's words. */
 .cockpit-row__title.is-note {

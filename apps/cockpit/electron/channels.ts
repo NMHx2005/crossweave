@@ -35,6 +35,8 @@ export const COCKPIT_CHANNELS = [
   'file.list',
   // What landing a session would bring in (the Changes pane).
   'session.diff',
+  // The session's debug bundle (the Debug pane; scrubbed in the daemon).
+  'session.debug',
   // Every project open in this window (handled by the bridge itself).
   'projects.list',
   'projects.sessions',

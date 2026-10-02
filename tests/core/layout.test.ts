@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
   closeOthers, closePane, closeTab, closeToRight, emptyStage, findPane, focusPane, moveTab,
-  liveTabs, openInNewTab, paneKey, paneKeys, reconcile, resizeSplit, setPinned, splitPane, toSavedLayout, type PaneRef, type StageState,
+  liveTabs, openInNewTab, paneKey, paneKeys, panesForSession, reconcile, resizeSplit, setPinned, splitPane, toSavedLayout, type PaneRef, type StageState,
   applyPreset, equalize, movePane, neighbourPane, paneRects, paneToTab, swapNext, toggleZoom, type LayoutNode, cyclePreset, adjacentTab, movePaneToTab, joinPane, breakPane, toggleSync, syncTargets, parseStoredStage,
 } from '../../src/core/layout/index.js'
 
@@ -117,6 +117,13 @@ describe('reconcile', () => {
     const s = stageOf('a')
     expect(reconcile(s, { sessionIds: new Set(['a']), terminalIds: new Set() })).toBe(s)
   })
+
+  test('a debug pane dies with its session, like a session pane', () => {
+    let s = stageOf('a')
+    s = splitPane(s, s.tabs[0]!.id, s.tabs[0]!.focusedPaneId, 'row', { kind: 'debug', sessionId: 'a' })
+    const next = reconcile(s, { sessionIds: new Set(), terminalIds: new Set() })
+    expect(paneKeys(next)).toEqual([])
+  })
 })
 
 describe('named layouts', () => {
@@ -137,6 +144,15 @@ describe('named layouts', () => {
     const s = stageOf('id-a', 'id-b')
     const saved = toSavedLayout(s, new Map([['id-a', 'alpha'], ['id-b', 'beta']]))
     expect(paneKeys(fromSavedLayout(saved, new Map([['beta', 'b2']])))).toEqual(['session:b2'])
+  })
+
+  test('a debug pane is a review pane: not saved, reopened on demand', async () => {
+    const { toSavedLayout } = await import('../../src/core/layout/index.js')
+    let s = stageOf('id-a')
+    s = splitPane(s, s.tabs[0]!.id, s.tabs[0]!.focusedPaneId, 'row', { kind: 'debug', sessionId: 'id-a' })
+    const saved = toSavedLayout(s, new Map([['id-a', 'alpha']]))
+    expect(JSON.stringify(saved)).not.toContain('debug')
+    expect(paneKeys(s)).toEqual(['session:id-a', 'debug:id-a'])
   })
 })
 
@@ -314,6 +330,28 @@ describe('tmux-like panes', () => {
     expect(keys(moved.root)).toEqual(['session:c', 'session:a', 'session:b'])
     expect(moved.focusedPaneId).toBe(c)
     expect(movePane(s, tabId, a, a, 'top')).toBe(s)
+  })
+
+  test('the split id is deterministic: the same drop spells the same tree, a different one does not', () => {
+    const { s, tabId, a, c } = three()
+    // The live drag preview renders this state on every dragover; two calls with the
+    // same from/to/side must re-key nothing (or hidden panes would remount + re-attach).
+    const once = JSON.stringify(movePane(s, tabId, c, a, 'left'))
+    expect(JSON.stringify(movePane(s, tabId, c, a, 'left'))).toBe(once)
+    expect(JSON.stringify(movePane(s, tabId, c, a, 'top'))).not.toBe(once)
+    expect(JSON.stringify(movePane(s, tabId, c, a, 'right'))).not.toBe(once)
+  })
+})
+
+describe('panesForSession', () => {
+  test("the session's own pane and a Terminal pane of it, in reading order; other sessions excluded", () => {
+    let s = openInNewTab(emptyStage(), session('a'), 'a')
+    const tabId = s.tabs[0]!.id
+    s = splitPane(s, tabId, s.tabs[0]!.focusedPaneId, 'row', terminal('t1', 'a'))
+    s = openInNewTab(s, session('b'), 'b')
+    expect(panesForSession(s, 'a').map((p) => p.pane.kind)).toEqual(['session', 'terminal'])
+    expect(panesForSession(s, 'b').map((p) => p.pane.kind)).toEqual(['session'])
+    expect(panesForSession(s, 'gone')).toEqual([])
   })
 })
 

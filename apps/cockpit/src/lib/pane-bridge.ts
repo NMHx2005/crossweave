@@ -93,7 +93,7 @@ function sessionIdOf(pane: PaneRef): string | undefined {
 function label(pane: PaneRef, names: ReadonlyMap<string, string>): string {
   if (pane.kind === 'browser') return `the browser pane (${pane.url})`
   const name = names.get(pane.sessionId) ?? pane.sessionId
-  return pane.kind === 'terminal' ? `a terminal in ${name}` : pane.kind === 'file' ? `${pane.path} in ${name}` : pane.kind === 'changes' ? `the changes of ${name}` : name
+  return pane.kind === 'terminal' ? `a terminal in ${name}` : pane.kind === 'file' ? `${pane.path} in ${name}` : pane.kind === 'changes' ? `the changes of ${name}` : pane.kind === 'debug' ? `the debug bundle of ${name}` : name
 }
 
 async function confirm(env: PaneEnv, q: { title: string; body: string; danger?: boolean; confirmLabel: string }): Promise<void> {

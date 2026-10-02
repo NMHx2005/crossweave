@@ -12,6 +12,8 @@ export type PaneRef =
   | { kind: 'browser'; url: string }
   /** What landing the session would bring in: its diff and its convergence verdict. */
   | { kind: 'changes'; sessionId: string }
+  /** The session's debug bundle: check verdict + tail, error lines, diffstat. */
+  | { kind: 'debug'; sessionId: string }
 
 export type SplitDir = 'row' | 'column'
 
@@ -59,6 +61,7 @@ export function paneKey(pane: PaneRef): string {
     case 'file': return `file:${pane.sessionId}:${pane.path}`
     case 'browser': return `browser:${pane.url}`
     case 'changes': return `changes:${pane.sessionId}`
+    case 'debug': return `debug:${pane.sessionId}`
   }
 }
 
@@ -82,6 +85,22 @@ export function locatePane(state: StageState, key: string): { tabId: string; pan
     if (hit) return { tabId: tab.id, paneId: hit.id }
   }
   return undefined
+}
+
+/**
+ * Every pane showing this session — its own pane, but also a Terminal, file or review
+ * pane opened for it — in reading order. Lets a caller bring a session on screen
+ * without opening a second tab for it (a session's own pane can be closed while a
+ * Terminal pane for the same session stays open).
+ */
+export function panesForSession(state: StageState, sessionId: string): Array<{ tabId: string; paneId: string; pane: PaneRef }> {
+  const out: Array<{ tabId: string; paneId: string; pane: PaneRef }> = []
+  for (const tab of state.tabs) {
+    for (const p of panesOf(tab.root)) {
+      if (p.pane.kind !== 'browser' && p.pane.sessionId === sessionId) out.push({ tabId: tab.id, paneId: p.id, pane: p.pane })
+    }
+  }
+  return out
 }
 
 /** Pinned tabs first, each group keeping its order. */
@@ -225,7 +244,10 @@ export function resizeSplit(state: StageState, tabId: string, splitId: string, i
  */
 export function reconcile(state: StageState, live: { sessionIds: ReadonlySet<string>; terminalIds: ReadonlySet<string> }): StageState {
   const alive = (pane: PaneRef): boolean => {
-    if (pane.kind === 'session' || pane.kind === 'file' || pane.kind === 'changes') return live.sessionIds.has(pane.sessionId)
+    // Session-bound panes die with their session — a debug pane too.
+    if (pane.kind === 'session' || pane.kind === 'file' || pane.kind === 'changes' || pane.kind === 'debug') {
+      return live.sessionIds.has(pane.sessionId)
+    }
     if (pane.kind === 'terminal') return live.terminalIds.has(pane.terminalId)
     return true
   }
@@ -252,7 +274,7 @@ function saveNode(node: LayoutNode, names: ReadonlyMap<string, string>): SavedNo
   if (node.type === 'pane') {
     const p = node.pane
     // An ephemeral shell cannot be brought back; a review pane is reopened on demand.
-    if (p.kind === 'terminal' || p.kind === 'changes') return null
+    if (p.kind === 'terminal' || p.kind === 'changes' || p.kind === 'debug') return null
     if (p.kind === 'browser') return { type: 'pane', pane: { kind: 'browser', url: p.url } }
     const name = names.get(p.sessionId)
     if (name === undefined) return null
@@ -337,7 +359,7 @@ export function syncStage(
   }
   for (const t of live.terminals) {
     if (!known.terminalIds.has(t.terminalId) && !locatePane(next, `terminal:${t.terminalId}`)) {
-      next = openInNewTab(next, { kind: 'terminal', terminalId: t.terminalId, sessionId: t.sessionId }, `${t.sessionName} · shell`)
+      next = openInNewTab(next, { kind: 'terminal', terminalId: t.terminalId, sessionId: t.sessionId }, `${t.sessionName} · terminal`)
     }
   }
   return next
@@ -598,8 +620,12 @@ export function movePane(state: StageState, tabId: string, fromId: string, toId:
     const node: LayoutNode = { type: 'pane', id: fromId, pane: moving.pane }
     const dir: SplitDir = side === 'left' || side === 'right' ? 'row' : 'column'
     const before = side === 'left' || side === 'top'
+    // A DETERMINISTIC split id, not a fresh uid: the live drag preview renders this
+    // state on every dragover while the pointer hovers — a new id each call would
+    // re-key the split node and remount every pane under it (terminals re-attach).
+    // Same from/to/side → the same tree; the release then commits exactly this.
     const placed = mapNode(root, toId, (target) => ({
-      type: 'split', id: uid('s'), dir, sizes: [0.5, 0.5], children: before ? [node, target] : [target, node],
+      type: 'split', id: `sm:${fromId}:${toId}:${side}`, dir, sizes: [0.5, 0.5], children: before ? [node, target] : [target, node],
     }))
     const { zoomedPaneId: _dropped, ...rest } = t
     return { ...rest, root: placed, focusedPaneId: fromId }

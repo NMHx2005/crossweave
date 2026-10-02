@@ -1,4 +1,5 @@
 import type { SessionDiff } from '../lib/patch'
+import type { DebugBundle } from '../lib/debug-pane'
 import type { CockpitChannel, CockpitEvent } from '../../electron/channels'
 import { parseSessionList, type ListedSession } from '../lib/sessions'
 import { parseSessionHistory, type SessionHistoryEntry } from '../lib/session-history'
@@ -151,6 +152,9 @@ function makeApi(invoke: Invoke, listen: Listen) {
     },
     sessionDiff(idOrName: string): Promise<SessionDiff> {
       return invoke('session.diff', { idOrName })
+    },
+    debugBundle(idOrName: string, raw = false): Promise<DebugBundle> {
+      return invoke('session.debug', { idOrName, raw })
     },
     listFiles(idOrName: string): Promise<string[]> {
       return invoke('file.list', { idOrName })

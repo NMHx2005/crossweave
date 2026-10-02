@@ -28,6 +28,7 @@ export const COMMANDS: readonly CommandSpec[] = [
   { id: 'jump-attention', menu: 'Session', label: 'Jump to Attention', key: 'CmdOrCtrl+Shift+A' },
   { id: 'open-terminal', menu: 'Session', label: 'Open Terminal', key: 'CmdOrCtrl+Shift+T' },
   { id: 'prompt-composer', menu: 'Session', label: 'Prompt…', key: 'CmdOrCtrl+Shift+P' },
+  { id: 'show-responses', menu: 'Session', label: 'Responses…', key: 'CmdOrCtrl+Shift+R' },
   { id: 'next-tab', menu: 'Session', label: 'Next Tab', key: 'CmdOrCtrl+Shift+]' },
   { id: 'prev-tab', menu: 'Session', label: 'Previous Tab', key: 'CmdOrCtrl+Shift+[' },
   ...JUMPS,
@@ -159,6 +160,40 @@ export function acceleratorFromKey(e: KeyLike): string | null {
   const mods = [e.metaKey ? 'CmdOrCtrl' : '', e.ctrlKey ? 'Ctrl' : '', e.altKey ? 'Alt' : '', e.shiftKey ? 'Shift' : ''].filter(Boolean)
   const accel = [...mods, key].join('+')
   return isAccelerator(accel) ? accel : null
+}
+
+export type ShortcutCapture =
+  | { kind: 'cancel' }
+  | { kind: 'ignore' }
+  | { kind: 'await' }
+  | { kind: 'record'; key: string }
+
+/**
+ * One keydown while the capture dialog is open. Escape (bare) cancels; the prefix
+ * chord starts a key-table sequence (`prefix:<key>`, the next press completes it);
+ * anything that spells no accelerator is ignored.
+ */
+export function shortcutFromKey(
+  e: KeyLike,
+  opts: {
+    /** The command being recorded (the prefix itself records no sequence). */
+    commandId: string
+    prefix: string | null
+    awaiting: boolean
+    tableKeyOf?: (e: KeyLike) => string | null
+  },
+): ShortcutCapture {
+  if (e.code === 'Escape' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) return { kind: 'cancel' }
+  if (opts.awaiting) {
+    const k = opts.tableKeyOf?.(e) ?? null
+    return k === null ? { kind: 'ignore' } : { kind: 'record', key: `prefix:${k}` }
+  }
+  const accel = acceleratorFromKey(e)
+  if (accel === null) return { kind: 'ignore' }
+  if (opts.commandId !== 'prefix' && opts.prefix !== null && normalizeAccelerator(accel) === normalizeAccelerator(opts.prefix)) {
+    return { kind: 'await' }
+  }
+  return { kind: 'record', key: accel }
 }
 
 /**
