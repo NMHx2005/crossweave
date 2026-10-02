@@ -580,12 +580,15 @@ body,
 }
 
 
+/* NO padding here: FitAddon measures THIS element's height, and padding would be
+   counted as usable space — the terminal would be told it has a row more than is
+   visible and the bottom row would clip (a short agent composer went missing this
+   way). The inset lives on the wrapper instead. */
 .xterm-pane {
   flex: 1;
   min-height: 0;
   width: 100%;
   height: 100%;
-  padding: var(--cw-space-1) 0 0 var(--cw-space-2);
 }
 
 .xterm-pane .xterm {
@@ -604,6 +607,8 @@ body,
   min-width: 0;
   min-height: 0;
   display: flex;
+  /* The visual inset, kept OFF the measured element (see .xterm-pane). */
+  padding: var(--cw-space-1) 0 0 var(--cw-space-2);
 }
 
 /* A file is being dragged over the pane and will be typed as a path if dropped. */
