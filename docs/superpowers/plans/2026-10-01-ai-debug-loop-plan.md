@@ -102,11 +102,12 @@ more agents by extending `SUPPORTED_AGENTS`, `agentWiring` keeps the closed list
   its failed requests together: two bridge calls, so each kind keeps its own Read
   permission check in the cockpit, tagged by source (`buildBrowserRequests` /
   `formatBrowserErrors`; unit-tested in `tests/cli/browser.test.ts`)
-- [ ] Debug pane pulls the ACTIVE browser pane's errors — needs a NEW renderer→main
-  channel (`browser.console`/`browser.network` are served only over the command bridge
-  today; the browser agent lives in cockpit main) plus a running-app (electron/CDP)
-  check this environment cannot run — left for a follow-up
-- [x] Gates (CLI half): typecheck · `tests/cli/browser.test.ts` 12 pass
+- [x] Debug pane's browser half: a `browser.errors` renderer→main channel (main reads
+  it from the browser agent), a pure `collectBrowserErrors` (bounded, tagged by source),
+  and the Debug pane's own section; "Send to session" falls back to the browser errors
+- [ ] Running-app (electron/CDP) check for the browser section — needs a real page
+- [x] Gates: root typecheck · core `collectBrowserErrors` 4 pass · cockpit build
+  (tsc+vite) · cockpit suite 583 pass · `tests/cli/browser.test.ts` 12 pass
 
 ## Milestone close
 

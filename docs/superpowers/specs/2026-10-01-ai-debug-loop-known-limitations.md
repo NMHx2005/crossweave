@@ -11,8 +11,10 @@ final milestone limitations will replace this when Phases 2–6 land.
 - `cw browser errors` is a **convenience over two calls** (`browser.console` level=error
   + `browser.network` failed): each is bounded and permission-checked on its own, and a
   refusal of one still fails the whole command. Page text is untrusted data.
-- The Debug pane does NOT show browser errors yet: it needs a new renderer→main channel
-  (the browser agent lives in cockpit main), which is a follow-up.
+- The Debug pane's browser section reads only panes whose access is **Read or Control**
+  (a pane at Off captures nothing) and only panes of THIS project; it is read-only (no
+  dialog, no activity line) and bounded (25 rows per pane, 50 in total). Its
+  running-app (CDP) behaviour is unverified.
 
 ## Phase 4 — Debug pane + send-to-session (on main)
 
