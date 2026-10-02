@@ -135,7 +135,10 @@ export function PromptComposer({ sessions, focusedId, refineConfigured, draft, o
           {sessions.length === 0 ? <p class="cockpit-muted">No sessions yet.</p> : null}
           {sessions.map((s) => (
             <label key={s.id} class={s.running ? '' : 'is-off'}>
-              <input type="checkbox" checked={picked.has(s.id)} disabled={!s.running} onChange={() => toggle(s.id)} />
+              {/* A stopped session cannot be TICKED, but one already ticked (the
+                  preselect) can be unticked — otherwise a dead shell could hold the
+                  only tick and nothing else could be sent. */}
+              <input type="checkbox" checked={picked.has(s.id)} disabled={!s.running && !picked.has(s.id)} onChange={() => toggle(s.id)} />
               <span>{s.name}</span>
               <span class="cockpit-muted">{s.running ? (s.agent ? s.agent : 'shell') : 'shell closed'}</span>
             </label>
