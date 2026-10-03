@@ -1,6 +1,6 @@
 # Progress — crossweave
 
-**Last updated:** 2026-09-30
+**Last updated:** 2026-10-03
 **Product:** `cw` (CLI), `cwd` (daemon) and the Electron **Cockpit** run N parallel sessions on one repository and land them
 back. A session is a git worktree plus the user's shell in it; what runs there is the user's to type.
 **Where the known gaps are:** `docs/superpowers/specs/2026-08-14-known-limitations-digest.md` (one line per milestone, newest
@@ -21,6 +21,7 @@ last) and the `*-known-limitations.md` next to each spec.
 | **Command bridge** (2026-09-29) | a shell command asks the running cockpit to do something, through the daemon; closed namespaces, first come first served | `2026-09-29-cockpit-command-bridge-known-limitations.md` |
 | **`cw pane`** (2026-09-29) | arrange the running cockpit's panes from a shell; it asks the person before anything more than layout | `2026-09-29-cockpit-pane-bridge-known-limitations.md` |
 | **`cw browser`** (2026-09-30) | an agent reads and drives a Browser pane (console, network, dom, screenshot, navigate, click, type, eval) behind a per-pane Off/Read/Control switch | `2026-09-30-cockpit-browser-agent-known-limitations.md` |
+| **AI debug loop** (2026-10-01, unreleased) | `cw hooks install\|remove <claude\|codex>` wires an agent's own hooks to `cw notify`; `cw debug` prints one scrubbed bundle (check tail, error lines, diffstat, latest words) to paste to an AI; `cw browser errors` | `2026-10-01-ai-debug-loop-known-limitations.md` |
 | Terminal persistence (2026-09-29) | opt-in: extra terminals reopen after a daemon restart | off by default |
 | Session history (2026-09-28) | `cw session history`; survives deleting the session | `2026-09-28-session-history-known-limitations.md` |
 | Setup-hook exit code (2026-09-28) | a failed `hooks.sessionSetup` shows on the rail | `2026-09-28-session-setup-exit-code-known-limitations.md` |
@@ -41,6 +42,7 @@ usage per session; its own app icon (`apps/cockpit/build/icon.svg`, four warp th
 | Session history dialog (⌘⇧H) | `2026-09-28-session-history-known-limitations.md` |
 | Status marks: loading ring while an agent works, ✓ until you look at a finished one, nothing for a quiet shell | this file's changelog below |
 | Rail keeps the newest answer (out-of-order loads are dropped); typing no longer counts as work; landing asks when the tests last failed | `docs/releases/v0.4.0.md` |
+| **Debug pane** (session menu → Debug) and **Responses** view (⌘⇧R) after a composer send, status that covers split panes, a live drag preview (2026-10-01, unreleased) | `2026-10-01-ai-debug-loop-known-limitations.md` |
 | **Settings redesigned after Cursor's** and a **Dashboard** (projects, sessions, disk, memory; proposals to clean up, delete or stop idle work — always asks first) | `2026-09-30-settings-dashboard-known-limitations.md` |
 
 ## Removed on purpose (do not reintroduce)
@@ -55,7 +57,9 @@ usage per session; its own app icon (`apps/cockpit/build/icon.svg`, four warp th
 
 1. **0.5.0 is tagged**; the owner restarts the app and, when no session is mid-task, the project daemons (that ends running
    sessions) so the Dashboard has numbers for existing projects.
-2. Use it for a week and fix what is annoying: wire `cw notify` into agent hooks, try presets and the composer for real.
+2. Use it for a week and fix what is annoying: run `cw hooks install claude` and try the debug loop, presets and the composer for real.
+   Still pending from the debug loop: the live check that `$CW_SESSION_ID` reaches a hook process, and a running-app (CDP) check of the
+   Responses view and the Debug pane's browser section.
 3. Notarize the app (needs the owner's Apple Developer account and a hardened-runtime pass; the app has its own icon since 0.4.0 but is still signed only with a development certificate).
 4. **Update notice and auto-update (owner's word, 2026-10-01: after the Apple Developer account exists).** Two steps: (a) a small
    corner notice when a newer `vX.Y.Z` release exists (main process reads GitHub `releases/latest`, compares with `app.getVersion()`,
@@ -66,6 +70,8 @@ usage per session; its own app icon (`apps/cockpit/build/icon.svg`, four warp th
 
 ## Changelog (newest first)
 
+- **2026-10-01** — AI debug loop on `main` (unreleased): `cw hooks`, `cw debug`, Debug pane with send-to-session, Responses view,
+  `cw browser errors`; status now covers split panes; panes drag with a live preview.
 - **2026-09-30 (later)** — Cursor-style Settings and the resource Dashboard (`DiskTracker`, `stats.overview`), Search box with icon,
   rail frame no longer shifts on switch, CI runs the cockpit's view test on macOS; version 0.5.0.
 - **2026-09-30** — `cw notify`, `cw check`, compare, prompt composer, presets, session history, setup exit-code, hooks review

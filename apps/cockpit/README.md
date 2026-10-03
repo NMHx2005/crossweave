@@ -147,6 +147,7 @@ HOME=/tmp/cwhome COCKPIT_PROJECT_ROOT=/path/to/scratch/repo bun apps/cockpit/scr
 | `cw check` | `checks-check.ts` | untrusted command refused, ✗ then ✓ on the row, dim when the work moved on |
 | Compare | `compare-check.ts` | shared files marked, per-side land buttons, patches open, Escape closes |
 | Prompt composer | `prompt-check.ts` | refine only proposes, an agent gets one bracketed paste with no Enter, a plain shell is refused multi-line |
+| Debug pane / Responses | — (no script yet: the running-app check is pending, see the AI-debug-loop known limitations) | the bundle is unit-tested (`apps/cockpit/tests/debug-pane.test.tsx`); not yet driven on the running app |
 | Presets | `preset-check.ts` | one click: session, extra terminal running its command, browser on the leased port |
 | Key-table | `keytable-check.ts` | prefix then key runs a command; prefix twice types the literal |
 | Vietnamese composition | `ime-check.ts` | text composed with Chromium's IME simulation reaches the shell as UTF-8; a composing key never runs a key-table command (a simulation, not macOS's input source) |
