@@ -30,8 +30,16 @@ const ERROR_SHAPES: RegExp[] = [
   /\bERR!/,                                // npm ERR!
   /\bTraceback \(most recent call last\)/, // Python
   /^\s*(?:FAIL|FAILED)\b/,                 // test runners
-  /[✗✖]\s/,                                // their glyphs
+  /[✗✖✕]\s/,                               // their glyphs
   /\bSegmentation fault\b/,
+  /\berror\[E\d+\]:/,                      // Rust
+  /^panic:/,                               // Go
+  /^--- FAIL:/,                            // go test
+  /^\s*(?:Uncaught\s+)?[A-Z][A-Za-z]*(?:Error|Exception):\s/, // Node / JVM / Python exception lines (a colon, so "the TypeError section" is prose)
+  /^npm error\b/,                          // npm 7+ prints lowercase, without the "ERR!"
+  /^Exception in thread\b/,                // JVM
+  /^E {2,}\S/,                             // pytest's failure detail ("E2E suite" is not)
+  /\bcommand not found\b/,                 // the shell's own verdict
 ];
 
 /** One already-stripped line; the heuristic of record. */

@@ -8,8 +8,20 @@
 
 // [A-Za-z0-9_-]{16,} tails so a short coincidental run does not trigger.
 const PATTERNS: Array<[RegExp, string]> = [
-  // AWS access key ids (20 chars, AKIA + 16).
-  [/\b(AKIA[0-9A-Z]{16})\b/g, '[redacted-aws-key]'],
+  // AWS access key ids (20 chars, AKIA + 16); ASIA is the temporary-credential twin.
+  [/\b((?:AKIA|ASIA)[0-9A-Z]{16})\b/g, '[redacted-aws-key]'],
+  // Fine-grained GitHub PATs.
+  [/\b(github_pat_[A-Za-z0-9_]{22,})/g, '[redacted-github-token]'],
+  [/\b(xox[abprs]-[A-Za-z0-9-]{10,})/g, '[redacted-slack-token]'],
+  [/\b((?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,})\b/g, '[redacted-stripe-key]'],
+  [/\b(AIza[0-9A-Za-z_-]{35,})/g, '[redacted-google-key]'],
+  [/\b(npm_[A-Za-z0-9]{30,})\b/g, '[redacted-npm-token]'],
+  [/\b(glpat-[A-Za-z0-9_-]{20,})/g, '[redacted-gitlab-token]'],
+  [/\b(SG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,})/g, '[redacted-sendgrid-key]'],
+  // A bare JWT: three base64url parts, the first two starting `eyJ` ({"…).
+  [/\b(eyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,})/g, '[redacted-jwt]'],
+  // Basic credentials only after the header name: "Basic authentication" in prose has the same shape.
+  [/(\bAuthorization:\s*Basic\s+)[A-Za-z0-9+/]{8,}={0,2}/gi, '$1[redacted]'],
   // GitHub PATs: ghp_, gho_, ghu_, ghs_, ghr_.
   [/\b(gh[pousr]_[A-Za-z0-9]{20,})\b/g, '[redacted-github-token]'],
   // OpenAI-style keys and their like.

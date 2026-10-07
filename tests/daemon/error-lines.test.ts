@@ -27,6 +27,36 @@ describe('errorLineOf (heuristic, applied to ONE line)', () => {
     }
   });
 
+  it('catches Rust, Go, Node, npm 7+, pytest and JVM failures', () => {
+    for (const line of [
+      'error[E0308]: mismatched types',
+      'panic: runtime error: index out of range [3] with length 3',
+      '--- FAIL: TestParse (0.00s)',
+      'TypeError: Cannot read properties of undefined (reading \'x\')',
+      'Uncaught ReferenceError: foo is not defined',
+      'npm error code ELIFECYCLE',
+      'Exception in thread "main" java.lang.IllegalStateException: boom',
+      'E       AssertionError: assert 1 == 2',
+      'zsh: command not found: pnpm',
+      '✕ renders the rail (12 ms)',
+    ]) {
+      expect(errorLineOf(line)).toBe(true);
+    }
+  });
+
+  it('does not take prose or counts that merely mention errors for failures', () => {
+    for (const line of [
+      '0 errors, 2 warnings',
+      'Error handling is documented in docs/errors.md',
+      'see the TypeError section above',
+      'npm warn deprecated left-pad@1.0.0',
+      'E2E suite finished',
+      'catching a panic is not recommended',
+    ]) {
+      expect(errorLineOf(line)).toBe(false);
+    }
+  });
+
   it('leaves ordinary output alone', () => {
     for (const line of [
       '✓ 12 tests passed',
