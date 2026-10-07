@@ -444,8 +444,8 @@ describe('session runtime', () => {
     expect(await statusOf()).toBe('dead');
   });
 
-  it('injects the session\'s leases into the agent environment', async () => {
-    await client.call('session.new', { workspaceId, name: 'leased', worktree: true });
+  it('injects the session\'s identity, workspace root and leases into the agent environment', async () => {
+    const session = await client.call<{ id: string }>('session.new', { workspaceId, name: 'leased', worktree: true });
     await client.call('session.start', { workspaceId, idOrName: 'leased' });
 
     let seen = '';
@@ -454,12 +454,14 @@ describe('session runtime', () => {
     });
     await client.call('session.attach', { workspaceId, idOrName: 'leased' });
     await client.call('session.input', {
-      workspaceId, idOrName: 'leased', data: 'echo "P=$CW_PORT_BASE D=$COMPOSE_PROJECT_NAME"\n',
+      workspaceId, idOrName: 'leased', data: 'echo "P=$CW_PORT_BASE D=$COMPOSE_PROJECT_NAME R=$CW_WORKSPACE_ROOT I=$CW_SESSION_ID"\n',
     });
 
-    await waitFor(() => seen.includes('P=') && seen.includes('D=cw_'));
+    await waitFor(() => seen.includes('P=') && seen.includes('D=cw_') && seen.includes('R=') && seen.includes('I='));
     expect(seen).toMatch(/P=\d{4,5}/);
     expect(seen).toContain('D=cw_s_');
+    expect(seen).toContain(`R=${fx.root}`);
+    expect(seen).toContain(`I=${session.id}`);
   }, 20_000);
 
   it('frees a session\'s leases when it stops, so the next session reuses them', async () => {

@@ -3,11 +3,36 @@ import { loadConfig } from '../core/config.js';
 import { connectOrStart, type DaemonClient } from '../client/rpc-client.js';
 import { CrossweaveError } from '../core/errors.js';
 import { realpathSync } from 'node:fs';
+import { isAbsolute } from 'node:path';
+import { isCrossweaveWorktree } from '../isolation/worktree.js';
+
+/**
+ * Resolves a command to the repository whose daemon it should talk to.
+ *
+ * A session shell sits in a linked worktree, where `git rev-parse --show-toplevel` names
+ * the worktree, not the repository whose daemon owns the session, so the daemon hands the
+ * repository down as CW_WORKSPACE_ROOT. The variable is honoured only while the shell is
+ * still inside that repository's crossweave worktrees: after a `cd` into another
+ * repository the environment is stale and the directory the person is in wins.
+ */
+export function projectRootForContext(
+  cwd: string,
+  env: Readonly<Record<string, string | undefined>>,
+): string {
+  const workspaceRoot = env['CW_WORKSPACE_ROOT'];
+  if (env['CW_SESSION_ID'] !== undefined && workspaceRoot !== undefined) {
+    if (!isAbsolute(workspaceRoot)) {
+      throw new CrossweaveError('INVALID_ARGUMENTS', 'CW_WORKSPACE_ROOT must be an absolute path');
+    }
+    if (isCrossweaveWorktree(workspaceRoot, cwd)) return findProjectRoot(workspaceRoot);
+  }
+  return findProjectRoot(cwd);
+}
 
 export async function withClient<T>(
   fn: (client: DaemonClient, projectRoot: string) => Promise<T>,
 ): Promise<T> {
-  const projectRoot = findProjectRoot(process.cwd());
+  const projectRoot = projectRootForContext(process.cwd(), process.env);
   // Parsed HERE, in the foreground, before anything can spawn a daemon. `buildMethods`
   // loads the config too, but that runs inside the DETACHED daemon process whose stdio
   // is 'ignore': a CONFIG_INVALID thrown there kills the daemon before it binds its

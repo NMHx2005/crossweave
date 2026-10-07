@@ -310,7 +310,7 @@ export function buildMethods(
   const terminals = new TerminalRegistry((row) => spawnShell({
     shell: opts.shell ?? process.env.SHELL ?? '/bin/sh',
     cwd: row.worktreePath as string,
-    env: { CW_SESSION_ID: row.id, CW_SESSION_NAME: row.name },
+    env: { CW_SESSION_ID: row.id, CW_SESSION_NAME: row.name, CW_WORKSPACE_ROOT: projectRoot },
   }), () => broadcastRegistry.broadcast('tui.invalidate', {}), {
     // Opt-in: switching it off takes effect at the next snapshot.
     enabled: persistTerminals,
@@ -560,6 +560,7 @@ export function buildMethods(
         ...clientEnv(p),
         ...(launcherFor(p)?.env ?? {}),
         ...(await leaseManager.acquire(row.id)),
+        CW_WORKSPACE_ROOT: projectRoot,
       };
       let pid: number;
       try {
@@ -842,7 +843,13 @@ export function buildMethods(
         throw new CrossweaveError('CHECK_UNTRUSTED', 'converge.testCommand is set but not trusted for this workspace. Review crossweave.config.json, then run `cw config trust`.');
       }
       if (row.worktreePath === null || !existsSync(row.worktreePath)) throw new CrossweaveError('SESSION_NO_WORKDIR', `Session has no working directory: ${row.name}`);
-      checks.start(row.id, command, row.worktreePath, { ...process.env, CW_SESSION_ID: row.id, CW_SESSION_NAME: row.name, CW_CHECK: '1' } as Record<string, string>, gitCounts.get(row.id) ?? null);
+      checks.start(row.id, command, row.worktreePath, {
+        ...process.env,
+        CW_SESSION_ID: row.id,
+        CW_SESSION_NAME: row.name,
+        CW_WORKSPACE_ROOT: projectRoot,
+        CW_CHECK: '1',
+      } as Record<string, string>, gitCounts.get(row.id) ?? null);
       return { ok: true };
     },
     // `cw notify`: the session (or its agent's hook) says itself that it is done or needs an answer.

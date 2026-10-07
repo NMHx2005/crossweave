@@ -15,10 +15,9 @@ import {
 } from '@opentui/core';
 import { createDefaultOpenTuiKeymap } from '@opentui/keymap/opentui';
 import type { Binding } from '@opentui/keymap';
-import { findProjectRoot } from '../../core/paths.js';
 import { loadConfig } from '../../core/config.js';
 import { connectOrStart, type DaemonClient } from '../../client/rpc-client.js';
-import { fail } from '../context.js';
+import { fail, projectRootForContext } from '../context.js';
 import type { SessionRow } from '../../db/repositories/session.js';
 import { humanBytes } from '../../isolation/disk-guard.js';
 import { format, type NotifyEvent } from '../../notify/dispatcher.js';
@@ -395,7 +394,7 @@ export const tuiCommand = defineCommand({
     // Deliberately NOT withClient (src/cli/context.ts) — that closes the connection
     // right after one call. This command holds one connection for its whole
     // lifetime, closing it only on quit. See plan Global Constraints.
-    const projectRoot = findProjectRoot(process.cwd());
+    const projectRoot = projectRootForContext(process.cwd(), process.env);
     loadConfig(projectRoot);
     let client: DaemonClient | undefined;
     // Hoisted so the `catch` block below can reach it (Important 4 fix): any

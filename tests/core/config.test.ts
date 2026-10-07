@@ -93,7 +93,7 @@ describe('loadConfig', () => {
 
     it('rejects PATH and the other reserved names', async () => {
       for (const name of ['PATH', 'HOME', 'LD_PRELOAD', 'LD_LIBRARY_PATH', 'CW_SESSION_ID',
-        'CW_SESSION_NAME', 'CW_PORT_BASE']) {
+        'CW_SESSION_NAME', 'CW_WORKSPACE_ROOT', 'CW_PORT_BASE']) {
         await write({ [name]: 0 });
         expectInvalid(name);
       }

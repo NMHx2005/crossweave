@@ -2,7 +2,7 @@
 import { restoreColorEnv } from './plain-when-piped.js';
 import { join } from 'node:path';
 import { defineCommand, runMain } from 'citty';
-import { crossweaveDir, findProjectRoot } from '../core/paths.js';
+import { crossweaveDir } from '../core/paths.js';
 import { VERSION } from '../core/version.js';
 import { DaemonClient } from '../client/rpc-client.js';
 import { CrossweaveError } from '../core/errors.js';
@@ -21,7 +21,7 @@ import { notifyCommand } from './commands/notify.js';
 import { checkCommand } from './commands/check.js';
 import { hooksCommand } from './commands/hooks.js';
 import { debugCommand } from './commands/debug.js';
-import { fail } from './context.js';
+import { fail, projectRootForContext } from './context.js';
 import { openDefaultApp, shouldOpenApp } from './entry-mode.js';
 import { tryOpenCockpit } from './cockpit-launcher.js';
 
@@ -37,7 +37,7 @@ const daemonCommand = defineCommand({
           // Deliberately connects rather than using withClient: connectOrStart would
           // spawn a daemon just to shut it down. Nothing listening means the daemon is
           // already stopped, which is the outcome asked for, so it exits 0.
-          const projectRoot = findProjectRoot(process.cwd());
+          const projectRoot = projectRootForContext(process.cwd(), process.env);
           const socketPath = join(crossweaveDir(projectRoot), 'daemon.sock');
 
           let client: DaemonClient;

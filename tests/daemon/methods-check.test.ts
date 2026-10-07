@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { openDatabase } from '../../src/db/open.js';
 import { buildMethods } from '../../src/daemon/methods.js';
@@ -23,7 +23,9 @@ describe('session.check', () => {
       expect(await codeOf(() => methods['session.check']!({ workspaceId: ws.id, idOrName: 'solo' }, ctx))).toBe('CHECK_NOT_CONFIGURED');
 
       // Configured but nobody trusted it: never run.
-      writeFileSync(join(fx.root, 'crossweave.config.json'), JSON.stringify({ converge: { testCommand: 'test -f ok.txt' } }));
+      // The marker records what the check saw; the path never goes through shell quoting.
+      const command = 'test -f ok.txt && printf %s "$CW_WORKSPACE_ROOT" > root.txt';
+      writeFileSync(join(fx.root, 'crossweave.config.json'), JSON.stringify({ converge: { testCommand: command } }));
       methods = buildMethods(db, fx.root);
       expect(await codeOf(() => methods['session.check']!({ workspaceId: ws.id, idOrName: 'solo' }, ctx))).toBe('CHECK_UNTRUSTED');
 
@@ -42,6 +44,7 @@ describe('session.check', () => {
       await until(async () => (await listed()).check?.state === 'pass');
       // A new untracked file changed the count since the run began...
       expect((await listed()).check?.state).toBe('pass');
+      expect(readFileSync(join(worktree, 'root.txt'), 'utf8')).toBe(fx.root);
     } finally {
       db.close();
       await fx.cleanup();

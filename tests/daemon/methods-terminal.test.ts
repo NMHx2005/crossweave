@@ -63,6 +63,21 @@ describe('terminal RPCs', () => {
     }
   }, 20_000);
 
+  test('terminal shell inherits the owning workspace root and session id', async () => {
+    const t = await setup();
+    try {
+      const session = await t.call('session.new', { name: 'env-pane', agent: 'claude' }) as { id: string };
+      const { terminalId } = await t.call('terminal.open', { idOrName: 'env-pane' }) as { terminalId: string };
+      await t.call('terminal.attach', { terminalId });
+      await t.call('terminal.input', { terminalId, data: 'printf "ROOT=%s ID=%s\\n" "$CW_WORKSPACE_ROOT" "$CW_SESSION_ID"\n' });
+
+      await until(() => t.text(terminalId).includes(`ID=${session.id}`));
+      expect(t.text(terminalId)).toContain(`ROOT=${t.fx.root} ID=${session.id}`);
+    } finally {
+      await t.cleanup();
+    }
+  }, 20_000);
+
   // Removing a session removes its worktree; a shell left running in it would sit in
   // a deleted directory.
   test('removing the session closes its terminals first', async () => {
