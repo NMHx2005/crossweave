@@ -104,8 +104,44 @@ export class LeaseManager {
     // the connection URL itself untouched.
     const schema = `cw_${sessionId}`;
     this.record(sessionId, 'db', schema);
+    return this.databaseUrl(schema);
+  }
+
+  /** The DATABASE_URL a recorded db lease value stands for: the file itself, or the URL scoped to the schema. */
+  private databaseUrl(leased: string): string | undefined {
+    if (this.config.db.strategy === 'file-copy') return leased;
     const url = this.config.db.url ?? '';
-    return url === '' ? undefined : `${url}${url.includes('?') ? '&' : '?'}options=-csearch_path%3D${schema}`;
+    return url === '' ? undefined : `${url}${url.includes('?') ? '&' : '?'}options=-csearch_path%3D${leased}`;
+  }
+
+  /**
+   * The environment of the leases a session already holds, rebuilt from their rows — nothing is
+   * allocated. For `cw check`, which should see the same ports and database the session's own
+   * shell does, rather than whatever the daemon happens to have in its environment. A session
+   * that holds no lease (stopped) gets `{}`: a check must not take a port block of its own.
+   */
+  envFor(sessionId: string): Record<string, string> {
+    const held = this.leases.listBySession(sessionId).filter((l) => l.releasedAt === null);
+    const value = (kind: LeaseKind): string | undefined => held.find((l) => l.kind === kind)?.value;
+    const env: Record<string, string> = {};
+
+    const port = value('port');
+    if (port !== undefined) {
+      const base = Number(port);
+      env.CW_PORT_BASE = port;
+      env.PORT = port;
+      for (const [name, offset] of Object.entries(this.config.ports.named)) env[name] = String(base + offset);
+    }
+    const docker = value('docker');
+    if (docker !== undefined) env.COMPOSE_PROJECT_NAME = docker;
+    const cache = value('cache');
+    if (cache !== undefined) env.XDG_CACHE_HOME = cache;
+    const db = value('db');
+    if (db !== undefined) {
+      const url = this.databaseUrl(db);
+      if (url !== undefined) env.DATABASE_URL = url;
+    }
+    return env;
   }
 
   release(sessionId: string): void {

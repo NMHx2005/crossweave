@@ -62,6 +62,21 @@ describe('LeaseManager', () => {
 
   // `newId` uses an uppercase Crockford alphabet, and Compose v2 refuses a project
   // name outside `[a-z0-9][a-z0-9_-]*` — so the raw session id cannot be used as-is.
+  it('envFor rebuilds the held lease environment without allocating anything new', async () => {
+    const acquired = await manager.acquire(sessionA);
+    const before = new LeaseRepo(db).listBySession(sessionA).length;
+
+    expect(manager.envFor(sessionA)).toEqual(acquired);
+    expect(new LeaseRepo(db).listBySession(sessionA).length).toBe(before);
+  });
+
+  it('envFor is empty for a session holding no lease, and again once it is released', async () => {
+    expect(manager.envFor(sessionA)).toEqual({});
+    await manager.acquire(sessionA);
+    manager.release(sessionA);
+    expect(manager.envFor(sessionA)).toEqual({});
+  });
+
   it('gives docker a project name Compose will actually accept', async () => {
     const env = await manager.acquire(sessionA);
     expect(env.COMPOSE_PROJECT_NAME).toMatch(/^[a-z0-9][a-z0-9_-]*$/);
@@ -113,6 +128,15 @@ describe('LeaseManager', () => {
     const env = await withDb.acquire(sessionA);
     expect(env.DATABASE_URL).toContain(sessionA);
     expect(new LeaseRepo(db).listBySession(sessionA).map((l) => l.kind)).toContain('db');
+    expect(withDb.envFor(sessionA)).toEqual(env);
+  });
+
+  it('envFor scopes a schema-strategy URL to the session, exactly as acquire does', async () => {
+    const config = { ...TEST_CONFIG, db: { strategy: 'schema' as const, url: 'postgres://localhost/app' } };
+    const withDb = new LeaseManager(db, dir, config);
+    const env = await withDb.acquire(sessionA);
+    expect(env.DATABASE_URL).toContain(`cw_${sessionA}`);
+    expect(withDb.envFor(sessionA)).toEqual(env);
   });
 
   it('rejects a file-copy db.url that escapes the project root', async () => {
