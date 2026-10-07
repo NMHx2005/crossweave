@@ -845,6 +845,7 @@ export function buildMethods(
       if (row.worktreePath === null || !existsSync(row.worktreePath)) throw new CrossweaveError('SESSION_NO_WORKDIR', `Session has no working directory: ${row.name}`);
       checks.start(row.id, command, row.worktreePath, {
         ...process.env,
+        ...leaseManager.envFor(row.id),
         CW_SESSION_ID: row.id,
         CW_SESSION_NAME: row.name,
         CW_WORKSPACE_ROOT: projectRoot,
@@ -1223,6 +1224,19 @@ export function buildMethods(
     'land.session': async (p) => {
       const workspaceId = str(p, 'workspaceId');
       const target = sessions.resolve(workspaceId, str(p, 'idOrName'));
+      // Before anything is closed or stopped: a refusal must leave the session exactly as it was. `force` is not the
+      // way past this — it stops a live session, which says nothing about whether its tests passed.
+      if (config.converge.requireCheck === true && !bool(p, 'skipCheck', false)) {
+        const live = activity.status(target.id, agents.get(target.id) ?? null, (terminalId) => terminalAgents.get(terminalId) ?? null);
+        const verdict = checks.get(target.id, gitCounts.get(target.id) ?? null, live.lastActivityAt);
+        if (verdict === undefined || verdict.state !== 'pass' || verdict.stale) {
+          const why = verdict === undefined ? 'has not been checked'
+            : verdict.state === 'running' ? 'is still being checked'
+            : verdict.state === 'fail' ? 'failed its last check'
+            : 'has changed since its last passing check';
+          throw new CrossweaveError('CHECK_REQUIRED', `converge.requireCheck is on and ${target.name} ${why}. Run \`cw check ${target.name}\` first (or pass --skip-check).`);
+        }
+      }
       // Landing removes the worktree the session's shells are sitting in.
       await terminals.closeForSession(target.id);
       errorLines.forget(target.id);

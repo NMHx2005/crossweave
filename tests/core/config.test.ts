@@ -57,6 +57,23 @@ describe('loadConfig', () => {
   // `LeaseManager.acquire` writes every entry straight into the agent's environment —
   // overriding whatever was already there. A file that looks like configuration could
   // replace the agent's PATH, or its loader, with a port number.
+  describe('converge.requireCheck', () => {
+    const load = async (converge: unknown) => {
+      await writeFile(join(dir, 'crossweave.config.json'), JSON.stringify({ converge }));
+      return loadConfig(dir);
+    };
+
+    it('is off by default and accepted with a test command', async () => {
+      expect(DEFAULT_CONFIG.converge.requireCheck).toBeUndefined();
+      expect((await load({ testCommand: 'bun test', requireCheck: true })).converge.requireCheck).toBe(true);
+    });
+
+    it('must be a boolean and needs a test command to be satisfiable', async () => {
+      await expect(load({ testCommand: 'bun test', requireCheck: 'yes' })).rejects.toMatchObject({ code: 'CONFIG_INVALID' });
+      await expect(load({ requireCheck: true })).rejects.toMatchObject({ code: 'CONFIG_INVALID' });
+    });
+  });
+
   describe('ports.named', () => {
     async function write(named: unknown, ports: Record<string, unknown> = {}): Promise<void> {
       await writeFile(

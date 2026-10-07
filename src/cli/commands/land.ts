@@ -32,6 +32,7 @@ const singleCommand = defineCommand({
   args: {
     target: { type: 'positional', description: 'Session name or id' },
     force: { type: 'boolean', default: false, description: 'Land even if the session is still running' },
+    'skip-check': { type: 'boolean', default: false, description: 'Land without a passing `cw check` even though converge.requireCheck is on' },
     yes: { type: 'boolean', default: false, description: 'Skip confirmation' },
   },
   async run({ args }) {
@@ -48,9 +49,9 @@ const singleCommand = defineCommand({
         if (!sessions.some((s) => s.name === target || s.id === target)) {
           throw new CrossweaveError('SESSION_NOT_FOUND', `No such session: ${target}`);
         }
-        assertLandConfirmed(args.yes, `cw land session ${target} --yes${args.force ? ' --force' : ''}`);
+        assertLandConfirmed(args.yes, `cw land session ${target} --yes${args.force ? ' --force' : ''}${args['skip-check'] ? ' --skip-check' : ''}`);
         const result = await client.call<LandResult>('land.session', {
-          workspaceId, idOrName: args.target, force: args.force,
+          workspaceId, idOrName: args.target, force: args.force, skipCheck: args['skip-check'],
         });
         printLandResult(args.target as string, result);
       });
@@ -62,6 +63,7 @@ const allCommand = defineCommand({
   meta: { name: 'all', description: 'Land every evidence-ready session, stopping at the first failure' },
   args: {
     force: { type: 'boolean', default: false, description: 'Land even sessions still running' },
+    'skip-check': { type: 'boolean', default: false, description: 'Land without a passing `cw check` even though converge.requireCheck is on' },
     yes: { type: 'boolean', default: false, description: 'Skip confirmation' },
   },
   async run({ args }) {
@@ -81,7 +83,7 @@ const allCommand = defineCommand({
               process.stdout.write(`warning: landing ${name} with incomplete evidence: ${candidate.warning}\n`);
             }
             return client.call<LandResult>('land.session', {
-              workspaceId, idOrName: name, force: args.force,
+              workspaceId, idOrName: name, force: args.force, skipCheck: args['skip-check'],
             });
           },
           force: args.force,

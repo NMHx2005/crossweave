@@ -9,6 +9,8 @@ export interface CrossweaveConfig {
   cacheIsolation: boolean;
   converge: {
     testCommand?: string;
+    /** Opt-in: `land.session` refuses a session whose `cw check` is not a fresh pass. Off by default. */
+    requireCheck?: boolean;
     mergeStrategy: 'merge' | 'squash' | 'rebase';
     trialDebounceMs: number;
     fullIntegrationIntervalMs: number;
@@ -144,6 +146,13 @@ export function loadConfig(projectRoot: string): CrossweaveConfig {
 
   if (config.converge.testCommand !== undefined && typeof config.converge.testCommand !== 'string') {
     invalid('converge.testCommand must be a string if set');
+  }
+  if (config.converge.requireCheck !== undefined && typeof config.converge.requireCheck !== 'boolean') {
+    invalid('converge.requireCheck must be a boolean if set');
+  }
+  // Without a command no check could ever pass, so the flag would make every land impossible.
+  if (config.converge.requireCheck === true && config.converge.testCommand === undefined) {
+    invalid('converge.requireCheck needs converge.testCommand to be set');
   }
   if (!STRATEGIES_CONVERGE.has(config.converge.mergeStrategy)) {
     invalid(`converge.mergeStrategy must be one of merge, squash, rebase, got ${String(config.converge.mergeStrategy)}`);
