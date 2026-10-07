@@ -3,7 +3,7 @@ import type { ListedSession } from '../host/cockpit-api'
 import type { AttentionKind } from '../lib/attention'
 import { SESSION_COLORS, type SessionColor } from '../lib/colors'
 import { sessionNameError } from '../lib/quick-picker'
-import { agentName, checkChip, clampMenu, gitBadge, glyphState, jumpTargets, landChip, overlapBadge, railOrder, relativeTime, rowState, rowTitle, ROW_STATE_LABEL, recentToOffer, sessionStatusDetail, submenuPosition, visibleRows } from '../lib/rail'
+import { agentName, checkChip, clampMenu, gitBadge, glyphState, jumpTargets, landChip, overlapBadge, railOrder, relativeTime, rowState, rowTitle, ROW_STATE_LABEL, recentToOffer, sessionStatusDetail, setupChip, submenuPosition, visibleRows } from '../lib/rail'
 import { formatRailMeta } from '../lib/sessions'
 import { sumUsage, usageLabel } from '../lib/usage'
 import type { ModelPrice } from '../../../../src/core/settings.js'
@@ -404,6 +404,12 @@ export function Sidebar(props: SidebarProps) {
                             return tests === undefined ? null : (
                               <button type="button" class={`cockpit-testchip cockpit-testchip--${tests.tone}${tests.stale ? ' is-stale' : ''}`} title={tests.title}
                                 onClick={(e) => { e.stopPropagation(); props.onAction(project.projectRoot, session.id, 'check') }}>{tests.label}</button>
+                            )
+                          })()}
+                          {(() => {
+                            const setup = setupChip(session.setup)
+                            return setup === undefined ? null : (
+                              <span class={`cockpit-testchip cockpit-testchip--${setup.tone}`} title={setup.title}>{setup.label}</span>
                             )
                           })()}
                           {project.doneIds?.includes(session.id) ? (

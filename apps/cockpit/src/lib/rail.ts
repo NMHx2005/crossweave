@@ -98,6 +98,15 @@ export function checkChip(check: ListedSession['check']): { label: string; tone:
 }
 
 /**
+ * A failed `hooks.sessionSetup` leaves a session without what its setup was meant to install, and the shell itself
+ * looks fine — so it gets a mark of its own. A setup still running says nothing: it is not a verdict yet.
+ */
+export function setupChip(setup: ListedSession['setup']): { label: string; tone: 'fail'; title: string } | undefined {
+  if (setup !== 'failed') return undefined
+  return { label: '✗ setup', tone: 'fail', title: 'The setup hook failed in this session — what it installs may be missing' }
+}
+
+/**
  * A word before landing a session whose last check did not pass: failed tests that still describe the work, or a run
  * that has not finished. A verdict the work has moved past (stale) and a session never checked say nothing: nagging
  * about what may no longer be true, or about a check nobody asked for, would only teach people to click through.

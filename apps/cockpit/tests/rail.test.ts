@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { agentName, gitBadge, landChip, newlyAsking, overlapBadge, railOrder, relativeTime, rowState, glyphState, ROW_STATE_LABEL, rowTitle, visibleRows, jumpTargets, clampMenu, newlyFinished, newlySignalled, checkChip, landCheckWarning, recentToOffer, submenuPosition, sessionStatusDetail } from '../src/lib/rail'
+import { agentName, gitBadge, landChip, newlyAsking, overlapBadge, railOrder, relativeTime, rowState, glyphState, ROW_STATE_LABEL, rowTitle, visibleRows, jumpTargets, clampMenu, newlyFinished, newlySignalled, checkChip, landCheckWarning, recentToOffer, submenuPosition, sessionStatusDetail, setupChip } from '../src/lib/rail'
 import { parseSessionList } from '../src/lib/sessions'
 
 describe('relativeTime', () => {
@@ -37,6 +37,14 @@ describe('sessionStatusDetail', () => {
   test('a clock-skewed (future) timestamp reads as just now rather than a negative age', () => {
     expect(sessionStatusDetail({ signal: { kind: 'ask', message: 'q', at: now + 5_000 } }, now))
       .toBe('Status reported by cw notify · updated just now')
+  })
+})
+
+describe('setupChip', () => {
+  test('a failed setup hook shows a failing mark; pending and absent show nothing', () => {
+    expect(setupChip('failed')).toMatchObject({ label: '✗ setup', tone: 'fail' })
+    expect(setupChip('pending')).toBeUndefined()
+    expect(setupChip(undefined)).toBeUndefined()
   })
 })
 
