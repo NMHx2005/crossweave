@@ -81,6 +81,23 @@ const SECTION_ICONS: Record<string, (p: { class?: string; title?: string }) => p
 }
 
 /** Which news banners the person dismissed: kept in this browser's storage, and the page works without it. */
+/**
+ * The version check's own switch. It lives in the global config the CLI shares (not in the settings draft that Save
+ * writes), so it applies at once and reads its state from main; until that answers it stays off and disabled.
+ */
+function UpdateCheckSwitch() {
+  const [enabled, setEnabled] = useState<boolean | null>(null)
+  useEffect(() => {
+    let live = true
+    cockpitApi.updateStatus().then((s) => { if (live) setEnabled(s.enabled) }, () => undefined)
+    return () => { live = false }
+  }, [])
+  return (
+    <Switch label="Tell me about new versions" checked={enabled === true} disabled={enabled === null}
+      onChange={(next) => { setEnabled(next); void cockpitApi.updateSetEnabled(next) }} />
+  )
+}
+
 const BANNER_KEY = 'cw.settings.banner.dashboard.v1'
 const readBannerGone = (): boolean => { try { return window.localStorage.getItem(BANNER_KEY) === '1' } catch { return false } }
 
@@ -502,6 +519,9 @@ export function SettingsPage({ initialSection, initialRow, initial, availability
         </SettingRow>
         <SettingRow id="notify-dock">
           <Switch label="Count them on the Dock icon" checked={notify.dockBadge} onChange={(dockBadge) => onNotify({ ...notify, dockBadge })} />
+        </SettingRow>
+        <SettingRow id="notify-updates">
+          <UpdateCheckSwitch />
         </SettingRow>
       </SettingsGroup>
     ),

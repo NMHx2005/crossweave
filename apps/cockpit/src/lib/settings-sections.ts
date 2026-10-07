@@ -89,6 +89,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
       { id: 'notify-finish', label: 'Also when an agent finishes', description: 'It stopped working without asking', keywords: 'notify alert done' },
       { id: 'notify-sound', label: 'Play a sound', description: 'A sound with each notification', keywords: 'notify audio' },
       { id: 'notify-dock', label: 'Count them on the Dock icon', description: 'A badge with the number waiting', keywords: 'notify badge' },
+      { id: 'notify-updates', label: 'Tell me about new versions', description: 'A notice in the corner when a newer release exists. It asks GitHub for the latest version number, nothing else', keywords: 'update upgrade release version check network' },
     ],
   },
   {

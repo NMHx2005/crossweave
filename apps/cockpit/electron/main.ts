@@ -23,6 +23,9 @@ import { RendererBridge } from './renderer-bridge'
 import { BrowserAgent } from './browser-agent'
 import { collectDashboard } from './dashboard'
 import { MAX_DRAFT_CHARS, refine as refineDraft, resolveCommand, type RefineDeps } from './prompt-refine'
+import { createUpdateNotice } from './update-notice'
+import { loadGlobalConfig, saveGlobalConfig } from '../../../src/update/global-config.js'
+import { resolveLatestTag } from '../../../src/update/checker.js'
 import { BROWSER_COMMANDS } from '../../../src/core/browser-agent/permission.js'
 import { PANE_KINDS } from '../src/lib/pane-bridge'
 import { findRepos, folderKind } from '../../../src/core/folder-kind.js'
@@ -298,6 +301,19 @@ function refineDeps(): RefineDeps {
   }
 }
 
+/**
+ * The corner notice for a newer release. The one outbound request of the main process (GitHub's `releases/latest`,
+ * unauthenticated, 2 s timeout); the window learns only a version number and asks for the page by saying "open".
+ */
+const updateNotice = createUpdateNotice({
+  currentVersion: app.getVersion(),
+  load: () => loadGlobalConfig(),
+  save: (config) => saveGlobalConfig({ ...loadGlobalConfig(), ...config }),
+  fetchTag: () => resolveLatestTag(),
+  now: () => Date.now(),
+  openExternal: (url) => shell.openExternal(url),
+})
+
 /** The refine in flight, if any: the one a Cancel stops. A new one replaces it, so at most one command runs. */
 let activeRefine: AbortController | undefined
 
@@ -327,6 +343,18 @@ function registerHandlers(bridge: DaemonBridge): void {
       if (channel === 'app.badge') return setBadge(payload)
       if (channel === 'prompt.refine') return promptRefine(payload)
       if (channel === 'prompt.refine.cancel') { activeRefine?.abort(); return { ok: true } }
+      if (channel === 'update.status') return updateNotice.status()
+      if (channel === 'update.open') { await updateNotice.open(); return { ok: true } }
+      if (channel === 'update.dismiss') {
+        const version = (payload as { version?: unknown } | null)?.version
+        if (typeof version === 'string') await updateNotice.dismiss(version)
+        return { ok: true }
+      }
+      if (channel === 'update.setEnabled') {
+        const enabled = (payload as { enabled?: unknown } | null)?.enabled
+        if (typeof enabled === 'boolean') await updateNotice.setEnabled(enabled)
+        return { ok: true }
+      }
       if (channel === 'dashboard.get') {
         return collectDashboard({
           roots: async () => ((await bridge.handle('projects.list')) as { open?: string[] }).open ?? [],

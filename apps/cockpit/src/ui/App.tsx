@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { UpdateNotice } from './UpdateNotice'
 import { cockpitApi, projectApi, type LauncherOption, type ListedSession, type ProjectSnapshot } from '../host/cockpit-api'
 import { ConfirmDialog, type ConfirmRequest } from './ConfirmDialog'
 import { OpenFolderDialog } from './OpenFolderDialog'
@@ -831,6 +832,7 @@ export function App() {
       </div>
       </PaneThemeContext.Provider>
       </TerminalLookContext.Provider>
+      <UpdateNotice />
       <Toast message={toast?.message ?? null} tone={toast?.tone ?? 'info'} onDone={() => setToast(null)} />
     </div>
   )

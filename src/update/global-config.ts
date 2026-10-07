@@ -8,6 +8,8 @@ export interface GlobalConfig {
   lastCheckedAt: string | null;
   lastKnownLatest: string | null;
   lastNotifiedVersion: string | null;
+  /** The version the Cockpit's corner notice was told "Later" for — kept apart from the CLI's own once-per-version note. */
+  cockpitDismissedVersion: string | null;
 }
 
 export const DEFAULT_GLOBAL_CONFIG: GlobalConfig = {
@@ -16,6 +18,7 @@ export const DEFAULT_GLOBAL_CONFIG: GlobalConfig = {
   lastCheckedAt: null,
   lastKnownLatest: null,
   lastNotifiedVersion: null,
+  cockpitDismissedVersion: null,
 };
 
 function configPath(homeDir: string | undefined): string {

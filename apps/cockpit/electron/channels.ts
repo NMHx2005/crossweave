@@ -85,6 +85,8 @@ export const COCKPIT_CHANNELS = [
   'prompt.refine',
   // Stop the refine that is running (the Cancel button, or closing the composer).
   'prompt.refine.cancel',
+  // The corner notice for a newer release: what is known, "Later", the Settings switch, and "Download" (main opens the page).
+  'update.status', 'update.dismiss', 'update.setEnabled', 'update.open',
   // A shell command's request (cw pane) was carried out or refused by the window: the answer.
   'bridge.reply',
   // The Browser pane's access switch (off / read / control) and the webview it belongs to; main enforces it.

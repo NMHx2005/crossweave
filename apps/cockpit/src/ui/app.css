@@ -2130,6 +2130,23 @@ body,
   animation: cockpit-rise var(--cw-dur-enter) var(--cw-ease);
 }
 
+.cockpit-update {
+  position: fixed;
+  left: var(--cw-space-4);
+  bottom: var(--cw-space-4);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: var(--cw-space-2);
+  padding: var(--cw-space-2) var(--cw-space-3);
+  background: var(--cw-surface-overlay);
+  border: var(--cw-hairline) solid var(--cw-border-strong);
+  border-radius: var(--cw-radius-lg);
+  box-shadow: 0 var(--cw-space-2) calc(var(--cw-space-3) * 3) var(--cw-shadow);
+  color: var(--cw-text-bright);
+  font-size: var(--cw-fs);
+}
+
 .cockpit-toast--error {
   border-color: color-mix(in srgb, var(--cw-blocked) 85%, var(--cw-surface));
 }

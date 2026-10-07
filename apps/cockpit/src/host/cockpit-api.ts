@@ -138,6 +138,20 @@ function makeApi(invoke: Invoke, listen: Listen) {
     promptRefine(text: string, context?: string): Promise<{ ok: true; text: string } | { ok: false; reason: string; cancelled?: true }> {
       return invoke('prompt.refine', { text, ...(context === undefined ? {} : { context }) }) as Promise<{ ok: true; text: string } | { ok: false; reason: string; cancelled?: true }>
     },
+    /** Whether the version check is on, and the newer release it found (and that was not dismissed), if any. */
+    updateStatus(): Promise<{ enabled: boolean; available?: { version: string } }> {
+      return invoke('update.status') as Promise<{ enabled: boolean; available?: { version: string } }>
+    },
+    updateDismiss(version: string): Promise<unknown> {
+      return invoke('update.dismiss', { version })
+    },
+    updateSetEnabled(enabled: boolean): Promise<unknown> {
+      return invoke('update.setEnabled', { enabled })
+    },
+    /** Opens the release page in the browser; the address is main's, not ours. */
+    updateOpen(): Promise<unknown> {
+      return invoke('update.open')
+    },
     /** Stops the refine command that is running; the pending promptRefine then answers `cancelled`. */
     cancelPromptRefine(): Promise<unknown> {
       return invoke('prompt.refine.cancel')
@@ -301,6 +315,7 @@ const WINDOW_CHANNELS = new Set<CockpitChannel>([
   'projects.close', 'app.badge', 'folder.reveal', 'folder.openInEditor',
   'terminal.importSources', 'terminal.import', 'fonts.list', 'menu.refresh',
   'bridge.reply', 'prompt.refine', 'prompt.refine.cancel', 'dashboard.get',
+  'update.status', 'update.dismiss', 'update.setEnabled', 'update.open',
 ])
 
 /** `payload` with `projectRoot` added, unless the call already names one or is window-wide. */
