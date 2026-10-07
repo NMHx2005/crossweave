@@ -27,6 +27,36 @@ describe('refine', () => {
     expect(calls[0]?.input).toContain('--- draft prompt ---\nfix the bug in login')
   })
 
+  test('a refine aborted while the command runs comes back cancelled, not as a failure to word', async () => {
+    const controller = new AbortController()
+    const { d } = deps({
+      run: (_command, _args, opts) => new Promise((resolve) => {
+        opts.signal.addEventListener('abort', () => resolve({ code: 124, stdout: '', stderr: 'terminated' }))
+      }),
+    })
+    const pending = refine(d, { text: 'x' }, controller.signal)
+    controller.abort()
+    expect(await pending).toEqual({ ok: false, reason: 'Cancelled.', cancelled: true })
+  })
+
+  test('a signal already aborted runs nothing, and a command that throws after an abort is still just cancelled', async () => {
+    const gone = new AbortController()
+    gone.abort()
+    const first = deps()
+    expect(await refine(first.d, { text: 'x' }, gone.signal)).toMatchObject({ ok: false, cancelled: true })
+    expect(first.calls).toHaveLength(0)
+
+    const late = new AbortController()
+    const second = deps({ run: async () => { late.abort(); throw Object.assign(new Error('aborted'), { code: 'ABORT_ERR' }) } })
+    expect(await refine(second.d, { text: 'x' }, late.signal)).toMatchObject({ ok: false, cancelled: true })
+  })
+
+  test('an output that arrives after the abort is dropped, not offered as a proposal', async () => {
+    const controller = new AbortController()
+    const { d } = deps({ run: async () => { controller.abort(); return { code: 0, stdout: 'too late', stderr: '' } } })
+    expect(await refine(d, { text: 'x' }, controller.signal)).toMatchObject({ ok: false, cancelled: true })
+  })
+
   test('without a command there is nothing to run, and nothing is run', async () => {
     for (const prompt of [undefined, {}, { refine: {} }, { refine: { command: '   ' } }]) {
       const { d, calls } = deps({ prompt })

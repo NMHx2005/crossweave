@@ -1173,6 +1173,7 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
               return s === undefined ? undefined : `session: ${s.name}${s.branch ? `\nbranch: ${s.branch}` : ''}${s.git ? `\nuncommitted files: ${s.git.changed}` : ''}`
             }}
             refine={(text, context) => api.promptRefine(text, context)}
+            cancelRefine={() => { void api.cancelPromptRefine() }}
             send={(id, data) => api.sendInput(id, data)}
             onOpenSettings={() => { setComposerOpen(false); hostRef.current.openSettings('prompt') }}
             onSent={(summary, ids) => { setSentTargets(ids); setComposerOpen(false); hostRef.current.toast(summary, 'info') }}

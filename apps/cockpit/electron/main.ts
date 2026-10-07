@@ -283,7 +283,7 @@ function refineDeps(): RefineDeps {
       loginPath: loginShellPath,
     }),
     run: (command, args, opts) => new Promise((resolve, reject) => {
-      const child = execFile(command, args, { timeout: opts.timeoutMs, maxBuffer: opts.maxBuffer, encoding: 'utf8' }, (err, stdout, stderr) => {
+      const child = execFile(command, args, { timeout: opts.timeoutMs, maxBuffer: opts.maxBuffer, encoding: 'utf8', signal: opts.signal }, (err, stdout, stderr) => {
         if (err === null) return resolve({ code: 0, stdout: String(stdout), stderr: String(stderr) })
         const code = (err as NodeJS.ErrnoException).code
         // Could not start at all (not installed, not executable): the caller words that.
@@ -298,11 +298,21 @@ function refineDeps(): RefineDeps {
   }
 }
 
+/** The refine in flight, if any: the one a Cancel stops. A new one replaces it, so at most one command runs. */
+let activeRefine: AbortController | undefined
+
 async function promptRefine(payload: unknown): Promise<unknown> {
   const p = payload as { text?: unknown; context?: unknown } | null
   if (typeof p?.text !== 'string' || p.text.length > MAX_DRAFT_CHARS) return { ok: false, reason: 'There is nothing to refine.' }
   const context = typeof p.context === 'string' && p.context.length <= MAX_DRAFT_CHARS ? p.context : undefined
-  return refineDraft(refineDeps(), { text: p.text, ...(context === undefined ? {} : { context }) })
+  activeRefine?.abort()
+  const mine = new AbortController()
+  activeRefine = mine
+  try {
+    return await refineDraft(refineDeps(), { text: p.text, ...(context === undefined ? {} : { context }) }, mine.signal)
+  } finally {
+    if (activeRefine === mine) activeRefine = undefined
+  }
 }
 
 function registerHandlers(bridge: DaemonBridge): void {
@@ -316,6 +326,7 @@ function registerHandlers(bridge: DaemonBridge): void {
       if (channel === 'folder.openInEditor') return openFolder(bridge, payload, 'editor')
       if (channel === 'app.badge') return setBadge(payload)
       if (channel === 'prompt.refine') return promptRefine(payload)
+      if (channel === 'prompt.refine.cancel') { activeRefine?.abort(); return { ok: true } }
       if (channel === 'dashboard.get') {
         return collectDashboard({
           roots: async () => ((await bridge.handle('projects.list')) as { open?: string[] }).open ?? [],

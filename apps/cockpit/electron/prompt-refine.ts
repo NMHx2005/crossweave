@@ -16,10 +16,13 @@ export type RefineDeps = {
    */
   resolveCommand?: (command: string) => Promise<string | undefined>
   /** argv only — never a shell string. Resolves for any exit status; rejects only when it cannot start. */
-  run: (command: string, args: string[], opts: { input: string; timeoutMs: number; maxBuffer: number }) => Promise<RunResult>
+  run: (command: string, args: string[], opts: { input: string; timeoutMs: number; maxBuffer: number; signal: AbortSignal }) => Promise<RunResult>
 }
 
-export type RefineResult = { ok: true; text: string } | { ok: false; reason: string }
+/** `cancelled`: the person stopped it — nothing to word as an error. */
+export type RefineResult = { ok: true; text: string } | { ok: false; reason: string; cancelled?: true }
+
+const CANCELLED: RefineResult = { ok: false, reason: 'Cancelled.', cancelled: true }
 
 const REFINE_TIMEOUT_MS = 60_000
 const MAX_OUTPUT_BYTES = 1024 * 1024
@@ -83,7 +86,8 @@ function lastLine(text: string): string {
  * stdin; the command's stdout is the proposal. Nothing here sends anything anywhere: the result only comes back
  * to be read. The command is the one in the SAVED settings (argv, no shell), never one from the request.
  */
-export async function refine(deps: RefineDeps, input: { text: string; context?: string }): Promise<RefineResult> {
+export async function refine(deps: RefineDeps, input: { text: string; context?: string }, signal: AbortSignal = new AbortController().signal): Promise<RefineResult> {
+  if (signal.aborted) return CANCELLED
   const settings = deps.loadPrompt()?.refine
   if (settings?.command === undefined || settings.command.trim() === '') {
     return { ok: false, reason: 'Set a refine command under Settings → Prompt first.' }
@@ -108,11 +112,14 @@ export async function refine(deps: RefineDeps, input: { text: string; context?: 
   if (program === undefined) return { ok: false, reason: `Command not found: ${command}. Install it, use its full path, or fix the command under Settings → Prompt.` }
   let result: RunResult
   try {
-    result = await deps.run(program, args, { input: stdin, timeoutMs: REFINE_TIMEOUT_MS, maxBuffer: MAX_OUTPUT_BYTES })
+    result = await deps.run(program, args, { input: stdin, timeoutMs: REFINE_TIMEOUT_MS, maxBuffer: MAX_OUTPUT_BYTES, signal })
   } catch (err) {
+    if (signal.aborted) return CANCELLED
     const code = (err as { code?: string } | null)?.code
     return { ok: false, reason: code === 'ENOENT' ? `Command not found: ${command}.` : `Could not start ${command}: ${err instanceof Error ? err.message : String(err)}` }
   }
+  // Checked before the exit status: a killed command exits non-zero and would otherwise be reported as a failure.
+  if (signal.aborted) return CANCELLED
   if (result.code !== 0) {
     const said = lastLine(result.stderr) || lastLine(result.stdout)
     return { ok: false, reason: `${command} exited with status ${result.code}${said === '' ? '' : `: ${said}`}` }

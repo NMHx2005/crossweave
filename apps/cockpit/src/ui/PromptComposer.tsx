@@ -3,7 +3,7 @@ import { planSend, type SendTarget } from '../lib/prompt-send'
 
 export type ComposerSession = SendTarget
 
-type RefineResult = { ok: true; text: string } | { ok: false; reason: string }
+type RefineResult = { ok: true; text: string } | { ok: false; reason: string; cancelled?: true }
 
 type PromptComposerProps = {
   sessions: readonly ComposerSession[]
@@ -17,6 +17,8 @@ type PromptComposerProps = {
   /** Name, branch and changed files of a session, for the refine command when the user allowed it. */
   contextFor: (id: string) => string | undefined
   refine: (text: string, context?: string) => Promise<RefineResult>
+  /** Stops the running refine; its promise then answers `cancelled`. */
+  cancelRefine: () => void
   /** Write to a session's terminal. Only called for what the preview showed. */
   send: (id: string, data: string) => Promise<unknown>
   onOpenSettings: () => void
@@ -30,7 +32,7 @@ type PromptComposerProps = {
  * Nothing goes anywhere until Send: the preview lists, per session, exactly what will be written and what is
  * refused and why; a refine only ever produces a proposal that is read first; Enter is pressed only if ticked.
  */
-export function PromptComposer({ sessions, focusedId, refineConfigured, draft, onDraft, contextFor, refine, send, onOpenSettings, onSent, onClose }: PromptComposerProps) {
+export function PromptComposer({ sessions, focusedId, refineConfigured, draft, onDraft, contextFor, refine, cancelRefine, send, onOpenSettings, onSent, onClose }: PromptComposerProps) {
   const [picked, setPicked] = useState<ReadonlySet<string>>(() => {
     // The focused session, running or not: debugging a dead shell is the common
     // case, and the preview must show its refusal ("its shell is closed") rather
@@ -45,6 +47,10 @@ export function PromptComposer({ sessions, focusedId, refineConfigured, draft, o
   const [sending, setSending] = useState(false)
   const areaRef = useRef<HTMLTextAreaElement>(null)
   useEffect(() => { areaRef.current?.focus() }, [])
+  // A refine left running behind a closed dialog would burn the person's command (and tokens) for an answer nobody reads.
+  const refiningRef = useRef(false)
+  refiningRef.current = refining
+  useEffect(() => () => { if (refiningRef.current) cancelRefine() }, [])
 
   const chosen = useMemo(() => sessions.filter((s) => picked.has(s.id)), [sessions, picked])
   const plan = useMemo(() => planSend(draft, chosen, { enter }), [draft, chosen, enter])
@@ -62,7 +68,7 @@ export function PromptComposer({ sessions, focusedId, refineConfigured, draft, o
       // The context of the first ticked session, only if the setting allows it (the main process decides).
       const result = await refine(draft, chosen[0] ? contextFor(chosen[0].id) : undefined)
       if (result.ok) setProposal(result.text)
-      else setRefineError(result.reason)
+      else if (result.cancelled !== true) setRefineError(result.reason)
     } catch (err) {
       setRefineError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -110,9 +116,11 @@ export function PromptComposer({ sessions, focusedId, refineConfigured, draft, o
           onInput={(e) => onDraft((e.target as HTMLTextAreaElement).value)} />
         <div class="cockpit-prompt__bar">
           {refineConfigured ? (
-            <button type="button" class="cockpit-btn cockpit-btn--sm" disabled={refining || draft.trim() === ''} onClick={() => { void runRefine() }}>
-              {refining ? 'Refining…' : 'Refine'}
-            </button>
+            refining ? (
+              <button type="button" class="cockpit-btn cockpit-btn--sm" onClick={cancelRefine} title="Stop the refine command">Cancel refine</button>
+            ) : (
+              <button type="button" class="cockpit-btn cockpit-btn--sm" disabled={draft.trim() === ''} onClick={() => { void runRefine() }}>Refine</button>
+            )
           ) : (
             <button type="button" class="cockpit-btn cockpit-btn--sm cockpit-btn--ghost" onClick={onOpenSettings}
               title="Refine runs a program you choose on the draft; set it under Settings → Prompt">Set up Refine…</button>
