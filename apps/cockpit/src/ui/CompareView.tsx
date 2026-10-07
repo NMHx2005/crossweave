@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'preact/hooks'
 import type { LandVerdict } from '../lib/land-actions'
-import { compareSessions, type CompareRow, type CompareSide } from '../lib/compare'
+import { compareSessions, type CompareRow, type CompareSide, type PairMerge } from '../lib/compare'
 import { checkChip } from '../lib/rail'
 import { patchSections, type SessionDiff } from '../lib/patch'
 import { plainErrorMessage } from '../lib/cockpit-host'
@@ -15,6 +15,8 @@ type CompareViewProps = {
   revision: number
   loadDiff: (id: string) => Promise<SessionDiff>
   verdictOf: (id: string) => LandVerdict
+  /** What the background trial merge says about these two landing together. */
+  pairMergeOf: (leftId: string, rightId: string) => PairMerge
   onLand: (id: string) => void
   landBusy: boolean
   onClose: () => void
@@ -32,7 +34,7 @@ type Loaded = { diff: SessionDiff } | { error: string } | undefined
  * marked (that is where they will meet), whether both made the very same change there, its tests verdict and
  * the verdict for landing. A modal, not a pane: it lives for one decision.
  */
-export function CompareView({ sessions, leftId, rightId, revision, loadDiff, verdictOf, onLand, landBusy, onClose }: CompareViewProps) {
+export function CompareView({ sessions, leftId, rightId, revision, loadDiff, verdictOf, pairMergeOf, onLand, landBusy, onClose }: CompareViewProps) {
   const [ids, setIds] = useState<[string, string]>([leftId, rightId])
   const [loaded, setLoaded] = useState<Record<string, Loaded>>({})
   const [open, setOpen] = useState<{ side: 0 | 1; path: string } | null>(null)
@@ -123,6 +125,15 @@ export function CompareView({ sessions, leftId, rightId, revision, loadDiff, ver
           <span class="cockpit-muted">
             {comparison ? (comparison.shared.length === 0 ? 'They touch different files.' : `${comparison.shared.length} file${comparison.shared.length === 1 ? '' : 's'} touched by both`) : ''}
           </span>
+          {(() => {
+            const merge = pairMergeOf(ids[0], ids[1])
+            return (
+              <span class={`cockpit-changes__verdict is-${merge === 'conflict' ? 'blocked' : merge === 'clean' ? 'ready' : 'unknown'}`}
+                title="The background trial merge of these two branches">
+                {merge === 'conflict' ? 'Landing both conflicts' : merge === 'clean' ? 'Merge together: clean' : 'Merge together: not tried'}
+              </span>
+            )
+          })()}
           <button type="button" class="cockpit-btn cockpit-btn--sm" onClick={onClose}>Close</button>
         </div>
         <div class="cockpit-compare__cols">

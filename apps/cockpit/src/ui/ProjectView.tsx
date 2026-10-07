@@ -83,7 +83,7 @@ import { planPreset, presetUrl } from '../lib/presets'
 import { createLoadGate } from '../lib/load-gate'
 import { suggestSessionName } from '../lib/quick-picker'
 import type { SessionPreset } from '../../../../src/core/settings.js'
-import { defaultCompareTarget } from '../lib/compare'
+import { defaultCompareTarget, pairMerge } from '../lib/compare'
 import { sessionsThatStartedRunning } from '../lib/sessions'
 import { agentName, landCheckWarning, newlyAsking, newlyFinished, newlySignalled } from '../lib/rail'
 import { ProjectApiContext } from './project-context'
@@ -1198,6 +1198,11 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
               const target = sessions.find((s) => s.id === id)
               return target ? landVerdict(target, converge, convergeDetail, new Map(sessions.flatMap((s) => (s.branch ? [[s.branch, s.name] as const] : [])))) : { kind: 'none', conflictsWith: [] }
             }}
+            pairMergeOf={(leftId, rightId) => pairMerge(
+              sessions.find((s) => s.id === leftId)?.branch ?? null,
+              sessions.find((s) => s.id === rightId)?.branch ?? null,
+              convergeDetail.pairwise,
+            )}
             onLand={(id) => { void handleLand(id).then(() => setCompare(null)) }}
             landBusy={landBusy}
             onClose={() => setCompare(null)}

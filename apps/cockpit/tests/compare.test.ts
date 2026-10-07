@@ -1,5 +1,28 @@
 import { describe, expect, test } from 'bun:test'
-import { compareSessions, defaultCompareTarget } from '../src/lib/compare'
+import { compareSessions, defaultCompareTarget, pairMerge } from '../src/lib/compare'
+
+describe('pairMerge', () => {
+  const pairwise = [
+    { a: 'cw/x', b: 'cw/y', result: 'conflict' },
+    { a: 'cw/p', b: 'cw/q', result: 'clean' },
+    { a: 'cw/m', b: 'cw/n', result: 'test_fail' },
+    { a: 'cw/u', b: 'cw/v', result: 'unverified' },
+  ]
+
+  test('reads the latest trial of that pair whichever way round the branches are given', () => {
+    expect(pairMerge('cw/x', 'cw/y', pairwise)).toBe('conflict')
+    expect(pairMerge('cw/y', 'cw/x', pairwise)).toBe('conflict')
+    expect(pairMerge('cw/q', 'cw/p', pairwise)).toBe('clean')
+  })
+
+  test('a pair nobody tried, or a trial that proved nothing about the merge, is unknown — never "clean"', () => {
+    expect(pairMerge('cw/x', 'cw/q', pairwise)).toBe('unknown')
+    expect(pairMerge('cw/m', 'cw/n', pairwise)).toBe('unknown')
+    expect(pairMerge('cw/u', 'cw/v', pairwise)).toBe('unknown')
+    expect(pairMerge(null, 'cw/x', pairwise)).toBe('unknown')
+    expect(pairMerge('cw/x', 'cw/y', [])).toBe('unknown')
+  })
+})
 import type { SessionDiff } from '../src/lib/patch'
 
 const patchFor = (path: string, body: string[]): string => [`diff --git a/${path} b/${path}`, `--- a/${path}`, `+++ b/${path}`, '@@ -1 +1 @@', ...body].join('\n')

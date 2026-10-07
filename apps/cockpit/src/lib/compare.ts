@@ -44,6 +44,24 @@ export function compareSessions(a: { name: string; diff: SessionDiff }, b: { nam
   return { a: side(a), b: side(b), shared }
 }
 
+export type PairMerge = 'conflict' | 'clean' | 'unknown'
+
+/**
+ * What the background trial merge says about landing these two together. Only `conflict` and `clean` are
+ * statements about the merge; a missing pair (never tried, or too many sessions to try them all) and a trial
+ * that only failed the tests or could not be verified say nothing, so they are `unknown` rather than `clean`.
+ * Overlap in `shared` is not a conflict: two sessions can edit one file in different places.
+ */
+export function pairMerge(
+  branchA: string | null,
+  branchB: string | null,
+  pairwise: ReadonlyArray<{ a: string; b: string; result: string }>,
+): PairMerge {
+  if (branchA === null || branchB === null) return 'unknown'
+  const trial = pairwise.find((p) => (p.a === branchA && p.b === branchB) || (p.a === branchB && p.b === branchA))
+  return trial?.result === 'conflict' || trial?.result === 'clean' ? trial.result : 'unknown'
+}
+
 /** Who to put opposite `current` at first: the session it overlaps most with, else the first other one. */
 export function defaultCompareTarget(
   current: { id: string; overlaps?: ReadonlyArray<{ session: string; paths: readonly string[] }> },
