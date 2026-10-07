@@ -763,7 +763,7 @@ export function App() {
           onEdit={() => { setShortcutsOpen(false); void handleOpenSettings('keyboard') }} />
       ) : null}
       {sessionHistoryOpen ? (
-        <SessionHistoryDialog load={() => cockpitApi.sessionHistory()} onClose={() => setSessionHistoryOpen(false)} />
+        <SessionHistoryDialog load={() => cockpitApi.sessionHistory(500)} onClose={() => setSessionHistoryOpen(false)} />
       ) : null}
       {projectSettings !== null ? (
         <ProjectSettings

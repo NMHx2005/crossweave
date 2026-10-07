@@ -56,6 +56,26 @@ describe('session.history RPC', () => {
     expect(result.history).toHaveLength(2);
   });
 
+  test('filters by status and name, and refuses an unknown status', async () => {
+    const db = openDatabase(':memory:');
+    new WorkspaceRepo(db).insert({
+      id: 'ws_1', name: 'demo', rootPath: '/tmp/demo', createdAt: 'now',
+      defaultIsolation: 'worktree', safeModeTier: 'T2',
+    });
+    const history = new SessionHistoryRepo(db);
+    history.record(row({ id: 'h_1', name: 'alpha', finalStatus: 'landed', endedAt: '2026-09-28T01:00:00.000Z' }));
+    history.record(row({ id: 'h_2', name: 'beta', finalStatus: 'dead', endedAt: '2026-09-28T02:00:00.000Z' }));
+    const methods = buildMethods(db, '/tmp/demo', undefined, DEFAULT_CONFIG);
+    const names = async (p: Record<string, unknown>) =>
+      ((await methods['session.history']!({ workspaceId: 'ws_1', ...p }, ctx)) as { history: SessionHistoryRow[] }).history.map((r) => r.name);
+
+    expect(await names({ status: 'landed' })).toEqual(['alpha']);
+    expect(await names({ query: 'BET' })).toEqual(['beta']);
+    let code = '';
+    try { await methods['session.history']!({ workspaceId: 'ws_1', status: 'weird' }, ctx); } catch (e) { code = (e as { code?: string }).code ?? ''; }
+    expect(code).toBe('INVALID_ARGUMENTS');
+  });
+
   test('empty when nothing has ended yet', async () => {
     const db = openDatabase(':memory:');
     new WorkspaceRepo(db).insert({

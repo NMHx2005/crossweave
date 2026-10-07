@@ -904,7 +904,17 @@ export function buildMethods(
     'session.history': (p) => {
       const workspaceId = str(p, 'workspaceId');
       const limit = optionalNum(p, 'limit');
-      return { history: sessionHistory.listByWorkspace(workspaceId, limit) };
+      const status = optionalStr(p, 'status');
+      if (status !== undefined && status !== 'landed' && status !== 'dead') {
+        throw new CrossweaveError('INVALID_ARGUMENTS', 'status must be "landed" or "dead"');
+      }
+      const query = optionalStr(p, 'query');
+      return {
+        history: sessionHistory.listByWorkspace(workspaceId, limit, {
+          ...(status === undefined ? {} : { status }),
+          ...(query === undefined ? {} : { query }),
+        }),
+      };
     },
 
     // Run `hooks.sessionSetup` again by hand. With the hook typed into the shell, that

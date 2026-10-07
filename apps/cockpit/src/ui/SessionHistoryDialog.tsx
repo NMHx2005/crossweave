@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks'
-import type { SessionHistoryEntry } from '../lib/session-history'
+import { filterSessionHistory, type SessionHistoryEntry, type SessionHistoryFilter } from '../lib/session-history'
 
 function formatEnded(iso: string): string {
   try {
@@ -20,6 +20,8 @@ export function SessionHistoryDialog({ load, onClose }: {
 }) {
   const [rows, setRows] = useState<SessionHistoryEntry[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [filter, setFilter] = useState<SessionHistoryFilter>({ status: 'all', query: '' })
+  const shown = rows === null ? null : filterSessionHistory(rows, filter)
 
   useEffect(() => {
     let live = true
@@ -41,12 +43,26 @@ export function SessionHistoryDialog({ load, onClose }: {
         ) : rows.length === 0 ? (
           <p class="cockpit-placeholder">No sessions have been landed or removed yet.</p>
         ) : (
+          <>
+          <div class="cockpit-session-history__filter">
+            <input type="search" placeholder="Filter by name" aria-label="Filter by name" value={filter.query}
+              onInput={(ev) => setFilter({ ...filter, query: (ev.currentTarget as HTMLInputElement).value })} />
+            <select aria-label="Filter by status" value={filter.status}
+              onChange={(ev) => setFilter({ ...filter, status: (ev.currentTarget as HTMLSelectElement).value as SessionHistoryFilter['status'] })}>
+              <option value="all">All</option>
+              <option value="landed">Landed</option>
+              <option value="dead">Removed</option>
+            </select>
+          </div>
+          {shown !== null && shown.length === 0 ? (
+            <p class="cockpit-placeholder">Nothing matches that filter.</p>
+          ) : (
           <table class="cockpit-session-history__table">
             <thead>
               <tr><th>Name</th><th>Status</th><th>Branch</th><th>Ended</th><th>Tokens</th></tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
+              {(shown ?? []).map((r) => (
                 <tr key={`${r.name}-${r.endedAt}`}>
                   <td>{r.name}</td>
                   <td class={r.finalStatus === 'landed' ? 'is-landed' : 'is-dead'}>{r.finalStatus}</td>
@@ -57,6 +73,8 @@ export function SessionHistoryDialog({ load, onClose }: {
               ))}
             </tbody>
           </table>
+          )}
+          </>
         )}
         <div class="cockpit-picker__actions">
           <button type="button" class="cockpit-btn cockpit-btn--primary" autoFocus onClick={onClose}>Done</button>

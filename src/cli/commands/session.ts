@@ -311,6 +311,8 @@ export const sessionCommand = defineCommand({
       meta: { name: 'history', description: 'List sessions that have been landed or removed' },
       args: {
         limit: { type: 'string', description: 'Max rows (default 50)', required: false },
+        status: { type: 'string', description: 'Only "landed" or "dead" sessions', required: false },
+        query: { type: 'string', description: 'Only names containing this text', required: false },
       },
       async run({ args }) {
         try {
@@ -318,6 +320,8 @@ export const sessionCommand = defineCommand({
             const workspaceId = await currentWorkspaceId(client);
             const params: Record<string, unknown> = { workspaceId };
             if (args.limit !== undefined) params.limit = Number(args.limit);
+            if (args.status !== undefined) params.status = args.status;
+            if (args.query !== undefined) params.query = args.query;
             const { history } = await client.call<{ history: SessionHistoryEntry[] }>('session.history', params);
             if (history.length === 0) { process.stdout.write('no history\n'); return; }
             process.stdout.write('NAME\tSTATUS\tBRANCH\tENDED\tTOKENS\n');

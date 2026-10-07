@@ -36,3 +36,11 @@ export function parseSessionHistory(value: unknown): SessionHistoryEntry[] {
   }
   return out
 }
+
+export type SessionHistoryFilter = { status: 'all' | 'landed' | 'dead'; query: string }
+
+/** Narrows the loaded rows in the dialog; the daemon keeps a few hundred at most, so this needs no round trip. */
+export function filterSessionHistory(rows: SessionHistoryEntry[], filter: SessionHistoryFilter): SessionHistoryEntry[] {
+  const query = filter.query.trim().toLowerCase()
+  return rows.filter((r) => (filter.status === 'all' || r.finalStatus === filter.status) && (query === '' || r.name.toLowerCase().includes(query)))
+}

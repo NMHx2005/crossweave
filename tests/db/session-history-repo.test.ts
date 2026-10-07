@@ -68,6 +68,52 @@ describe('SessionHistoryRepo', () => {
     expect(repo.listByWorkspace('ws_1', 2).map((r) => r.name)).toEqual(['s4', 's3']);
   });
 
+  function seeded() {
+    const db = openDatabase(':memory:');
+    const workspaces = new WorkspaceRepo(db);
+    for (const id of ['ws_1', 'ws_2']) {
+      workspaces.insert({
+        id, name: id, rootPath: `/tmp/${id}`, createdAt: 'now',
+        defaultIsolation: 'worktree', safeModeTier: 'T1',
+      });
+    }
+    return { db, repo: new SessionHistoryRepo(db) };
+  }
+
+  test('filters by final status and by a name substring, case-insensitively', () => {
+    const { db, repo } = seeded();
+    repo.record(row({ id: 'h_1', name: 'Login-fix', finalStatus: 'landed', endedAt: '2026-09-28T01:00:00.000Z' }));
+    repo.record(row({ id: 'h_2', name: 'login-spike', finalStatus: 'dead', endedAt: '2026-09-28T02:00:00.000Z' }));
+    repo.record(row({ id: 'h_3', name: 'billing', finalStatus: 'dead', endedAt: '2026-09-28T03:00:00.000Z' }));
+
+    expect(repo.listByWorkspace('ws_1', 50, { status: 'dead' }).map((r) => r.name)).toEqual(['billing', 'login-spike']);
+    expect(repo.listByWorkspace('ws_1', 50, { query: 'LOGIN' }).map((r) => r.name)).toEqual(['login-spike', 'Login-fix']);
+    expect(repo.listByWorkspace('ws_1', 50, { status: 'dead', query: 'login' }).map((r) => r.name)).toEqual(['login-spike']);
+    db.close();
+  });
+
+  test('a name filter matches % and _ literally, not as wildcards', () => {
+    const { db, repo } = seeded();
+    repo.record(row({ id: 'h_1', name: 'a_b', endedAt: '2026-09-28T01:00:00.000Z' }));
+    repo.record(row({ id: 'h_2', name: 'axb', endedAt: '2026-09-28T02:00:00.000Z' }));
+    repo.record(row({ id: 'h_3', name: '100%', endedAt: '2026-09-28T03:00:00.000Z' }));
+    expect(repo.listByWorkspace('ws_1', 50, { query: 'a_b' }).map((r) => r.name)).toEqual(['a_b']);
+    expect(repo.listByWorkspace('ws_1', 50, { query: '%' }).map((r) => r.name)).toEqual(['100%']);
+    db.close();
+  });
+
+  test('keeps only the newest rows per workspace, leaving other workspaces alone', () => {
+    const { db, repo } = seeded();
+    const small = new SessionHistoryRepo(db, 3);
+    for (let i = 0; i < 5; i += 1) {
+      small.record(row({ id: `h_${i}`, name: `s${i}`, endedAt: `2026-09-28T0${i}:00:00.000Z` }));
+    }
+    small.record(row({ id: 'h_other', workspaceId: 'ws_2', name: 'other', endedAt: '2026-09-27T00:00:00.000Z' }));
+    expect(repo.listByWorkspace('ws_1').map((r) => r.name)).toEqual(['s4', 's3', 's2']);
+    expect(repo.listByWorkspace('ws_2').map((r) => r.name)).toEqual(['other']);
+    db.close();
+  });
+
   test('the migration adds the session_history table', () => {
     const db = openDatabase(':memory:');
     const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map((t) => t.name);

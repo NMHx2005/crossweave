@@ -999,6 +999,15 @@ body,
   overflow: auto;
 }
 
+.cockpit-session-history__filter {
+  display: flex;
+  gap: var(--cw-space-2);
+}
+
+.cockpit-session-history__filter input {
+  flex: 1;
+}
+
 .cockpit-session-history__table {
   width: 100%;
   border-collapse: collapse;

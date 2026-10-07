@@ -1,5 +1,23 @@
 import { describe, expect, test } from 'bun:test'
-import { parseSessionHistory } from '../src/lib/session-history'
+import { filterSessionHistory, parseSessionHistory } from '../src/lib/session-history'
+
+describe('filterSessionHistory', () => {
+  const entry = (name: string, finalStatus: 'landed' | 'dead') => ({
+    name, agentKind: 'shell', branch: null, finalStatus, createdAt: 'x', endedAt: 'y', tokenSpent: 0, costSpentUsd: 0, note: null,
+  })
+  const rows = [entry('Login-fix', 'landed'), entry('billing', 'dead'), entry('login-spike', 'dead')]
+
+  test('no filter keeps everything in order', () => {
+    expect(filterSessionHistory(rows, { status: 'all', query: '' })).toEqual(rows)
+  })
+
+  test('status and a case-insensitive name substring combine', () => {
+    expect(filterSessionHistory(rows, { status: 'dead', query: '' }).map((r) => r.name)).toEqual(['billing', 'login-spike'])
+    expect(filterSessionHistory(rows, { status: 'all', query: ' LOGIN ' }).map((r) => r.name)).toEqual(['Login-fix', 'login-spike'])
+    expect(filterSessionHistory(rows, { status: 'dead', query: 'login' }).map((r) => r.name)).toEqual(['login-spike'])
+    expect(filterSessionHistory(rows, { status: 'landed', query: 'zzz' })).toEqual([])
+  })
+})
 
 describe('parseSessionHistory', () => {
   test('parses a well-formed history response', () => {
