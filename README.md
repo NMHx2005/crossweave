@@ -128,7 +128,11 @@ Each session has its own branch and worktree. Commit the changes you want to kee
 inside that session before landing it; `cw converge status` shows conflicts and a
 recommended order, and `cw land` still performs its own trial merge. If this project
 has a trusted `converge.testCommand`, run `cw config trust` once and then `cw check`
-before landing to see the test verdict on the session row.
+before landing to see the test verdict on the session row. To make that a rule, set
+`"converge": { "testCommand": "…", "requireCheck": true }`: `cw land` then refuses a
+session whose last check is not a fresh pass (`CHECK_REQUIRED`); `--skip-check` is the
+explicit way past it. The check runs with the session's own `$PORT`, cache and database
+values while the session is running.
 
 Other everyday commands:
 
@@ -144,7 +148,7 @@ Other everyday commands:
 | `cw check [session]` | Run the trusted `converge.testCommand` in a session's worktree; exits 1 on failure; the rail shows `✓ tests` / `✗ tests` |
 | `cw hooks install\|remove <claude\|codex> [--yes]` | Wire (or take back) the agent's own `Stop`/`Notification` hooks to `cw notify`, so marks are exact. Merges into the agent's config, backs it up first, never overwrites a file it cannot parse; Gemini has no hook system to wire |
 | `cw debug [session] [--raw]` | One compact text bundle for a session — the last check's failing tail, the error lines its terminal showed, the diffstat, the agent's latest words — with secrets scrubbed by a heuristic (`--raw` turns that off). Made to paste to an AI |
-| `cw session history` | Sessions that were landed or deleted, kept after their row is gone |
+| `cw session history [--status landed\|dead] [--query text]` | Sessions that were landed or deleted, kept after their row is gone (the newest 500) |
 | `cw pane list\|split\|select\|zoom\|layout\|move\|sync\|close\|open` | Arrange the running cockpit's panes from a shell (it asks you before it closes, synchronizes or opens a page or file) |
 | `cw browser list\|console\|network\|errors\|dom\|shot\|navigate\|click\|type\|eval` | Let an agent read and drive a Browser pane — only when the pane's **Agent** switch is on (off by default); text read from a page is untrusted data |
 
