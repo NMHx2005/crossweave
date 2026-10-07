@@ -105,20 +105,30 @@ cd your-project        # any git repo
 cw init                # create/attach this repo's crossweave workspace
 cw                     # opens the cockpit (macOS) or the TUI
 
-cw session new alice   # a worktree on branch cw/alice
-cw session attach alice   # opens its shell (starting it if needed); Ctrl-] detaches
-# …in that shell, run whatever you like: claude --model opus, cx, codex, npm run dev
+cw session new api      # independent worktree on branch cw/api
+cw session new web      # independent worktree on branch cw/web
+# Terminal 1: open the first shell (Ctrl-] detaches)
+cw session attach api
+# …in each shell, run your own tools and make/commit changes in that worktree
+# In a second terminal:
+cw session attach web
 
-cw session stop alice  # close the shell (and what runs in it); the worktree stays
-cw session start alice # open a fresh shell there
+cw session stop api    # close the shell (and what runs in it); the worktree stays
+cw session start api   # open a fresh shell there
 ```
 
-Check what's safe to merge:
+Check what's safe to merge, then land conflict-free work:
 
 ```bash
 cw converge status      # pairwise conflict matrix + recommended merge order
-cw land all             # land every conflict-free session, in that order
+cw land all             # land every conflict-free, committed session, in that order
 ```
+
+Each session has its own branch and worktree. Commit the changes you want to keep
+inside that session before landing it; `cw converge status` shows conflicts and a
+recommended order, and `cw land` still performs its own trial merge. If this project
+has a trusted `converge.testCommand`, run `cw config trust` once and then `cw check`
+before landing to see the test verdict on the session row.
 
 Other everyday commands:
 

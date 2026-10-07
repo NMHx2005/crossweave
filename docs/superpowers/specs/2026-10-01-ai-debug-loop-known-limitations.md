@@ -28,6 +28,16 @@ final milestone limitations will replace this when Phases 2–6 land.
   pane renders nothing.
 - Its BROWSER half comes from main and shows only this project's panes above Off (see
   the Phase 5–6 section); with no such pane the section is empty.
+- A live scratch-app inspection confirmed the session-row tooltip distinguishes
+  terminal-inferred status from a `cw notify` signal and shows the relative event age.
+  A composer send populated the Responses dialog. With Agent access set to Read for a
+  localhost fixture only, the Debug pane showed its console error and failed request;
+  access was restored to Off before closing the Browser pane.
+- Automated stability checks are deterministic, but this pass has no week of owner
+  usage to establish real-world reliability or capacity. Existing bounds include
+  64 KiB of in-memory replay per shell/extra terminal, six mounted project views, and
+  twelve WebGL contexts; overflow falls back to the DOM renderer. These caps limit
+  retained state, not total CPU or memory under arbitrary workloads.
 
 ## Drag panes — the live preview (on main)
 
@@ -101,16 +111,19 @@ final milestone limitations will replace this when Phases 2–6 land.
   itself is replaced by a plain file.
 - `cwHookPrefix` prefixes `bun` for any `.ts` entry — a checkout where the CLI is
   NOT run through bun would embed the wrong runner (today cw only runs on bun).
-- `$CW_SESSION_ID` inside a hook process is verified only by reasoning (env
-  inheritance from the agent CLI); the **live check is still pending** — until then
-  the `cw notify` cwd fallback is the safety net, and a hook that fires with the
-  variable gone still works standing in the session's worktree.
+- A live test initially found that `$CW_SESSION_ID` reached the session shell, but
+  `cw notify` then selected a daemon rooted at that linked worktree and returned
+  `SESSION_NOT_FOUND`. Session and pane shells now receive `CW_WORKSPACE_ROOT`; a
+  restarted demo session ran `cw notify` successfully and the owning daemon showed
+  its done signal. `cw` validates the injected Git root before connecting. A session
+  process must be restarted to receive the new variable.
 - Gemini: no hook system **as of 2026-10** — a version with lifecycle hooks would
   make the refusal stale; re-check before adding it to the supported list.
 - `installCodex` refuses instead of merging when a foreign `notify` key exists
   (single-key constraint; merging two notify programs needs a shim script — later).
 
-## Phase 2–6 (not yet built — from the design review, must-haves before coding)
+## Phase 2–6 (built — remaining limits)
 
 - Agent config writing has the pre-flight/atomic/backup/TOCTOU rules of design §1 —
-  **done**; the remaining Phase 2 gaps are in the section above.
+  **done**. The populated Responses view and Read-gated Debug browser section were
+  verified in the running scratch app on 2026-10-08.
