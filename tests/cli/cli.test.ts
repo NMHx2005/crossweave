@@ -293,6 +293,36 @@ describe('cw CLI', () => {
     expect(existsSync(join(fx.root, '.crossweave', 'daemon.sock'))).toBe(false);
   }, 30_000);
 
+  // The socket file may outlive the daemon (the next start replaces it); what stop promises is that nothing answers on
+  // it any more, which the second call proves by finding no one to stop.
+  it('daemon stop stops a running daemon, then reports none running', async () => {
+    await cw(['init']);
+    expect(existsSync(join(fx.root, '.crossweave', 'daemon.sock'))).toBe(true);
+
+    const stopped = await cw(['daemon', 'stop']);
+    expect(stopped.exitCode).toBe(0);
+    expect(stopped.stdout).toContain('daemon stopped');
+
+    const again = await cw(['daemon', 'stop']);
+    expect(again.stdout).toContain('no daemon running');
+  }, 60_000);
+
+  // A session shell's cwd is its linked worktree, whose own repository root would name no daemon; the variables the
+  // daemon exports must carry `daemon stop` back to the one that owns the session.
+  it('daemon stop from inside a session worktree stops the owning daemon', async () => {
+    await cw(['init']);
+    await cw(['session', 'new', 'inner']);
+    const worktree = (await cw(['session', 'path', 'inner'])).stdout.trim();
+
+    // Without the session variables the worktree is its own project, with no daemon of its own: nothing is stopped.
+    expect((await run(worktree, ['daemon', 'stop'])).stdout).toContain('no daemon running');
+    expect((await cw(['session', 'list'])).exitCode).toBe(0);
+
+    const stopped = await run(worktree, ['daemon', 'stop'], { CW_SESSION_ID: 's_any', CW_WORKSPACE_ROOT: fx.root });
+    expect(stopped.stdout).toContain('daemon stopped');
+    expect((await cw(['daemon', 'stop'])).stdout).toContain('no daemon running');
+  }, 60_000);
+
   // Regression, and it MUST drive the real CLI through a pty. The wire-level
   // scrollback test in tests/daemon/runtime.test.ts passes even with attach.ts's fix
   // reverted, because it never calls into attach.ts — the defect was purely the order
