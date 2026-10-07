@@ -12,7 +12,9 @@ import { ResponsesDialog } from './ResponsesDialog'
 import { CommandBar } from './CommandBar'
 import { rememberLine, type Command } from '../lib/commands'
 import { QuickOpen } from './QuickOpen'
-import { FilePane } from './FilePane'
+import { lazy, Suspense } from 'preact/compat'
+// The editor (CodeMirror and its languages) is most of the bundle and only matters once a file is opened.
+const FilePane = lazy(() => import('./FilePane').then((m) => ({ default: m.FilePane })))
 import { BrowserPane } from './BrowserPane'
 import type { NotifyPrefs } from './SettingsPage'
 import { readColors, writeColors, type SessionColor } from '../lib/colors'
@@ -1110,7 +1112,13 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
                 />
               )
             }
-            if (pane.kind === 'file') return <FilePane sessionId={pane.sessionId} path={pane.path} focused={paneFocused} />
+            if (pane.kind === 'file') {
+              return (
+                <Suspense fallback={<p class="cockpit-muted">Loading editor…</p>}>
+                  <FilePane sessionId={pane.sessionId} path={pane.path} focused={paneFocused} />
+                </Suspense>
+              )
+            }
             if (pane.kind === 'debug') {
               const session = sessions.find((s) => s.id === pane.sessionId)
               if (!session) return null
