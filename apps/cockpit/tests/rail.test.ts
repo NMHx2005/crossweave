@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { agentName, gitBadge, landChip, newlyAsking, overlapBadge, railOrder, relativeTime, rowState, glyphState, ROW_STATE_LABEL, rowTitle, visibleRows, jumpTargets, clampMenu, newlyFinished, newlySignalled, checkChip, landCheckWarning, recentToOffer, submenuPosition } from '../src/lib/rail'
+import { agentName, gitBadge, landChip, newlyAsking, overlapBadge, railOrder, relativeTime, rowState, glyphState, ROW_STATE_LABEL, rowTitle, visibleRows, jumpTargets, clampMenu, newlyFinished, newlySignalled, checkChip, landCheckWarning, recentToOffer, submenuPosition, sessionStatusDetail } from '../src/lib/rail'
 import { parseSessionList } from '../src/lib/sessions'
 
 describe('relativeTime', () => {
@@ -10,6 +10,33 @@ describe('relativeTime', () => {
     expect(relativeTime(now - 3 * 3_600_000, now)).toBe('3h')
     expect(relativeTime(now - 2 * 86_400_000, now)).toBe('2d')
     expect(relativeTime(null, now)).toBeUndefined()
+  })
+})
+
+describe('sessionStatusDetail', () => {
+  const now = 10_000_000_000
+
+  test('uses an explicit notification timestamp and identifies its source', () => {
+    expect(sessionStatusDetail({ signal: { kind: 'done', message: 'finished', at: now - 120_000 } }, now))
+      .toBe('Status reported by cw notify · updated 2m ago')
+  })
+
+  test('labels inferred status and omits an unavailable timestamp', () => {
+    expect(sessionStatusDetail({ lastActivityAt: null }, now)).toBe('Status inferred from terminal activity')
+  })
+
+  test('describes a current event without saying "now ago"', () => {
+    expect(sessionStatusDetail({ lastActivityAt: now }, now)).toBe('Status inferred from terminal activity · last activity just now')
+  })
+
+  test('dates an inferred status by the terminal activity, not as if it had been reported', () => {
+    expect(sessionStatusDetail({ lastActivityAt: now - 3 * 3_600_000 }, now))
+      .toBe('Status inferred from terminal activity · last activity 3h ago')
+  })
+
+  test('a clock-skewed (future) timestamp reads as just now rather than a negative age', () => {
+    expect(sessionStatusDetail({ signal: { kind: 'ask', message: 'q', at: now + 5_000 } }, now))
+      .toBe('Status reported by cw notify · updated just now')
   })
 })
 

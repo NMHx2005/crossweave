@@ -3,7 +3,7 @@ import type { ListedSession } from '../host/cockpit-api'
 import type { AttentionKind } from '../lib/attention'
 import { SESSION_COLORS, type SessionColor } from '../lib/colors'
 import { sessionNameError } from '../lib/quick-picker'
-import { agentName, checkChip, clampMenu, gitBadge, glyphState, jumpTargets, landChip, overlapBadge, railOrder, relativeTime, rowState, rowTitle, ROW_STATE_LABEL, recentToOffer, submenuPosition, visibleRows } from '../lib/rail'
+import { agentName, checkChip, clampMenu, gitBadge, glyphState, jumpTargets, landChip, overlapBadge, railOrder, relativeTime, rowState, rowTitle, ROW_STATE_LABEL, recentToOffer, sessionStatusDetail, submenuPosition, visibleRows } from '../lib/rail'
 import { formatRailMeta } from '../lib/sessions'
 import { sumUsage, usageLabel } from '../lib/usage'
 import type { ModelPrice } from '../../../../src/core/settings.js'
@@ -326,6 +326,7 @@ export function Sidebar(props: SidebarProps) {
                   ) : null}
                   {rows.map((session) => {
                     const state = rowState(session)
+                    const statusDetail = sessionStatusDetail(session, now)
                     const chip = landChip(project.attentionById[session.id])
                     const when = relativeTime(session.lastActivityAt, now)
                     const color = project.active ? colorById[session.id] : undefined
@@ -342,7 +343,7 @@ export function Sidebar(props: SidebarProps) {
                           role="button"
                           tabIndex={0}
                           class={`cockpit-row${session.id === focusedId ? ' is-focused' : ''} is-${state}`}
-                          title={`${session.name} — ${ROW_STATE_LABEL[state]}${session.signal?.message ? `: ${session.signal.message}` : ''} · ${agentName(session.agent)}${meta ? ` · ${meta}` : ''}${git ? ` · ${git.title}` : ''}${n ? ` · ⌘${n}` : ''}`}
+                          title={`${session.name} — ${ROW_STATE_LABEL[state]}${session.signal?.message ? `: ${session.signal.message}` : ''} · ${statusDetail} · ${agentName(session.agent)}${meta ? ` · ${meta}` : ''}${git ? ` · ${git.title}` : ''}${n ? ` · ⌘${n}` : ''}`}
                           onClick={() => { if (!renamingRow && !notingRow) props.onSelect(project.projectRoot, session.id) }}
                           onDblClick={() => props.onRenaming({ kind: 'session', projectRoot: project.projectRoot, sessionId: session.id })}
                           onKeyDown={(e) => {

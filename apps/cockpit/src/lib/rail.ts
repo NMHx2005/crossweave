@@ -19,6 +19,22 @@ export function relativeTime(at: number | null | undefined, now: number): string
   return `${Math.floor(hours / 24)}d`
 }
 
+/** The row tooltip says whether status was reported or inferred, and when that event arrived. */
+export function sessionStatusDetail(
+  session: Pick<ListedSession, 'lastActivityAt' | 'signal'>,
+  now: number,
+): string {
+  const signal = session.signal
+  const reported = signal !== undefined
+  const at = signal?.at ?? session.lastActivityAt
+  const age = relativeTime(at, now)
+  const source = reported ? 'Status reported by cw notify' : 'Status inferred from terminal activity'
+  if (age === undefined) return source
+  // The inferred reading has no event time of its own: all that is known is when the terminal last moved.
+  const label = reported ? 'updated' : 'last activity'
+  return `${source} · ${label} ${age === 'now' ? 'just now' : `${age} ago`}`
+}
+
 /** The row's title: what the agent last said, else the session's name. */
 /** The user's note when there is one, else what the agent last said, else the name. */
 export function rowTitle(session: Pick<ListedSession, 'name' | 'latestWords' | 'note' | 'signal'>): string {
