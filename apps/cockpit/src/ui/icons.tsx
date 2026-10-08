@@ -1,3 +1,4 @@
+/** @jsxImportSource preact */
 /**
  * The cockpit's icons: plain strokes on a 16-unit grid, drawn in `currentColor` so the
  * stylesheet decides their colour from tokens. Agent marks are simple original glyphs
