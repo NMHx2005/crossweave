@@ -1651,6 +1651,87 @@ body,
   color: var(--cw-text-bright);
 }
 
+.cockpit-row-panels__chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--cw-hairline);
+  padding: 0 var(--cw-space-1);
+  border: none;
+  border-radius: var(--cw-radius-sm);
+  background: transparent;
+  color: var(--cw-text-dim);
+  font: inherit;
+  font-family: var(--cw-font-mono);
+  font-size: var(--cw-fs-micro);
+  cursor: pointer;
+}
+
+.cockpit-row-panels__chip:hover,
+.cockpit-row-panels__chip[aria-expanded='true'] {
+  color: var(--cw-text-bright);
+}
+
+.cockpit-row-panels__chevron {
+  width: var(--cw-space-3);
+  height: var(--cw-space-3);
+  transition: transform var(--cw-dur) var(--cw-ease);
+}
+
+.cockpit-row-panels__chip[aria-expanded='true'] .cockpit-row-panels__chevron {
+  transform: rotate(90deg);
+}
+
+/* Height from 0fr to 1fr animates to the list's real height without measuring it. */
+.cockpit-row-panels {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows var(--cw-dur-layout) var(--cw-ease-out), opacity var(--cw-dur-fast) var(--cw-ease);
+}
+
+.cockpit-row-panels.is-open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.cockpit-row-panels__list {
+  min-height: 0;
+  overflow: hidden;
+  margin: 0 0 0 calc(var(--cw-space-3) + var(--cw-space-1));
+  padding: 0 0 0 var(--cw-space-1);
+  border-left: var(--cw-hairline) solid var(--cw-border);
+  list-style: none;
+}
+
+.cockpit-row-panels__item {
+  display: block;
+  width: 100%;
+  min-height: calc(var(--cw-space-4) + var(--cw-space-3));
+  padding: 0 var(--cw-space-2);
+  overflow: hidden;
+  border: none;
+  border-radius: var(--cw-radius);
+  background: transparent;
+  color: var(--cw-text-dim);
+  font: inherit;
+  font-size: var(--cw-fs-sm);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.cockpit-row-panels__item:hover {
+  background: var(--cw-surface-hover);
+  color: var(--cw-text-bright);
+}
+
+.cockpit-row-panels__item.is-active {
+  background: var(--cw-surface-active);
+  color: var(--cw-text-bright);
+}
+
 .cockpit-row.is-stopped .cockpit-row__title,
 .cockpit-row.is-ended .cockpit-row__title {
   color: var(--cw-text-dim);

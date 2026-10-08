@@ -6,8 +6,10 @@ import { sessionNameError } from '../lib/quick-picker'
 import { agentName, checkChip, clampMenu, gitBadge, glyphState, jumpTargets, landChip, overlapBadge, railOrder, relativeTime, rowState, rowTitle, ROW_STATE_LABEL, recentToOffer, sessionStatusDetail, setupChip, submenuPosition, visibleRows } from '../lib/rail'
 import { formatRailMeta } from '../lib/sessions'
 import { sumUsage, usageLabel } from '../lib/usage'
+import type { SessionPanel, SessionPanelsById } from '../lib/session-panels'
 import type { ModelPrice } from '../../../../src/core/settings.js'
 import { AgentMark, ChevronIcon, CloseIcon, FolderIcon, GearIcon, PlusIcon, SearchIcon, SidebarIcon } from './icons'
+import { SessionPanelChip, SessionPanelList } from './SessionPanelDisclosure'
 import { useDismiss } from './useDismiss'
 
 export type ProjectGroup = {
@@ -18,6 +20,7 @@ export type ProjectGroup = {
   active: boolean
   sessions: ListedSession[]
   attentionById: Record<string, AttentionKind>
+  panelsBySession: SessionPanelsById
   color?: SessionColor
   hideEnded?: boolean
   /** Sessions whose agent finished and that the user has not looked at since. */
@@ -62,6 +65,7 @@ export type SidebarProps = {
   onSettings: () => void
   onSelect: (projectRoot: string, sessionId: string) => void
   onAction: (projectRoot: string, sessionId: string, action: RowAction) => void
+  onFocusPanel: (projectRoot: string, panel: SessionPanel) => void
   onSetColor: (sessionId: string, color: SessionColor | null) => void
   onProjectAction: (projectRoot: string, action: ProjectAction) => void
   onProjectColor: (projectRoot: string, color: SessionColor | null) => void
@@ -85,6 +89,8 @@ type Menu =
   | { kind: 'blank'; recent: string[]; x: number; y: number }
 
 const COLLAPSED_KEY = 'cw.collapsed-projects.v1'
+const panelDisclosureKey = (projectRoot: string, sessionId: string): string =>
+  `session-panels-${encodeURIComponent(JSON.stringify([projectRoot, sessionId]))}`
 
 function readCollapsed(): Set<string> {
   try {
@@ -112,6 +118,7 @@ function writeCollapsed(set: ReadonlySet<string>): void {
 export function Sidebar(props: SidebarProps) {
   const { projects, focusedId, now, colorById, query, renaming } = props
   const [collapsed, setCollapsed] = useState<Set<string>>(readCollapsed)
+  const [expandedPanels, setExpandedPanels] = useState<Set<string>>(() => new Set())
   const [menu, setMenu] = useState<Menu | null>(null)
   const [dragOver, setDragOver] = useState<string | null>(null)
   const dragging = useRef<string | null>(null)
@@ -151,6 +158,16 @@ export function Sidebar(props: SidebarProps) {
     else next.add(root)
     setCollapsed(next)
     writeCollapsed(next)
+  }
+
+  const togglePanels = (projectRoot: string, sessionId: string): void => {
+    const key = panelDisclosureKey(projectRoot, sessionId)
+    setExpandedPanels((current) => {
+      const next = new Set(current)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
   }
 
   const numbers = new Map(jumpTargets(projects, query).slice(0, 9).map((t, i) => [t.sessionId, i + 1]))
@@ -337,6 +354,9 @@ export function Sidebar(props: SidebarProps) {
                     const n = numbers.get(session.id)
                     const renamingRow = renaming?.kind === 'session' && renaming.sessionId === session.id
                     const notingRow = renaming?.kind === 'note' && renaming.sessionId === session.id
+                    const panels = project.panelsBySession[session.id] ?? []
+                    const panelsKey = panelDisclosureKey(project.projectRoot, session.id)
+                    const panelsOpen = expandedPanels.has(panelsKey)
                     return (
                       <li key={session.id}>
                         <div
@@ -426,8 +446,12 @@ export function Sidebar(props: SidebarProps) {
                           ) : null}
                           {used ? <span class="cockpit-row__usage" title={used.title}>{used.text}</span> : null}
                           {when ? <span class="cockpit-row__when">{when}</span> : null}
+                          <SessionPanelChip id={panelsKey} sessionName={session.name} panels={panels} expanded={panelsOpen}
+                            onToggle={() => togglePanels(project.projectRoot, session.id)} />
                           <AgentMark agent={session.agent} class="cockpit-row__agent" />
                         </div>
+                        <SessionPanelList id={panelsKey} sessionName={session.name} panels={panels} expanded={panelsOpen}
+                          onFocus={(panel) => props.onFocusPanel(project.projectRoot, panel)} />
                       </li>
                     )
                   })}

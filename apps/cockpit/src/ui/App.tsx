@@ -25,6 +25,7 @@ import { KeyTableHint } from './KeyTableHint'
 import { SessionHistoryDialog } from './SessionHistoryDialog'
 import type { InterfaceAppearance, TerminalAppearance, UsageSettings } from '../../../../src/core/settings.js'
 import { applyAppearance } from '../lib/appearance'
+import type { SessionPanel } from '../lib/session-panels'
 
 const SIDEBAR_HIDDEN_KEY = 'cw.sidebar-hidden.v1'
 /** Notification choices ('0' off; on unless turned off). */
@@ -271,6 +272,12 @@ export function App() {
     const act: ViewAction = { kind: 'row', sessionId, action }
     if (NEEDS_STAGE.has(action)) void activate(root, act)
     else runIn(root, act)
+  }
+
+  function onFocusPanel(root: string, panel: SessionPanel): void {
+    const action: ViewAction = { kind: 'focus-pane', tabId: panel.tabId, paneId: panel.paneId }
+    if (root === activeRef.current) runIn(root, action)
+    else void activate(root, action)
   }
 
   function labelOf(root: string): string {
@@ -539,12 +546,12 @@ export function App() {
       const active = root === activeRoot
       const live = reports[root]
       if (live) {
-        groups.push({ projectRoot: root, name: projectLabel(p, baseName(root)), active, sessions: live.sessions, attentionById: live.attentionById, doneIds: live.doneIds, ...view, ...(plainRoots.includes(root) ? { plain: true } : {}) })
+        groups.push({ projectRoot: root, name: projectLabel(p, baseName(root)), active, sessions: live.sessions, attentionById: live.attentionById, panelsBySession: live.panelsBySession, doneIds: live.doneIds, ...view, ...(plainRoots.includes(root) ? { plain: true } : {}) })
         continue
       }
       const snap = snapshots[root]
       if (!snap) {
-        groups.push({ projectRoot: root, name: projectLabel(p, baseName(root)), active, sessions: [], attentionById: {}, ...view, ...(plainRoots.includes(root) ? { plain: true } : {}) })
+        groups.push({ projectRoot: root, name: projectLabel(p, baseName(root)), active, sessions: [], attentionById: {}, panelsBySession: {}, ...view, ...(plainRoots.includes(root) ? { plain: true } : {}) })
         continue
       }
       const landability = parseLandabilityByName(snap.converge)
@@ -552,7 +559,7 @@ export function App() {
       for (const session of snap.sessions) {
         attention[session.id] = deriveAttention({ status: session.status ?? '', landability: landability.get(session.name) })
       }
-      groups.push({ projectRoot: root, name: projectLabel(p, snap.name), active, sessions: snap.sessions, attentionById: attention, ...view, ...(plainRoots.includes(root) ? { plain: true } : {}) })
+      groups.push({ projectRoot: root, name: projectLabel(p, snap.name), active, sessions: snap.sessions, attentionById: attention, panelsBySession: {}, ...view, ...(plainRoots.includes(root) ? { plain: true } : {}) })
     }
     return groups
   }
@@ -811,6 +818,7 @@ export function App() {
           onSettings={() => { void handleOpenSettings() }}
           onSelect={(root, id) => onRailAction(root, id, 'focus')}
           onAction={onRailAction}
+          onFocusPanel={onFocusPanel}
           onSetColor={(sessionId, color) => {
             if (activeRef.current !== null) handles.current.get(activeRef.current)?.setColor(sessionId, color)
           }}

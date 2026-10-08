@@ -87,6 +87,7 @@ import { suggestSessionName } from '../lib/quick-picker'
 import type { SessionPreset } from '../../../../src/core/settings.js'
 import { defaultCompareTarget, pairMerge } from '../lib/compare'
 import { sessionsThatStartedRunning } from '../lib/sessions'
+import { focusSessionPanel, keepSamePanels, sessionPanelsById, type SessionPanelsById } from '../lib/session-panels'
 import { agentName, landCheckWarning, newlyAsking, newlyFinished, newlySignalled } from '../lib/rail'
 import { ProjectApiContext } from './project-context'
 import { LAST_LAUNCHER_KEY, readString, readStringList, writeString, writeStringList } from './storage'
@@ -111,6 +112,7 @@ export type ViewAction =
   | { kind: 'new' }
   | { kind: 'create'; name: string; options: NewSessionOptions; launcher: string }
   | { kind: 'row'; sessionId: string; action: RowAction | 'focus' }
+  | { kind: 'focus-pane'; tabId: string; paneId: string }
   | { kind: 'land-all' }
 
 /** What the rail and the Dock need from a live view. */
@@ -119,6 +121,7 @@ export type ViewReport = {
   attentionById: Record<string, AttentionKind>
   focusedId: string | null
   colors: Record<string, SessionColor>
+  panelsBySession: SessionPanelsById
   /** Finished and not looked at yet (cleared when the session is focused on screen). */
   doneIds: string[]
 }
@@ -387,6 +390,12 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
     return out
   }, [sessions, landabilityByName])
 
+  const panelsRef = useRef<SessionPanelsById>({})
+  const panelsBySession = useMemo(() => {
+    panelsRef.current = keepSamePanels(panelsRef.current, sessionPanelsById(stage, sessions))
+    return panelsRef.current
+  }, [stage, sessions])
+
   const focusedIdRef = useRef(focusedId)
   focusedIdRef.current = focusedId
 
@@ -397,8 +406,8 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
 
   // The rail and the Dock read live views from here.
   useEffect(() => {
-    hostRef.current.report(projectRoot, { sessions, attentionById, focusedId, colors, doneIds })
-  }, [projectRoot, sessions, attentionById, focusedId, colors, doneIds])
+    hostRef.current.report(projectRoot, { sessions, attentionById, focusedId, colors, panelsBySession, doneIds })
+  }, [projectRoot, sessions, attentionById, focusedId, colors, panelsBySession, doneIds])
   useEffect(() => () => hostRef.current.report(projectRoot, null), [projectRoot])
 
   const focused = sessions.find((session) => session.id === focusedId) ?? null
@@ -440,6 +449,7 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
     if (action.kind === 'new') void handleNew()
     else if (action.kind === 'create') void createAndOpen(action.name, action.options, action.launcher)
     else if (action.kind === 'land-all') void handleLandAll()
+    else if (action.kind === 'focus-pane') setStage((s) => focusSessionPanel(s, action.tabId, action.paneId))
     else rowAction(action.sessionId, action.action)
   }
   const runRef = useRef(run)
