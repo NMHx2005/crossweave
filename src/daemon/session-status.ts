@@ -80,6 +80,8 @@ export class ActivityTracker {
   private readonly childParent = new Map<string, string>();
   /** session → its panes' terminalIds, so `status`/`sweep` never scan every pane. */
   private readonly bySession = new Map<string, Set<string>>();
+  /** Called once per session whose activity moved at a sweep, with where it came from; never allowed to throw into it. */
+  onChange?: (id: string, from: Activity, to: Activity) => void;
 
   constructor(
     private readonly now: () => number = () => Date.now(),
@@ -309,8 +311,10 @@ export class ActivityTracker {
     for (const [id, t] of this.tracks) {
       const now = this.status(id, agentOf(id), terminalAgentOf).activity;
       if (now !== t.reported) {
+        const from = t.reported;
         t.reported = now;
         changed.push(id);
+        try { this.onChange?.(id, from, now); } catch { /* a listener must not break the sweep */ }
       }
     }
     return changed;

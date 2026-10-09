@@ -21,6 +21,8 @@ import { ConvergenceScheduler } from './convergence-scheduler.js';
 import { MergeTrialRepo, isPairwiseTrial } from '../db/repositories/merge-trial.js';
 import { baseConflictFiles, commitsAhead } from '../convergence/trial.js';
 import { sessionDiff } from '../domain/session-diff.js';
+import { diffCheckpoints, listCheckpoints, restoreCheckpoint, takeCheckpoint, type CheckpointContext } from '../domain/checkpoint.js';
+import { assertNotBusy, createAutoCheckpointer } from './checkpoint-trigger.js';
 import { ConfigTrustRepo } from '../db/repositories/config-trust.js';
 import { SessionCheckRepo } from '../db/repositories/session-check.js';
 import { SessionSetupRepo } from '../db/repositories/session-setup.js';
@@ -376,6 +378,7 @@ export function buildMethods(
         (terminalId) => terminalAgents.get(terminalId) ?? null,
       );
       if (agentsChanged || changed.length > 0) broadcastRegistry.broadcast('tui.invalidate', {});
+      void autoCheckpoint.poll();
     } finally {
       sweeping = false;
     }
@@ -403,6 +406,29 @@ export function buildMethods(
     }
     return null;
   };
+
+  /** The context for a session's checkpoints: only a session with a worktree of its own has one. */
+  function checkpointContextFor(row: SessionRow): CheckpointContext {
+    if (!hasGit || row.worktreePath === null || row.worktreePath === projectRoot || !existsSync(row.worktreePath)) {
+      throw new CrossweaveError('CHECKPOINT_NO_WORKTREE', `${row.name} has no worktree of its own to checkpoint.`);
+    }
+    return { projectRoot, sessionId: row.id, worktree: row.worktreePath };
+  }
+  const autoCheckpoint = createAutoCheckpointer({
+    agentOf: (id) => agentForRow(id),
+    isWorking: (id) => activity.status(id, agents.get(id) ?? null, (terminalId) => terminalAgents.get(terminalId) ?? null).activity === 'working',
+    contextFor: (id) => {
+      const row = sessionsRepo.findById(id);
+      if (row === undefined) return null;
+      try { return checkpointContextFor(row); } catch (err) {
+        if (err instanceof CrossweaveError && err.code === 'CHECKPOINT_NO_WORKTREE') return null;
+        throw err;
+      }
+    },
+    take: (ctx, kind) => takeCheckpoint(ctx, kind),
+    log: daemonLog,
+  });
+  activity.onChange = (id, from, to) => { void autoCheckpoint.onChange(id, from, to); };
 
   /** The worktree of the session a file RPC names; it must still be on disk. */
   function sessionWorktree(p: Record<string, unknown>): string {
@@ -945,6 +971,32 @@ export function buildMethods(
     },
 
     'session.start': (p) => start(p),
+
+    // Checkpoints: hidden snapshots of the worktree taken at each agent turn (src/domain/checkpoint.ts).
+    'checkpoint.list': async (p) => {
+      const row = sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName'));
+      return { checkpoints: await listCheckpoints(checkpointContextFor(row)) };
+    },
+    'checkpoint.take': async (p) => {
+      const row = sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName'));
+      const { created, info } = await takeCheckpoint(checkpointContextFor(row), 'manual', optionalStr(p, 'label'));
+      return created ? info : { unchanged: true, seq: info.seq };
+    },
+    'checkpoint.diff': async (p) => {
+      const row = sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName'));
+      return diffCheckpoints(checkpointContextFor(row), num(p, 'from'), typeof p['to'] === 'number' ? p['to'] : undefined);
+    },
+    'checkpoint.restore': async (p) => {
+      const row = sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName'));
+      const apply = p['apply'] === true;
+      if (apply) {
+        const live = activity.status(row.id, agents.get(row.id) ?? null, (terminalId) => terminalAgents.get(terminalId) ?? null);
+        assertNotBusy(row.name, live.activity, p['force'] === true);
+      }
+      const result = await restoreCheckpoint(checkpointContextFor(row), num(p, 'seq'), { apply });
+      if (result.applied) broadcastRegistry.broadcast('tui.invalidate', {});
+      return result;
+    },
 
     // What landing the session would bring in, for the cockpit's Changes pane. Local
     // clients only (never to be offered remotely): it is the repository's content.

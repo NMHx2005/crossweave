@@ -544,3 +544,30 @@ describe('typing is not work', () => {
     expect(t.status('s', 'aider', () => null).activity).toBe('idle');
   });
 });
+
+describe('ActivityTracker.onChange', () => {
+  it('reports from and to for each session that moved at a sweep, and nothing when nothing moved', () => {
+    const c = clock();
+    const t = new ActivityTracker(c.now, 2000);
+    const seen: Array<[string, string, string]> = [];
+    t.onChange = (id, from, to) => { seen.push([id, from, to]); };
+    t.started('s');
+    t.input('s');
+    t.output('s', 'total 8\r\n');
+    t.sweep(() => null, () => null);
+    c.advance(2500);
+    t.sweep(() => null, () => null);
+    t.sweep(() => null, () => null);
+    expect(seen).toEqual([['s', 'idle', 'working'], ['s', 'working', 'idle']]);
+  });
+
+  it('a listener that throws does not break the sweep or lose the change', () => {
+    const c = clock();
+    const t = new ActivityTracker(c.now, 2000);
+    t.onChange = () => { throw new Error('boom'); };
+    t.started('s');
+    t.input('s');
+    t.output('s', 'total 8\r\n');
+    expect(t.sweep(() => null, () => null)).toEqual(['s']);
+  });
+});
