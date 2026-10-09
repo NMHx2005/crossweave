@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { $ } from 'bun';
-import { sessionDiff } from '../../src/domain/session-diff.js';
+import { diffBetween, sessionDiff } from '../../src/domain/session-diff.js';
 import { commitFile, makeGitFixture, type GitFixture } from '../helpers/git-fixture.js';
 
 let fx: GitFixture;
@@ -69,5 +69,45 @@ describe('sessionDiff', () => {
 
   it('refuses a branch that does not exist', () => {
     expect(() => sessionDiff(fx.root, 'cw/nope', null)).toThrow(expect.objectContaining({ code: 'DIFF_UNAVAILABLE' }));
+  });
+});
+
+describe('diffBetween', () => {
+  const treeOf = async (ref: string): Promise<string> =>
+    (await $`git rev-parse ${`${ref}^{tree}`}`.cwd(fx.root).quiet().text()).trim();
+
+  it('diffs two trees with the same shape and counts sessionDiff produces', async () => {
+    const a = await treeOf('HEAD');
+    await commitFile(fx.root, 'new.txt', 'a\nb\n', 'add new');
+    const diff = diffBetween(fx.root, a, await treeOf('HEAD'));
+    expect(diff.files).toEqual([{ path: 'new.txt', status: 'added', added: 2, deleted: 0 }]);
+    expect(diff.patch).toContain('+a');
+    expect(diff.truncated).toBe(false);
+  });
+
+  // git C-quotes such names unless it is asked for NUL-terminated output.
+  it('reports awkward names as they are, not C-quoted', async () => {
+    const a = await treeOf('HEAD');
+    await commitFile(fx.root, 'é "q" tab.txt', 'x\n', 'odd');
+    const diff = diffBetween(fx.root, a, await treeOf('HEAD'));
+    expect(diff.files.map((f) => f.path)).toEqual(['é "q" tab.txt']);
+    expect(diff.files[0]?.added).toBe(1);
+  });
+
+  it('cuts the patch at maxPatchBytes on a line boundary and says so', async () => {
+    const a = await treeOf('HEAD');
+    await commitFile(fx.root, 'big.txt', Array.from({ length: 200 }, (_, i) => `line ${i}`).join('\n') + '\n', 'big');
+    const diff = diffBetween(fx.root, a, await treeOf('HEAD'), { maxPatchBytes: 200 });
+    expect(diff.truncated).toBe(true);
+    expect(diff.patch.endsWith('\n')).toBe(true);
+    expect(Buffer.byteLength(diff.patch)).toBeLessThanOrEqual(200);
+  });
+
+  it('skips the patch when asked', async () => {
+    const a = await treeOf('HEAD');
+    await commitFile(fx.root, 'x.txt', 'x\n', 'x');
+    const diff = diffBetween(fx.root, a, await treeOf('HEAD'), { patch: false });
+    expect(diff.patch).toBe('');
+    expect(diff.files).toHaveLength(1);
   });
 });
