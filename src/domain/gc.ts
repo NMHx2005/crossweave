@@ -10,6 +10,7 @@ import { CrossweaveError } from '../core/errors.js';
 import { assertContained, crossweaveDir } from '../core/paths.js';
 import { removeWorktree, deleteBranch, hasUnlandedWork, listWorktreePaths, isCrossweaveWorktree } from '../isolation/worktree.js';
 import { measureWorktrees, directorySize } from '../isolation/disk-guard.js';
+import { deleteSessionCheckpoints, pruneOrphans } from './checkpoint.js';
 
 export interface GcResult {
   removed: string[];
@@ -138,6 +139,7 @@ async function reclaimEnded(
       if (opts.onBeforeRemove !== undefined) warnings.push(...(await opts.onBeforeRemove(session)));
       disposedPaths.add(own);
       await removeWorktree(workspace.rootPath, own).catch(() => undefined);
+      await deleteSessionCheckpoints(workspace.rootPath, session.id).catch(() => undefined);
     }
     if (session.branch !== null) {
       await deleteBranch(workspace.rootPath, session.branch).catch(() => undefined);
@@ -230,6 +232,7 @@ export async function collectGarbage(
   const workspace = requireWorkspace(db, workspaceId);
   const ended = await reclaimEnded(db, workspace, opts);
   const orphans = await sweepOrphans(db, workspace, ended.disposedPaths);
+  await pruneOrphans(workspace.rootPath, new Set(new SessionRepo(db).listByWorkspace(workspace.id).map((s) => s.id))).catch(() => undefined);
   return {
     removed: [...ended.removed, ...orphans.removed],
     reclaimedBytes: ended.reclaimedBytes + orphans.reclaimedBytes,

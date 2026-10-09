@@ -7,6 +7,7 @@ import { EventRepo } from '../db/repositories/event.js';
 import { LeaseRepo } from '../db/repositories/lease.js';
 import { SessionHistoryRepo } from '../db/repositories/session-history.js';
 import { createWorktree, deleteBranch, removeWorktree } from '../isolation/worktree.js';
+import { deleteSessionCheckpoints } from './checkpoint.js';
 import { assertDiskAvailable } from '../isolation/disk-guard.js';
 import { disposeLeasedPaths } from './gc.js';
 import { SHELL_KIND, createAdapter } from '../adapters/registry.js';
@@ -278,6 +279,7 @@ export class SessionManager {
       // stopped before its teardown tries to bring it down.
       const warnings = opts.onBeforeRemove === undefined ? [] : await opts.onBeforeRemove(row);
       await removeWorktree(root, ownWorktree);
+      await deleteSessionCheckpoints(root, row.id).catch(() => undefined);
       if (row.branch !== null) await deleteBranch(root, row.branch).catch(() => undefined);
       // Removing the worktree means the work is gone, so nothing is left for the row
       // to describe — and keeping it would hold the name hostage under
@@ -328,6 +330,7 @@ export class SessionManager {
       // effect (`docker compose down -v`), and a refused `rm` must not run it.
       if (opts.onBeforeRemove !== undefined) warnings.push(...(await opts.onBeforeRemove(row)));
       await removeWorktree(root, ownWorktree).catch(() => undefined);
+      await deleteSessionCheckpoints(root, row.id).catch(() => undefined);
     }
     if (row.branch !== null) await deleteBranch(root, row.branch).catch(() => undefined);
     const workspace = this.workspaces.findById(workspaceId);

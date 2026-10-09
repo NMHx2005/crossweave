@@ -9,6 +9,7 @@ import type { ConfigTrustRepo } from '../db/repositories/config-trust.js';
 import { removeWorktree, deleteBranch } from '../isolation/worktree.js';
 import { ensureIntegrationWorktree, withIntegrationLease, withIntegrationWorktreeLock } from './integration-worktree.js';
 import { runMergeTrial, resetIntegration } from './trial.js';
+import { deleteSessionCheckpoints } from '../domain/checkpoint.js';
 import { isTestCommandTrusted } from './trust.js';
 
 export interface LandDeps {
@@ -365,6 +366,7 @@ export async function landSession(
       } catch (cause) {
         warnings.push(`Could not remove worktree ${ownWorktree}: ${(cause as Error).message}`);
       }
+      await deleteSessionCheckpoints(deps.projectRoot, sessionId).catch(() => undefined);
     }
     deps.leaseManager.release(sessionId);
     try {
