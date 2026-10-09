@@ -3540,3 +3540,28 @@ body,
 .cockpit-shortcuts__seq {
   opacity: 0.75;
 }
+
+.cockpit-checkpoints {
+  width: calc(var(--cw-row-h) * 40);
+  max-width: 100%;
+  max-height: calc(100vh - var(--cw-space-4) * 2);
+  overflow: auto;
+}
+
+.cockpit-checkpoints__list { list-style: none; margin: 0; padding: 0; }
+
+.cockpit-checkpoints__row {
+  display: flex;
+  align-items: center;
+  gap: var(--cw-space-3);
+  padding: var(--cw-space-2) 0;
+}
+
+.cockpit-checkpoints__actions { margin-left: auto; display: flex; gap: var(--cw-space-2); }
+
+.cockpit-checkpoints .cockpit-changes__files li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--cw-space-3);
+  padding: var(--cw-space-1) 0;
+}

@@ -35,6 +35,10 @@ export const COCKPIT_CHANNELS = [
   'file.list',
   // What landing a session would bring in (the Changes pane).
   'session.diff',
+  'checkpoint.list',
+  'checkpoint.take',
+  'checkpoint.diff',
+  'checkpoint.restore',
   // The session's debug bundle (the Debug pane; scrubbed in the daemon).
   'session.debug',
   // The Debug pane's browser half: a project's readable browser panes' console errors

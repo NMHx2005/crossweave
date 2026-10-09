@@ -4,6 +4,7 @@ import type { BrowserErrorRow } from '../../../../src/core/browser-agent/errors.
 import type { CockpitChannel, CockpitEvent } from '../../electron/channels'
 import { parseSessionList, type ListedSession } from '../lib/sessions'
 import { parseSessionHistory, type SessionHistoryEntry } from '../lib/session-history'
+import { parseCheckpoints, parseRestorePlan, type Checkpoint, type CheckpointDiff, type RestorePlan } from '../lib/checkpoints'
 import type { TerminalAppearance } from '../../../../src/core/settings.js'
 import type { FolderInfo } from '../../electron/folder-open'
 
@@ -171,6 +172,23 @@ function makeApi(invoke: Invoke, listen: Listen) {
     },
     sessionDiff(idOrName: string): Promise<SessionDiff> {
       return invoke('session.diff', { idOrName })
+    },
+    checkpoints(idOrName: string): Promise<Checkpoint[]> {
+      return invoke('checkpoint.list', { idOrName }).then(parseCheckpoints)
+    },
+    takeCheckpoint(idOrName: string): Promise<unknown> {
+      return invoke('checkpoint.take', { idOrName })
+    },
+    checkpointDiff(idOrName: string, from: number, to?: number): Promise<CheckpointDiff> {
+      return invoke('checkpoint.diff', { idOrName, from, ...(to === undefined ? {} : { to }) })
+    },
+    /** A dry run: what restoring would write and delete. Nothing changes. */
+    previewRestore(idOrName: string, seq: number): Promise<RestorePlan> {
+      return invoke('checkpoint.restore', { idOrName, seq }).then(parseRestorePlan)
+    },
+    /** The real thing, only ever sent after the person confirmed the preview. */
+    restoreCheckpoint(idOrName: string, seq: number, force: boolean): Promise<unknown> {
+      return invoke('checkpoint.restore', { idOrName, seq, apply: true, force })
     },
     debugBundle(idOrName: string, raw = false): Promise<DebugBundle> {
       return invoke('session.debug', { idOrName, raw })

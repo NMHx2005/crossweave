@@ -23,6 +23,12 @@ describe('cockpit IPC allowlist', () => {
     expect(isCockpitChannel('session.rm')).toBe(true)
   })
 
+  test('lets the renderer use the checkpoint calls', () => {
+    for (const name of ['checkpoint.list', 'checkpoint.take', 'checkpoint.diff', 'checkpoint.restore']) {
+      expect(isCockpitChannel(name)).toBe(true)
+    }
+  })
+
   // A landed/removed session's row is gone; the History panel reads it from here.
   test('lets the renderer read session history', () => {
     expect(isCockpitChannel('session.history')).toBe(true)

@@ -80,6 +80,7 @@ import type { RowAction } from './Sidebar'
 import { Stage, type StageStatus } from './Stage'
 import { runPaneRequest, type PaneEnv } from '../lib/pane-bridge'
 import { CompareView } from './CompareView'
+import { CheckpointsDialog } from './CheckpointsDialog'
 import { PromptComposer } from './PromptComposer'
 import { planPreset, presetUrl } from '../lib/presets'
 import { createLoadGate } from '../lib/load-gate'
@@ -187,6 +188,7 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
   const [commandBarOpen, setCommandBarOpen] = useState(false)
   /** The two sessions being compared side by side, or null. */
   const [compare, setCompare] = useState<[string, string] | null>(null)
+  const [checkpointsFor, setCheckpointsFor] = useState<string | null>(null)
   /** The prompt composer: open or not, and its draft (kept until it is sent) and whether a refine command is set. */
   const [composerOpen, setComposerOpen] = useState(false)
   const [composerDraft, setComposerDraft] = useState('')
@@ -464,6 +466,7 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
     else if (action === 'land') void handleLand(sessionId)
     else if (action === 'check') void handleCheck(sessionId)
     else if (action === 'compare') handleCompare(sessionId)
+    else if (action === 'checkpoints') setCheckpointsFor(sessionId)
     else if (action === 'terminal') void openShell(sessionId)
     else if (action === 'delete') void handleDelete(sessionId)
     else void handleKill(sessionId)
@@ -1204,6 +1207,21 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
             now={Date.now()}
             onJump={(id) => { setResponsesOpen(false); focusSession(id) }}
             onClose={() => setResponsesOpen(false)}
+          />
+        ) : null}
+        {visible && checkpointsFor !== null && sessionById(checkpointsFor) !== null ? (
+          <CheckpointsDialog
+            sessionName={sessionById(checkpointsFor)?.name ?? ''}
+            working={sessionById(checkpointsFor)?.activity === 'working'}
+            revision={sessionsRevision}
+            load={() => api.checkpoints(checkpointsFor)}
+            take={() => api.takeCheckpoint(checkpointsFor)}
+            loadDiff={(from, to) => api.checkpointDiff(checkpointsFor, from, to)}
+            preview={(seq) => api.previewRestore(checkpointsFor, seq)}
+            restore={(seq, force) => api.restoreCheckpoint(checkpointsFor, seq, force)}
+            askConfirm={(request) => hostRef.current.askConfirm(request)}
+            onToast={(message, tone) => hostRef.current.toast(message, tone)}
+            onClose={() => setCheckpointsFor(null)}
           />
         ) : null}
         {visible && compare !== null ? (
