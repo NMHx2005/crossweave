@@ -11,8 +11,8 @@ export interface AutoCheckDeps {
 }
 
 export interface AutoChecker {
-  /** A recognised agent's turn ended; `tree` says whether it changed anything, `to` how it ended. */
-  turnEnded(sessionId: string, tree: TreeOutcome, to: 'idle' | 'asked'): void;
+  /** A recognised agent's turn ended; `tree` says whether it changed anything, `asking` whether it stopped to ask the person something. */
+  turnEnded(sessionId: string, tree: TreeOutcome, asking: boolean): void;
   /** Some check (automatic or manual) is no longer running: a run that had to wait can start. */
   checkFinished(sessionId: string): void;
 }
@@ -25,8 +25,8 @@ const QUIET = new Set(['CHECK_NOT_CONFIGURED', 'CHECK_UNTRUSTED', 'SESSION_NO_WO
 
 /**
  * Decides when the project's trusted test command runs on its own. A session is *owed* a run once a turn ended having changed (or
- * possibly changed) its tree; the run starts at a turn end that is not a question, because `working → asked` is also what a
- * permission prompt looks like and tests on half-finished edits would be wasted — and, with one run at a time, would swallow the
+ * possibly changed) its tree; the run starts at a turn end that is not a question: a permission prompt ends a "turn" too, and tests
+ * on half-finished edits would be wasted — and, with one run at a time, would swallow the
  * real final one. Only ONE automatic run goes at a time across the daemon (the machine is shared); a session that has to wait, or whose
  * own check is already running (a manual one), stays owed and is retried whenever a check finishes. Nothing here throws: this runs
  * inside the status sweep.
@@ -63,10 +63,10 @@ export function createAutoChecker(deps: AutoCheckDeps): AutoChecker {
   }
 
   return {
-    turnEnded(sessionId, tree, to) {
+    turnEnded(sessionId, tree, asking) {
       if (!on()) { owed.clear(); return; }
       if (tree !== 'unchanged') owed.add(sessionId);
-      pump(to === 'asked' ? sessionId : undefined);
+      pump(asking ? sessionId : undefined);
     },
     checkFinished(sessionId) {
       active.delete(sessionId);

@@ -23,6 +23,7 @@ import { baseConflictFiles, commitsAhead } from '../convergence/trial.js';
 import { sessionDiff } from '../domain/session-diff.js';
 import { diffCheckpoints, listCheckpoints, restoreCheckpoint, takeCheckpoint, type CheckpointContext } from '../domain/checkpoint.js';
 import { assertNotBusy, createAutoCheckpointer } from './checkpoint-trigger.js';
+import { createAutoChecker } from './auto-check.js';
 import { ConfigTrustRepo } from '../db/repositories/config-trust.js';
 import { SessionCheckRepo } from '../db/repositories/session-check.js';
 import { SessionSetupRepo } from '../db/repositories/session-setup.js';
@@ -183,6 +184,8 @@ export function buildMethods(
     now?: () => number;
     /** Test seam: hands over `sweepStatus` so a test can run one sweep on its own schedule. */
     exposeSweep?: (sweepStatus: () => Promise<void>) => void;
+    /** Whether a trusted check runs on its own when an agent ends a turn; defaults to the user's `checks.autoRun` (off) for a real daemon. */
+    autoCheck?: () => boolean;
   } = {},
 ): Record<string, MethodHandler> {
   const workspaces = new WorkspaceManager(db);
@@ -293,8 +296,41 @@ export function buildMethods(
   const checks = new CheckRunner({
     run: runShell,
     store: new SessionCheckRepo(db),
-    onChange: () => broadcastRegistry.broadcast('tui.invalidate', {}),
+    onChange: (id) => {
+      broadcastRegistry.broadcast('tui.invalidate', {});
+      // onChange also fires when a run starts; only a run that is over frees a waiting one.
+      if (checks.get(id, null, null)?.state !== 'running') autoChecker.checkFinished(id);
+    },
     markAtFinish: (id, cwd) => gitCounts.readNow(id, cwd, cwd === projectRoot ? null : readBaseHead(projectRoot)),
+  });
+  // Run the project's TRUSTED test command in a session's worktree: the one gate behind `session.check` and the automatic run.
+  function startCheck(row: SessionRow): void {
+    const command = config.converge.testCommand;
+    if (command === undefined) throw new CrossweaveError('CHECK_NOT_CONFIGURED', 'Set converge.testCommand in crossweave.config.json, then `cw config trust`');
+    // The same gate `land` uses: a command nobody reviewed is never run.
+    if (!isTestCommandTrusted(command, configTrust, row.workspaceId)) {
+      throw new CrossweaveError('CHECK_UNTRUSTED', 'converge.testCommand is set but not trusted for this workspace. Review crossweave.config.json, then run `cw config trust`.');
+    }
+    if (row.worktreePath === null || !existsSync(row.worktreePath)) throw new CrossweaveError('SESSION_NO_WORKDIR', `Session has no working directory: ${row.name}`);
+    checks.start(row.id, command, row.worktreePath, {
+      ...process.env,
+      ...leaseManager.envFor(row.id),
+      CW_SESSION_ID: row.id,
+      CW_SESSION_NAME: row.name,
+      CW_WORKSPACE_ROOT: projectRoot,
+      CW_CHECK: '1',
+    } as Record<string, string>, gitCounts.get(row.id) ?? null);
+  }
+  // `checks.autoRun`: off unless the user turned it on. Only a real daemon consults the settings file.
+  const autoCheckEnabled = opts.autoCheck ?? (opts.startBackgroundJobs === true ? () => loadSettings().checks?.autoRun === true : () => false);
+  const autoChecker = createAutoChecker({
+    enabled: autoCheckEnabled,
+    run: (id) => {
+      const row = sessionsRepo.findById(id);
+      if (row === undefined || (row.status !== 'running' && row.status !== 'waiting')) throw new CrossweaveError('SESSION_NOT_RUNNING', 'The session is gone or not running');
+      startCheck(row);
+    },
+    log: daemonLog,
   });
   // Whether terminals are kept across a restart: the user's setting (off by default), read each time.
   // Only a real daemon consults the settings file; the methods a test builds never do.
@@ -426,6 +462,9 @@ export function buildMethods(
       }
     },
     take: (ctx, kind) => takeCheckpoint(ctx, kind),
+    turnEnded: (id, tree, asking) => autoChecker.turnEnded(id, tree, asking),
+    // `asked` without `rang` is a turn that simply ended; only a prompt or a bell is a session waiting for the person.
+    isAsking: (id) => activity.status(id, agents.get(id) ?? null, (terminalId) => terminalAgents.get(terminalId) ?? null).rang === true,
     log: daemonLog,
   });
   activity.onChange = (id, from, to) => { void autoCheckpoint.onChange(id, from, to); };
@@ -861,22 +900,7 @@ export function buildMethods(
     },
     // Run the project's TRUSTED test command in this session's worktree; the verdict rides on `session.list`.
     'session.check': (p) => {
-      const row = sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName'));
-      const command = config.converge.testCommand;
-      if (command === undefined) throw new CrossweaveError('CHECK_NOT_CONFIGURED', 'Set converge.testCommand in crossweave.config.json, then `cw config trust`');
-      // The same gate `land` uses: a command nobody reviewed is never run.
-      if (!isTestCommandTrusted(command, configTrust, row.workspaceId)) {
-        throw new CrossweaveError('CHECK_UNTRUSTED', 'converge.testCommand is set but not trusted for this workspace. Review crossweave.config.json, then run `cw config trust`.');
-      }
-      if (row.worktreePath === null || !existsSync(row.worktreePath)) throw new CrossweaveError('SESSION_NO_WORKDIR', `Session has no working directory: ${row.name}`);
-      checks.start(row.id, command, row.worktreePath, {
-        ...process.env,
-        ...leaseManager.envFor(row.id),
-        CW_SESSION_ID: row.id,
-        CW_SESSION_NAME: row.name,
-        CW_WORKSPACE_ROOT: projectRoot,
-        CW_CHECK: '1',
-      } as Record<string, string>, gitCounts.get(row.id) ?? null);
+      startCheck(sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName')));
       return { ok: true };
     },
     // `cw notify`: the session (or its agent's hook) says itself that it is done or needs an answer.

@@ -31,7 +31,9 @@ export interface AutoCheckpointDeps {
    * no checkpoints at all (no worktree of its own): there is no change detection there, so nothing could tell a chat-only turn
    * from an editing one.
    */
-  turnEnded?(sessionId: string, tree: TreeOutcome, to: 'idle' | 'asked'): void;
+  turnEnded?(sessionId: string, tree: TreeOutcome, asking: boolean): void;
+  /** The session is waiting for the person (a permission prompt, a question, a bell) rather than finished. Read when a turn ends. */
+  isAsking?(sessionId: string): boolean;
   log(message: string): void;
 }
 
@@ -76,10 +78,9 @@ export function createAutoCheckpointer(deps: AutoCheckpointDeps): AutoCheckpoint
         return;
       }
       const tree = await take(sessionId, kind);
-      // A turn only ends in idle or asked (see checkpointKindFor); the narrowing keeps the listener's type honest.
-      if (kind !== 'turn' || tree === 'none' || (to !== 'idle' && to !== 'asked')) return;
+      if (kind !== 'turn' || tree === 'none') return;
       try {
-        deps.turnEnded?.(sessionId, tree, to);
+        deps.turnEnded?.(sessionId, tree, deps.isAsking?.(sessionId) === true);
       } catch (err) {
         deps.log(`turn-ended listener for ${sessionId} failed: ${err instanceof Error ? err.message : String(err)}`);
       }

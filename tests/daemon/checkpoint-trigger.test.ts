@@ -108,34 +108,36 @@ describe('assertNotBusy', () => {
 
 describe('createAutoCheckpointer turnEnded', () => {
   function turnHarness(over: { context?: CheckpointContext | null; take?: () => Promise<unknown>; turnEnded?: () => void } = {}) {
-    const state: { agent: string | null } = { agent: 'claude' };
-    const ended: Array<[string, string, string]> = [];
+    const state: { agent: string | null; asking: boolean } = { agent: 'claude', asking: false };
+    const ended: Array<[string, string, boolean]> = [];
     const logs: string[] = [];
     const auto = createAutoCheckpointer({
       agentOf: () => state.agent,
       isWorking: () => true,
       contextFor: () => (over.context === undefined ? ctx : over.context),
       take: over.take ?? (async () => ({ created: true })),
-      turnEnded: (id, tree, to) => { ended.push([id, tree, to]); over.turnEnded?.(); },
+      isAsking: () => state.asking,
+      turnEnded: (id, tree, asking) => { ended.push([id, tree, asking]); over.turnEnded?.(); },
       log: (m) => { logs.push(m); },
     });
     return { auto, state, ended, logs };
   }
 
-  it('reports whether the turn changed the tree, with the status the session moved to', async () => {
+  it('reports whether the turn changed the tree, and whether the session stopped to ask something', async () => {
     const created = turnHarness({ take: async () => ({ created: true, info: {} }) });
     await created.auto.onChange('s1', 'working', 'idle');
     const same = turnHarness({ take: async () => ({ created: false, seq: 3 }) });
+    same.state.asking = true;
     await same.auto.onChange('s1', 'working', 'asked');
-    expect(created.ended).toEqual([['s1', 'changed', 'idle']]);
-    expect(same.ended).toEqual([['s1', 'unchanged', 'asked']]);
+    expect(created.ended).toEqual([['s1', 'changed', false]]);
+    expect(same.ended).toEqual([['s1', 'unchanged', true]]);
   });
 
   it('a result it cannot read, or a failed take, is "unknown" (it may have changed)', async () => {
     for (const take of [async () => undefined, async () => ({}), async () => null, async () => { throw new Error('size guard'); }]) {
       const h = turnHarness({ take });
       await h.auto.onChange('s1', 'working', 'idle');
-      expect(h.ended).toEqual([['s1', 'unknown', 'idle']]);
+      expect(h.ended).toEqual([['s1', 'unknown', false]]);
     }
   });
 
