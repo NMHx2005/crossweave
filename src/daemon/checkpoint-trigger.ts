@@ -4,6 +4,9 @@ import type { Activity } from './session-status.js';
 
 export type AutoCheckpointKind = 'start' | 'turn';
 
+/** What a turn did to the tree, as the checkpoint dedupe saw it: `unknown` when the take failed (it may have changed). */
+export type TreeOutcome = 'changed' | 'unchanged' | 'unknown';
+
 /**
  * Which checkpoint, if any, a status move calls for. `→ working` is the agent starting — the last chance to save the
  * "before", including the person's own edits made between turns; `working → idle|asked` is its turn ending. A failure
@@ -23,6 +26,12 @@ export interface AutoCheckpointDeps {
   /** The session's checkpoint context, or null when it is gone or has no worktree of its own. */
   contextFor(sessionId: string): CheckpointContext | null;
   take(ctx: CheckpointContext, kind: AutoCheckpointKind): Promise<unknown>;
+  /**
+   * A recognised agent's turn ended and its checkpoint was attempted. Never called for a `start`, a plain shell, or a session with
+   * no checkpoints at all (no worktree of its own): there is no change detection there, so nothing could tell a chat-only turn
+   * from an editing one.
+   */
+  turnEnded?(sessionId: string, tree: TreeOutcome, to: 'idle' | 'asked'): void;
   log(message: string): void;
 }
 
@@ -45,13 +54,15 @@ export interface AutoCheckpointer {
 export function createAutoCheckpointer(deps: AutoCheckpointDeps): AutoCheckpointer {
   const owed = new Set<string>();
 
-  async function take(sessionId: string, kind: AutoCheckpointKind): Promise<void> {
+  async function take(sessionId: string, kind: AutoCheckpointKind): Promise<TreeOutcome | 'none'> {
     try {
       const ctx = deps.contextFor(sessionId);
-      if (ctx === null) return;
-      await deps.take(ctx, kind);
+      if (ctx === null) return 'none';
+      const created = ((await deps.take(ctx, kind)) as { created?: unknown } | null | undefined)?.created;
+      return created === true ? 'changed' : created === false ? 'unchanged' : 'unknown';
     } catch (err) {
       deps.log(`checkpoint (${kind}) for ${sessionId} skipped: ${err instanceof Error ? err.message : String(err)}`);
+      return 'unknown';
     }
   }
 
@@ -64,7 +75,14 @@ export function createAutoCheckpointer(deps: AutoCheckpointDeps): AutoCheckpoint
         if (kind === 'start') owed.add(sessionId);
         return;
       }
-      await take(sessionId, kind);
+      const tree = await take(sessionId, kind);
+      // A turn only ends in idle or asked (see checkpointKindFor); the narrowing keeps the listener's type honest.
+      if (kind !== 'turn' || tree === 'none' || (to !== 'idle' && to !== 'asked')) return;
+      try {
+        deps.turnEnded?.(sessionId, tree, to);
+      } catch (err) {
+        deps.log(`turn-ended listener for ${sessionId} failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
     },
     async poll() {
       for (const sessionId of [...owed]) {

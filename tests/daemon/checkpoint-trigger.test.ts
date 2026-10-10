@@ -105,3 +105,64 @@ describe('assertNotBusy', () => {
     expect(() => assertNotBusy('dev', 'asked', false)).not.toThrow();
   });
 });
+
+describe('createAutoCheckpointer turnEnded', () => {
+  function turnHarness(over: { context?: CheckpointContext | null; take?: () => Promise<unknown>; turnEnded?: () => void } = {}) {
+    const state: { agent: string | null } = { agent: 'claude' };
+    const ended: Array<[string, string, string]> = [];
+    const logs: string[] = [];
+    const auto = createAutoCheckpointer({
+      agentOf: () => state.agent,
+      isWorking: () => true,
+      contextFor: () => (over.context === undefined ? ctx : over.context),
+      take: over.take ?? (async () => ({ created: true })),
+      turnEnded: (id, tree, to) => { ended.push([id, tree, to]); over.turnEnded?.(); },
+      log: (m) => { logs.push(m); },
+    });
+    return { auto, state, ended, logs };
+  }
+
+  it('reports whether the turn changed the tree, with the status the session moved to', async () => {
+    const created = turnHarness({ take: async () => ({ created: true, info: {} }) });
+    await created.auto.onChange('s1', 'working', 'idle');
+    const same = turnHarness({ take: async () => ({ created: false, seq: 3 }) });
+    await same.auto.onChange('s1', 'working', 'asked');
+    expect(created.ended).toEqual([['s1', 'changed', 'idle']]);
+    expect(same.ended).toEqual([['s1', 'unchanged', 'asked']]);
+  });
+
+  it('a result it cannot read, or a failed take, is "unknown" (it may have changed)', async () => {
+    for (const take of [async () => undefined, async () => ({}), async () => null, async () => { throw new Error('size guard'); }]) {
+      const h = turnHarness({ take });
+      await h.auto.onChange('s1', 'working', 'idle');
+      expect(h.ended).toEqual([['s1', 'unknown', 'idle']]);
+    }
+  });
+
+  // A session with no worktree of its own has no change detection: every chat-only turn would otherwise run the suite.
+  it('says nothing for a session that has no checkpoints at all', async () => {
+    const h = turnHarness({ context: null });
+    await h.auto.onChange('s1', 'working', 'idle');
+    expect(h.ended).toEqual([]);
+  });
+
+  it('says nothing for a start, a plain shell, or the owed-start poll', async () => {
+    const h = turnHarness();
+    await h.auto.onChange('s1', 'idle', 'working');
+    h.state.agent = null;
+    await h.auto.onChange('s1', 'working', 'idle');
+    await h.auto.onChange('s1', 'idle', 'working');
+    h.state.agent = 'claude';
+    await h.auto.poll();
+    expect(h.ended).toEqual([]);
+  });
+
+  it('a listener that throws is logged and does not break the next turn', async () => {
+    let calls = 0;
+    const h = turnHarness({ turnEnded: () => { calls++; if (calls === 1) throw new Error('boom'); } });
+    await h.auto.onChange('s1', 'working', 'idle');
+    await h.auto.onChange('s1', 'working', 'idle');
+    expect(h.ended.length).toBe(2);
+    expect(h.logs.length).toBe(1);
+  });
+});
