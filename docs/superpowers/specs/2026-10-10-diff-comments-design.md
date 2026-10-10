@@ -80,9 +80,9 @@ On success the comments are cleared; on refusal they are kept. Control character
 
 ## Units
 
-- `src/lib/review-comments.ts` (pure): `numberLines(section) → NumberedLine[]` (reads `@@ -a,b +c,d @@`, advances old/new counters,
-  skips `\` lines), `anchorOf`, `matchComments(comments, numbered)`, `formatReview(source, comments) → string`.
-- `src/lib/patch.ts`: `kindOf` classifies lines starting with `\` as `meta` (today they fall into `context`).
+- `src/lib/patch.ts`: `patchSections` numbers lines from `@@ -a,b +c,d @@` (`old`/`new` on each `PatchLine`), classifies body lines by
+  marker inside a hunk (a deleted `-- x` arrives as `--- x`), `\` lines are `meta`, paths are unquoted and length-derived.
+- `src/lib/review-comments.ts` (pure): `anchorOf`, `matchComments`, `reviewReducer`, `formatReview`, `deliverReview`, `afterDelivery`.
 - `src/ui/CommentableDiff.tsx`: renders sections with gutters, the editor, outdated list and bar; props `{ patch, truncatedNote, source,
   target, send(id, data), onToast }`. Owns the comment state.
 - `ChangesPane.tsx`, `CheckpointsDialog.tsx`: use it; `ProjectView.tsx` supplies `send` (plan → `api.sendInput` → toast).
