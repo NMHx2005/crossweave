@@ -92,7 +92,7 @@ import type { SessionPreset } from '../../../../src/core/settings.js'
 import { defaultCompareTarget, pairMerge } from '../lib/compare'
 import { sessionsThatStartedRunning } from '../lib/sessions'
 import { focusSessionPanel, keepSamePanels, sessionPanelsById, type SessionPanelsById } from '../lib/session-panels'
-import { agentName, landCheckWarning, newlyAsking, newlyFinished, newlySignalled } from '../lib/rail'
+import { agentName, combineWarnings, landCheckWarning, landSensitiveWarning, newlyAsking, newlyFinished, newlySignalled } from '../lib/rail'
 import { ProjectApiContext } from './project-context'
 import { LAST_LAUNCHER_KEY, readString, readStringList, writeString, writeStringList } from './storage'
 
@@ -189,6 +189,9 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
   const [landabilityByName, setLandabilityByName] = useState<Map<string, Landability>>(() => new Map())
   const [converge, setConverge] = useState<ConvergeStatus>(EMPTY_CONVERGE)
   const [landBusy, setLandBusy] = useState(false)
+  // Set before the first await of a land, so a double click (or a click plus the land command) cannot start two while the first is still
+  // reading the diff or sitting in a confirmation — App.askConfirm abandons the first one's promise when a second dialog opens.
+  const landingRef = useRef(false)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [layouts, setLayouts] = useState<Record<string, SavedLayout>>({})
   /** Bumped on every successful load, so open Changes panes refetch after new work. */
@@ -937,10 +940,25 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
   }
 
   async function handleLand(targetId?: string): Promise<void> {
+    if (landingRef.current) return
+    landingRef.current = true
+    try {
+      await landInner(targetId)
+    } finally {
+      landingRef.current = false
+    }
+  }
+
+  async function landInner(targetId?: string): Promise<void> {
     const target = sessionById(targetId)
     if (!target || landBusy) return
-    // Failing (or unfinished) tests that still describe this work: say so, and let the person decide.
-    const warning = landCheckWarning(target.name, target.check)
+    // What the person should know before this lands, in ONE question: files that look like credentials or that run commands (judged
+    // by name, from the committed diff), and failing or unfinished tests that still describe this work. A diff that cannot be read
+    // asks nothing — a failing look must never be the reason a land is blocked or behaves differently.
+    const files = target.branch != null
+      ? await api.sessionDiff(target.id).then((d) => d.files.map((f) => f.path)).catch(() => [] as string[])
+      : []
+    const warning = combineWarnings(target.name, landSensitiveWarning(target.name, files), landCheckWarning(target.name, target.check))
     if (warning !== undefined && !(await hostRef.current.askConfirm(warning))) return
     setLandBusy(true)
     const toast = hostRef.current.toast
