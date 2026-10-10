@@ -22,7 +22,7 @@ export interface SettingsSection {
 /** The nav's groups (a hairline apart, like Cursor's): each names its sections, in order. Every section is in exactly one. */
 export const SETTINGS_GROUPS: ReadonlyArray<{ id: string; sections: readonly string[] }> = [
   { id: 'general', sections: ['dashboard', 'appearance', 'notifications'] },
-  { id: 'sessions', sections: ['launchers', 'presets', 'prompt', 'editor'] },
+  { id: 'sessions', sections: ['launchers', 'presets', 'prompt', 'checks', 'editor'] },
   { id: 'terminal', sections: ['terminal', 'keyboard'] },
   { id: 'usage', sections: ['usage'] },
 ]
@@ -106,6 +106,13 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
       { id: 'prompt-refine-command', label: 'Refine command', description: 'The program the composer\'s Refine button runs: it reads the draft on stdin and prints the refined prompt. Empty means no Refine button', keywords: 'llm ai rewrite improve prompt claude compose' },
       { id: 'prompt-refine-instruction', label: 'Refine instruction', description: 'What the refine command is told to do; empty uses the default', keywords: 'prompt system' },
       { id: 'prompt-refine-context', label: 'Include session context', description: 'Adds the session\'s name, branch and changed-file count for the refine command', keywords: 'privacy branch' },
+    ],
+  },
+  {
+    id: 'checks',
+    title: 'Checks',
+    rows: [
+      { id: 'checks-auto-run', label: 'Run checks when an agent finishes a turn', description: 'Runs the project\'s trusted test command (converge.testCommand) in the session\'s worktree after a turn that changed files, once you have trusted it with cw config trust. It executes code the agent just wrote, outside the agent\'s sandbox, and applies to every project. Off by default', keywords: 'test tests automatic auto run ci verify' },
     ],
   },
   {

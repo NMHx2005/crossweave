@@ -38,6 +38,7 @@ export const PresetsIcon = (p: IconProps) => <Svg {...p}><path d="M8 2.5l5.5 3L8
 export const CodeIcon = (p: IconProps) => <Svg {...p}><path d="M5.5 4.5L2 8l3.5 3.5M10.5 4.5L14 8l-3.5 3.5M9 3.5l-2 9" /></Svg>
 export const KeyboardIcon = (p: IconProps) => <Svg {...p}><rect x="1.5" y="4" width="13" height="8" rx="1.5" /><path d="M4 6.5h.01M6.5 6.5h.01M9 6.5h.01M11.5 6.5h.01M4.5 9.5h7" /></Svg>
 export const UsageIcon = (p: IconProps) => <Svg {...p}><path d="M3 13V8.5M6.5 13V4M10 13V7M13.5 13V2.5" /></Svg>
+export const CheckIcon = (p: IconProps) => <Svg {...p}><path d="M3 8.5l3.5 3.5L13 4.5" /></Svg>
 export const BackIcon = (p: IconProps) => <Svg {...p}><path d="M13 8H3M7 4L3 8l4 4" /></Svg>
 
 export const ChevronIcon = (p: IconProps) => <Svg {...p}><path d="M6 4l4 4-4 4" /></Svg>

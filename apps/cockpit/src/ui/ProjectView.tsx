@@ -83,6 +83,8 @@ import { CompareView } from './CompareView'
 import { CheckpointsDialog } from './CheckpointsDialog'
 import { PromptComposer } from './PromptComposer'
 import type { SendTarget } from '../lib/prompt-send'
+import { canSendFailure, formatCheckFailure } from '../lib/check-failure'
+import { deliverText } from '../lib/paste-delivery'
 import { planPreset, presetUrl } from '../lib/presets'
 import { createLoadGate } from '../lib/load-gate'
 import { suggestSessionName } from '../lib/quick-picker'
@@ -472,6 +474,7 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
     else if (action === 'debug') openDebug(sessionId)
     else if (action === 'land') void handleLand(sessionId)
     else if (action === 'check') void handleCheck(sessionId)
+    else if (action === 'sendFailure') void handleSendFailure(sessionId)
     else if (action === 'compare') handleCompare(sessionId)
     else if (action === 'checkpoints') setCheckpointsFor(sessionId)
     else if (action === 'terminal') void openShell(sessionId)
@@ -982,6 +985,27 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
     } catch (err) {
       hostRef.current.toast(plainErrorMessage(err), 'error')
     }
+  }
+
+  /**
+   * Pastes the last failed check into the session's shell, never pressing Enter. The session list is read again first: a shell whose
+   * agent exited a moment ago must not be treated as an agent (a plain shell would run the pasted output line by line).
+   */
+  async function handleSendFailure(sessionId: string): Promise<void> {
+    const known = sessionById(sessionId)
+    if (!known) return
+    const fresh = (await api.listSessions().catch(() => [] as ListedSession[])).find((s) => s.id === sessionId) ?? known
+    if (!canSendFailure(fresh) || fresh.check === undefined) {
+      hostRef.current.toast(`${fresh.name} has no failed check to send`, 'info')
+      return
+    }
+    const delivery = await deliverText({
+      text: formatCheckFailure(fresh.check),
+      target: sendTargetOf(fresh),
+      send: (id, data) => api.sendInput(id, data),
+      done: `Pasted the test failure into ${fresh.name}'s shell — press Enter there to send it`,
+    })
+    hostRef.current.toast(delivery.message, delivery.ok ? 'info' : 'error')
   }
 
   /** Open the composer; whether Refine is offered is read from the saved settings each time.

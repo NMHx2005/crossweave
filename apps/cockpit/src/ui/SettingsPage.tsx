@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type { ComponentChildren } from 'preact'
 import { formatEnvLines, launcherIdFor, parseEnvLines } from '../lib/launchers'
-import { AgentMark, AppearanceIcon, BackIcon, BellIcon, CodeIcon, DashboardIcon, KeyboardIcon, LauncherIcon, PenIcon, PresetsIcon, TerminalIcon, UsageIcon } from './icons'
+import { AgentMark, AppearanceIcon, BackIcon, BellIcon, CheckIcon, CodeIcon, DashboardIcon, KeyboardIcon, LauncherIcon, PenIcon, PresetsIcon, TerminalIcon, UsageIcon } from './icons'
 import { Banner, Segmented, SettingRow, SettingsGroup, Switch } from './SettingsKit'
 import { SettingsDashboard } from './SettingsDashboard'
-import type { InterfaceAppearance, ModelPrice, PersistenceSettings, TerminalAppearance, UsageSettings, PromptSettings, SessionPreset } from '../../../../src/core/settings.js'
+import type { ChecksSettings, InterfaceAppearance, ModelPrice, PersistenceSettings, TerminalAppearance, UsageSettings, PromptSettings, SessionPreset } from '../../../../src/core/settings.js'
 import { FontPicker, type InstalledFont } from './FontPicker'
 import { ShortcutList } from './ShortcutsPanel'
 import { effectiveKeys, keyConflicts } from '../lib/keymap'
@@ -32,6 +32,7 @@ export type UserSettings = {
   usage?: UsageSettings
   keybindings?: Record<string, string | null>
   persistence?: PersistenceSettings
+  checks?: ChecksSettings
   prompt?: PromptSettings
   presets?: SessionPreset[]
 }
@@ -75,9 +76,9 @@ const CURSORS: Array<{ id: NonNullable<TerminalAppearance['cursorStyle']>; label
   { id: 'underline', label: 'Underline' },
 ]
 
-const SECTION_ICONS: Record<string, (p: { class?: string; title?: string }) => preact.JSX.Element> = {
+export const SECTION_ICONS: Record<string, (p: { class?: string; title?: string }) => preact.JSX.Element> = {
   dashboard: DashboardIcon, appearance: AppearanceIcon, notifications: BellIcon, launchers: LauncherIcon, presets: PresetsIcon,
-  prompt: PenIcon, editor: CodeIcon, terminal: TerminalIcon, keyboard: KeyboardIcon, usage: UsageIcon,
+  prompt: PenIcon, checks: CheckIcon, editor: CodeIcon, terminal: TerminalIcon, keyboard: KeyboardIcon, usage: UsageIcon,
 }
 
 /** Which news banners the person dismissed: kept in this browser's storage, and the page works without it. */
@@ -583,6 +584,14 @@ export function SettingsPage({ initialSection, initialRow, initial, availability
         </SettingRow>
         <SettingRow id="prompt-refine-context">
           <Switch label="Include session context" checked={draft.prompt?.refine?.includeContext === true} onChange={(on) => setRefine({ includeContext: on ? true : undefined })} />
+        </SettingRow>
+      </SettingsGroup>
+    ),
+    checks: (
+      <SettingsGroup note="The project's test command (converge.testCommand, trusted with cw config trust) can run on its own. It executes the code the agent has just written, outside the agent's sandbox, so it is off until you turn it on — and the switch applies to every project whose command you have trusted.">
+        <SettingRow id="checks-auto-run">
+          <Switch label="Run checks when an agent finishes a turn" checked={draft.checks?.autoRun === true}
+            onChange={(on) => setDraft((d) => ({ ...d, checks: on ? { autoRun: true } : undefined }))} />
         </SettingRow>
       </SettingsGroup>
     ),

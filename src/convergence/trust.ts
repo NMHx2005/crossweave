@@ -20,7 +20,8 @@ export function isTestCommandTrusted(testCommand: string, configTrust: ConfigTru
 /**
  * The lifecycle hooks' trust, kept separate from the test command's on purpose:
  * `sessionSetup` is typed into a shell automatically on a session's first start, while
- * `testCommand` runs only on an explicit `cw land --yes`. Gating them together would let
+ * `testCommand` runs only when asked — `cw land --yes`, a manual check, or, if the user turned
+ * `checks.autoRun` on, after an agent's turn that changed files. Gating them together would let
  * a user trusting their test command unknowingly arm a hook a hostile clone added, so
  * each is hashed and trusted on its own.
  *

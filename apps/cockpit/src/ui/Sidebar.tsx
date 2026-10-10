@@ -3,6 +3,7 @@ import type { ListedSession } from '../host/cockpit-api'
 import type { AttentionKind } from '../lib/attention'
 import { SESSION_COLORS, type SessionColor } from '../lib/colors'
 import { sessionNameError } from '../lib/quick-picker'
+import { canSendFailure } from '../lib/check-failure'
 import { agentName, checkChip, clampMenu, gitBadge, glyphState, jumpTargets, landChip, overlapBadge, railOrder, relativeTime, rowState, rowTitle, ROW_STATE_LABEL, recentToOffer, sessionStatusDetail, setupChip, submenuPosition, visibleRows } from '../lib/rail'
 import { formatRailMeta } from '../lib/sessions'
 import { sumUsage, usageLabel } from '../lib/usage'
@@ -29,7 +30,7 @@ export type ProjectGroup = {
   plain?: boolean
 }
 
-export type RowAction = 'open' | 'stop' | 'changes' | 'debug' | 'land' | 'kill' | 'delete' | 'terminal' | 'check' | 'compare' | 'checkpoints'
+export type RowAction = 'open' | 'stop' | 'changes' | 'debug' | 'land' | 'kill' | 'delete' | 'terminal' | 'check' | 'compare' | 'checkpoints' | 'sendFailure'
 
 export type ProjectAction =
   | 'new' | 'terminal-here' | 'land-all' | 'gc' | 'toggle-ended' | 'settings' | 'close' | 'move-up' | 'move-down'
@@ -506,6 +507,7 @@ export function Sidebar(props: SidebarProps) {
               <button type="button" role="menuitem" onClick={() => rowMenu('changes')}>Changes</button>
               <button type="button" role="menuitem" onClick={() => rowMenu('debug')}>Debug…</button>
               <button type="button" role="menuitem" onClick={() => rowMenu('check')}>Run checks</button>
+              {canSendFailure(menu.session) ? <button type="button" role="menuitem" onClick={() => rowMenu('sendFailure')}>Send test failure to shell</button> : null}
               <button type="button" role="menuitem" onClick={() => rowMenu('compare')}>Compare with another…</button>
               <button type="button" role="menuitem" onClick={() => rowMenu('checkpoints')}>Checkpoints…</button>
               <button type="button" role="menuitem" onClick={() => rowMenu('land')}>Land</button>
