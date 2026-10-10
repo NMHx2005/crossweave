@@ -1,4 +1,4 @@
-import type { PersistenceSettings, PromptSettings, SessionPreset } from '../../../src/core/settings.js'
+import type { ChecksSettings, PersistenceSettings, PromptSettings, SessionPreset } from '../../../src/core/settings.js'
 
 /**
  * The daemon that serves a project can be older than the app (it keeps running across app
@@ -6,10 +6,10 @@ import type { PersistenceSettings, PromptSettings, SessionPreset } from '../../.
  * returns it from `settings.get` nor keeps it on `settings.set`, and its save rewrites the whole
  * file — so the user's setup would quietly disappear the first time any setting changed. The
  * main process reads and writes the same file itself, so it mends both ends, for each block
- * that arrived after the first release (`persistence`, `prompt`, `presets`).
+ * that arrived after the first release (`persistence`, `checks`, `prompt`, `presets`).
  */
-export type GuardedSettings = { persistence?: PersistenceSettings; prompt?: PromptSettings; presets?: SessionPreset[] }
-const GUARDED = ['persistence', 'prompt', 'presets'] as const
+export type GuardedSettings = { persistence?: PersistenceSettings; checks?: ChecksSettings; prompt?: PromptSettings; presets?: SessionPreset[] }
+const GUARDED = ['persistence', 'checks', 'prompt', 'presets'] as const
 
 /** `settings.get`: an answer lacking a guarded block gets the file's, when there is one. */
 export function withGuardedFromFile(answer: unknown, file: GuardedSettings): unknown {

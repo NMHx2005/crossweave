@@ -332,3 +332,30 @@ describe('persistence settings', () => {
     expect(loadSettings(home).editor).toEqual({ kind: 'zed' });
   });
 });
+
+describe('checks settings', () => {
+  it('is off by default: nothing is stored until it is switched on', () => {
+    expect(loadSettings(home).checks).toBeUndefined();
+  });
+
+  it('round-trips the switch, keeping an explicit off', () => {
+    saveSettings({ ...loadSettings(home), checks: { autoRun: true } }, home);
+    expect(loadSettings(home).checks).toEqual({ autoRun: true });
+    saveSettings({ ...loadSettings(home), checks: { autoRun: false } }, home);
+    expect(loadSettings(home).checks).toEqual({ autoRun: false });
+  });
+
+  it('an empty block is the same as none', () => {
+    saveSettings({ ...loadSettings(home), checks: {} }, home);
+    expect(loadSettings(home).checks).toBeUndefined();
+  });
+
+  it('refuses a value that is not a boolean, and drops a corrupt block on load', () => {
+    expect(() => saveSettings({ ...loadSettings(home), checks: { autoRun: 'yes' as never } }, home)).toThrow(/checks/i);
+    expect(() => saveSettings({ ...loadSettings(home), checks: 5 as never }, home)).toThrow(/checks/i);
+    mkdirSync(join(home, '.crossweave'), { recursive: true });
+    writeFileSync(file(), JSON.stringify({ editor: { kind: 'zed' }, checks: { autoRun: 'yes' } }));
+    expect(loadSettings(home).checks).toBeUndefined();
+    expect(loadSettings(home).editor).toEqual({ kind: 'zed' });
+  });
+});

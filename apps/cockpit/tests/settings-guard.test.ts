@@ -3,6 +3,7 @@ import { restoreGuarded, withGuardedFromFile } from '../electron/settings-guard'
 
 const persistence = { terminals: true }
 const prompt = { refine: { command: 'claude -p' } }
+const checks = { autoRun: true }
 
 describe('withGuardedFromFile', () => {
   // A daemon older than the app has never heard of `persistence`: it neither returns it nor keeps it,
@@ -14,6 +15,13 @@ describe('withGuardedFromFile', () => {
   test('the prompt block is mended too, each block on its own', () => {
     expect(withGuardedFromFile({ persistence }, { persistence, prompt })).toEqual({ persistence, prompt })
     expect(restoreGuarded({ settings: { prompt } }, {})).toEqual({ prompt })
+  })
+
+  test('the checks block is mended too: an older daemon would drop the switch and rewrite the file', () => {
+    expect(withGuardedFromFile({ launchers: [] }, { checks })).toEqual({ launchers: [], checks })
+    expect(restoreGuarded({ settings: { checks } }, {})).toEqual({ checks })
+    expect(restoreGuarded({ settings: { checks } }, { checks })).toEqual({})
+    expect(restoreGuarded({ settings: { checks: {} } }, {})).toEqual({})
   })
 
   test('presets (a list) are mended too, and an empty list is not worth restoring', () => {

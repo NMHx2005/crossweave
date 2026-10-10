@@ -115,6 +115,15 @@ export interface PersistenceSettings {
 }
 
 /**
+ * Whether the project's trusted test command runs on its own. Off unless the user turns it on: a suite can take minutes
+ * of CPU per agent turn, and it executes the code the agent just wrote, outside the agent's sandbox.
+ */
+export interface ChecksSettings {
+  /** Run `converge.testCommand` in a session's worktree when an agent ends a turn that changed files. */
+  autoRun?: boolean;
+}
+
+/**
  * The prompt composer. Refining a draft is done by a program the user names (the app does not choose an AI):
  * one line, split into arguments without a shell, the draft on its stdin. Unset means no Refine button.
  */
@@ -160,6 +169,7 @@ export interface UserSettings {
    */
   keybindings?: Record<string, string | null>;
   persistence?: PersistenceSettings;
+  checks?: ChecksSettings;
   prompt?: PromptSettings;
   presets?: SessionPreset[];
 }
@@ -402,6 +412,19 @@ export function cleanPersistence(raw: unknown): { persistence: PersistenceSettin
   return { persistence: Object.keys(out).length === 0 ? undefined : out, problems };
 }
 
+export function cleanChecks(raw: unknown): { checks: ChecksSettings | undefined; problems: string[] } {
+  if (raw === undefined || raw === null) return { checks: undefined, problems: [] };
+  if (typeof raw !== 'object' || Array.isArray(raw)) return { checks: undefined, problems: ['checks must be an object'] };
+  const r = raw as Record<string, unknown>;
+  const problems: string[] = [];
+  const out: ChecksSettings = {};
+  if (r.autoRun !== undefined) {
+    if (typeof r.autoRun === 'boolean') out.autoRun = r.autoRun;
+    else problems.push('checks autoRun must be true or false');
+  }
+  return { checks: Object.keys(out).length === 0 ? undefined : out, problems };
+}
+
 const EDITORS: ReadonlySet<string> = new Set(['vscode', 'cursor', 'zed', 'custom', 'cockpit']);
 const LAUNCHER_ID = /^[a-z0-9][a-z0-9-]{0,31}$/;
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -467,6 +490,7 @@ function validate(settings: UserSettings): void {
     ...cleanUsage(settings.usage).problems,
     ...cleanKeybindings(settings.keybindings).problems,
     ...cleanPersistence(settings.persistence).problems,
+    ...cleanChecks(settings.checks).problems,
     ...cleanPrompt(settings.prompt).problems,
     ...cleanPresets(settings.presets).problems,
   ];
@@ -494,6 +518,7 @@ export function loadSettings(homeDir?: string): UserSettings {
   const { usage } = cleanUsage(saved.usage);
   const { keybindings } = cleanKeybindings(saved.keybindings);
   const { persistence } = cleanPersistence(saved.persistence);
+  const { checks } = cleanChecks(saved.checks);
   const { prompt } = cleanPrompt(saved.prompt);
   const { presets } = cleanPresets(saved.presets);
   return {
@@ -503,6 +528,7 @@ export function loadSettings(homeDir?: string): UserSettings {
     ...(usage === undefined ? {} : { usage }),
     ...(keybindings === undefined ? {} : { keybindings }),
     ...(persistence === undefined ? {} : { persistence }),
+    ...(checks === undefined ? {} : { checks }),
     ...(prompt === undefined ? {} : { prompt }),
     ...(presets === undefined ? {} : { presets }),
   };
@@ -565,6 +591,7 @@ export function saveSettings(settings: UserSettings, homeDir?: string): void {
     ...(settings.usage === undefined ? {} : { usage: cleanUsage(settings.usage).usage }),
     ...(settings.keybindings === undefined ? {} : { keybindings: cleanKeybindings(settings.keybindings).keybindings }),
     ...(settings.persistence === undefined ? {} : { persistence: cleanPersistence(settings.persistence).persistence }),
+    ...(settings.checks === undefined ? {} : { checks: cleanChecks(settings.checks).checks }),
     ...(settings.prompt === undefined ? {} : { prompt: cleanPrompt(settings.prompt).prompt }),
     ...(settings.presets === undefined ? {} : { presets: cleanPresets(settings.presets).presets }),
   };
