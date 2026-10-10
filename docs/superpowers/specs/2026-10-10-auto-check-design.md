@@ -138,3 +138,51 @@ each time (like `persistence.terminals`), only a real daemon does (`startBackgro
 Turn ends are inferred from the screen, so a pause can start an extra run (bounded by the dedupe and `CHECK_RUNNING`); a run tests the
 session's own worktree, not the merged result; one command per project; no notification when an auto run fails (look at the chip);
 a daemon older than the cockpit ignores the setting until restarted; plain shells and pane-only agents are never auto-checked.
+
+---
+
+## Amendments from the adversarial review (these supersede conflicting text above)
+
+The review (Opus, read-only, ran hostile strings through the proposed cleaner) found no blocker and five major defects; all are adopted.
+
+**A′. Deciding when to run — an owed run, not a one-shot.**
+- `turnEnded(sessionId, tree, to)` also carries the status the session moved to (`idle` or `asked`). `tree` is `'changed' | 'unchanged' | 'unknown'`.
+  A session with no worktree of its own (`contextFor` → null: the shared project folder, a plain folder) is **never reported**: there is no
+  change detection there, so every chat-only turn would run the suite in the person's own folder. A failed take (`unknown`, e.g. the 50 MB
+  guard) still counts as "may have changed".
+- The auto-checker keeps an **owed** set. A turn that ended with `changed` or `unknown` makes the session owed. A run is started for an
+  owed session when the turn ended in `idle` — **even if that last turn is `unchanged`** — because `working → asked` is also what a
+  permission prompt looks like, so an `asked` end only marks the session owed (running tests on half-finished edits at every approval is
+  wasteful and, with `CHECK_RUNNING`, would drop the real final run). Starting a run clears the owed mark.
+- **One automatic run at a time, daemon-wide** (AGENTS.md resource budget): while an automatic run is going, other owed sessions wait.
+  A run that cannot start because the session already has one (`CHECK_RUNNING`, e.g. a manual run) keeps the owed mark; **when any check
+  finishes**, the daemon asks the auto-checker to pump again, so the deferred or blocked run starts then. The four quiet codes
+  `CHECK_NOT_CONFIGURED`, `CHECK_UNTRUSTED`, `SESSION_NO_WORKDIR`, `SESSION_NOT_RUNNING` drop the owed mark silently; other errors are logged
+  and drop it too. A disabled setting clears the owed set.
+- `run` refuses a session row that is gone or not running (`SESSION_NOT_RUNNING`): nothing forgets a `CheckRunner` entry when a session ends
+  today (`CheckRunner.forget` has no caller), so the spec row "CheckRunner already forgets the entry" was wrong; the verdict of an ended session
+  simply stays until the session row is deleted.
+
+**B′. The failure text.**
+- The tail goes through `redactSecrets` (`src/core/redact-secrets.ts`, the redaction used for every text the person may paste to an AI): the
+  run inherits the daemon's whole environment, so a test that prints the environment would otherwise hand a token to the agent.
+- Cleaning also covers colon-separated and private-parameter CSI sequences (`[0-?]*` parameters), DCS/PM/APC/SOS strings and an unterminated
+  OSC (run to the end of the text), and **invisible format characters** (Unicode tag block U+E0000–E007F, zero-width and bidi controls,
+  U+2028/2029, U+FEFF): a hidden "ignore previous instructions" must not pass where the person reads. The same hidden characters are
+  now shown as `⁇` in diff-comment quotes (`displaySafe`).
+- The menu item is offered through a pure `canSendFailure(session)`; before the paste the cockpit re-reads the session list, so a shell whose agent
+  exited moments ago is not treated as an agent (a plain shell would run the pasted output line by line).
+
+**Security, restated plainly.** Turning the setting on lets **an agent's own work cause a test run**: the command runs the code the agent has just
+written, in the worktree, **outside the agent's sandbox**, with the daemon's full environment and network. A sandboxed agent that cannot reach the
+daemon socket to run `cw check` can, with this setting, get a run by writing a test and ending its turn. The command itself still cannot be changed
+(it comes from the repository config behind the trust hash). The setting is **global** (one file for the user): it arms every project whose
+`testCommand` was ever trusted — until now trust meant "runs only on an explicit `cw land --yes` or a manual check". The Settings row says so, and
+`trust.ts`'s comment is updated.
+
+**Known limits added.** Change detection compares with the newest checkpoint of any kind, so it **misses** a run when a manual checkpoint (the person's,
+or the agent's own `cw checkpoint`) was taken mid-turn, when edits predate a late-paid `start`, and when only ignored files changed; it **runs needlessly**
+when a long suite's own untracked outputs (coverage, junit) land during the next turn, or the person edited between turns while `start` was dropped.
+An automatic run races the agent's next turn in the same worktree (the verdict then shows stale). `CHECKPOINT_TOO_LARGE` trips on every turn, so
+such a session is checked every turn (`unknown`). Manual runs are not counted in the one-at-a-time rule. A stale agent field on the rail can still
+make the failure paste go to a shell that is plain (mitigated by the re-read; diff comments have the same window and do not re-read).

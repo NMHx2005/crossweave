@@ -141,3 +141,70 @@ export function formatCheckFailure(check: { code?: number; ms?: number; tail?: s
 - [ ] **Step 1:** the CDP script (pattern: `diff-comments-check.ts`): scratch HOME with `settings.json` `{ "checks": { "autoRun": true } }`, a repo whose `crossweave.config.json` has a failing `testCommand` and was trusted; a fake agent (`stty raw -echo`, copies stdin to a file, edits a file and goes idle); assert the chip becomes `✗ tests` with no click, the menu offers **Send test failure to shell**, and the bytes the fake agent received are one bracketed paste containing the failure text and no `\r`; with the setting off nothing runs. Start the cockpit and daemon from the **built** binaries of this branch (`bun run build` at the root first — the daemon must contain Task 3).
 - [ ] **Step 2:** gates, one at a time and never concurrently with the hook's own run: `bun run typecheck`; `bun test --max-concurrency=1` (outside the sandbox); `cd apps/cockpit && bun test` (outside the sandbox); `bun run build` at the root; `bun run build` in the cockpit; the live script. Clean up Electron, daemons and scratch dirs (move to Trash).
 - [ ] **Step 3:** write the limitations file and the digest line; commit the script and docs separately.
+
+---
+
+## Amendments from the adversarial review (these supersede conflicting task text above)
+
+Verdict GO-WITH-FIXES; see the spec's "Amendments" for the reasoning. Concrete plan edits:
+
+**Task 1.** `cleanChecks` keeps `autoRun: false` (like `cleanPersistence`); `{}` → `undefined`. Fix Step 1's contradictory sentence accordingly.
+
+**Task 2.**
+- `turnEnded?(sessionId, tree: TreeOutcome, to: 'idle' | 'asked')`. The trigger's private `take` returns `TreeOutcome | 'none'`: `ctx === null` → `'none'`
+  and **`turnEnded` is not called** for it; `'unknown'` for a throw or a result without a boolean `created`.
+- `createAutoChecker(deps)` deps: `{ enabled(): boolean; run(sessionId: string): void; log(message: string): void }`; returns
+  `{ turnEnded(sessionId, tree, to): void; checkFinished(sessionId: string): void }`. State: `owed: Set<string>`, `active: Set<string>` (automatic runs in flight).
+  ```ts
+  const QUIET = new Set(['CHECK_NOT_CONFIGURED', 'CHECK_UNTRUSTED', 'SESSION_NO_WORKDIR', 'SESSION_NOT_RUNNING'])
+  turnEnded(id, tree, to) {
+    if (!on()) { owed.clear(); return }
+    if (tree !== 'unchanged') owed.add(id)
+    pump(to === 'asked' ? id : undefined)
+  }
+  checkFinished(id) { active.delete(id); pump() }
+  function pump(skip?: string) {
+    if (!on()) { owed.clear(); return }
+    if (active.size > 0) return
+    for (const id of [...owed]) {
+      if (id === skip) continue
+      try { deps.run(id); owed.delete(id); active.add(id); return }
+      catch (err) {
+        if (err instanceof CrossweaveError && err.code === 'CHECK_RUNNING') continue   // keep owed: pumped when that run finishes
+        owed.delete(id)
+        if (!(err instanceof CrossweaveError && QUIET.has(err.code))) deps.log(...)
+      }
+    }
+  }
+  ```
+  `on()` wraps `deps.enabled()` in try (a throw is off). Nothing throws out of either method.
+- Tests (pure, with a fake `run` that records and can throw): the old matrix; plus `asked` end marks owed but starts nothing and a later `idle` **unchanged**
+  starts it; `changed` while a run is in flight (`CHECK_RUNNING`) is started by `checkFinished`; one automatic run at a time across two sessions, the second
+  starting at the first's `checkFinished`; a disabled setting clears owed; a quiet code drops the mark and a later turn can re-owe it; a manual-run `CHECK_RUNNING`
+  for session A does not block session B; and trigger tests: `turnEnded` is never invoked for a `'none'` outcome.
+
+**Task 3.**
+- `run: (id) => { const row = sessionsRepo.findById(id); if (row === undefined || (row.status !== 'running' && row.status !== 'waiting')) throw new CrossweaveError('SESSION_NOT_RUNNING', ...); startCheck(row) }`.
+- The `CheckRunner` `onChange` becomes `(id) => { broadcast; if (checks.get(id, null, null)?.state !== 'running') autoChecker.checkFinished(id) }` (`checks`/`autoChecker`
+  are referenced only when called, after construction; declare `autoCheckEnabled` before use).
+- Harness: write `crossweave.config.json` with the failing `testCommand`, `buildMethods(db, root, undefined, loadConfig(root), { shell: '/bin/sh', exposeSweep, autoCheck })`,
+  **then** `config.trust` (it hashes the in-memory config). Every test that asserts "nothing ran" first waits for the turn's checkpoint, then runs a positive
+  control (a manual `session.check` reaches `fail`). Add a case: a second agent turn that changes nothing starts no run.
+
+**Task 4.**
+- `formatCheckFailure` runs `redactSecrets` on the tail (import from `../../../../src/core/redact-secrets.js`), then the widened cleaner:
+  CSI `\x1b\[[0-?]*[ -/]*[@-~]`; OSC `\x1b\][^\x07\x1b]*(?:\x07|\x1b\\|$)`; DCS/PM/APC/SOS `\x1b[P^_X][^\x1b]*(?:\x1b\\|$)`; other `\x1b[@-Z\\-_]`; then
+  invisible format characters (`/[\u{E0000}-\u{E007F}​-‏  ‪-‮⁠-⁤⁦-⁩﻿؜]/gu`) removed.
+  Tests for each (colon SGR, private CSI, DCS body, unterminated OSC, a tag-character payload, a token-looking line redacted).
+- `displaySafe` in `review-comments.ts` also maps the tag block, zero-width and `﻿` to `⁇` (test added).
+- `canSendFailure(session: { check?: { state: string } })` pure in `check-failure.ts` (true only for `fail`).
+
+**Task 5.**
+- Menu item placement: inside the existing `branch !== null` block after **Run checks**, shown only when `canSendFailure(menu.session)`.
+- `handleSendFailure` re-reads `api.listSessions()` (falls back to current state), builds the target from the fresh row, then `deliverText`.
+- Export `SECTION_ICONS` from `SettingsPage.tsx` and test that every `SETTINGS_SECTIONS` id has an icon; the row element carries `data-setting="checks-auto-run"` (via `SettingRow id`).
+- The Settings description says: runs `converge.testCommand` (agent-written code, outside the agent's sandbox) once trusted, in worktree sessions, after a turn that changed
+  files; the setting applies to every project.
+- Update `src/convergence/trust.ts`'s comment ("runs only on an explicit `cw land --yes`" → also a manual check, and an automatic one when `checks.autoRun` is on).
+
+**Task 6.** The limitations file records every item in the spec's "Known limits added".
