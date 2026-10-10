@@ -97,3 +97,37 @@ fixed order above, paths in input order, kinds with no file omitted), and `LAND_
 Names only, no content; ignored files invisible; fixed patterns (no configuration, no monorepo-specific lists); `Land all ready` and `cw land` do not ask; a
 diff read on every Land costs one `git diff`; the badge appears only where a file list is shown (not on the rail); the committed-diff panes miss uncommitted files by design.
 Ideas: scanning added lines for token shapes, a rail chip, per-project patterns, asking in `Land all ready` and in the CLI.
+
+---
+
+## Amendments from the adversarial review (these supersede conflicting text above)
+
+The review (Opus, read-only) ran this classifier over ~110 paths and the proposed badge colours through every theme. No blocker; two major defects, both adopted.
+
+**Classifier changes.**
+- **`secret.*` / `secrets.*` / `credentials.*` only count with a data extension** (`json yaml yml toml env ini conf cfg properties txt xml`), and never when any dot-part of the
+  name is `example`, `sample` or `template`. Run results of the first draft: `src/secrets.ts`, `src/secret.service.ts`, `lib/credentials.ts`, `docs/credentials.md` were all flagged `secret`, which
+  would make Land ask in any repo with a secrets module — the click-through habit this feature must not teach. A bare `credentials` (no extension, like `~/.aws/credentials`) stays flagged.
+- **Added to `secret`:** `*.tfstate`, `*.tfstate.backup` (Terraform state holds plaintext secrets), `kubeconfig`, `.kube/config`, any file under a `.ssh/` directory, `.docker/config.json`, and a
+  data-extension file under a `secrets/` directory (`secrets/prod.json`).
+- **Added to `automation`:** `.vscode/tasks.json`, anything under `.devcontainer/` (both can run commands when a folder is opened), `.travis.yml`, `bitbucket-pipelines.yml`, `lefthook.yml/.yaml`,
+  and `mcp.json` directly under `.cursor/` or `.vscode/` (the same reason `.mcp.json` is listed). `Dockerfile.*` is **not** flagged when the extension is `md` or `txt`.
+- **Added to `dependency`:** `setup.py`.
+- Deliberately **left out** (they churn or execute nothing): `Makefile`, `Procfile`, `.github/dependabot.yml`, `CLAUDE.md` / `AGENTS.md`. Agent-instruction files are recorded as a limit. `.git/hooks`
+  never appears in a diff.
+- **One order, everywhere:** secret → automation → migration → dependency, for matching *and* for the summary line (the kinds that make Land ask come first). The spec's example reads
+  `3 sensitive files: 1 secret · 1 automation · 1 dependency`. There is no separate display order.
+- `SENSITIVE_REASON.dependency` says a manifest can change install and test scripts (`postinstall`), not only which libraries are used.
+
+**Land.**
+- A **single in-flight guard** (`landingRef`, set before the first `await`, cleared in `finally`) wraps the whole `handleLand`: the new diff read is an `await` before `setLandBusy(true)`, so a double-click
+  (or a click plus the `land` command) would otherwise reach `landSelected` twice, or open two confirmations of which `App.askConfirm` abandons the first one's promise (a `handleLand` that never returns).
+- The read is fail-safe: `api.sessionDiff(...).then((d) => paths).catch(() => [])` (a throw in the success handler is also caught) and the guard is `target.branch != null`.
+- When both the sensitive-file question and the failing-tests question apply, they are **one dialog** (`combineWarnings`): title `Land <name> anyway?`, the two bodies one after the other. Either alone keeps its own title.
+- The body is sanitised: `\r`, `\n`, `\t` and bidi/control characters (U+202A–202E, U+2066–2069, C0/C1) in a path become a space; `.cockpit-confirm__body` gets `overflow-wrap: anywhere`.
+- Known and recorded, not fixed: a text diff over the daemon's 64 MB buffer throws, so an agent that produces one makes the question skip (the land proceeds as before); every Land fetches the whole patch
+  (up to 512 KB) just to read names; the list is read when the dialog opens and the branch tip can move before the merge; a new dependency or a changed script in `package.json` does not ask.
+
+**Badge.** The reason is also in the DOM for assistive technology: a visually hidden `<span class="cockpit-sr-only"> — reason</span>` after the label, besides the hover `title`.
+**Placement.** Checkpoints: the summary goes right after the shown diff's `<h3 class="cockpit-changes__file">` line. Compare: the badge goes after the path and before the existing `both` pill, per side.
+**Tokens.** `blocked`, `needs-you`, `accent` and `text-dim` on `--cw-surface-badge` are registered as pairs in the tokens test (measured ≥ 4.81:1 in all six themes).

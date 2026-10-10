@@ -135,3 +135,36 @@ export function landSensitiveWarning(name: string, paths: readonly string[]): { 
 - [ ] **Step 1:** CDP script (pattern: `diff-comments-check.ts`): scratch session; in its worktree (found via `session.list`) write `.env.production`, change `package.json`, add `.github/workflows/ci.yml`, `git add` and `git commit` them there; open the row menu → **Changes**; assert the three badges (text), the summary `3 sensitive files: …`, then press **Land** and assert the dialog title and that the body names `.env.production` and the workflow but not `package.json`; cancel; assert the session is still listed (not landed).
 - [ ] **Step 2:** gates, one at a time and nothing else running: `bun run typecheck`; `bun test --max-concurrency=1` (outside the sandbox); `cd apps/cockpit && bun test` (outside the sandbox); `bun run build` in the cockpit; the live script. Clean up Electron, daemons and scratch dirs (move to Trash).
 - [ ] **Step 3:** limitations file (from the spec's "Known limits" plus findings) and the digest line; commit the script and docs separately.
+
+---
+
+## Amendments from the adversarial review (these supersede conflicting task text above)
+
+Verdict GO-WITH-FIXES; the spec's "Amendments" section has the reasoning and the exact rule changes.
+
+**Review Focus, added:** a double-click on Land (the new `await` precedes `setLandBusy`); `src/secrets.ts`, `src/secret.service.ts`, `lib/credentials.ts`, `docs/credentials.md`, `credentials.example.json`,
+`secrets.example.yaml` (must NOT flag); `terraform.tfstate`, `.ssh/config`, `.kube/config`, `secrets/prod.json`, `.vscode/tasks.json`, `.devcontainer/devcontainer.json`, `setup.py`, `Dockerfile.md` (rows both ways); a path with
+an RLO/bidi character or a newline inside the dialog body.
+
+**Task 1.**
+- One order. Drop `SENSITIVE_KINDS`; export `SENSITIVE_ORDER = ['secret', 'automation', 'migration', 'dependency']` used by matching *and* `summarizeSensitive`.
+- Rules per the spec amendments. Implementation notes: split the lowercased path into `parts`; `base = parts.at(-1)`, `dirs = parts.slice(0, -1)`; `dotParts = base.split('.')`; `placeholder = dotParts.some((p) => ['example','sample','template'].includes(p))`;
+  `DATA_EXT = /\.(json|ya?ml|toml|env|ini|conf|cfg|properties|txt|xml)$/`; stems `secret|secrets|credentials` count when `DATA_EXT.test(base) && !placeholder && dotParts[0] ∈ stems`; a bare `credentials` counts; a file under a `secrets` dir counts
+  when `DATA_EXT.test(base) && !placeholder`; `.ssh` anywhere in `dirs` counts; `.kube`+`config`, `.docker`+`config.json`; `*.tfstate`, `*.tfstate.backup`, `kubeconfig`.
+- Tests: every new row of the spec amendments in both directions, the Review Focus rows above, `Dockerfile.md` → null while `Dockerfile` and `Dockerfile.dev` → automation, one ordering test for `summarizeSensitive` (`1 secret · 1 automation · 1 dependency`).
+
+**Task 2.**
+- `SensitiveBadge` renders the label, the hover `title`, and `<span class="cockpit-sr-only"> — reason</span>`; add `.cockpit-sr-only` (visually hidden, still read) to `app.css`.
+- `landSensitiveWarning` sanitises each path (`\r \n \t`, C0/C1, U+202A–202E, U+2066–2069 → a space) and a test pins an RLO path and a newline path. Add `combineWarnings(a?, b?)` in `rail.ts`:
+  both → `{ title: 'Land <name> anyway?', body: a.body + '\n\n' + b.body, confirmLabel: 'Land anyway' }` (the name passed in), one → that one, none → `undefined`; with tests.
+- Gate for the task: `cd apps/cockpit && bun run build` (the cockpit typechecks only there; root `typecheck` does not cover it) plus the tests.
+
+**Task 3.** CSS adds `.cockpit-confirm__body { overflow-wrap: anywhere }`. Register the four pairs (`--cw-blocked`, `--cw-needs-you`, `--cw-accent`, `--cw-text-dim` on `--cw-surface-badge`) in the tokens test, definitely (not "if it enumerates").
+Placement: Checkpoints → summary after the shown diff's `<h3>`; Compare → badge between the path and the `both` pill, summary once per side.
+
+**Task 4.** Wrap the existing function: rename the body to `landInner`, and `handleLand` becomes `if (landingRef.current) return; landingRef.current = true; try { await landInner(targetId) } finally { landingRef.current = false }` with a `useRef(false)`.
+In `landInner`: guard `target.branch != null`; `const files = await api.sessionDiff(target.id).then((d) => d.files.map((f) => f.path)).catch(() => [] as string[])`;
+`const warning = combineWarnings(landSensitiveWarning(...), landCheckWarning(...))` (one dialog); keep the rest of the function unchanged.
+
+**Task 5.** The live script runs **outside the sandbox** (the sandbox denies reading `.env*`, `*.pem` and the like, so `git add` of the fixture would fail) and is written with the editor tool; it waits for the Changes pane's Land button to be enabled before pressing it. The limitations file adds: the 64 MB
+`git diff` buffer makes the question skip; the whole patch is fetched per Land; the time-of-check gap; a new dependency / script change in `package.json` does not ask; agent-instruction files (`CLAUDE.md`, `AGENTS.md`) are not flagged.
