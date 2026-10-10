@@ -1,5 +1,6 @@
 import type { ListedSession } from './sessions'
 import type { AttentionKind } from './attention'
+import { LAND_ASKS, SENSITIVE_LABEL, sensitiveKind } from '../../../../src/core/sensitive-files.js'
 
 /**
  * What a rail row shows, decided here so the rules are tested rather than buried in
@@ -120,6 +121,38 @@ export function landCheckWarning(name: string, check: ListedSession['check']): {
     return { title: `Land ${name} while its tests run?`, body: `The tests in ${name} have not finished, so nothing says yet whether this work is fit to land.`, confirmLabel: 'Land anyway' }
   }
   return undefined
+}
+
+export type LandWarning = { title: string; body: string; confirmLabel: string }
+
+/** A path is repository content: in a dialog it must stay one plain line (no newline, tab, control or bidi character). */
+const plainPath = (path: string): string => path.replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, ' ')
+
+/**
+ * A word before landing a session whose committed work touches a file that looks like a secret or that runs commands (CI,
+ * hooks, containers, the repository config). Judged by NAME only — lockfiles and migrations get a badge but no question: they
+ * change on almost every land, and a question that is always asked teaches people to click through the one that matters.
+ */
+export function landSensitiveWarning(name: string, paths: readonly string[]): LandWarning | undefined {
+  const asking = paths.flatMap((path) => {
+    const kind = sensitiveKind(path)
+    return kind !== null && LAND_ASKS.has(kind) ? [{ path, kind }] : []
+  })
+  if (asking.length === 0) return undefined
+  const shown = asking.slice(0, 8).map((f) => `${plainPath(f.path)} — ${SENSITIVE_LABEL[f.kind]}`)
+  const more = asking.length > 8 ? [`and ${asking.length - 8} more`] : []
+  return {
+    title: `Land ${name} with sensitive files?`,
+    body: ['These look like secrets or files that run commands (judged by name only, the content was not read):', ...shown, ...more].join('\n'),
+    confirmLabel: 'Land anyway',
+  }
+}
+
+/** Two questions before one land are one dialog: a person asked twice in a row answers the second without reading it. */
+export function combineWarnings(name: string, a: LandWarning | undefined, b: LandWarning | undefined): LandWarning | undefined {
+  if (a === undefined) return b
+  if (b === undefined) return a
+  return { title: `Land ${name} anyway?`, body: `${a.body}\n\n${b.body}`, confirmLabel: 'Land anyway' }
 }
 
 /** The land chip: only the two verdicts worth acting on from the rail. */
