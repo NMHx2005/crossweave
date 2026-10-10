@@ -588,7 +588,7 @@ export function SettingsPage({ initialSection, initialRow, initial, availability
       </SettingsGroup>
     ),
     checks: (
-      <SettingsGroup note="The project's test command (converge.testCommand, trusted with cw config trust) can run on its own. It executes the code the agent has just written, outside the agent's sandbox, so it is off until you turn it on — and the switch applies to every project whose command you have trusted.">
+      <SettingsGroup note="Off by default: a test suite can take minutes of CPU after every agent turn.">
         <SettingRow id="checks-auto-run">
           <Switch label="Run checks when an agent finishes a turn" checked={draft.checks?.autoRun === true}
             onChange={(on) => setDraft((d) => ({ ...d, checks: on ? { autoRun: true } : undefined }))} />
