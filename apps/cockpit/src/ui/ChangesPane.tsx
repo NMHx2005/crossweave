@@ -4,6 +4,7 @@ import type { SessionDiff } from '../lib/patch'
 import type { SendTarget } from '../lib/prompt-send'
 import { plainErrorMessage } from '../lib/cockpit-host'
 import { CommentableDiff } from './CommentableDiff'
+import { SensitiveBadge, SensitiveSummary } from './SensitiveBadge'
 
 type ChangesPaneProps = {
   sessionName: string
@@ -105,6 +106,7 @@ export function ChangesPane({ sessionName, verdict, revision, loadDiff, onLand, 
               ? ` · ${diff.uncommitted} uncommitted file${diff.uncommitted === 1 ? '' : 's'} in the worktree (landing takes commits only)`
               : ''}
           </p>
+          <SensitiveSummary paths={diff.files.map((f) => f.path)} />
           {diff.files.length > 0 ? (
             <ul class="cockpit-changes__files">
               {diff.files.map((f) => (
@@ -112,6 +114,7 @@ export function ChangesPane({ sessionName, verdict, revision, loadDiff, onLand, 
                   <button type="button" onClick={() => sectionRefs.current[f.path]?.scrollIntoView({ block: 'start' })}>
                     <span class={`cockpit-changes__mark is-${f.status}`}>{STATUS_MARK[f.status]}</span>
                     <span class="cockpit-changes__path">{f.path}</span>
+                    <SensitiveBadge path={f.path} />
                     <span class="cockpit-changes__count">+{f.added} −{f.deleted}</span>
                   </button>
                 </li>

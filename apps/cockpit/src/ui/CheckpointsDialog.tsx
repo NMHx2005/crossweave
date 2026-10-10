@@ -5,6 +5,7 @@ import type { SendTarget } from '../lib/prompt-send'
 import { plainErrorMessage } from '../lib/cockpit-host'
 import { relativeTime } from '../lib/rail'
 import { CommentableDiff } from './CommentableDiff'
+import { SensitiveBadge, SensitiveSummary } from './SensitiveBadge'
 import type { ConfirmRequest } from './ConfirmDialog'
 
 const STATUS_MARK = { added: 'A', modified: 'M', deleted: 'D' } as const
@@ -118,11 +119,13 @@ export function CheckpointsDialog({ sessionName, target, send, working, revision
         {shown !== undefined && 'diff' in shown ? (
           <div class="cockpit-changes__patch">
             <h3 class="cockpit-changes__file">{`${shown.title} · ${shown.diff.files.length} file${shown.diff.files.length === 1 ? '' : 's'}`}</h3>
+            <SensitiveSummary paths={shown.diff.files.map((f) => f.path)} />
             <ul class="cockpit-changes__files">
               {shown.diff.files.map((f) => (
                 <li key={f.path}>
                   <span class={`cockpit-changes__mark is-${f.status}`}>{STATUS_MARK[f.status]}</span>
                   <span class="cockpit-changes__path">{f.path}</span>
+                  <SensitiveBadge path={f.path} />
                   <span class="cockpit-changes__count">{`+${f.added} −${f.deleted}`}</span>
                 </li>
               ))}

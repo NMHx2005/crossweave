@@ -3621,3 +3621,31 @@ body,
 .cockpit-review-bar__outdated { list-style: none; margin: var(--cw-space-2) 0 0; padding: 0; }
 .cockpit-review-bar__outdated li { display: flex; align-items: baseline; gap: var(--cw-space-3); padding: var(--cw-space-1) 0; }
 .cockpit-review-bar__outdated li span:nth-child(2) { flex: 1; min-width: 0; white-space: pre-wrap; word-break: break-word; }
+
+/* Sensitive-file badges (a word beside the path, judged by name only) and the text a screen reader gets with them. */
+.cockpit-sensitive {
+  position: relative;
+  flex: none;
+  padding: 0 var(--cw-space-2);
+  border-radius: var(--cw-radius-sm);
+  background: var(--cw-surface-badge);
+  font-size: var(--cw-fs-sm);
+  line-height: 1.5;
+}
+.cockpit-sensitive.is-secret { color: var(--cw-blocked); }
+.cockpit-sensitive.is-automation { color: var(--cw-needs-you); }
+.cockpit-sensitive.is-migration { color: var(--cw-accent); }
+.cockpit-sensitive.is-dependency { color: var(--cw-text-dim); }
+.cockpit-sr-only {
+  position: absolute;
+  width: var(--cw-hairline);
+  height: var(--cw-hairline);
+  margin: calc(var(--cw-hairline) * -1);
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+/* A path in a confirmation has no spaces to wrap at. */
+.cockpit-confirm__body { overflow-wrap: anywhere; }

@@ -178,6 +178,12 @@ function legibility(T: Record<string, string>): void {
       expect(contrast(T['--cw-surface'], bg)).toBeGreaterThanOrEqual(AA_NORMAL)
     }
   })
+  test('sensitive-file badges: each kind\'s hue as text on the badge surface', () => {
+    for (const token of ['--cw-blocked', '--cw-needs-you', '--cw-accent', '--cw-text-dim'] as const) {
+      expect(contrast(T[token], T['--cw-surface-badge'])).toBeGreaterThanOrEqual(AA_NORMAL)
+    }
+  })
+
   test('a clashing shortcut and a hovered danger item stay readable', () => {
     expect(contrast(T['--cw-blocked'], T['--cw-surface-hover'])).toBeGreaterThanOrEqual(AA_NORMAL)
     expect(contrast(T['--cw-blocked'], T['--cw-surface-active'])).toBeGreaterThanOrEqual(AA_NORMAL)

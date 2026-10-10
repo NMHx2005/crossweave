@@ -5,6 +5,7 @@ import { checkChip } from '../lib/rail'
 import { patchSections, type SessionDiff } from '../lib/patch'
 import { plainErrorMessage } from '../lib/cockpit-host'
 import type { ListedSession } from '../lib/sessions'
+import { SensitiveBadge, SensitiveSummary } from './SensitiveBadge'
 
 type CompareViewProps = {
   /** Sessions with a branch of their own: the only ones with something to compare or land. */
@@ -92,6 +93,7 @@ export function CompareView({ sessions, leftId, rightId, revision, loadDiff, ver
               {data.uncommitted > 0 ? ` · ${data.uncommitted} uncommitted (landing takes commits only)` : ''}
               {data.truncated ? ' · diff cut at the size limit' : ''}
             </p>
+            <SensitiveSummary paths={data.files.map((f: CompareRow) => f.path)} />
             <ul class="cockpit-changes__files">
               {data.files.map((f: CompareRow) => (
                 <li key={f.path}>
@@ -99,6 +101,7 @@ export function CompareView({ sessions, leftId, rightId, revision, loadDiff, ver
                     onClick={() => setOpen(open?.side === side && open.path === f.path ? null : { side, path: f.path })}>
                     <span class={`cockpit-changes__mark is-${f.status}`}>{STATUS_MARK[f.status]}</span>
                     <span class="cockpit-changes__path">{f.path}</span>
+                    <SensitiveBadge path={f.path} />
                     {f.both ? <span class="cockpit-compare__both" title={f.same ? 'Both sessions made exactly this change' : 'Both sessions changed this file: they will meet here'}>{f.same ? 'both · same' : 'both'}</span> : null}
                     <span class="cockpit-changes__count">+{f.added} −{f.deleted}</span>
                   </button>
