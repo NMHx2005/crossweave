@@ -82,6 +82,7 @@ import { runPaneRequest, type PaneEnv } from '../lib/pane-bridge'
 import { CompareView } from './CompareView'
 import { CheckpointsDialog } from './CheckpointsDialog'
 import { PromptComposer } from './PromptComposer'
+import type { SendTarget } from '../lib/prompt-send'
 import { planPreset, presetUrl } from '../lib/presets'
 import { createLoadGate } from '../lib/load-gate'
 import { suggestSessionName } from '../lib/quick-picker'
@@ -164,6 +165,12 @@ export type ViewHost = {
  * the user comes back. Every call goes to this project's daemon (projectApi), whatever
  * project the window has on the stage.
  */
+/** What a paste into this session's shell needs to know: who it is, whether its shell is open, whether an agent runs in it. */
+function sendTargetOf(session: ListedSession | null): SendTarget {
+  if (session === null) return { id: '', name: '', running: false, agent: null }
+  return { id: session.id, name: session.name, running: session.status === 'running' || session.status === 'waiting', agent: session.agent ?? null }
+}
+
 export function ProjectView({ projectRoot, visible, host }: { projectRoot: string; visible: boolean; host: ViewHost }) {
   const api = useMemo(() => projectApi(projectRoot), [projectRoot])
   const hostRef = useRef(host)
@@ -1122,6 +1129,9 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
                   onLand={() => void handleLand(session.id)}
                   landBusy={landBusy}
                   shared={session.branch === null || session.worktreePath === projectRoot}
+                  target={sendTargetOf(session)}
+                  send={(id, data) => api.sendInput(id, data)}
+                  onToast={(message, tone) => hostRef.current.toast(message, tone)}
                 />
               )
             }
@@ -1184,7 +1194,7 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
               // The DESTINATION (Send-to-session's preselect) stays in the list even
               // when dead: the preview then says why it cannot receive the prompt.
               .filter((s) => (s.status !== 'landed' && s.status !== 'dead') || s.id === (composerPreselect ?? focusedId))
-              .map((s) => ({ id: s.id, name: s.name, running: s.status === 'running' || s.status === 'waiting', agent: s.agent ?? null }))}
+              .map(sendTargetOf)}
             focusedId={composerPreselect ?? focusedId}
             refineConfigured={refineConfigured}
             draft={composerDraft}
@@ -1212,6 +1222,8 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
         {visible && checkpointsFor !== null && sessionById(checkpointsFor) !== null ? (
           <CheckpointsDialog
             sessionName={sessionById(checkpointsFor)?.name ?? ''}
+            target={sendTargetOf(sessionById(checkpointsFor))}
+            send={(id, data) => api.sendInput(id, data)}
             working={sessionById(checkpointsFor)?.activity === 'working'}
             revision={sessionsRevision}
             load={() => api.checkpoints(checkpointsFor)}

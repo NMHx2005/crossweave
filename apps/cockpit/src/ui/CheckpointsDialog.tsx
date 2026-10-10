@@ -1,9 +1,10 @@
 /** @jsxImportSource preact */
-import { useEffect, useMemo, useState } from 'preact/hooks'
+import { useEffect, useState } from 'preact/hooks'
 import { describeRestore, type Checkpoint, type CheckpointDiff, type RestorePlan } from '../lib/checkpoints'
-import { patchSections } from '../lib/patch'
+import type { SendTarget } from '../lib/prompt-send'
 import { plainErrorMessage } from '../lib/cockpit-host'
 import { relativeTime } from '../lib/rail'
+import { CommentableDiff } from './CommentableDiff'
 import type { ConfirmRequest } from './ConfirmDialog'
 
 const STATUS_MARK = { added: 'A', modified: 'M', deleted: 'D' } as const
@@ -47,8 +48,11 @@ export function CheckpointList({ rows, now, onTurn, onSince, onRestore }: {
 
 type Shown = { title: string; diff: CheckpointDiff } | { error: string } | undefined
 
-export function CheckpointsDialog({ sessionName, working, revision, load, take, loadDiff, preview, restore, askConfirm, onToast, onClose }: {
+export function CheckpointsDialog({ sessionName, target, send, working, revision, load, take, loadDiff, preview, restore, askConfirm, onToast, onClose }: {
   sessionName: string
+  /** Where "Send comments" goes: this session's shell. */
+  target: SendTarget
+  send: (id: string, data: string) => Promise<unknown>
   /** The session looks busy (inferred): the confirmation says so, and the restore is sent forced. */
   working: boolean
   /** Changes whenever the session list does, so the rows refresh after a turn ends. */
@@ -100,8 +104,6 @@ export function CheckpointsDialog({ sessionName, working, revision, load, take, 
     } catch (err) { onToast(plainErrorMessage(err), 'error') } finally { setBusy(false) }
   }
 
-  const sections = useMemo(() => (shown !== undefined && 'diff' in shown ? patchSections(shown.diff.patch) : []), [shown])
-
   return (
     <div class="cockpit-picker__backdrop" onClick={onClose}>
       <div class="cockpit-picker cockpit-checkpoints" role="dialog" aria-label={`Checkpoints for ${sessionName}`}
@@ -125,13 +127,8 @@ export function CheckpointsDialog({ sessionName, working, revision, load, take, 
                 </li>
               ))}
             </ul>
-            {sections.map((section) => (
-              <div key={section.path}>
-                <h3 class="cockpit-changes__file">{section.path}</h3>
-                {section.lines.map((line, i) => <div key={i} class={`cockpit-diff-line is-${line.kind}`}>{line.text}</div>)}
-              </div>
-            ))}
-            {shown.diff.truncated ? <p class="cockpit-muted cockpit-changes__note">The diff is longer than shown — `cw checkpoint diff` prints the rest.</p> : null}
+            <CommentableDiff key={shown.title} patch={shown.diff.patch} source={`checkpoint ${shown.title}`} target={target} send={send} onToast={onToast}
+              truncatedNote={shown.diff.truncated ? 'The diff is longer than shown — `cw checkpoint diff` prints the rest.' : undefined} />
           </div>
         ) : null}
         <div class="cockpit-picker__actions">

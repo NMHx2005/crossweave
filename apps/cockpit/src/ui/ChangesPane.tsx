@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
+import { useEffect, useRef, useState } from 'preact/hooks'
 import type { LandVerdict } from '../lib/land-actions'
-import { patchSections, type SessionDiff } from '../lib/patch'
+import type { SessionDiff } from '../lib/patch'
+import type { SendTarget } from '../lib/prompt-send'
 import { plainErrorMessage } from '../lib/cockpit-host'
+import { CommentableDiff } from './CommentableDiff'
 
 type ChangesPaneProps = {
   sessionName: string
@@ -16,6 +18,10 @@ type ChangesPaneProps = {
    * nothing to compare or land. Said plainly instead of the daemon's refusal.
    */
   shared?: boolean
+  /** Where "Send comments" goes: this session's shell. */
+  target: SendTarget
+  send: (id: string, data: string) => Promise<unknown>
+  onToast: (message: string, tone: 'info' | 'error') => void
 }
 
 const VERDICT_TEXT: Record<LandVerdict['kind'], string> = {
@@ -33,7 +39,7 @@ const STATUS_MARK = { added: 'A', modified: 'M', deleted: 'D' } as const
  * conflicts with, and the diff that landing would bring in. The review pointed out
  * that the cockpit asked for a land while showing none of this.
  */
-export function ChangesPane({ sessionName, verdict, revision, loadDiff, onLand, landBusy, shared = false }: ChangesPaneProps) {
+export function ChangesPane({ sessionName, verdict, revision, loadDiff, onLand, landBusy, shared = false, target, send, onToast }: ChangesPaneProps) {
   const [diff, setDiff] = useState<SessionDiff | null>(null)
   const [error, setError] = useState<string | null>(null)
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({})
@@ -53,7 +59,6 @@ export function ChangesPane({ sessionName, verdict, revision, loadDiff, onLand, 
     return () => { cancelled = true }
   }, [revision, sessionName, shared])
 
-  const sections = useMemo(() => (diff ? patchSections(diff.patch) : []), [diff])
   const totals = diff?.files.reduce((t, f) => ({ added: t.added + f.added, deleted: t.deleted + f.deleted }), { added: 0, deleted: 0 })
   const canLand = verdict.kind === 'ready' || verdict.kind === 'unknown'
 
@@ -113,19 +118,9 @@ export function ChangesPane({ sessionName, verdict, revision, loadDiff, onLand, 
               ))}
             </ul>
           ) : null}
-          <div class="cockpit-changes__patch">
-            {sections.map((section) => (
-              <section key={section.path} ref={(el) => { sectionRefs.current[section.path] = el }}>
-                <h3 class="cockpit-changes__file">{section.path}</h3>
-                <pre>
-                  {section.lines.map((line, i) => (
-                    <div key={i} class={`cockpit-diff-line is-${line.kind}`}>{line.text}</div>
-                  ))}
-                </pre>
-              </section>
-            ))}
-            {diff.truncated ? <p class="cockpit-muted cockpit-changes__note">The diff is longer than shown — see the rest with `git diff` in a shell.</p> : null}
-          </div>
+          <CommentableDiff patch={diff.patch} source="the committed changes" target={target} send={send} onToast={onToast}
+            truncatedNote={diff.truncated ? 'The diff is longer than shown — see the rest with `git diff` in a shell.' : undefined}
+            sectionRef={(path, el) => { sectionRefs.current[path] = el }} />
         </>
       ) : null}
     </div>
