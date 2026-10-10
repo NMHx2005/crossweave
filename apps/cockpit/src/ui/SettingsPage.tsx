@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type { ComponentChildren } from 'preact'
 import { formatEnvLines, launcherIdFor, parseEnvLines } from '../lib/launchers'
-import { AgentMark, AppearanceIcon, BackIcon, BellIcon, CheckIcon, CodeIcon, DashboardIcon, KeyboardIcon, LauncherIcon, PenIcon, PresetsIcon, TerminalIcon, UsageIcon } from './icons'
+import { AgentMark, BackIcon } from './icons'
+import { SECTION_ICONS } from './section-icons'
 import { Banner, Segmented, SettingRow, SettingsGroup, Switch } from './SettingsKit'
 import { SettingsDashboard } from './SettingsDashboard'
 import type { ChecksSettings, InterfaceAppearance, ModelPrice, PersistenceSettings, TerminalAppearance, UsageSettings, PromptSettings, SessionPreset } from '../../../../src/core/settings.js'
@@ -76,10 +77,6 @@ const CURSORS: Array<{ id: NonNullable<TerminalAppearance['cursorStyle']>; label
   { id: 'underline', label: 'Underline' },
 ]
 
-export const SECTION_ICONS: Record<string, (p: { class?: string; title?: string }) => preact.JSX.Element> = {
-  dashboard: DashboardIcon, appearance: AppearanceIcon, notifications: BellIcon, launchers: LauncherIcon, presets: PresetsIcon,
-  prompt: PenIcon, checks: CheckIcon, editor: CodeIcon, terminal: TerminalIcon, keyboard: KeyboardIcon, usage: UsageIcon,
-}
 
 /** Which news banners the person dismissed: kept in this browser's storage, and the page works without it. */
 /**

@@ -1,7 +1,7 @@
 /** @jsxImportSource preact */
 import { describe, expect, test } from 'bun:test'
 import { SETTINGS_GROUPS, SETTINGS_SECTIONS, findSection, searchSettings } from '../src/lib/settings-sections'
-import { SECTION_ICONS } from '../src/ui/SettingsPage'
+import { SECTION_ICONS } from '../src/ui/section-icons'
 
 describe('the Checks setting', () => {
   test('is a section of the Sessions group, with its one row', () => {
@@ -16,7 +16,6 @@ describe('the Checks setting', () => {
     }
   })
 
-  // The page looks icons up by section id in a plain record: a missing entry compiles and renders a blank nav button.
   test('every section of the page has an icon', () => {
     expect(SETTINGS_SECTIONS.filter((s) => SECTION_ICONS[s.id] === undefined).map((s) => s.id)).toEqual([])
   })
