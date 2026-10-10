@@ -27,6 +27,10 @@ describe('anchorOf', () => {
     expect(q.length).toBe(MAX_QUOTE_CHARS)
     expect(q.endsWith('…')).toBe(true)
   })
+  test('invisible tag characters, zero-width characters and a BOM cannot hide text in a quote', () => {
+    const q = anchorOf('a.ts', add(1, `ok${String.fromCodePoint(0xe0049, 0xe0067)}\u200b\ufeffend`))!.quote
+    expect(q).toBe('ok⁇⁇⁇⁇end')
+  })
   test('characters that could rewrite what the person reads become visible marks', () => {
     const q = anchorOf('a.ts', add(1, 'a\rb\u2028c\u202ed'))!.quote
     expect(q).not.toMatch(/[\r\u2028\u202e]/)

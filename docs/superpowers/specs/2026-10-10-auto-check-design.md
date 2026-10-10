@@ -146,6 +146,11 @@ a daemon older than the cockpit ignores the setting until restarted; plain shell
 The review (Opus, read-only, ran hostile strings through the proposed cleaner) found no blocker and five major defects; all are adopted.
 
 **A′. Deciding when to run — an owed run, not a one-shot.**
+- **Correction found while building (supersedes the next two bullets' use of `idle`/`asked`).** The status inference reports a turn that simply
+  finished as `asked` too (`session-status.ts`: "its turn ended without asking: finished, waiting for your next message — `asked` without `rang`"),
+  so the activity cannot tell a finished turn from a question. The signal is `rang` (a permission prompt on screen, a bell): `turnEnded(sessionId, tree,
+  asking)` carries `asking = status.rang`, read through a new `isAsking` dep. A turn that ended with `asking` only owes a run; one that ended
+  without it pays it. Whenever the text below says "ended in `idle`" read "ended without asking", and "an `asked` end" read "an asking end".
 - `turnEnded(sessionId, tree, to)` also carries the status the session moved to (`idle` or `asked`). `tree` is `'changed' | 'unchanged' | 'unknown'`.
   A session with no worktree of its own (`contextFor` → null: the shared project folder, a plain folder) is **never reported**: there is no
   change detection there, so every chat-only turn would run the suite in the person's own folder. A failed take (`unknown`, e.g. the 50 MB

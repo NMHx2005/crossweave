@@ -1,6 +1,6 @@
-import { plainErrorMessage } from './cockpit-host'
 import type { PatchLine, PatchSection } from './patch'
-import { planSend, type SendTarget } from './prompt-send'
+import { deliverText, type Delivery } from './paste-delivery'
+import type { SendTarget } from './prompt-send'
 
 /** `new` is a line of the file after the change (added or context), `old` a deleted line of the file before it. */
 export type Side = 'old' | 'new'
@@ -24,10 +24,10 @@ const cut = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 
 /**
  * A quote is diff content, which an agent or a repository wrote. `cleanPromptText` turns a bare CR into a newline, which
  * would let a quote forge a numbered item of its own, and bidi controls can reorder what the person reads before pressing
- * Enter: show them as visible marks instead.
+ * Enter, and invisible tag characters can hide a whole message: show them as visible marks instead.
  */
 function displaySafe(s: string): string {
-  return s.replace(/\r/g, '␍').replace(/[\u2028\u2029]/g, '␤').replace(/[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '⁇')
+  return s.replace(/\r/g, '␍').replace(/[\u2028\u2029]/g, '␤').replace(/[\u{E0000}-\u{E007F}\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/gu, '⁇')
 }
 
 /** Leading blank lines and trailing space go; the first real line keeps its indent (it may be code). */
@@ -98,29 +98,23 @@ export function formatReview(source: string, comments: readonly ReviewComment[],
   return `Review comments on ${source} (${comments.length}):\n\n${items.join('\n')}`
 }
 
-export type Delivery = { ok: boolean; message: string }
+export type { Delivery }
 
-/**
- * Pastes the review into the session's shell WITHOUT Enter: `planSend` decides first (an agent gets one bracketed paste, a
- * plain shell is refused because each line would run, a closed shell is refused) and cleans every control character.
- */
-export async function deliverReview(o: {
+/** Pastes the review into the session's shell WITHOUT Enter (see `deliverText`). */
+export function deliverReview(o: {
   source: string
   comments: readonly ReviewComment[]
   outdated?: ReadonlySet<number>
   target: SendTarget
   send: (id: string, data: string) => Promise<unknown>
 }): Promise<Delivery> {
-  const plan = planSend(formatReview(o.source, o.comments, o.outdated), [o.target], { enter: false })
-  const item = plan.items[0]
-  if (item === undefined || item.how === 'refused') return { ok: false, message: `Not sent to ${o.target.name}: ${item?.reason ?? 'there is nothing to send'}` }
-  try {
-    await o.send(item.id, item.data)
-  } catch (err) {
-    return { ok: false, message: plainErrorMessage(err) }
-  }
   const n = o.comments.length
-  return { ok: true, message: `Pasted ${n} comment${n === 1 ? '' : 's'} into ${o.target.name}'s shell — press Enter there to send ${n === 1 ? 'it' : 'them'}` }
+  return deliverText({
+    text: formatReview(o.source, o.comments, o.outdated),
+    target: o.target,
+    send: o.send,
+    done: `Pasted ${n} comment${n === 1 ? '' : 's'} into ${o.target.name}'s shell — press Enter there to send ${n === 1 ? 'it' : 'them'}`,
+  })
 }
 
 /** What the review becomes once delivery is known: cleared when it arrived, kept (to retry or fix) when it did not. */
