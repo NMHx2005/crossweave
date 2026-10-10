@@ -13,6 +13,7 @@ export type ReviewAction =
   | { type: 'edit'; id: number; text: string }
   | { type: 'delete'; id: number }
   | { type: 'clear' }
+  | { type: 'delivered'; delivery: Delivery }
 
 export const MAX_COMMENT_CHARS = 2000
 export const MAX_QUOTE_CHARS = 200
@@ -57,6 +58,7 @@ export function reviewReducer(state: ReviewState, action: ReviewAction): ReviewS
     }
     case 'delete': return { ...state, comments: state.comments.filter((c) => c.id !== action.id) }
     case 'clear': return { ...state, comments: [] }
+    case 'delivered': return afterDelivery(state, action.delivery)
   }
 }
 

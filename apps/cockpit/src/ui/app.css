@@ -3565,3 +3565,59 @@ body,
   gap: var(--cw-space-3);
   padding: var(--cw-space-1) 0;
 }
+
+.cockpit-diff-row { display: flex; align-items: flex-start; }
+.cockpit-diff-row .cockpit-diff-line { flex: 1; min-width: 0; }
+.cockpit-diff-gutter, .cockpit-diff-add { flex: none; width: 2ch; margin-left: var(--cw-space-1); user-select: none; }
+.cockpit-diff-add {
+  appearance: none;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--cw-accent);
+  font: inherit;
+  cursor: pointer;
+  opacity: 0;
+}
+.cockpit-diff-row:hover .cockpit-diff-add, .cockpit-diff-add:focus-visible { opacity: 1; }
+
+.cockpit-diff-comment {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--cw-space-3);
+  margin: var(--cw-space-1) var(--cw-space-3) var(--cw-space-1) calc(2ch + var(--cw-space-3));
+  padding: var(--cw-space-2) var(--cw-space-3);
+  background: var(--cw-surface-badge);
+  border-left: calc(var(--cw-hairline) * 2) solid var(--cw-accent);
+  color: var(--cw-text-bright);
+  font-family: var(--cw-font-ui);
+  white-space: pre-wrap;
+}
+.cockpit-diff-comment__text { flex: 1; min-width: 0; word-break: break-word; }
+.cockpit-diff-comment__actions, .cockpit-diff-editor__actions { display: flex; gap: var(--cw-space-2); flex: none; }
+
+.cockpit-diff-editor { display: flex; flex: 1; gap: var(--cw-space-3); align-items: flex-start; }
+.cockpit-diff-editor__text {
+  flex: 1;
+  min-width: 0;
+  resize: vertical;
+  padding: var(--cw-space-2);
+  background: var(--cw-surface-badge);
+  color: var(--cw-text-bright);
+  border: var(--cw-hairline) solid var(--cw-border-strong);
+  font: inherit;
+}
+
+.cockpit-review-bar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: var(--cw-space-2) var(--cw-space-3);
+  background: var(--cw-surface-badge);
+  border-bottom: var(--cw-hairline) solid var(--cw-border-strong);
+  color: var(--cw-text-bright);
+}
+.cockpit-review-bar__main { display: flex; align-items: center; gap: var(--cw-space-3); }
+.cockpit-review-bar__outdated { list-style: none; margin: var(--cw-space-2) 0 0; padding: 0; }
+.cockpit-review-bar__outdated li { display: flex; align-items: baseline; gap: var(--cw-space-3); padding: var(--cw-space-1) 0; }
+.cockpit-review-bar__outdated li span:nth-child(2) { flex: 1; min-width: 0; white-space: pre-wrap; word-break: break-word; }

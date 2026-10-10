@@ -147,4 +147,8 @@ describe('afterDelivery', () => {
     expect(afterDelivery(s, { ok: true, message: '' }).comments).toEqual([])
     expect(afterDelivery(s, { ok: false, message: '' })).toBe(s)
   })
+  test('the reducer applies it as an action', () => {
+    expect(reviewReducer(s, { type: 'delivered', delivery: { ok: true, message: '' } }).comments).toEqual([])
+    expect(reviewReducer(s, { type: 'delivered', delivery: { ok: false, message: '' } })).toBe(s)
+  })
 })
