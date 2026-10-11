@@ -1,0 +1,303 @@
+import type { Content, Feature } from './types'
+
+const SPECS = 'docs/superpowers/specs/'
+const badge = (tag: string): string => `In the next release (${tag})`
+const more = 'Limitations and details'
+
+const features: Feature[] = [
+  {
+    id: 'sessions',
+    title: 'A session is a worktree plus your shell',
+    text: 'Each session gets its own branch, port block ($PORT), cache directory and optional database or Docker names. What runs in the shell — claude, codex, a dev server — is yours to type.',
+    qualifier: 'Leases are cooperative: a process that ignores them can still collide with another session.',
+    source: `${SPECS}2026-08-14-known-limitations-digest.md`,
+    linkLabel: more,
+    since: 'v0.3.0',
+    nextBadge: badge,
+  },
+  {
+    id: 'rail',
+    title: 'One rail, honest status',
+    text: 'Every session on one list says whether it is working, waiting for you, done or failed — inferred from the shell itself, with nothing to configure.',
+    qualifier: 'Inferred from screen words, output and the process tree: reliable for Claude Code, Codex and Gemini, approximate for others. cw hooks install makes the marks exact.',
+    source: `${SPECS}2026-09-27-deck-grade-ui-known-limitations.md`,
+    linkLabel: more,
+    since: 'v0.3.0',
+    nextBadge: badge,
+  },
+  {
+    id: 'checkpoints',
+    title: 'A checkpoint around every agent turn',
+    text: 'When a recognised agent starts and finishes a turn, crossweave records the worktree as a hidden git commit. See what a turn changed, or take the files back; a restore is a dry run first and saves a return point.',
+    qualifier: 'Needs a session with its own worktree and a recognised agent; turn boundaries are inferred; the newest 50 are kept.',
+    source: `${SPECS}2026-10-10-session-checkpoints-known-limitations.md`,
+    linkLabel: more,
+    since: 'v0.6.0',
+    nextBadge: badge,
+  },
+  {
+    id: 'comments',
+    title: 'Comment on the diff, paste into the shell',
+    text: "Click a line in the Changes pane or a checkpoint, write a note, and the notes are pasted into the session's shell as one block. Nothing presses Enter for you.",
+    qualifier: 'Comments live in memory only, and a plain shell with no agent is refused.',
+    source: `${SPECS}2026-10-10-diff-comments-known-limitations.md`,
+    linkLabel: more,
+    since: 'v0.6.0',
+    nextBadge: badge,
+  },
+  {
+    id: 'auto-check',
+    title: 'Tests after every turn, if you ask',
+    text: 'Opt in, and your trusted test command runs when an agent ends a turn that changed files. A failure can be sent to the shell with secrets redacted, and raises a desktop alert that never shows the output.',
+    qualifier: 'Off by default. It runs code the agent just wrote, outside any sandbox, for every project whose command you trusted; the alert comes from the open window, so only projects it has open raise it.',
+    source: `${SPECS}2026-10-10-auto-check-known-limitations.md`,
+    source2: `${SPECS}2026-10-11-settings-polish-check-alert-known-limitations.md`,
+    linkLabel: more,
+    since: 'v0.6.0',
+    nextBadge: badge,
+  },
+  {
+    id: 'sensitive',
+    title: 'A second look at risky files',
+    text: "Files named like secrets, CI and hook configs, migrations and dependency manifests carry a badge in Changes, Checkpoints and Compare, and the Cockpit's Land button asks first for secret-like and automation files.",
+    qualifier: 'Judged by file name only: it can miss a key pasted into an ordinary file and flag a harmless one. cw land and Land all ready do not ask.',
+    source: `${SPECS}2026-10-10-sensitive-files-known-limitations.md`,
+    linkLabel: more,
+    since: 'v0.6.0',
+    nextBadge: badge,
+  },
+  {
+    id: 'land',
+    title: 'Land what holds up',
+    text: 'Background trial merges tell you what is safe to merge and in what order, and cw land is gated on that evidence.',
+    qualifier: 'Evidence is valid only against the base commit it was trialled on, so after a land the others read unknown until they are re-trialled.',
+    source: `${SPECS}2026-08-14-known-limitations-digest.md`,
+    linkLabel: more,
+    since: 'v0.3.0',
+    nextBadge: badge,
+  },
+  {
+    id: 'compare',
+    title: 'Compare two sessions',
+    text: "Two sessions' committed changes side by side, shared files marked, each side's test verdict and its own Land button.",
+    qualifier: 'Committed work only, and two sessions touching the same file is not the same as a conflict.',
+    source: `${SPECS}2026-09-30-session-compare-known-limitations.md`,
+    linkLabel: more,
+    since: 'v0.4.0',
+    nextBadge: badge,
+  },
+  {
+    id: 'composer',
+    title: 'One prompt, several sessions',
+    text: 'Write a prompt once, optionally refine it with a program you name, and send it to one or several sessions with an exact preview. Enter is pressed only if you tick it.',
+    qualifier: 'Whether a session runs an agent is a guess; the draft is kept in memory only.',
+    source: `${SPECS}2026-09-30-prompt-composer-known-limitations.md`,
+    linkLabel: more,
+    since: 'v0.4.0',
+    nextBadge: badge,
+  },
+  {
+    id: 'debug',
+    title: 'Why it failed, in one place',
+    text: "A Debug pane gathers the failing test tail, the error lines, the browser panes' console errors and the diff, and drafts them for you to send; cw debug prints the same bundle to paste to an AI.",
+    qualifier: 'Error-line detection and secret scrubbing are heuristics, not guarantees.',
+    source: `${SPECS}2026-10-01-ai-debug-loop-known-limitations.md`,
+    linkLabel: more,
+    since: 'v0.6.0',
+    nextBadge: badge,
+  },
+  {
+    id: 'browser',
+    title: 'Let an agent use a browser pane, on your terms',
+    text: 'cw browser reads and drives a Browser pane behind a per-pane Off, Read or Control switch. It starts Off; control outside localhost, and running a script anywhere, asks you for each command.',
+    qualifier: 'Page text can carry hostile instructions and is marked untrusted; the switch is per pane and never remembered.',
+    source: `${SPECS}2026-09-30-cockpit-browser-agent-known-limitations.md`,
+    linkLabel: more,
+    since: 'v0.4.0',
+    nextBadge: badge,
+  },
+  {
+    id: 'presets',
+    title: 'One-click session recipes',
+    text: "A preset starts a session with its launcher, extra terminals that each run a command, and a Browser pane on the session's port.",
+    qualifier: 'The commands live in your own settings file, and nothing waits for the server to be ready.',
+    source: `${SPECS}2026-09-30-session-presets-known-limitations.md`,
+    linkLabel: more,
+    since: 'v0.4.0',
+    nextBadge: badge,
+  },
+]
+
+export const en: Content = {
+  lang: 'en',
+  htmlLang: 'en',
+  siteName: 'crossweave',
+  nav: {
+    skip: 'Skip to content',
+    download: 'Download',
+    docs: 'Docs',
+    changelog: 'Changelog',
+    github: 'GitHub',
+    switchTo: 'Tiếng Việt',
+    switchLabel: 'Switch to Vietnamese',
+  },
+  home: {
+    title: 'crossweave — run many coding agents on one repo',
+    description:
+      'Each session is a git worktree plus your shell. See who is working, asking or done, trial-merge in the background, and land the one that holds up. Free, MIT, macOS and Linux.',
+    hero: {
+      headline: 'Many agents. One repo. Land what holds up.',
+      subtitle:
+        'crossweave gives each coding agent its own git worktree and shell, shows you which one is working, asking or done, and trial-merges them in the background so you land the one that holds up.',
+      downloadCta: 'Download for macOS',
+      installCta: 'Install the CLI',
+      githubCta: 'View on GitHub',
+      installNote: 'macOS (arm64, x64) and Linux (x64). Installs cw and cwd to ~/.local/bin and, on Apple Silicon, the Cockpit app.',
+      shotAlt: 'crossweave Cockpit: a rail of sessions on the left — one working, one asking, one done — and two agent panes side by side',
+      versionLine: (v) => `Latest release ${v} · MIT licence · free`,
+    },
+    features: {
+      title: 'Your dev loop',
+      intro: 'Everything below ends in text typed into your own shell. crossweave hosts the shell; you run the agents.',
+      items: features,
+    },
+    agents: {
+      title: 'Works with the agents you already run',
+      text: 'A new session can start with a launcher — or just a shell.',
+      names: ['Claude Code', 'Codex', 'Gemini CLI', 'OpenCode', 'Cursor Agent', 'Copilot CLI', 'Aider', 'Amp', 'Qwen Code'],
+      note: 'Or your own wrapper (cx, a script, a dev server). crossweave never chooses, configures or launches an agent for you: the line is typed into the shell and you can edit it.',
+    },
+    not: {
+      title: 'What it deliberately does not do',
+      intro: 'Each of these was built or considered and left out on purpose.',
+      items: [
+        { title: 'No agent model', text: 'There is no picker that chooses an AI, no adapters and no launch flags. The last version with them is v0.3-radar.' },
+        {
+          title: 'No collision guard or sandbox',
+          text: 'Collision Radar, Safe Mode and the OS sandbox were removed. The only warning left is a file-level overlap signal, which advises and never blocks.',
+        },
+        {
+          title: 'No browser remote control',
+          text: 'The phone web page and cw gateway were removed (v0.4-remote-web). Remote control will come back as a native iOS app, designed from scratch.',
+        },
+        { title: 'No in-app dictation', text: 'Dictation is better served system-wide by a dedicated tool (last version with it: v0.5-voice-input).' },
+        {
+          title: 'No Windows',
+          text: "The daemon uses Bun's pty and unix sockets, so macOS and Linux only; the Cockpit is macOS on Apple Silicon.",
+        },
+      ],
+    },
+    compare: {
+      title: 'Why not just git worktree and tmux?',
+      caption: 'By hand versus crossweave',
+      headings: ['', 'By hand (git worktree + tmux)', 'crossweave'],
+      rows: [
+        ['One branch and checkout per agent', 'You create and remove each worktree.', 'cw session new makes the worktree and branch; cw gc reclaims what ended.'],
+        [
+          'Ports, caches, databases',
+          'Whatever you remember to set.',
+          'A port block, a cache directory and optional database or Docker names per session (cooperative, not enforced).',
+        ],
+        ['Who needs you', 'Flip through windows.', 'One rail: working, asking, done or failed.'],
+        ['What landing would bring in', 'git diff, branch by branch.', 'A per-session diff against where it left the base, plus background trial merges.'],
+        ['Which to merge first', 'Your judgement.', 'A recommended order from the trial merges.'],
+        ['A record of each agent turn', 'The reflog, if you committed.', 'A checkpoint per turn you can inspect and restore.'],
+        ['Choosing and running the agent', 'You.', 'Still you: crossweave never does either.'],
+      ],
+      foot: 'crossweave adds a daemon and an app to the workflow above; if you only ever run two agents, plain worktrees are fine.',
+    },
+    why: {
+      title: 'Why “crossweave”?',
+      text: 'Your agents run as parallel warp threads. crossweave is the weft: the cross-thread that binds them so the fabric holds together.',
+    },
+    faq: {
+      title: 'Questions',
+      items: [
+        {
+          q: 'What is crossweave?',
+          a: 'A local-first tool that runs many sessions on one repository and lands them back. A session is a git worktree plus a shell in it, like a tmux window with its own branch. A background daemon (cwd) does the bookkeeping; cw, a terminal dashboard and the Cockpit app talk to it.',
+        },
+        {
+          q: 'Is it an IDE or an editor?',
+          a: 'No. It has a lightweight file view and a diff, but it is not trying to replace your editor. Cmd+click opens files in the editor you choose.',
+        },
+        {
+          q: 'Which agents does it work with?',
+          a: 'Whatever you can run in a shell. There are launchers for Claude Code, Codex, Gemini CLI, OpenCode, Cursor Agent, Copilot CLI, Aider, Amp and Qwen Code, and you can add your own. Status marks are most reliable for Claude Code, Codex and Gemini.',
+        },
+        {
+          q: 'Does it choose or run the agent for me?',
+          a: 'No. A launcher only types a line into the shell for you to see and edit. crossweave does not pick, configure or supervise an agent.',
+        },
+        {
+          q: 'Where does my code go?',
+          a: "crossweave itself sends nothing anywhere and has no telemetry: a local daemon behind one unix socket. Its only network uses are the installer's download, cw update, and an optional update check against GitHub. The Refine command is a program you name, and the agents you run and the pages you open have their own network behaviour.",
+        },
+        {
+          q: 'Which platforms?',
+          a: 'The CLI, daemon and terminal dashboard run on macOS (Apple Silicon and Intel) and Linux (x64). The Cockpit app is macOS on Apple Silicon. Windows is not a target.',
+        },
+        { q: 'What does it cost, and what is the licence?', a: 'It is free and open source under the MIT licence.' },
+        {
+          q: 'Why is the app not notarized?',
+          a: 'Notarizing needs a paid Apple Developer account, which the author does not have yet. A browser download of the app will therefore trigger a macOS warning; the installer path and the manual steps on the Download page avoid or clear it.',
+        },
+        {
+          q: 'How do I update?',
+          a: 'Run cw update. cw also tells you, at most once a day, when a newer release exists; cw config update-check off turns that off.',
+        },
+        {
+          q: 'Does automatic testing run by itself?',
+          a: 'Only if you turn it on (Settings → Checks, off by default) and only for a test command you trusted with cw config trust. It runs code your agent just wrote, outside any sandbox.',
+        },
+        {
+          q: 'How do I uninstall it?',
+          a: "First land or keep any work you want. Quit the app, run cw daemon stop in each project, and remove sessions you no longer need with cw session rm or cw gc (that also drops their checkpoints). Then delete cw and cwd from ~/.local/bin, the app from ~/Applications, each project's .crossweave folder, and your settings in ~/.crossweave.",
+        },
+      ],
+    },
+    cta: {
+      title: 'Try it on a repository you can afford to experiment on',
+      text: 'Two worktrees, two shells, one rail. The quickstart takes five minutes.',
+    },
+  },
+  download: {
+    title: 'Download crossweave',
+    description: 'Download the crossweave Cockpit for macOS or install the CLI on macOS and Linux. Free, MIT.',
+    headline: 'Download crossweave',
+    intro: 'Latest release: the version below. Every file is checksummed; the installer verifies them for you.',
+    cockpit: {
+      title: 'Cockpit for macOS (Apple Silicon)',
+      text: 'The desktop app. The disk image is the usual drag-to-Applications install; the zip is the same app.',
+      dmg: 'Download .dmg',
+      zip: 'Download .zip',
+    },
+    cli: {
+      title: 'Install the CLI (and the app)',
+      text: 'One line installs cw and cwd, verifies their checksums and, on Apple Silicon, installs the Cockpit too. It uses no sudo and does not edit your shell profile.',
+      installLine: 'curl -fsSL https://raw.githubusercontent.com/NMHx2005/crossweave/main/install.sh | sh',
+      manual:
+        'Prefer to do it yourself? Download cw-<platform>, cwd-<platform> and checksums.txt from the release, check only those two files (grep -E " (cw|cwd)-<platform>$" checksums.txt | shasum -a 256 -c -, or sha256sum -c - on Linux), then chmod +x them and move them onto your PATH as cw and cwd.',
+      requires:
+        'The installer needs curl, a POSIX shell, awk, sha256sum or shasum, and unzip (for the app, which it installs only when the release carries it and the machine is Apple Silicon). crossweave itself needs git. The compiled binaries do not need Bun.',
+    },
+    notNotarized: {
+      title: 'Not notarized yet',
+      text: 'The app is signed with a development certificate but is not notarized by Apple. A disk image or zip downloaded in a browser is normally marked as downloaded from the internet, and macOS will refuse to open an unnotarized app with that mark. Files fetched with curl are normally not marked, and the installer uses curl.',
+      commandNote: 'If you dragged the app to Applications and macOS refuses it, clear the mark once:',
+      installerNote:
+        'The installer downloads and checksum-verifies cw and cwd into ~/.local/bin and, on Apple Silicon, unpacks the Cockpit into ~/Applications. It does not install the .dmg, clear any mark or use sudo.',
+    },
+    notarized: { title: 'Notarized by Apple', text: 'This build is notarized: open it like any other app.' },
+    checksums: 'checksums.txt',
+    older: 'All releases and checksums',
+  },
+  footer: {
+    tagline: 'Run many agents on one repo. Land what holds up.',
+    license: 'MIT licence',
+    issues: 'Issues',
+    version: (v) => `Release ${v}`,
+  },
+  docsNotice: 'The documentation and the changelog are in English.',
+  notFound: { title: 'Page not found', text: 'That page does not exist.', home: 'Back to the home page' },
+}
