@@ -119,3 +119,11 @@ describe('lintMarkdown', () => {
     }
   })
 })
+
+describe('heading ids against hand-made collisions', () => {
+  test('a heading literally called "Install 2" cannot take the second "Install"\'s id, and "Main" cannot take the shell\'s', () => {
+    const ids = renderMarkdown('## Install\n\n## Install\n\n## Install 2\n\n## Main').headings.map((h) => h.id)
+    expect(ids).toEqual(['install', 'install-2', 'install-2-2', 'main-2'])
+    expect(new Set(ids).size).toBe(ids.length)
+  })
+})

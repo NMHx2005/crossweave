@@ -1,3 +1,4 @@
+import { scanFences } from '../fences'
 import { lintMarkdown, renderMarkdown, slugify } from '../markdown'
 import { prepareReadmeMarkdown, sectionsOf, shiftHeadings } from '../readme'
 import { REPO_URL, escapeHtml, type Urls } from '../site'
@@ -38,10 +39,8 @@ export function parseCommands(help: string): Array<{ name: string; summary: stri
 
 /** The headings of the whole README, as GitHub anchors them, so a link to a section the site does not host can still go to the README. */
 function readmeSlugs(readme: string): Set<string> {
-  let fenced = false
   const slugs = new Set<string>()
-  for (const line of readme.split('\n')) {
-    if (/^\s*(```|~~~)/.test(line)) fenced = !fenced
+  for (const { line, fenced } of scanFences(readme)) {
     const m = fenced ? null : /^#{1,6}\s+(.*)$/.exec(line)
     if (m !== null) slugs.add(slugify((m[1] ?? '').replace(/[`*_]/g, '')))
   }

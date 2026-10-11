@@ -1,16 +1,9 @@
+import { scanFences as lines } from './fences'
+
 /**
  * Pieces of the README for the docs pages. A section runs from its `## ` heading to the next one; a `## ` inside a code fence is not a
  * heading. Asking for a section that is not there throws, so a renamed heading breaks the build instead of thinning the docs.
  */
-function lines(text: string): Array<{ line: string; fenced: boolean }> {
-  let fenced = false
-  return text.split('\n').map((line) => {
-    const fence = /^\s*(```|~~~)/.test(line)
-    if (fence) fenced = !fenced
-    return { line, fenced: fenced || fence }
-  })
-}
-
 export function sectionsOf(readme: string, wanted: readonly string[]): Record<string, string> {
   const rows = lines(readme)
   const out: Record<string, string> = {}

@@ -1,3 +1,4 @@
+import { scanFences } from './fences'
 import { escapeHtml } from './site'
 import { html as asHtml, type Html } from './types'
 
@@ -58,14 +59,17 @@ const align = (meta?: Record<string, unknown>): string => {
 
 export function renderMarkdown(source: string, options: RenderOptions = {}): Rendered {
   const headings: Rendered['headings'] = []
-  const used = new Map<string, number>()
+  // `main` is the id of the page shell's <main>: a heading called "Main" must not take it.
+  const taken = new Set<string>(['main'])
   let droppedHtml = 0
 
+  // Every id handed out is remembered, so a heading that is literally "Install 2" cannot collide with the second "Install".
   const uniqueId = (text: string): string => {
-    const base = slugify(text)
-    const n = (used.get(base) ?? 0) + 1
-    used.set(base, n)
-    return `${options.idPrefix ?? ''}${n === 1 ? base : `${base}-${n}`}`
+    const base = `${options.idPrefix ?? ''}${slugify(text)}`
+    let id = base
+    for (let n = 2; taken.has(id); n++) id = `${base}-${n}`
+    taken.add(id)
+    return id
   }
 
   const link = (children: string, meta?: Record<string, unknown>): string => {
@@ -132,12 +136,7 @@ export function renderMarkdown(source: string, options: RenderOptions = {}): Ren
  * A construct it does not know about degrades to its text; the golden tests over the real documents are what notice that.
  */
 export function lintMarkdown(source: string): void {
-  let fenced = false
-  source.split('\n').forEach((line, index) => {
-    if (/^\s*(```|~~~)/.test(line)) {
-      fenced = !fenced
-      return
-    }
+  scanFences(source).forEach(({ line, fenced }, index) => {
     if (fenced) return
     const where = `line ${index + 1}`
     if (/^\s*[-*+]\s+\[[ xX]\]\s/.test(line)) throw new Error(`markdown: task lists are not supported (${where})`)
