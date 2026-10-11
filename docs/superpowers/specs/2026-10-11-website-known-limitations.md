@@ -24,18 +24,31 @@ A static site in `website/`, built by one dependency-free Bun script (`bun websi
   `CNAME` and `robots.txt` only with `SITE_DOMAIN`.
 
 Safety and reproducibility: markdown goes through `Bun.markdown.render` with callbacks of our own (raw HTML dropped and counted, a link-scheme allow-list, images only from
-the site's own copies, text escaped exactly once); a content security policy meta tag first in every `<head>`, no script, no inline style or handler; release data from
+the site's own copies, text escaped exactly once); a content security policy meta tag first in every `<head>`, one external script (`reveal.js`) and no inline script, style or handler; release data from
 a committed manifest (`website/release.json`) that `--refresh-release` replaces only with a complete, validated answer (a race-based deadline, an atomic write);
 two builds of one commit are identical file for file; the build clears only a directory it made.
 
 ## Verified
 
 162 tests in `website/tests` (run by the root `bun test`; the typecheck covers `website/` too): the hand-authored markdown golden, hostile markdown, escaping, every
-internal link and fragment resolving in the built output, no cross-origin resource, no script, heading levels, title length, image sizes, hreflang only on translated pages,
+internal link and fragment resolving in the built output, no cross-origin resource, the one script and no inline one, heading levels, title length, image sizes, hreflang only on translated pages,
 two identical builds, the refresh failing in nine ways without touching the manifest, a custom domain without the base path, WCAG AA of every text/background pair in both
 colour schemes, the copy's English and Vietnamese halves matching, every feature's limitations file existing, the command list equal to `cw --help`. By eye, on the
 running site: Home (desktop, dark and light, English and Vietnamese, and at 390 px), Download, a docs page and the changelog, and no horizontal overflow at 320 px on Home,
 Download and the Cockpit docs page, which holds the widest content.
+
+## Motion
+
+The site moves like the owner's portfolio (see the spec's Motion section): the headline's words, the hero's lines and screenshot on load; blocks and cards revealed on scroll; the
+FAQ opening; a scroll-progress bar; a page cross-fade; hover lifts. **The content is visible unless `reveal.js` has armed itself**, and reduced motion gets none of it. Checked on the running
+site in Chrome: armed, blocks below the fold at opacity 0 until scrolled to and 1 after, the whole page scrolled with every block revealed, a cumulative layout shift of 0, no long task,
+the progress bar bound to the scroll. The tests pin the contract (the script's four behaviours against a stub DOM, every hiding rule under the armed attribute and under
+`no-preference`, only cheap properties in the keyframes, the delays in the stylesheet, the markup hooks).
+
+- **Reduced motion and Firefox were not looked at in a browser**: the reduced-motion rules are checked in the stylesheet only (the preview tool cannot emulate the preference). Cross-page
+  fades, the scroll-progress bar and the smooth FAQ need Chrome-family or recent Safari features and simply do not happen elsewhere; nothing depends on them.
+- The reveal needs JavaScript to hide and to show; without it everything is simply there.
+- The one script is a second thing the content security policy now allows (`script-src 'self'`); there is still no inline script and no third-party one.
 
 ## Limitations
 

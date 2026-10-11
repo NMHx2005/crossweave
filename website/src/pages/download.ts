@@ -20,8 +20,8 @@ export function downloadPage(ctx: PageCtx): BuiltPage {
   const link = (name: string, label: string, cls = 'btn'): string => `<a class="${cls}" href="${esc(assetUrl(release, name) ?? RELEASES_URL)}">${esc(label)}</a>`
 
   const notice = ctx.notarized
-    ? `<div class="note"><h2>${esc(c.notarized.title)}</h2><p>${esc(c.notarized.text)}</p></div>`
-    : `<div class="note">
+    ? `<div class="note" data-reveal><h2>${esc(c.notarized.title)}</h2><p>${esc(c.notarized.text)}</p></div>`
+    : `<div class="note" data-reveal>
 <h2>${esc(c.notNotarized.title)}</h2>
 <p>${esc(c.notNotarized.text)}</p>
 <p>${esc(c.notNotarized.commandNote)}</p>
@@ -46,13 +46,13 @@ export function downloadPage(ctx: PageCtx): BuiltPage {
 <h1>${esc(c.headline)}</h1>
 <div class="stack">
 <p>${esc(c.intro)} <strong>${esc(release.tag)}</strong></p>
-<section>
+<section data-reveal>
 <h2>${esc(c.cockpit.title)}</h2>
 <p>${esc(c.cockpit.text)}</p>
 <div class="actions">${link('cockpit-darwin-arm64.dmg', c.cockpit.dmg, 'btn btn--primary')}${link('cockpit-darwin-arm64.zip', c.cockpit.zip)}</div>
 </section>
 ${notice}
-<section>
+<section data-reveal>
 <h2>${esc(c.cli.title)}</h2>
 <p>${esc(c.cli.text)}</p>
 <code class="cmd">${esc(c.cli.installLine)}</code>

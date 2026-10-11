@@ -28,6 +28,7 @@ describe('the head', () => {
     expect(metas[1]).toContain("default-src 'none'")
     expect(metas[1]).toContain("img-src 'self' data:")
     expect(metas[1]).toContain("style-src 'self'")
+    expect(metas[1]).toContain("script-src 'self'")
     expect(metas[1]).toContain("base-uri 'none'")
     expect(metas[1]).toContain("form-action 'none'")
   })
@@ -64,9 +65,10 @@ describe('the head', () => {
 })
 
 describe('the shell', () => {
-  test('no script anywhere, a skip link first, the stylesheet and icon under the base', () => {
+  test('one external script and no inline one, a skip link first, the stylesheet and icon under the base', () => {
     const out = doc()
-    expect(out).not.toContain('<script')
+    expect([...out.matchAll(/<script\b[^>]*>/g)].map((m) => m[0])).toEqual(['<script src="/crossweave/reveal.js" defer>'])
+    expect(out).toContain('<div class="scroll-progress" aria-hidden="true"></div>')
     expect(out.indexOf('class="skip"')).toBeLessThan(out.indexOf('<main'))
     expect(out).toContain('href="/crossweave/styles.css"')
     expect(out).toContain('href="/crossweave/icon.png"')

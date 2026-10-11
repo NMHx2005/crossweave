@@ -145,12 +145,26 @@ base-aware resource paths. Writing `CNAME` does not configure DNS or the reposit
 Settings → Pages → Source: GitHub Actions. The deploy always builds `main` (a release only triggers a rebuild with the new release data), installs the existing root dependencies, runs the website tests and builds with the
 `base_path` and `origin` that `actions/configure-pages` reports. Nothing is pushed or deployed by the assistant.
 
+## Motion (added 2026-10-11, after the owner's portfolio)
+
+The page moves the way the owner's portfolio does, one expo-out curve for everything: the hero headline slides up word by word from behind a mask, the lines under it rise in
+(fade, translate, a little blur) one after another, and the screenshot is uncovered from the top and settles in; sections, cards, table, questions and the closing block
+settle into place as they enter the viewport (cards in a row left to right, the launcher chips one by one); an answer opens and closes smoothly; a thin bar under the top of
+the window grows with the scroll; a page change cross-fades; cards and buttons lift a little on hover. Only opacity, translate, transform, filter and clip-path animate
+(and the height of an answer), so there is no layout shift.
+
+The rule that keeps the page honest, taken from the portfolio: **the content is visible by default**. The stylesheet may hide a block only under
+`html[data-reveal-ready]`, which one small script (`reveal.js`, ~30 lines, no dependency) sets after it has marked what is already on screen as visible; no script, a script
+that fails, or a browser without IntersectionObserver leaves nothing hidden. Everything moving is under `prefers-reduced-motion: no-preference`, reduced motion gets no animation or
+transition, and printing shows everything. The hero entrance, the progress bar, the cross-fade and the hover effects need no script at all. This is the one change to the
+original "no script" goal: the CSP gains `script-src 'self'` and nothing else.
+
 ## Security and privacy
 
 - All text from outside the page's own source (a release tag, markdown) is escaped or rendered through the markdown renderer; release notes come from this
-  repository only. A `<meta http-equiv="Content-Security-Policy">`, first in `<head>`, with `default-src 'none'; img-src 'self' data:; style-src 'self'; base-uri 'none'; form-action 'none'`
-  (GitHub Pages cannot send headers, and a meta policy cannot enforce `frame-ancestors`; both are stated in the limitations file); there are no scripts at all, no inline
-  event handlers and no inline `style` attributes.
+  repository only. A `<meta http-equiv="Content-Security-Policy">`, first in `<head>`, with `default-src 'none'; img-src 'self' data:; style-src 'self'; script-src 'self'; base-uri 'none'; form-action 'none'`
+  (GitHub Pages cannot send headers, and a meta policy cannot enforce `frame-ancestors`; both are stated in the limitations file); the only script is our own `reveal.js` (see Motion), loaded with `defer`, and there is no inline script, no inline
+  event handler and no inline `style` attribute.
 - No request leaves the visitor's browser except navigation to links they click.
 - The page states the update check and the installer's network use exactly as the README does.
 

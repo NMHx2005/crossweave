@@ -18,7 +18,7 @@ export interface PageMeta {
 }
 
 // GitHub Pages cannot send headers, so the policy is a meta tag; it cannot enforce frame-ancestors (the limitations file says so).
-const CSP = "default-src 'none'; img-src 'self' data:; style-src 'self'; base-uri 'none'; form-action 'none'"
+const CSP = "default-src 'none'; img-src 'self' data:; style-src 'self'; script-src 'self'; base-uri 'none'; form-action 'none'"
 
 const attr = escapeHtml
 
@@ -95,9 +95,11 @@ ${og}
 ${meta.noindex === true ? '<meta name="robots" content="noindex">' : ''}
 <link rel="icon" href="${attr(urls.path('/icon.png'))}" type="image/png">
 <link rel="stylesheet" href="${attr(urls.path('/styles.css'))}">
+<script src="${attr(urls.path('/reveal.js'))}" defer></script>
 </head>
 <body>
 <a class="skip" href="#main">${attr(content.nav.skip)}</a>
+<div class="scroll-progress" aria-hidden="true"></div>
 <header class="site-header">
 <div class="wrap">
 <a class="brand" href="${attr(home)}"><img src="${attr(urls.path('/icon.png'))}" alt="" width="28" height="28">${attr(content.siteName)}</a>

@@ -34,7 +34,7 @@ describe('the home page', () => {
 
   test('one h1, the approved headline, and a title and path of its own', () => {
     expect(count(body, /<h1[ >]/g)).toBe(1)
-    expect(body).toContain('<h1>Many agents. One repo. Land what holds up.</h1>')
+    expect(text(/<h1>([\s\S]*?)<\/h1>/.exec(body)?.[1] ?? '').trim()).toBe('Many agents. One repo. Land what holds up.')
     expect(page.path).toBe('/')
     expect(page.meta.alternates).toEqual({ en: '/', vi: '/vi/' })
     expect(page.meta.canonical).toBe('https://nmhx2005.github.io/crossweave/')
@@ -73,8 +73,8 @@ describe('the home page', () => {
   })
 
   test('every question is a details element, the launchers are plain text chips, and the only image is the app', () => {
-    expect(count(body, /<details>/g)).toBe(11)
-    for (const name of en.home.agents.names) expect(body).toContain(`<li>${name}</li>`)
+    expect(count(body, /<details/g)).toBe(11)
+    for (const name of en.home.agents.names) expect(body).toContain(`>${name}</li>`)
     expect(count(body, /<img /g)).toBe(1)
   })
 
@@ -104,7 +104,7 @@ describe('the home page', () => {
   test('the Vietnamese page is the same page in Vietnamese, with its own paths', () => {
     const v = homePage(ctx({ lang: 'vi', content: vi }))
     expect(v.path).toBe('/vi/')
-    expect(String(v.body)).toContain('<h1>Nhiều agent. Một repo. Land cái đứng vững.</h1>')
+    expect(text(/<h1>([\s\S]*?)<\/h1>/.exec(String(v.body))?.[1] ?? '').trim()).toBe('Nhiều agent. Một repo. Land cái đứng vững.')
     expect(String(v.body)).toContain('href="/crossweave/vi/download/"')
     expect(count(String(v.body), /<article class="card"/g)).toBe(12)
     expect(v.meta.alternates).toEqual({ en: '/', vi: '/vi/' })

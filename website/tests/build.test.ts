@@ -31,7 +31,7 @@ describe('what a build writes', () => {
     for (const f of [
       'index.html', 'vi/index.html', 'download/index.html', 'vi/download/index.html', 'changelog/index.html', '404.html',
       'docs/index.html', 'docs/install/index.html', 'docs/quickstart/index.html', 'docs/concepts/index.html', 'docs/cockpit/index.html', 'docs/configuration/index.html', 'docs/commands/index.html',
-      'styles.css', 'sitemap.xml', 'icon.png', 'img/cockpit-sessions.png', 'img/cockpit-composer.png', 'img/cockpit-dashboard.png', 'img/cockpit-rail.png',
+      'styles.css', 'reveal.js', 'sitemap.xml', 'icon.png', 'img/cockpit-sessions.png', 'img/cockpit-composer.png', 'img/cockpit-dashboard.png', 'img/cockpit-rail.png',
     ]) expect(all, f).toContain(f)
     expect(all).not.toContain('CNAME')
     expect(all).not.toContain('robots.txt')
@@ -82,12 +82,13 @@ describe('every page', () => {
     expect(missing).toEqual([])
   })
 
-  test('nothing is loaded from another origin, and there is no script, inline handler, inline style or javascript: URL', () => {
+  test('nothing is loaded from another origin, and the only script is our own reveal.js: no inline script, handler, style or javascript: URL', () => {
     for (const page of pages) {
       const html = read(project, page)
       expect(html, page).not.toMatch(/<link[^>]+rel="stylesheet"[^>]+href="https?:/)
       expect(html, page).not.toMatch(/\ssrc="https?:/)
-      expect(html, page).not.toContain('<script')
+      expect([...html.matchAll(/<script\b[^>]*>/g)].map((m) => m[0]), page).toEqual(['<script src="/crossweave/reveal.js" defer>'])
+      expect(html, page).not.toMatch(/<script[^>]*>[^<]+<\/script>/)
       expect(html, page).not.toMatch(/\son[a-z]+="/)
       expect(html, page).not.toMatch(/\sstyle="/)
       expect(html, page).not.toContain('javascript:')

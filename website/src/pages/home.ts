@@ -10,13 +10,19 @@ export function homePage(ctx: PageCtx): BuiltPage {
   const c = content.home
   const shot = ctx.imageSize('cockpit-sessions.png')
 
+  // Each word in its own mask so it can slide up from below it; the spaces between stay text, so the heading still reads as one sentence.
+  const headline = c.hero.headline
+    .split(' ')
+    .map((word) => `<span class="word-mask"><span class="word">${esc(word)}</span></span>`)
+    .join(' ')
+
   const features = c.features.items
     .map((f) => {
       const isNext = compareTags(f.since, release.tag) > 0
       const links = [f.source, ...(f.source2 === undefined ? [] : [f.source2])]
         .map((source, i) => `<a href="${esc(repoFile(source))}">${esc(i === 0 ? f.linkLabel : `${f.linkLabel} (${i + 1})`)}</a>`)
         .join(' · ')
-      return `<article class="card" id="f-${esc(f.id)}">
+      return `<article class="card" data-reveal id="f-${esc(f.id)}">
 <h3>${esc(f.title)}</h3>
 <p>${esc(f.text)}</p>
 <p class="card__q">${esc(f.qualifier)}</p>
@@ -25,18 +31,18 @@ export function homePage(ctx: PageCtx): BuiltPage {
     })
     .join('\n')
 
-  const notList = c.not.items.map((i) => `<li class="card"><h3>${esc(i.title)}</h3><p>${esc(i.text)}</p></li>`).join('\n')
+  const notList = c.not.items.map((i) => `<li class="card" data-reveal><h3>${esc(i.title)}</h3><p>${esc(i.text)}</p></li>`).join('\n')
 
   const rows = c.compare.rows
     .map(([label, hand, us]) => `<tr><th scope="row">${esc(label)}</th><td>${esc(hand)}</td><td>${esc(us)}</td></tr>`)
     .join('\n')
 
-  const faq = c.faq.items.map((i) => `<details><summary>${esc(i.q)}</summary><p>${esc(i.a)}</p></details>`).join('\n')
+  const faq = c.faq.items.map((i) => `<details data-reveal><summary>${esc(i.q)}</summary><p>${esc(i.a)}</p></details>`).join('\n')
 
   const body = html(`<main id="main">
 <section class="hero">
 <div class="wrap">
-<h1>${esc(c.hero.headline)}</h1>
+<h1>${headline}</h1>
 <p class="hero__sub">${esc(c.hero.subtitle)}</p>
 <div class="hero__actions">
 <a class="btn btn--primary" href="${esc(urls.path(`${prefix}/download/`))}">${esc(c.hero.downloadCta)}</a>
@@ -45,13 +51,13 @@ export function homePage(ctx: PageCtx): BuiltPage {
 </div>
 <div class="hero__install" id="install"><code class="cmd">${esc(content.download.cli.installLine)}</code></div>
 <p class="hero__meta">${esc(c.hero.versionLine(release.tag))}<br>${esc(c.hero.installNote)}</p>
-<img class="hero__shot" src="${esc(urls.path('/img/cockpit-sessions.png'))}" alt="${esc(c.hero.shotAlt)}" width="${shot.width}" height="${shot.height}">
+<div class="hero__media"><img class="hero__shot" src="${esc(urls.path('/img/cockpit-sessions.png'))}" alt="${esc(c.hero.shotAlt)}" width="${shot.width}" height="${shot.height}"></div>
 </div>
 </section>
 <section class="section" id="features">
 <div class="wrap">
-<h2 class="section__title">${esc(c.features.title)}</h2>
-<p class="section__intro">${esc(c.features.intro)}</p>
+<h2 class="section__title" data-reveal>${esc(c.features.title)}</h2>
+<p class="section__intro" data-reveal>${esc(c.features.intro)}</p>
 <div class="grid">
 ${features}
 </div>
@@ -59,16 +65,16 @@ ${features}
 </section>
 <section class="section" id="agents">
 <div class="wrap">
-<h2 class="section__title">${esc(c.agents.title)}</h2>
-<p class="section__intro">${esc(c.agents.text)}</p>
-<ul class="chips">${c.agents.names.map((n) => `<li>${esc(n)}</li>`).join('')}</ul>
-<p class="agents-note">${esc(c.agents.note)}</p>
+<h2 class="section__title" data-reveal>${esc(c.agents.title)}</h2>
+<p class="section__intro" data-reveal>${esc(c.agents.text)}</p>
+<ul class="chips" data-reveal="group">${c.agents.names.map((n) => `<li class="reveal-item">${esc(n)}</li>`).join('')}</ul>
+<p class="agents-note" data-reveal>${esc(c.agents.note)}</p>
 </div>
 </section>
 <section class="section" id="not">
 <div class="wrap">
-<h2 class="section__title">${esc(c.not.title)}</h2>
-<p class="section__intro">${esc(c.not.intro)}</p>
+<h2 class="section__title" data-reveal>${esc(c.not.title)}</h2>
+<p class="section__intro" data-reveal>${esc(c.not.intro)}</p>
 <ul class="not-list">
 ${notList}
 </ul>
@@ -76,8 +82,8 @@ ${notList}
 </section>
 <section class="section" id="compare">
 <div class="wrap">
-<h2 class="section__title">${esc(c.compare.title)}</h2>
-<div class="table-wrap">
+<h2 class="section__title" data-reveal>${esc(c.compare.title)}</h2>
+<div class="table-wrap" data-reveal>
 <table class="compare">
 <caption>${esc(c.compare.caption)}</caption>
 <thead><tr><td></td><th scope="col">${esc(c.compare.headings[1])}</th><th scope="col">${esc(c.compare.headings[2])}</th></tr></thead>
@@ -86,25 +92,25 @@ ${rows}
 </tbody>
 </table>
 </div>
-<p class="compare__foot">${esc(c.compare.foot)}</p>
+<p class="compare__foot" data-reveal>${esc(c.compare.foot)}</p>
 </div>
 </section>
 <section class="section" id="why">
-<div class="wrap why">
+<div class="wrap why" data-reveal>
 <h2>${esc(c.why.title)}</h2>
 <p>${esc(c.why.text)}</p>
 </div>
 </section>
 <section class="section" id="faq">
 <div class="wrap">
-<h2 class="section__title">${esc(c.faq.title)}</h2>
+<h2 class="section__title" data-reveal>${esc(c.faq.title)}</h2>
 <div class="faq">
 ${faq}
 </div>
 </div>
 </section>
 <section class="cta">
-<div class="wrap">
+<div class="wrap" data-reveal>
 <h2>${esc(c.cta.title)}</h2>
 <p>${esc(c.cta.text)}</p>
 <div class="hero__actions">
