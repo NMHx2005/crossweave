@@ -200,7 +200,9 @@ export const en: Content = {
       appCta: 'Download the app · macOS, Apple Silicon',
       metaRelease: (tag, date) => `${tag} · ${date} · `,
       whatsNew: "What's new",
-      videoAlt: 'A 30-second demo of crossweave: three sessions on one repository, their status on the rail, a diff, trial merges, and one session landed.',
+      videoAlt: 'A 40-second demo of crossweave: three sessions on one repository, their status on the rail, a diff, trial merges, and one session landed.',
+      videoPauseLabel: 'Pause the demo',
+      videoPlayLabel: 'Play the demo',
       videoNote:
         'A scripted demo on a made-up project, recorded on the development build (v0.6.0): the sessions, commits and merges are real, the agent screens are scripted and the status marks are sent with cw notify.',
       videoTranscript: {
@@ -209,8 +211,8 @@ export const en: Content = {
           'Three sessions appear in the rail, each its own worktree and shell.',
           "Agent screens fill and the rail's marks change: one working, one asking, one done.",
           "The cursor opens the finished session's changes; a risky-file badge shows.",
-          'Trial merges show that two sessions merge clean and one conflicts.',
-          'The cursor lands a session and it leaves the rail.',
+          'Trial merges show that one session merges clean and two collide.',
+          'Land asks first because the session touches a workflow file; the cursor confirms and the session leaves the rail.',
         ],
       },
     },

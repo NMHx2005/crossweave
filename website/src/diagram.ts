@@ -15,7 +15,7 @@ export function diagramSvg(label: string): Html {
   return html(`<svg class="diagram" viewBox="0 0 720 220" role="img" aria-label="${escapeHtml(label)}" xmlns="http://www.w3.org/2000/svg">
 <path class="dg-main" d="M20 40 L 700 40" />
 <circle class="dg-dot dg-main" cx="60" cy="40" r="4" /><circle class="dg-dot dg-main" cx="560" cy="40" r="4" /><circle class="dg-dot dg-main" cx="640" cy="40" r="4" />
-<text class="dg-label dg-main" x="20" y="26">main</text>${lane('dg-a', 85, 'api', 'ok')}${lane('dg-b', 130, 'web', 'ok')}${lane('dg-c', 175, 'docs', 'conflict')}
+<text class="dg-label dg-main" x="20" y="26">main</text>${lane('dg-a', 85, 'api', 'ok')}${lane('dg-b', 130, 'web', 'conflict')}${lane('dg-c', 175, 'docs', 'conflict')}
 <path class="dg-diamond" d="M470 98 L 482 110 L 470 122 L 458 110 Z" />
 <text class="dg-label dg-main" x="494" y="150">trial merge</text>
 <path class="dg-land" d="M482 110 C 520 110 520 40 560 40" />

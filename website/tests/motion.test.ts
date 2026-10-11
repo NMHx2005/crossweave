@@ -263,9 +263,9 @@ describe('the markup that carries the motion', () => {
     expect(plain(h1)).toBe(content.home.hero.headline)
   })
 
-  test('the hero image sits in a media wrapper that is uncovered on load, and keeps its size and its alt', () => {
+  test('the demo clip sits in a media wrapper that is uncovered on load, and keeps its size and its description', () => {
     const body = String(homePage(ctx()).body)
-    expect(body).toMatch(/<div class="hero__media"><img class="hero__shot"[^>]*alt="crossweave Cockpit[^>]*width="1600" height="1000"[^>]*><\/div>/)
+    expect(body).toMatch(/<div class="hero__media">\s*<video autoplay muted loop playsinline preload="metadata" data-motion poster="[^"]+" width="1920" height="1080" aria-label="A 40-second demo[^"]*">/)
   })
 
   test('sections, cards, answers and the table wait to be revealed; the chips are a staggered group', () => {

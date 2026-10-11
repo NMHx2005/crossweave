@@ -24,7 +24,7 @@ A static site in `website/`, built by one dependency-free Bun script (`bun websi
   `CNAME` and `robots.txt` only with `SITE_DOMAIN`.
 
 Safety and reproducibility: markdown goes through `Bun.markdown.render` with callbacks of our own (raw HTML dropped and counted, a link-scheme allow-list, images only from
-the site's own copies, text escaped exactly once); a content security policy meta tag first in every `<head>`, one external script (`reveal.js`) and no inline script, style or handler; release data from
+the site's own copies, text escaped exactly once); a content security policy meta tag first in every `<head>`, one external script (`site.js`, which also runs the copy button and the demo clip's Pause/Play), `media-src 'self'` and no inline executable script, style or handler; release data from
 a committed manifest (`website/release.json`) that `--refresh-release` replaces only with a complete, validated answer (a race-based deadline, an atomic write);
 two builds of one commit are identical file for file; the build clears only a directory it made.
 
@@ -65,7 +65,7 @@ the progress bar bound to the scroll. The tests pin the contract (the script's f
   not know degrades to its text rather than failing.
 - **GitHub Pages cannot send headers**: the content security policy is a meta tag and cannot enforce `frame-ancestors`; there is no HSTS of our own. A project site's
   `robots.txt` is not read at the origin root, so one is written only for a custom domain.
-- **No video or recorded demo**; the comparison is with doing it by hand, no named product. Light and dark follow the system and there is no toggle. The hero screenshot is dark in
+- **(Superseded by `2026-10-11-website-v2-known-limitations.md`: the home page now has a demo clip.) No video or recorded demo**; the comparison is with doing it by hand, no named product. Light and dark follow the system and there is no toggle. The hero screenshot is dark in
   both schemes.
 - **Visual coverage is a sample**: not every page in both schemes and in Vietnamese, and 200 % text zoom was not checked.
 - `install.sh` printed a bubblewrap warning for a sandbox removed on 2026-09-27; fixed in this change, but it reaches users only with the next release.

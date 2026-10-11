@@ -9,6 +9,9 @@ import { clip, esc, formatDay, releaseAnchor, repoFile } from './common'
 /** The pictures of the three steps: stills from the demo clip once it is made (website/public/img). */
 const STEP_IMAGES = ['step-1.png', 'step-2.png', 'step-3.png'] as const
 
+/** The demo clip and its first frame, recorded by apps/cockpit/scripts/site-video.ts (website/public/media). */
+const HERO_CLIP = { src: '/media/demo.mp4', poster: '/media/poster.jpg', width: 1920, height: 1080 } as const
+
 const GROUPS = ['run', 'watch', 'land', 'review'] as const
 
 export function homePage(ctx: PageCtx): BuiltPage {
@@ -16,7 +19,6 @@ export function homePage(ctx: PageCtx): BuiltPage {
   const prefix = lang === 'vi' ? '/vi' : ''
   const path = `${prefix}/`
   const c = content.home
-  const shot = ctx.imageSize('cockpit-sessions.png')
   const changelog = (tag: string): string => urls.path(`/changelog/#${releaseAnchor(tag)}`)
 
   const released = c.features.items.filter((f) => compareTags(f.since, release.tag) <= 0)
@@ -125,7 +127,15 @@ ${pill}<h1>${headline}</h1>
 <a class="btn" href="${esc(REPO_URL)}">${esc(c.hero.githubCta)}</a>
 </div>
 <p class="hero__meta">${esc(c.hero.metaRelease(release.tag, formatDay(day, lang)))}<a href="${esc(changelog(release.tag))}">${esc(c.hero.whatsNew)} →</a><br>${esc(c.hero.installNote)}</p>
-<div class="hero__media"><img class="hero__shot" src="${esc(urls.path('/img/cockpit-sessions.png'))}" alt="${esc(c.hero.shotAlt)}" width="${shot.width}" height="${shot.height}"></div>
+<div class="hero__media">
+<video autoplay muted loop playsinline preload="metadata" data-motion poster="${esc(urls.path(HERO_CLIP.poster))}" width="${HERO_CLIP.width}" height="${HERO_CLIP.height}" aria-label="${esc(c.hero.videoAlt)}"><source src="${esc(urls.path(HERO_CLIP.src))}" type="video/mp4"></video><button type="button" class="video__toggle" data-play="${esc(c.hero.videoPlayLabel)}" data-pause="${esc(c.hero.videoPauseLabel)}" hidden>${esc(c.hero.videoPauseLabel)}</button>
+</div>
+<p class="hero__note">${esc(c.hero.videoNote)}</p>
+<details class="transcript"><summary>${esc(c.hero.videoTranscript.title)}</summary>
+<ol>
+${c.hero.videoTranscript.steps.map((s) => `<li>${esc(s)}</li>`).join('\n')}
+</ol>
+</details>
 </div>
 </section>
 <section class="section" id="how">
@@ -217,7 +227,8 @@ ${faq}
       description: c.description,
       canonical: urls.abs(path),
       alternates: { en: '/', vi: '/vi/' },
-      ogImage: urls.abs('/img/cockpit-sessions.png'),
+      ogImage: urls.abs('/img/og.png'),
+      ogImageInfo: { width: 1200, height: 630, alt: `crossweave: ${c.hero.headline}` },
       // What a search engine may say about the product: only what is true and checkable. No rating, no review count.
       jsonLd: {
         '@context': 'https://schema.org',

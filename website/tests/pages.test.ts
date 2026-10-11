@@ -67,13 +67,27 @@ describe('the home page', () => {
     expect(count(body, /<details data-reveal>/g)).toBe(en.home.faq.items.length)
     for (const name of en.home.agents.names) expect(body).toContain(`>${name}</li>`)
     // The hero's picture, and one still for each of the three steps.
-    expect(count(body, /<img /g)).toBe(1 + en.home.how.steps.length)
+    expect(count(body, /<img /g)).toBe(en.home.how.steps.length)
   })
 
-  test('the hero image says its size and is not lazy', () => {
-    expect(body).toContain('src="/crossweave/img/cockpit-sessions.png"')
-    expect(body).toMatch(/<img [^>]*alt="crossweave Cockpit[^>]*width="1600" height="1000"/)
-    expect(/<img class="hero__shot"[^>]*>/.exec(body)?.[0]).not.toContain('loading="lazy"')
+  test('the demo clip says its size, shows a poster, plays by itself muted and has no browser controls', () => {
+    const video = /<video [^>]*>/.exec(body)?.[0] ?? ''
+    expect(video).toContain('poster="/crossweave/media/poster.jpg"')
+    expect(video).toContain('width="1920" height="1080"')
+    expect(video).not.toContain('controls')
+    expect(video).toContain('autoplay')
+    expect(video).toContain('muted')
+    expect(video).toContain('loop')
+    expect(body).toContain('<source src="/crossweave/media/demo.mp4" type="video/mp4">')
+  })
+
+  test('the pause button ships hidden, with both of its labels', () => {
+    expect(body).toMatch(/<button type="button" class="video__toggle" data-play="Play the demo" data-pause="Pause the demo" hidden>Pause the demo<\/button>/)
+  })
+
+  test('the demo is described in words, under the clip', () => {
+    expect(body).toContain('<details class="transcript"><summary>What the demo shows</summary>')
+    expect(count(body, /<li>(?:Three sessions|Agent screens|The cursor opens|Trial merges show|Land asks)/g)).toBe(5)
   })
 
   test('copy is escaped: markup typed into the content never becomes markup', () => {

@@ -62,7 +62,7 @@ function clip(rejectPlay = false): FakeClip {
     nextElementSibling: toggle,
     play() {
       self.plays++
-      if (rejectPlay) return Promise.reject(new Error('NotAllowedError'))
+      if (rejectPlay) return Promise.reject(Object.assign(new Error('refused'), { name: 'NotAllowedError' }))
       self.paused = false
       return Promise.resolve()
     },
@@ -141,21 +141,21 @@ describe('the copy button', () => {
 })
 
 describe('the demo clip', () => {
-  test('where motion is welcome the controls give way to a Pause button and the clip plays', () => {
+  test('where motion is welcome it plays and the Pause button is there', () => {
     const c = clip()
     boot({ clips: [c] })
-    expect(c.controls).toBe(false)
     expect(c.nextElementSibling.hidden).toBe(false)
     expect(c.plays).toBe(1)
     expect(c.nextElementSibling.textContent).toBe('Pause the demo')
   })
 
-  test('with reduced motion it never plays and keeps its controls', () => {
+  test('with reduced motion it never plays, and the button says Play', () => {
     const c = clip()
     boot({ clips: [c], reduce: true })
     expect(c.plays).toBe(0)
-    expect(c.controls).toBe(true)
-    expect(c.nextElementSibling.hidden).toBe(true)
+    expect(c.paused).toBe(true)
+    expect(c.nextElementSibling.hidden).toBe(false)
+    expect(c.nextElementSibling.textContent).toBe('Play the demo')
   })
 
   test('a browser that cannot report the preference is treated as welcoming motion', () => {
@@ -169,9 +169,7 @@ describe('the demo clip', () => {
     const { setReduce } = boot({ clips: [c] })
     setReduce(true)
     expect(c.pauses).toBeGreaterThan(0)
-    expect(c.controls).toBe(true)
     setReduce(false)
-    expect(c.controls).toBe(false)
     expect(c.plays).toBeGreaterThanOrEqual(2)
   })
 
@@ -198,11 +196,11 @@ describe('the demo clip', () => {
     expect(c.paused).toBe(false)
   })
 
-  test('a browser that refuses to start it gives the controls back', async () => {
+  test('a browser that refuses to start it leaves a button that says Play', async () => {
     const c = clip(true)
     boot({ clips: [c] })
     await flush()
-    expect(c.controls).toBe(true)
-    expect(c.nextElementSibling.hidden).toBe(true)
+    expect(c.nextElementSibling.hidden).toBe(false)
+    expect(c.nextElementSibling.textContent).toBe('Play the demo')
   })
 })

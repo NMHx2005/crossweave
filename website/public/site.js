@@ -5,8 +5,9 @@
  *     `html[data-reveal-ready]` exists, and this script is the only thing that sets it: a script that fails to load, or a browser
  *     without IntersectionObserver, leaves nothing hidden.
  *  2. A Copy button next to the install line. The button ships `hidden`; it appears only where the clipboard can be written.
- *  3. The demo clip: it ships with its own controls and no autoplay. Where motion is welcome the controls give way to a
- *     Pause/Play button and the clip plays, muted, while it is on screen; where the reader asked for reduced motion it stays a poster.
+ *  3. The demo clip: it plays by itself, muted and looping, with no browser controls. This script adds a Pause/Play button and
+ *     pauses the clip while it is off screen; where the reader asked for reduced motion it is paused on its poster, and the button
+ *     is how they start it.
  */
 ;(function (window, document) {
   function each(list, fn) {
@@ -85,23 +86,20 @@
       function play() {
         var started = clip.play()
         if (started && typeof started.catch === 'function') {
-          // The browser refused to start it on its own: give the controls back rather than show a dead picture.
           started.catch(function () {
-            clip.controls = true
-            if (toggle) toggle.hidden = true
+            // Whatever stopped it, the button now says Play and is the way to start it.
+            label()
           })
         }
         label()
       }
       function settle() {
+        if (toggle) toggle.hidden = false
         if (reduce && reduce.matches) {
           clip.pause()
-          clip.controls = true
-          if (toggle) toggle.hidden = true
+          label()
           return
         }
-        clip.controls = false
-        if (toggle) toggle.hidden = false
         if (visible && !userPaused) play()
         else label()
       }

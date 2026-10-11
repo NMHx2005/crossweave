@@ -63,6 +63,8 @@ export interface Content {
       whatsNew: string
       videoAlt: string
       videoNote: string
+      videoPauseLabel: string
+      videoPlayLabel: string
       videoTranscript: { title: string; steps: string[] }
     }
     pill(tag: string, labels: string[]): string

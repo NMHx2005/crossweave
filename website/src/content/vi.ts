@@ -182,7 +182,9 @@ export const vi: Content = {
       appCta: 'Tải ứng dụng · macOS, Apple Silicon',
       metaRelease: (tag, date) => `${tag} · ${date} · `,
       whatsNew: 'Có gì mới',
-      videoAlt: 'Bản demo 30 giây của crossweave: ba session trên một repository, trạng thái của chúng trên thanh bên, một diff, các trial merge, và một session được land.',
+      videoAlt: 'Bản demo 40 giây của crossweave: ba session trên một repository, trạng thái của chúng trên thanh bên, một diff, các trial merge, và một session được land.',
+      videoPauseLabel: 'Tạm dừng bản demo',
+      videoPlayLabel: 'Phát bản demo',
       videoNote:
         'Một bản demo có kịch bản trên một dự án bịa ra, quay trên bản đang phát triển (v0.6.0): session, commit và merge là thật, màn hình agent là kịch bản và các dấu trạng thái được gửi bằng cw notify.',
       videoTranscript: {
@@ -191,8 +193,8 @@ export const vi: Content = {
           'Ba session xuất hiện trên thanh bên, mỗi cái một worktree và một shell.',
           'Màn hình agent đầy dần và các dấu trên thanh bên đổi: một cái đang chạy, một cái đang hỏi, một cái đã xong.',
           'Con trỏ mở thay đổi của session đã xong; một nhãn file rủi ro hiện ra.',
-          'Trial merge cho thấy hai session merge sạch và một session xung đột.',
-          'Con trỏ land một session và nó rời khỏi thanh bên.',
+          'Trial merge cho thấy một session merge sạch và hai session xung đột.',
+          'Land hỏi lại trước vì session đụng đến một file workflow; con trỏ xác nhận và session rời khỏi thanh bên.',
         ],
       },
     },
