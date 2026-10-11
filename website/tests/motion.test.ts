@@ -5,8 +5,9 @@ import { en } from '../src/content/en'
 import { vi } from '../src/content/vi'
 import { homePage } from '../src/pages/home'
 import { downloadPage } from '../src/pages/download'
+import { renderDocument } from '../src/layout'
 import { loadConfig, makeUrls } from '../src/site'
-import type { PageCtx } from '../src/types'
+import { html, type PageCtx } from '../src/types'
 
 const read = (relative: string): string => readFileSync(fileURLToPath(new URL(relative, import.meta.url)), 'utf8')
 const css = read('../src/styles.css').replace(/\/\*[\s\S]*?\*\//g, '')
@@ -181,6 +182,46 @@ const ctx = (over: Partial<PageCtx> = {}): PageCtx => ({
   ...over,
 })
 const plain = (html: string): string => html.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
+
+describe('the header that stays with you', () => {
+  const rules = rulesOf(css)
+  const rule = (selector: string, chain: string[] = []) => rules.find((r) => r.selector === selector && r.chain.join('|') === chain.join('|'))
+
+  test('is sticky at the top, opaque, above the content, and anchors leave room for it', () => {
+    const header = rule('.site-header')
+    expect(header?.body).toContain('position: sticky')
+    expect(header?.body).toContain('top: 0')
+    expect(header?.body).toContain('background: var(--cw-surface)')
+    expect(header?.body).toMatch(/z-index:\s*\d+/)
+    expect(rule('html')?.body).toMatch(/scroll-padding-top:\s*[\d.]+rem/)
+  })
+
+  test('drops in once on load, only where motion is welcome, and holds still while a page change cross-fades', () => {
+    const noPref = ['@media (prefers-reduced-motion: no-preference)']
+    expect(rule('.site-header', noPref)?.body).toMatch(/animation:\s*header-in /)
+    expect(rule('.site-header', noPref)?.body).toContain('view-transition-name: site-header')
+    expect(css).toMatch(/@keyframes header-in\s*\{\s*from\s*\{[^}]*translate:\s*0 -100%/)
+  })
+
+  test('the progress bar is the header\'s own bottom edge', () => {
+    const bar = rules.find((r) => r.selector === '.scroll-progress' && r.chain.some((c) => c.includes('animation-timeline')))
+    expect(bar?.body).toContain('position: absolute')
+    expect(bar?.body).not.toContain('position: fixed')
+  })
+
+  test('the markup puts the bar inside the header, after the navigation', () => {
+    const out = String(
+      renderDocument(
+        { lang: 'en', path: '/', title: 't', description: 'd', canonical: urls.abs('/'), alternates: {}, ogImage: null },
+        html('<main id="main"></main>'),
+        { content: en, urls, version: 'v0.5.0' },
+      ),
+    )
+    const header = /<header class="site-header">([\s\S]*?)<\/header>/.exec(out)?.[1] ?? ''
+    expect(header).toContain('<nav class="nav"')
+    expect(header.indexOf('</nav>')).toBeLessThan(header.indexOf('class="scroll-progress"'))
+  })
+})
 
 describe('the markup that carries the motion', () => {
   test.each([['en', en, 'en'], ['vi', vi, 'vi']] as const)('%s: the headline is split into masked words and still reads as one sentence', (_n, content, lang) => {

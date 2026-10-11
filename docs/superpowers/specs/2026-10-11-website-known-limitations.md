@@ -40,7 +40,7 @@ Download and the Cockpit docs page, which holds the widest content.
 ## Motion
 
 The site moves like the owner's portfolio (see the spec's Motion section): the headline's words, the hero's lines and screenshot on load; blocks and cards revealed on scroll; the
-FAQ opening; a scroll-progress bar; a page cross-fade; hover lifts. **The content is visible unless `reveal.js` has armed itself**, and reduced motion gets none of it. Checked on the running
+FAQ opening; a header that stays at the top as you scroll (it drops in on load, and the scroll-progress bar is its bottom edge; on a phone it is compacted to two rows, about 80 px, because it travels with you); a page cross-fade; hover lifts. **The content is visible unless `reveal.js` has armed itself**, and reduced motion gets none of it. Checked on the running
 site in Chrome: armed, blocks below the fold at opacity 0 until scrolled to and 1 after, the whole page scrolled with every block revealed, a cumulative layout shift of 0, no long task,
 the progress bar bound to the scroll. The tests pin the contract (the script's four behaviours against a stub DOM, every hiding rule under the armed attribute and under
 `no-preference`, only cheap properties in the keyframes, the delays in the stylesheet, the markup hooks).

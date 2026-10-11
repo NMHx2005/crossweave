@@ -99,12 +99,12 @@ ${meta.noindex === true ? '<meta name="robots" content="noindex">' : ''}
 </head>
 <body>
 <a class="skip" href="#main">${attr(content.nav.skip)}</a>
-<div class="scroll-progress" aria-hidden="true"></div>
 <header class="site-header">
 <div class="wrap">
 <a class="brand" href="${attr(home)}"><img src="${attr(urls.path('/icon.png'))}" alt="" width="28" height="28">${attr(content.siteName)}</a>
 <nav class="nav" aria-label="Main">${nav}<a href="${attr(REPO_URL)}">${attr(content.nav.github)}</a>${switchHref === null ? '' : `<a class="lang" href="${attr(switchHref)}" hreflang="${other}" lang="${other}" aria-label="${attr(content.nav.switchLabel)}">${attr(content.nav.switchTo)}</a>`}</nav>
 </div>
+<div class="scroll-progress" aria-hidden="true"></div>
 </header>
 ${body}
 <footer class="site-footer">
