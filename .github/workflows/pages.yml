@@ -51,6 +51,7 @@ jobs:
       # An empty base_path (a custom domain) means the site root: loadConfig reads an empty SITE_BASE that way.
       - run: bun website/build.ts --refresh-release
         env:
+          SITE_DOMAIN: crossweave.dev
           SITE_URL: ${{ steps.pages.outputs.origin }}
           SITE_BASE: ${{ steps.pages.outputs.base_path }}
       - uses: actions/upload-pages-artifact@v3

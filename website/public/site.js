@@ -5,9 +5,8 @@
  *     `html[data-reveal-ready]` exists, and this script is the only thing that sets it: a script that fails to load, or a browser
  *     without IntersectionObserver, leaves nothing hidden.
  *  2. A Copy button next to the install line. The button ships `hidden`; it appears only where the clipboard can be written.
- *  3. The demo clip: it plays by itself, muted and looping, with no browser controls. This script adds a Pause/Play button and
- *     pauses the clip while it is off screen; where the reader asked for reduced motion it is paused on its poster, and the button
- *     is how they start it.
+ *  3. The demo clip: native controls are the baseline. Only after the custom Pause/Play control and motion preference are ready
+ *     does this script hide the native controls; it autoplays only where motion is welcome and pauses while off screen.
  */
 ;(function (window, document) {
   function each(list, fn) {
@@ -74,9 +73,20 @@
   }
 
   function video() {
-    var reduce = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null
     each(document.querySelectorAll('video[data-motion]'), function (clip) {
       var toggle = clip.nextElementSibling
+      if (!toggle || typeof toggle.addEventListener !== 'function'
+        || typeof clip.play !== 'function' || typeof clip.pause !== 'function'
+        || typeof window.matchMedia !== 'function') return
+
+      var reduce
+      try {
+        reduce = window.matchMedia('(prefers-reduced-motion: reduce)')
+      } catch (_) {
+        return
+      }
+      if (!reduce || typeof reduce.matches !== 'boolean' || typeof reduce.addEventListener !== 'function') return
+
       var userPaused = false
       var visible = true
 
@@ -116,7 +126,11 @@
           }
         })
       }
-      if (reduce && typeof reduce.addEventListener === 'function') reduce.addEventListener('change', settle)
+      reduce.addEventListener('change', settle)
+
+      // The button is now wired and reduced-motion is known, so the custom control can safely replace the native one.
+      clip.controls = false
+      toggle.hidden = false
 
       // Only while it is on screen: a looping clip nobody can see should not spend the battery.
       if ('IntersectionObserver' in window) {

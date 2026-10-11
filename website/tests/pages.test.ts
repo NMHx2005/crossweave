@@ -70,12 +70,12 @@ describe('the home page', () => {
     expect(count(body, /<img /g)).toBe(en.home.how.steps.length)
   })
 
-  test('the demo clip says its size, shows a poster, plays by itself muted and has no browser controls', () => {
+  test('the demo clip has a no-script playback fallback and its size', () => {
     const video = /<video [^>]*>/.exec(body)?.[0] ?? ''
     expect(video).toContain('poster="/crossweave/media/poster.jpg"')
     expect(video).toContain('width="1920" height="1080"')
-    expect(video).not.toContain('controls')
-    expect(video).toContain('autoplay')
+    expect(video).toContain('controls')
+    expect(video).not.toContain('autoplay')
     expect(video).toContain('muted')
     expect(video).toContain('loop')
     expect(body).toContain('<source src="/crossweave/media/demo.mp4" type="video/mp4">')

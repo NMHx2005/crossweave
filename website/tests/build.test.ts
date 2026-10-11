@@ -41,6 +41,19 @@ describe('what a build writes', () => {
   test('a custom domain adds CNAME and robots.txt', () => {
     expect(read(custom, 'CNAME')).toBe('crossweave.dev\n')
     expect(read(custom, 'robots.txt')).toContain('Sitemap: https://crossweave.dev/sitemap.xml')
+    const locs = [...read(custom, 'sitemap.xml').matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1])
+    expect(locs.length).toBeGreaterThan(0)
+    expect(locs.every((url) => url?.startsWith('https://crossweave.dev/'))).toBe(true)
+    expect(read(custom, 'sitemap.xml')).not.toContain('http://crossweave.dev/')
+    expect(read(custom, 'index.html')).toContain('<link rel="canonical" href="https://crossweave.dev/">')
+    expect(read(custom, 'index.html')).toContain('hreflang="vi" href="https://crossweave.dev/vi/"')
+    expect(read(custom, 'vi/index.html')).toContain('<link rel="canonical" href="https://crossweave.dev/vi/">')
+  })
+
+  test('the Pages build pins its configured production custom domain', () => {
+    const workflow = readFileSync(join(repoRoot, '.github/workflows/pages.yml'), 'utf8')
+    const buildStep = /- run: bun website\/build\.ts --refresh-release\n([\s\S]*?)(?=\n      - uses:)/.exec(workflow)?.[1] ?? ''
+    expect(buildStep).toContain('SITE_DOMAIN: crossweave.dev')
   })
 
   test('the sitemap lists every indexable page once, with absolute URLs, and not the 404', () => {

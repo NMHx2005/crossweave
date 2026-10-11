@@ -128,7 +128,7 @@ ${pill}<h1>${headline}</h1>
 </div>
 <p class="hero__meta">${esc(c.hero.metaRelease(release.tag, formatDay(day, lang)))}<a href="${esc(changelog(release.tag))}">${esc(c.hero.whatsNew)} →</a><br>${esc(c.hero.installNote)}</p>
 <div class="hero__media">
-<video autoplay muted loop playsinline preload="metadata" data-motion poster="${esc(urls.path(HERO_CLIP.poster))}" width="${HERO_CLIP.width}" height="${HERO_CLIP.height}" aria-label="${esc(c.hero.videoAlt)}"><source src="${esc(urls.path(HERO_CLIP.src))}" type="video/mp4"></video><button type="button" class="video__toggle" data-play="${esc(c.hero.videoPlayLabel)}" data-pause="${esc(c.hero.videoPauseLabel)}" hidden>${esc(c.hero.videoPauseLabel)}</button>
+<video controls muted loop playsinline preload="metadata" data-motion poster="${esc(urls.path(HERO_CLIP.poster))}" width="${HERO_CLIP.width}" height="${HERO_CLIP.height}" aria-label="${esc(c.hero.videoAlt)}"><source src="${esc(urls.path(HERO_CLIP.src))}" type="video/mp4"></video><button type="button" class="video__toggle" data-play="${esc(c.hero.videoPlayLabel)}" data-pause="${esc(c.hero.videoPauseLabel)}" hidden>${esc(c.hero.videoPauseLabel)}</button>
 </div>
 <p class="hero__note">${esc(c.hero.videoNote)}</p>
 <details class="transcript"><summary>${esc(c.hero.videoTranscript.title)}</summary>

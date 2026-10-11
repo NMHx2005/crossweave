@@ -26,7 +26,7 @@ const features: Feature[] = [
   {
     id: 'rail',
     title: 'Một thanh bên, trạng thái trung thực',
-    text: 'Mọi session nằm trên một danh sách và cho biết nó đang chạy, đang chờ bạn, đã xong hay thất bại — suy ra từ chính shell, không cần cấu hình gì.',
+    text: 'Thanh bên liệt kê mọi session và cho biết session đang chạy, đang chờ bạn, đã xong hay thất bại — trạng thái được suy ra từ shell, không cần cấu hình.',
     qualifier: 'Suy ra từ chữ trên màn hình, output và cây tiến trình: đáng tin với Claude Code, Codex và Gemini, chỉ gần đúng với các agent khác. cw hooks install claude (hoặc codex) làm chúng chính xác ở những chỗ agent báo cáo.',
     ...base('rail'),
     linkLabel: more,
@@ -124,7 +124,7 @@ const features: Feature[] = [
   },
   {
     id: 'browser',
-    title: 'Cho agent dùng một ngăn trình duyệt, theo điều kiện của bạn',
+    title: 'Cho agent dùng ngăn trình duyệt theo cách bạn chọn',
     text: 'cw browser đọc và điều khiển một ngăn Browser sau công tắc Off, Read hoặc Control cho từng ngăn. Mặc định Off; điều khiển ngoài localhost, và chạy một đoạn script ở bất cứ đâu, đều hỏi bạn cho từng lệnh.',
     qualifier: 'Chữ trên trang có thể mang chỉ thị độc hại và được đánh dấu là không tin cậy; công tắc theo từng ngăn và không bao giờ được nhớ.',
     ...base('browser'),
@@ -135,7 +135,7 @@ const features: Feature[] = [
   },
   {
     id: 'presets',
-    title: 'Công thức session một cú bấm',
+    title: 'Preset khởi chạy session bằng một cú bấm',
     text: 'Một preset khởi động session với launcher của nó, các terminal phụ mỗi cái chạy một lệnh, và một ngăn Browser trên port của session.',
     qualifier: 'Các lệnh nằm trong file settings của riêng bạn, và không có gì chờ server sẵn sàng.',
     ...base('presets'),
@@ -168,7 +168,7 @@ export const vi: Content = {
     hero: {
       headline: 'Nhiều agent. Một repo. Merge cái đứng vững.',
       subtitle:
-        'crossweave cho mỗi agent lập trình một git worktree và một shell riêng, cho bạn thấy cái nào đang chạy, đang hỏi hay đã xong, và trial merge chạy nền để bạn chỉ land (đưa vào nhánh chính) cái đứng vững. Dành cho lập trình viên đã chạy Claude Code, Codex hoặc Gemini trong nhiều terminal.',
+        'crossweave cấp cho mỗi agent lập trình một git worktree và một shell riêng, cho bạn biết session nào đang chạy, đang hỏi hay đã xong, rồi trial merge chúng ở nền để bạn chỉ land (đưa vào nhánh chính) những thay đổi đủ vững. Dành cho lập trình viên đã quen chạy Claude Code, Codex hoặc Gemini trên nhiều terminal.',
       downloadCta: 'Tải cho macOS',
       installCta: 'Cài CLI',
       githubCta: 'Xem trên GitHub',
@@ -182,7 +182,7 @@ export const vi: Content = {
       appCta: 'Tải ứng dụng · macOS, Apple Silicon',
       metaRelease: (tag, date) => `${tag} · ${date} · `,
       whatsNew: 'Có gì mới',
-      videoAlt: 'Bản demo 40 giây của crossweave: ba session trên một repository, trạng thái của chúng trên thanh bên, một diff, các trial merge, và một session được land.',
+      videoAlt: 'Bản demo 40 giây của crossweave: ba session trên một repository, trạng thái trên thanh bên, một diff, các trial merge và một session được merge vào nhánh chính.',
       videoPauseLabel: 'Tạm dừng bản demo',
       videoPlayLabel: 'Phát bản demo',
       videoNote:
@@ -279,7 +279,7 @@ export const vi: Content = {
       items: [
         {
           q: 'crossweave là gì?',
-          a: 'Một công cụ ưu tiên chạy cục bộ để chạy nhiều session trên một repository rồi land chúng về. Một session là một git worktree cộng một shell trong đó, như một cửa sổ tmux có branch riêng. Một daemon chạy nền (cwd) lo phần sổ sách; cw, một dashboard terminal và ứng dụng Cockpit nói chuyện với nó.',
+          a: 'Một công cụ ưu tiên chạy cục bộ để chạy nhiều session trên một repository rồi land chúng về. Mỗi session là một git worktree với shell chạy bên trong, giống một cửa sổ tmux có branch riêng. Một daemon chạy nền (cwd) lo phần sổ sách; cw, dashboard terminal và ứng dụng Cockpit nói chuyện với daemon đó.',
         },
         {
           q: 'Nó có phải IDE hay editor không?',
@@ -295,7 +295,7 @@ export const vi: Content = {
         },
         {
           q: 'Code của tôi đi đâu?',
-          a: 'Bản thân crossweave không gửi gì đi đâu và không có telemetry: một daemon cục bộ sau một unix socket. Nó chỉ dùng mạng khi installer tải về, khi cw update, và khi kiểm tra bản mới tuỳ chọn với GitHub. Lệnh Refine là chương trình bạn đặt tên, còn các agent bạn chạy và các trang bạn mở có hành vi mạng riêng của chúng.',
+          a: 'Bản thân crossweave không gửi dữ liệu đi đâu và không có telemetry; daemon chạy cục bộ, giao tiếp qua Unix socket. Mạng chỉ được dùng khi installer tải file, khi chạy cw update và khi tuỳ chọn kiểm tra bản mới trên GitHub. Refine chạy chương trình do bạn chỉ định; các agent và trang web bạn mở có hoạt động mạng riêng.',
         },
         {
           q: 'Chạy được trên nền tảng nào?',

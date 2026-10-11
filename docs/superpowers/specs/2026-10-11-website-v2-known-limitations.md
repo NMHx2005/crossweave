@@ -10,8 +10,8 @@ Records what `docs/superpowers/plans/2026-10-11-website-v2.md` shipped on `feat/
   disclosure), a "Coming in v0.6.0" strip, "Is it for you?", a comparison of five rows, sixteen questions, a recent-releases strip with dates.
 - **A demo clip** (`website/public/media/demo.mp4`, 1920×1080, 41 s, H.264, no audio, about 1.3 MB) with a poster, three step pictures and a share card,
   all filmed from the running Cockpit by `apps/cockpit/scripts/site-video.ts` (floating window, camera zoom, a visible cursor, five numbered captions).
-  It plays by itself, muted and looping, with no browser controls; a Pause/Play button (hidden until the script runs) is the only control. It pauses
-  while off screen, and with reduced motion it stays on the poster until the button is pressed.
+  Native controls are the no-script baseline. After the custom Pause/Play button and motion preference are ready, the script hides native controls;
+  autoplay is limited to `no-preference`, off-screen playback pauses, and reduced-motion visitors can start playback themselves.
 - **A sturdier shell** (header and footer redrawn after a first look: a frosted sticky bar with pill links, the language switch and a Download button on the right; a footer with the brand, two titled link columns and a bottom line): skip link, focus styles, a phone header with 44 px targets (two rows, about 100 px, GitHub left to the footer), a footer in groups, and a **Security & privacy** page built from
   `SECURITY.md`; release dates in the manifest and the changelog.
 
@@ -26,27 +26,22 @@ Records what `docs/superpowers/plans/2026-10-11-website-v2.md` shipped on `feat/
 - **Filmed with the DOM terminal renderer.** The Cockpit's WebGL terminal draws nothing in a capture taken at a device scale other than 1, so the
   recorder makes `WebGL2RenderingContext` undefined for its own connection and the Cockpit falls back to its DOM renderer. Terminal text in the clip is
   therefore the fallback renderer's, not the one a user sees.
-- **The story is staged around one rule of the product, found while filming**: the Cockpit's Land button calls `land.session` without `force`, so
-  landing a session whose shell is still running fails with `SESSION_STILL_LIVE` ("Stop it first, or pass --force"), and the background trial merges
-  only classify running or idle sessions. The clip therefore stops the finished session (`session.stop`, which leaves it idle, still classified and
-  landable) before the land. A person who never stops a session sees the error toast. This is a gap in the product, not in the site; it is not fixed
-  here.
+- **The filmed story predates the live-session Land improvement**: its finished session is stopped before landing, while the current Cockpit branch
+  offers an explicit Stop and land flow for a clean, readable live worktree. The flow keeps uncommitted work, requires a separate confirmation for
+  unknown convergence evidence, and preserves the worktree if a write arrives during shell shutdown.
 - **A fixed take, not a recording of a live session**: timing is authored (gates hold the clock until a real condition holds), the cursor re-reads its
   target while it moves, and a take is checked by eye. Re-filming needs a scratch HOME and repository, macOS, ffmpeg and the steps in
   `apps/cockpit/README.md`.
 
 ## Limitations
 
+- **Live sitemap scheme mismatch (observed 2026-10-11).** The currently deployed `https://crossweave.dev/sitemap.xml` was observed listing `http://crossweave.dev/...` URLs while the home page canonical is HTTPS. This branch pins `SITE_DOMAIN=crossweave.dev`; the generated sitemap, canonical, alternates and robots reference were verified locally as HTTPS. The Pages workflow has not run for this change, so the live artifact remains unverified until integration.
 - **The clip shows English captions only.** The Vietnamese page carries the same clip; its note and written description are Vietnamese.
-- **Without script the clip still plays** (the `autoplay` attribute), with no way to pause it; with script and reduced motion it is paused on its first
-  frame by the script, so a reduced-motion reader may see a flash of motion before it stops. The button is hidden without script. The page's other
-  motion is unchanged: nothing is hidden unless the script has armed it.
-- **The clip's weight is 1.3 MB**, loaded with the page (`preload="metadata"` plus autoplay); there is no lazy start below the fold other than the
-  script's pause when it is off screen.
+- The clip's weight is about 1.3 MB. It uses `preload="metadata"`; normal-motion autoplay begins only after script initialization, and off-screen playback pauses.
 - **The toggle covers part of the clip on a 320 px screen** (about half its width, 44 px high).
 - **The share card is one picture** for the home page; the other pages keep their screenshot.
-- **Vietnamese is still unproofread** by a native reader; the new strings follow the first version's glossary.
-- **Not checked in a browser**: reduced motion on the new page, Safari and Firefox playback of the clip, 200 % text zoom.
+- **Vietnamese copy received a code-side clarity edit but has not had the requested human proofread**; owner review is pending.
+- **Browser pass, 2026-10-11:** Chromium on macOS, all seven core routes at 320, 375, 768 and 1280 CSS px; no document overflow, one H1 and no heading skips. Home at 200% text size also fits; its comparison table scrolls within its labelled table wrapper. Dark/mobile and light/desktop screenshots were inspected. Reduced motion leaves video paused, explicit Play and Pause work, normal motion starts muted playback, off-screen playback pauses, and disabled JavaScript leaves native controls. The first Tab reaches “Skip to content”; the accessibility tree exposes main/navigation/footer landmarks and the named Play button. Exhaustive keyboard traversal of navigation, copy controls and disclosures remains open. **Safari and Firefox remain untested**, as does the deployed post-fix Pages artifact.
 - **The pictures are frames of one take**, so they show the app at the moment of that take (names such as `acme-api`, `burst-cap`, made up).
 
 ## What changed from the first version
@@ -56,7 +51,6 @@ Records what `docs/superpowers/plans/2026-10-11-website-v2.md` shipped on `feat/
   content security policy; there is still no inline script and no third-party resource.
 - The diagram's verdict marks show one session merging clean and two colliding, as the clip does.
 
-## Owner steps (nothing here was done by the assistant)
+## Owner and integration follow-up
 
-Merge `feat/website` into `main` (fast-forward), enable GitHub Pages (Source: GitHub Actions), push, tag and push v0.6.0, proofread
-`website/src/content/vi.ts`, and decide whether to fix the Land-on-a-running-session gap above.
+The site and v0.6.0 are already live. The local completion branch must still be integrated and pushed before Pages can verify the sitemap fix. The owner should proofread `website/src/content/vi.ts`; Safari and Firefox playback remain open. Apple notarization stays deferred.
