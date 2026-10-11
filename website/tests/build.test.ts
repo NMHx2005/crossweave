@@ -3,8 +3,9 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdir
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { build, treeHashes } from '../build'
+import { fileURLToPath } from 'node:url'
 
-const repoRoot = new URL('../..', import.meta.url).pathname.replace(/\/$/, '')
+const repoRoot = fileURLToPath(new URL('../..', import.meta.url)).replace(/\/$/, '')
 const scratch = mkdtempSync(join(tmpdir(), 'cw-site-'))
 const options = (out: string, env: Record<string, string | undefined> = {}) => ({ out, env, repoRoot, refreshRelease: false })
 

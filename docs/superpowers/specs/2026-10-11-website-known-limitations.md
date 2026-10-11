@@ -2,7 +2,10 @@
 
 Spec: `2026-10-11-website-design.md`. Plan: `docs/superpowers/plans/2026-10-11-website.md`. Both were revised after a Codex review (the spec: 1 blocker, 7 major; the plan: 2
 blockers, 8 major), and the finished copy was fact-checked against the repository by Codex a third time (9 major, 5 minor), which found real errors, fixed in the same
-change: the site had said a launcher only drafts a line when it types it and runs it, an uninstall order that could restart a stopped daemon, a debug bundle described as
+change; a fourth Codex pass read the finished code of the whole branch (3 major, 5 minor, no blocker) and its findings were fixed too: a preview-server path check that a sibling
+directory with the same prefix or a symlink could defeat, a shared temp file name in the manifest refresh, a feature grid with a 304 px minimum column that left no right margin at 320 px,
+fence parsing that closed a four-backtick block on three backticks, heading ids that could collide, README links that begin with a slash, changelog fragments, a 404 heading with no
+language mark and file URLs used as paths. Earlier, the copy errors were: the site had said a launcher only drafts a line when it types it and runs it, an uninstall order that could restart a stopped daemon, a debug bundle described as
 identical in the app and the CLI, and checkpoint, auto-check and Land qualifiers that were thinner than the limitations files.
 
 ## What shipped
@@ -27,7 +30,7 @@ two builds of one commit are identical file for file; the build clears only a di
 
 ## Verified
 
-143 tests in `website/tests` (run by the root `bun test`; the typecheck covers `website/` too): the hand-authored markdown golden, hostile markdown, escaping, every
+162 tests in `website/tests` (run by the root `bun test`; the typecheck covers `website/` too): the hand-authored markdown golden, hostile markdown, escaping, every
 internal link and fragment resolving in the built output, no cross-origin resource, no script, heading levels, title length, image sizes, hreflang only on translated pages,
 two identical builds, the refresh failing in nine ways without touching the manifest, a custom domain without the base path, WCAG AA of every text/background pair in both
 colour schemes, the copy's English and Vietnamese halves matching, every feature's limitations file existing, the command list equal to `cw --help`. By eye, on the

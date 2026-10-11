@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ASSET_ALLOW, assetUrl, compareTags, readManifest, refreshManifest, validateRelease } from '../src/release'
+import { fileURLToPath } from 'node:url'
 
-const REAL = new URL('../release.json', import.meta.url).pathname
+const REAL = fileURLToPath(new URL('../release.json', import.meta.url))
 const GOOD = { tag: 'v0.6.0', publishedAt: '2026-10-12T00:00:00Z', assets: ['checksums.txt', 'cockpit-darwin-arm64.dmg', 'cw-darwin-arm64'] }
 const BASE = 'https://github.com/NMHx2005/crossweave/releases/download/v0.6.0/'
 
@@ -104,6 +105,26 @@ describe('refreshManifest keeps the manifest unless a complete, valid release ar
     expect(await refreshManifest(manifest, { fetcher, timeoutMs: 50 })).toBe('kept')
     expect(before()).toBe(original)
     expect(readdirSync(dir)).toEqual(['release.json'])
+  })
+
+  test('a rename that fails leaves the existing manifest and no temp file behind', async () => {
+    const asDirectory = join(dir, 'release.json.d')
+    mkdirSync(asDirectory)
+    expect(await refreshManifest(asDirectory, { fetcher: respond(api()) })).toBe('kept')
+    expect(readdirSync(dir).sort()).toEqual(['release.json', 'release.json.d'])
+  })
+
+  test('two refreshes at once do not trample each other: the manifest is whole and nothing is left over', async () => {
+    const results = await Promise.all([refreshManifest(manifest, { fetcher: respond(api()) }), refreshManifest(manifest, { fetcher: respond(api()) })])
+    expect(results.every((r) => r === 'updated' || r === 'unchanged')).toBe(true)
+    expect(readManifest(manifest).tag).toBe('v0.6.0')
+    expect(readdirSync(dir)).toEqual(['release.json'])
+  })
+
+  test('a leftover file under the old fixed temp name is neither used nor removed', async () => {
+    writeFileSync(`${manifest}.tmp`, 'someone else')
+    expect(await refreshManifest(manifest, { fetcher: respond(api()) })).toBe('updated')
+    expect(readFileSync(`${manifest}.tmp`, 'utf8')).toBe('someone else')
   })
 
   test('a failed write leaves the original and no temp file behind', async () => {

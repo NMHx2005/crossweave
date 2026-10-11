@@ -8,7 +8,7 @@ export function notFoundPage(ctx: { urls: Urls; en: Content; vi: Content }): Bui
   const { urls, en, vi } = ctx
   const body = html(`<main id="main" class="page">
 <div class="wrap">
-<h1>${esc(en.notFound.title)} · ${esc(vi.notFound.title)}</h1>
+<h1>${esc(en.notFound.title)} · <span lang="vi">${esc(vi.notFound.title)}</span></h1>
 <div class="stack">
 <p>${esc(en.notFound.text)} <a href="${esc(urls.path('/'))}">${esc(en.notFound.home)}</a></p>
 <p lang="vi">${esc(vi.notFound.text)} <a href="${esc(urls.path('/vi/'))}">${esc(vi.notFound.home)}</a></p>

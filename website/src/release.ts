@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { REPO, REPO_URL } from './site'
 import type { Release } from './types'
@@ -70,13 +71,14 @@ function fromApi(body: unknown): Release | null {
 }
 
 /**
- * Asks GitHub for the latest release and, only if the answer is complete and valid, replaces the manifest (written beside it and renamed,
- * so a crash cannot leave half a file). Never throws: any failure, a stalled connection included, keeps the manifest as it was.
+ * Asks GitHub for the latest release and, only if the answer is complete and valid, replaces the manifest (written beside it under a name of its own and
+ * renamed over it, so a crash cannot leave half a file). Never throws: any failure, a stalled connection included, keeps the manifest as it was.
  */
 export async function refreshManifest(path: string, opts: { fetcher?: typeof fetch; timeoutMs?: number } = {}): Promise<'updated' | 'unchanged' | 'kept'> {
   const fetcher = opts.fetcher ?? fetch
   const timeoutMs = opts.timeoutMs ?? 5000
-  const temp = `${path}.tmp`
+  // A name of this call's own: two refreshes at once, or a leftover file, can neither be overwritten nor deleted by this one.
+  const temp = `${path}.${process.pid}-${randomUUID()}.tmp`
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     const work = (async (): Promise<unknown> => {
@@ -93,7 +95,7 @@ export async function refreshManifest(path: string, opts: { fetcher?: typeof fet
     let current = ''
     try { current = readFileSync(path, 'utf8') } catch { /* no manifest yet */ }
     if (current === next) return 'unchanged'
-    writeFileSync(temp, next)
+    writeFileSync(temp, next, { flag: 'wx' })
     renameSync(temp, path)
     return 'updated'
   } catch {

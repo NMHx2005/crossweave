@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { imageSize } from '../src/images'
 import { prepareReadmeMarkdown, sectionsOf, shiftHeadings } from '../src/readme'
+import { fileURLToPath } from 'node:url'
 
 const README = readFileSync(new URL('../../README.md', import.meta.url), 'utf8')
 const WANTED = ['Install', 'Quickstart', 'Cockpit (desktop)', 'Configuration'] as const
@@ -67,11 +68,11 @@ describe('shiftHeadings', () => {
 
 describe('imageSize', () => {
   test('reads the real width and height from the PNG header of the committed copies', () => {
-    expect(imageSize(new URL('../public/img/cockpit-sessions.png', import.meta.url).pathname)).toEqual({ width: 1600, height: 1000 })
-    expect(imageSize(new URL('../public/icon.png', import.meta.url).pathname)).toEqual({ width: 256, height: 256 })
+    expect(imageSize(fileURLToPath(new URL('../public/img/cockpit-sessions.png', import.meta.url)))).toEqual({ width: 1600, height: 1000 })
+    expect(imageSize(fileURLToPath(new URL('../public/icon.png', import.meta.url)))).toEqual({ width: 256, height: 256 })
   })
 
   test('refuses a file that is not a PNG', () => {
-    expect(() => imageSize(new URL('../release.json', import.meta.url).pathname)).toThrow(/PNG/)
+    expect(() => imageSize(fileURLToPath(new URL('../release.json', import.meta.url)))).toThrow(/PNG/)
   })
 })

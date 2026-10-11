@@ -13,7 +13,20 @@ export function changelogPage(ctx: { urls: Urls; notes: Array<{ tag: string; mar
     .map(({ tag, markdown }) => {
       lintMarkdown(markdown)
       // The release's own heading is the h2, so its notes' headings sit one level lower.
-      const rendered = renderMarkdown(shiftHeadings(markdown, 1), { idPrefix: `${tag.replace(/\./g, '-')}-` })
+      const shifted = shiftHeadings(markdown, 1)
+      const prefix = `${tag.replace(/\./g, '-')}-`
+      // Ids are prefixed so several releases can share a page, which also moves the target of a link inside a note: `#upgrading` must
+      // become `#v0-9-0-upgrading`, and a link to nothing is an error rather than a dead anchor.
+      const known = new Set(renderMarkdown(shifted, { idPrefix: prefix }).headings.map((h) => h.id))
+      const rendered = renderMarkdown(shifted, {
+        idPrefix: prefix,
+        rewriteLink(href) {
+          if (!href.startsWith('#')) return href
+          const id = `${prefix}${href.slice(1)}`
+          if (!known.has(id)) throw new Error(`${tag}: the link ${href} points at nothing`)
+          return `#${id}`
+        },
+      })
       if (rendered.droppedHtml > 0) throw new Error(`${tag}: raw HTML in the release notes is not supported`)
       const published = tag === release.tag ? release.publishedAt.slice(0, 10) : null
       const unreleased = compareTags(tag, release.tag) > 0

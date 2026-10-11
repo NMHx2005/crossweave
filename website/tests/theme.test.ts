@@ -57,6 +57,10 @@ describe('the stylesheet', () => {
     expect(orphans).toEqual([])
   })
 
+  test('a grid column can shrink below its minimum, so a narrow screen never overflows (320 px with larger text)', () => {
+    for (const [, min] of body.matchAll(/minmax\((min\([^)]*\)|[^,]+),\s*1fr\)/g)) expect(min, 'minmax minimum').toMatch(/^(0|min\(100%,.*)$/)
+  })
+
   test('honours reduced motion', () => {
     expect(body).toContain('prefers-reduced-motion: reduce')
   })

@@ -179,6 +179,13 @@ describe('the changelog', () => {
     expect(count(body, /<time /g)).toBe(1)
   })
 
+  test('a link to a heading of the same note keeps working after the ids are prefixed, and a link to nothing fails the build', () => {
+    const page = changelogPage({ urls, notes: [{ tag: 'v0.9.0', markdown: '## Headline\n\nSee [the upgrade](#upgrading).\n\n## Upgrading\n\nx' }], release: full })
+    expect(String(page.body)).toContain('<a href="#v0-9-0-upgrading">the upgrade</a>')
+    expect(String(page.body)).toContain('id="v0-9-0-upgrading"')
+    expect(() => changelogPage({ urls, notes: [{ tag: 'v0.9.0', markdown: '## Headline\n\n[x](#nope)' }], release: full })).toThrow(/#nope/)
+  })
+
   test('release notes with raw HTML make the build fail rather than being half-rendered', () => {
     expect(() => changelogPage({ urls, notes: [{ tag: 'v1.0.0', markdown: '<div>raw</div>' }], release: full })).toThrow(/raw HTML/)
   })
@@ -194,6 +201,7 @@ describe('the 404', () => {
     expect(count(body, /<h1[ >]/g)).toBe(1)
     expect(body).toContain('Page not found')
     expect(body).toContain('Không tìm thấy trang')
+    expect(body).toContain('<span lang="vi">Không tìm thấy trang</span>')
     expect(body).toContain('href="/crossweave/"')
     expect(body).toContain('href="/crossweave/vi/"')
     expect(page.meta.alternates).toEqual({})

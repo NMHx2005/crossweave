@@ -15,6 +15,7 @@ import { NOTARIZED, readManifest, refreshManifest } from './src/release'
 import { escapeHtml, loadConfig, makeUrls, type Lang } from './src/site'
 import { themeCss } from './src/theme'
 import type { BuildOptions, BuiltPage, PageCtx } from './src/types'
+import { fileURLToPath } from 'node:url'
 
 const MARKER = '.built-by-website'
 
@@ -116,9 +117,9 @@ if (import.meta.main) {
   const args = process.argv.slice(2)
   const out = args.includes('--out') ? args[args.indexOf('--out') + 1] : undefined
   await build({
-    out: out ?? new URL('./dist', import.meta.url).pathname,
+    out: out ?? fileURLToPath(new URL('./dist', import.meta.url)),
     env: process.env,
-    repoRoot: new URL('..', import.meta.url).pathname.replace(/\/$/, ''),
+    repoRoot: fileURLToPath(new URL('..', import.meta.url)).replace(/\/$/, ''),
     refreshRelease: args.includes('--refresh-release'),
   })
 }

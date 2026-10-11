@@ -2,8 +2,9 @@ import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { docsPages, parseCommands } from '../src/pages/docs'
 import { loadConfig, makeUrls } from '../src/site'
+import { fileURLToPath } from 'node:url'
 
-const root = new URL('../../', import.meta.url).pathname
+const root = fileURLToPath(new URL('../../', import.meta.url))
 const read = (path: string): string => readFileSync(`${root}${path}`, 'utf8')
 const urls = makeUrls(loadConfig({}))
 const build = (over: Partial<Parameters<typeof docsPages>[0]> = {}) =>
@@ -90,6 +91,17 @@ describe('docsPages', () => {
     const clean = (text: string): string => text.split('\n').map((l) => l.replace(/\s+$/, '')).join('\n').trim()
     const live = clean(run.stdout.toString().split('\n').slice(1).join('\n'))
     expect(clean(read('website/src/content/cli-help.txt'))).toBe(live)
+  })
+})
+
+describe('links that start with a slash', () => {
+  test('in the README they are repository paths, on the generated overview they are already under the base', () => {
+    const readme = read('README.md').replace('## Quickstart\n', '## Quickstart\n\nSee [the progress file](/docs/PROGRESS.md).\n')
+    const quickstart = String(build({ readme }).find((p) => p.path === '/docs/quickstart/')?.body)
+    expect(quickstart).toContain('href="https://github.com/NMHx2005/crossweave/blob/main/docs/PROGRESS.md"')
+    const overview = String(build().find((p) => p.path === '/docs/')?.body)
+    expect(overview).toContain('href="/crossweave/docs/install/"')
+    expect(overview).not.toContain('/crossweave/crossweave/')
   })
 })
 

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync, readdirSync } from 'node:fs'
 import { lintMarkdown, renderMarkdown } from '../src/markdown'
+import { fileURLToPath } from 'node:url'
 
 const fixture = (name: string): string => readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8')
 const shot = { rewriteImage: (src: string) => (src === '/img/shot.png' ? { src, width: 100, height: 50 } : null) }
@@ -113,7 +114,7 @@ describe('lintMarkdown', () => {
   test('leaves code fences alone and accepts the fixture and every release note', () => {
     expect(() => lintMarkdown('```html\n<div>ok in code</div>\n```')).not.toThrow()
     expect(() => lintMarkdown(fixture('markdown-all.md'))).not.toThrow()
-    const dir = new URL('../../docs/releases/', import.meta.url).pathname
+    const dir = fileURLToPath(new URL('../../docs/releases/', import.meta.url))
     for (const name of readdirSync(dir).filter((f) => /^v\d.*\.md$/.test(f))) {
       expect(() => lintMarkdown(readFileSync(`${dir}${name}`, 'utf8')), name).not.toThrow()
     }

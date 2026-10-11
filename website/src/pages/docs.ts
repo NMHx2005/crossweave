@@ -17,6 +17,8 @@ export interface DocsCtx {
 }
 
 interface DocPage {
+  /** Markdown the site wrote itself, whose root-relative links are already under the base; a README's are repository paths. */
+  generated?: boolean
   slug: string
   title: string
   description: string
@@ -73,13 +75,13 @@ export function docsPages(ctx: DocsCtx): BuiltPage[] {
   }
 
   const pages: DocPage[] = [
-    { slug: '', title: 'Documentation', description: 'Install, quickstart, concepts and reference for crossweave.', markdown: '' },
+    { generated: true, slug: '', title: 'Documentation', description: 'Install, quickstart, concepts and reference for crossweave.', markdown: '' },
     { slug: 'install', title: 'Install', description: 'Install crossweave on macOS or Linux.', markdown: fromReadme('Install') },
     { slug: 'quickstart', title: 'Quickstart', description: 'Run two sessions on one repository and land them.', markdown: fromReadme('Quickstart') },
     { slug: 'concepts', title: 'Concepts', description: 'Sessions, the rail, landing, checks and checkpoints in a page.', markdown: ctx.concepts },
     { slug: 'cockpit', title: 'The Cockpit app', description: 'The macOS desktop app: the rail, panes, the composer, checks and settings.', markdown: fromReadme('Cockpit (desktop)') },
     { slug: 'configuration', title: 'Configuration', description: 'crossweave.config.json, trust and settings.', markdown: fromReadme('Configuration') },
-    { slug: 'commands', title: 'Command reference', description: 'The cw commands and what each one is for.', markdown: commandsMarkdown(ctx.cliHelp) },
+    { generated: true, slug: 'commands', title: 'Command reference', description: 'The cw commands and what each one is for.', markdown: commandsMarkdown(ctx.cliHelp) },
   ]
   const index = pages[0]
   if (index !== undefined) {
@@ -101,7 +103,7 @@ export function docsPages(ctx: DocsCtx): BuiltPage[] {
     const rendered = renderMarkdown(page.markdown, {
       rewriteLink(href) {
         if (/^(https?:|mailto:)/.test(href)) return href
-        if (href.startsWith('/')) return href
+        if (href.startsWith('/')) return page.generated === true ? href : repoFile(href.slice(1))
         if (href.startsWith('#')) {
           const fragment = href.slice(1)
           if (ids.get(page.slug)?.has(fragment) === true) return href

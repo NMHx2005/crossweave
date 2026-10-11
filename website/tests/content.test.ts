@@ -3,8 +3,9 @@ import { existsSync } from 'node:fs'
 import { en } from '../src/content/en'
 import { vi } from '../src/content/vi'
 import type { Content } from '../src/content/types'
+import { fileURLToPath } from 'node:url'
 
-const root = new URL('../../', import.meta.url).pathname
+const root = fileURLToPath(new URL('../../', import.meta.url))
 const both: Array<[string, Content]> = [['en', en], ['vi', vi]]
 
 /** Every string in a value, with the path it was found at. Functions are called with a sample so their text is checked too. */
