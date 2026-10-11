@@ -6,7 +6,7 @@ import { SECTION_ICONS } from '../src/ui/section-icons'
 describe('the Checks setting', () => {
   test('is a section of the Sessions group, with its one row', () => {
     const section = findSection('checks')
-    expect(section?.rows.map((r) => r.id)).toEqual(['checks-auto-run'])
+    expect(section?.rows.map((r) => r.id)).toEqual(['checks-auto-run', 'checks-notify-link'])
     expect(SETTINGS_GROUPS.find((g) => g.id === 'sessions')?.sections).toContain('checks')
   })
 

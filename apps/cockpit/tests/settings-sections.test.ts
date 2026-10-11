@@ -22,6 +22,27 @@ describe('registry', () => {
   })
 })
 
+describe('one shape for every section', () => {
+  test('each has a one-line summary and a folded explanation', () => {
+    for (const s of SETTINGS_SECTIONS) {
+      expect(s.summary.trim(), s.id).not.toBe('')
+      expect(s.summary.length, s.id).toBeLessThanOrEqual(100)
+      expect(s.details.trim(), s.id).not.toBe('')
+    }
+  })
+
+  test('a row description is one short sentence, so the page reads evenly', () => {
+    for (const s of SETTINGS_SECTIONS) for (const r of s.rows) expect(r.description.length, r.id).toBeLessThanOrEqual(160)
+  })
+
+  test('the auto-run row keeps its safety words in view, never only in the folded part', () => {
+    const row = findSection('checks')?.rows.find((r) => r.id === 'checks-auto-run')
+    expect(row?.description).toContain('sandbox')
+    expect(row?.description).toContain('every project')
+    expect(row?.description).toContain('Off by default')
+  })
+})
+
 describe('the failed-check alert row', () => {
   test('is a Notifications row and is found by what a person would type', () => {
     expect(findSection('notifications')?.rows.map((r) => r.id)).toContain('notify-check-fail')
