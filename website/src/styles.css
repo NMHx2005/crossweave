@@ -51,24 +51,35 @@ code { font-size: 0.9em; }
 .wrap { max-width: var(--measure); margin: 0 auto; padding: 0 var(--s-4); }
 
 /* ---- header and footer ---- */
-/* The header stays with you as the page scrolls, opaque so nothing shows through it; the progress bar is its bottom edge. */
+/* The header stays with you as the page scrolls; the progress bar is its bottom edge. Opaque by default, and a frosted pane where the browser can blur what passes under it. */
 .site-header { position: sticky; top: 0; z-index: 10; background: var(--cw-surface); border-bottom: var(--cw-hairline) solid var(--cw-border); }
-.site-header .wrap { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-3) var(--s-5); padding-top: var(--s-3); padding-bottom: var(--s-3); }
-.brand { display: flex; align-items: center; gap: var(--s-2); color: var(--cw-text-bright); font-weight: 600; text-decoration: none; margin-right: auto; }
+@supports (backdrop-filter: blur(1rem)) and (background: color-mix(in srgb, red 50%, blue)) {
+  .site-header { background: color-mix(in srgb, var(--cw-surface) 80%, transparent); backdrop-filter: saturate(1.4) blur(0.875rem); }
+}
+.site-header .wrap { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-4); min-height: 4rem; }
+.brand { display: flex; align-items: center; gap: var(--s-2); color: var(--cw-text-bright); font-size: 1.125rem; font-weight: 700; letter-spacing: -0.01em; text-decoration: none; }
 .brand img { width: 1.75rem; height: 1.75rem; }
-.nav { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-4); }
-.nav a { color: var(--cw-text); text-decoration: none; padding: var(--s-1) 0; }
-.nav a:hover, .nav a[aria-current="page"] { color: var(--cw-text-bright); text-decoration: underline; }
-.lang { color: var(--cw-text-dim); }
+.site-header .brand { margin-right: auto; }
+.nav { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-1); }
+.nav a, .lang { padding: var(--s-2) var(--s-3); border-radius: var(--cw-radius-lg); color: var(--cw-text); font-size: 0.95rem; font-weight: 500; text-decoration: none; }
+.nav a:hover, .lang:hover { background: var(--cw-surface-control); color: var(--cw-text-bright); }
+.nav a[aria-current="page"] { background: var(--cw-surface-overlay); color: var(--cw-text-bright); }
+.header__actions { display: flex; align-items: center; gap: var(--s-2); }
+.lang { border: var(--cw-hairline) solid var(--cw-border); color: var(--cw-text-dim); }
 
 .site-footer { margin-top: var(--s-7); background: var(--cw-surface-sidebar); color: var(--cw-text-dim); border-top: var(--cw-hairline) solid var(--cw-border); }
-.site-footer .wrap { display: grid; gap: var(--s-4); padding-top: var(--s-5); padding-bottom: var(--s-5); }
-.footer__groups { display: flex; flex-wrap: wrap; gap: var(--s-4) var(--s-7); }
-.footer__group ul { display: grid; gap: var(--s-1); margin: 0; padding: 0; list-style: none; }
-.footer__title { margin: 0 0 var(--s-2); color: var(--cw-text-bright); font-weight: 600; }
-.site-footer a { color: var(--cw-text); }
-.site-footer a:hover { color: var(--cw-accent); }
+.site-footer .wrap { display: grid; gap: var(--s-6); padding-top: var(--s-7); padding-bottom: var(--s-5); }
+.footer__top { display: grid; gap: var(--s-6); }
+.footer__brand { display: grid; gap: var(--s-3); align-content: start; max-width: 22rem; }
+.footer__tagline { color: var(--cw-text-dim); text-wrap: balance; }
+.footer__groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr)); gap: var(--s-5) var(--s-6); }
+.footer__group ul { display: grid; gap: var(--s-2); margin: 0; padding: 0; list-style: none; }
+.footer__title { margin: 0 0 var(--s-3); color: var(--cw-text-bright); font-size: 0.8rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.site-footer a { color: var(--cw-text-dim); text-decoration: none; }
+.site-footer a:hover { color: var(--cw-text-bright); }
+.site-footer .brand { color: var(--cw-text-bright); }
 .site-footer p { margin: 0; }
+.footer__bottom { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--s-2) var(--s-5); padding-top: var(--s-4); border-top: var(--cw-hairline) solid var(--cw-border); font-size: 0.875rem; }
 
 /* ---- buttons and the install line ---- */
 .btn {
@@ -82,6 +93,7 @@ code { font-size: 0.9em; }
   text-decoration: none;
 }
 .btn:hover { background: var(--cw-surface-control-hover); color: var(--cw-text-bright); }
+.btn--sm { padding: var(--s-2) var(--s-4); font-size: 0.95rem; }
 .btn--primary { background: var(--cw-accent); border-color: var(--cw-accent); color: var(--cw-surface); }
 .btn--primary:hover { background: var(--cw-accent-hover); border-color: var(--cw-accent-hover); color: var(--cw-surface); }
 
@@ -276,11 +288,15 @@ code { font-size: 0.9em; }
   html { scroll-padding-top: 7rem; }
   .nav a, .site-footer a { display: inline-flex; align-items: center; min-height: 2.75rem; }
   .nav__github { display: none; }
-  .site-header .wrap { gap: var(--s-1) var(--s-4); padding-top: var(--s-2); padding-bottom: var(--s-2); }
-  .nav { gap: 0 var(--s-3); font-size: 0.9rem; }
+  .nav a.nav__github { display: none; }
+  .footer__group ul { gap: 0; }
+  .site-header .wrap { gap: 0 var(--s-3); padding-top: var(--s-2); padding-bottom: var(--s-1); min-height: 0; }
+  .nav { order: 3; flex: 1 1 100%; gap: 0 var(--s-1); margin-left: calc(var(--s-3) * -1); }
+  .header__actions a { display: inline-flex; align-items: center; min-height: 2.75rem; }
 }
 
 @media (min-width: 48rem) {
+  .footer__top { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); }
   .docs { grid-template-columns: 12rem minmax(0, 1fr); }
   .docs__nav ul { flex-direction: column; }
 }
@@ -394,7 +410,7 @@ code { font-size: 0.9em; }
   .btn { transition: background-color 0.2s ease, border-color 0.2s ease, transform 0.2s var(--ease-out); }
   .btn:hover { transform: translateY(-0.0625rem); }
   .btn:active { transform: translateY(0); }
-  .nav a, .site-footer a { transition: color 0.2s ease; }
+  .nav a, .lang, .site-footer a { transition: color 0.2s ease, background-color 0.2s ease; }
 
   @media (hover: hover) {
     .card:hover { transform: translateY(-0.25rem); border-color: var(--cw-border-hover); box-shadow: 0 1rem 2rem var(--cw-shadow); }

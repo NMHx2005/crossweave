@@ -36,7 +36,6 @@ interface NavItem {
 function navItems(lang: Lang, content: Content, urls: Urls): NavItem[] {
   const prefix = lang === 'vi' ? '/vi' : ''
   return [
-    { href: urls.path(`${prefix}/download/`), label: content.nav.download, match: `${prefix}/download/` },
     { href: urls.path('/docs/'), label: content.nav.docs, match: '/docs/' },
     { href: urls.path('/changelog/'), label: content.nav.changelog, match: '/changelog/' },
   ]
@@ -50,6 +49,7 @@ export function renderDocument(meta: PageMeta, body: Html, ctx: { content: Conte
   const switchHref = otherPath === undefined ? null : urls.path(otherPath)
   const home = urls.path(meta.lang === 'vi' ? '/vi/' : '/')
 
+  const downloadPath = meta.lang === 'vi' ? '/vi/download/' : '/download/'
   const nav = navItems(meta.lang, content, urls)
     .map((item) => `<a href="${attr(item.href)}"${meta.path.startsWith(item.match) ? ' aria-current="page"' : ''}>${attr(item.label)}</a>`)
     .join('')
@@ -123,21 +123,29 @@ ${jsonLd}<script src="${attr(urls.path('/site.js'))}" defer></script>
 <a class="skip" href="#main">${attr(content.nav.skip)}</a>
 <header class="site-header">
 <div class="wrap">
-<a class="brand" href="${attr(home)}"><img src="${attr(urls.path('/icon.png'))}" alt="" width="28" height="28">${attr(content.siteName)}</a>
-<nav class="nav" aria-label="${attr(content.nav.mainLabel)}">${nav}<a class="nav__github" href="${attr(REPO_URL)}">${attr(content.nav.github)}</a>${switchHref === null ? '' : `<a class="lang" href="${attr(switchHref)}" hreflang="${other}" lang="${other}" aria-label="${attr(content.nav.switchLabel)}">${attr(content.nav.switchTo)}</a>`}</nav>
+<a class="brand" href="${attr(home)}"><img src="${attr(urls.path('/icon.png'))}" alt="" width="28" height="28"><span>${attr(content.siteName)}</span></a>
+<nav class="nav" aria-label="${attr(content.nav.mainLabel)}">${nav}<a class="nav__github" href="${attr(REPO_URL)}">${attr(content.nav.github)}</a></nav>
+<div class="header__actions">${switchHref === null ? '' : `<a class="lang" href="${attr(switchHref)}" hreflang="${other}" lang="${other}" aria-label="${attr(content.nav.switchLabel)}">${attr(content.nav.switchTo)}</a>`}<a class="btn btn--primary btn--sm" href="${attr(urls.path(downloadPath))}"${meta.path.startsWith(downloadPath) ? ' aria-current="page"' : ''}>${attr(content.nav.download)}</a></div>
 </div>
 <div class="scroll-progress" aria-hidden="true"></div>
 </header>
 ${body}
 <footer class="site-footer">
 <div class="wrap">
+<div class="footer__top">
+<div class="footer__brand">
+<a class="brand" href="${attr(home)}"><img src="${attr(urls.path('/icon.png'))}" alt="" width="28" height="28"><span>${attr(content.siteName)}</span></a>
 <p class="footer__tagline">${attr(content.footer.tagline)}</p>
+</div>
 <nav class="footer__groups" aria-label="${attr(content.nav.footerLabel)}">
 <div class="footer__group"><p class="footer__title">${attr(content.footer.groups.product)}</p><ul>${productLinks}</ul></div>
 <div class="footer__group"><p class="footer__title">${attr(content.footer.groups.project)}</p><ul>${projectLinks}</ul></div>
 </nav>
+</div>
+<div class="footer__bottom">
 <p>${attr(content.footer.builtBy)}</p>
 <p>${attr(content.footer.version(ctx.version))}${meta.lang === 'en' ? '' : ` · ${attr(content.docsNotice)}`}</p>
+</div>
 </div>
 </footer>
 </body>

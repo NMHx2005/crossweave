@@ -12,7 +12,7 @@ Records what `docs/superpowers/plans/2026-10-11-website-v2.md` shipped on `feat/
   all filmed from the running Cockpit by `apps/cockpit/scripts/site-video.ts` (floating window, camera zoom, a visible cursor, five numbered captions).
   It plays by itself, muted and looping, with no browser controls; a Pause/Play button (hidden until the script runs) is the only control. It pauses
   while off screen, and with reduced motion it stays on the poster until the button is pressed.
-- **A sturdier shell**: skip link, focus styles, a phone header with 44 px targets, a footer in groups, and a **Security & privacy** page built from
+- **A sturdier shell** (header and footer redrawn after a first look: a frosted sticky bar with pill links, the language switch and a Download button on the right; a footer with the brand, two titled link columns and a bottom line): skip link, focus styles, a phone header with 44 px targets (two rows, about 100 px, GitHub left to the footer), a footer in groups, and a **Security & privacy** page built from
   `SECURITY.md`; release dates in the manifest and the changelog.
 
 ## What the clip is, and is not
