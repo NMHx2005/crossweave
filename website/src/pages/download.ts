@@ -46,12 +46,12 @@ export function downloadPage(ctx: PageCtx): BuiltPage {
 <h1>${esc(c.headline)}</h1>
 <div class="stack">
 <p>${esc(c.intro)} <strong>${esc(release.tag)}</strong></p>
-${notice}
 <section>
 <h2>${esc(c.cockpit.title)}</h2>
 <p>${esc(c.cockpit.text)}</p>
 <div class="actions">${link('cockpit-darwin-arm64.dmg', c.cockpit.dmg, 'btn btn--primary')}${link('cockpit-darwin-arm64.zip', c.cockpit.zip)}</div>
 </section>
+${notice}
 <section>
 <h2>${esc(c.cli.title)}</h2>
 <p>${esc(c.cli.text)}</p>

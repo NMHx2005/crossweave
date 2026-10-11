@@ -17,10 +17,10 @@ export function homePage(ctx: PageCtx): BuiltPage {
         .map((source, i) => `<a href="${esc(repoFile(source))}">${esc(i === 0 ? f.linkLabel : `${f.linkLabel} (${i + 1})`)}</a>`)
         .join(' · ')
       return `<article class="card" id="f-${esc(f.id)}">
-${isNext ? `<span class="badge">${esc(f.nextBadge(f.since))}</span>\n` : ''}<h3>${esc(f.title)}</h3>
+<h3>${esc(f.title)}</h3>
 <p>${esc(f.text)}</p>
 <p class="card__q">${esc(f.qualifier)}</p>
-<p class="card__links">${links}</p>
+<div class="card__foot"><p>${links}</p>${isNext ? `<span class="badge">${esc(f.nextBadge(f.since))}</span>` : ''}</div>
 </article>`
     })
     .join('\n')
