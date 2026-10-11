@@ -40,12 +40,12 @@ interface FakeClip {
   controls: boolean
   plays: number
   pauses: number
-  nextElementSibling: FakeToggle
-  play(): Promise<void>
-  pause(): void
+  nextElementSibling: FakeToggle | null
+  play?: () => Promise<void>
+  pause?: () => void
 }
 
-function clip(rejectPlay = false): FakeClip {
+function clip(rejectPlay = false, opts: { videoApi?: boolean; customControl?: boolean } = {}): FakeClip {
   const listeners: Listener[] = []
   const toggle: FakeToggle = {
     hidden: true,
@@ -59,17 +59,19 @@ function clip(rejectPlay = false): FakeClip {
     controls: true,
     plays: 0,
     pauses: 0,
-    nextElementSibling: toggle,
-    play() {
+    nextElementSibling: opts.customControl === false ? null : toggle,
+  }
+  if (opts.videoApi !== false) {
+    self.play = () => {
       self.plays++
       if (rejectPlay) return Promise.reject(Object.assign(new Error('refused'), { name: 'NotAllowedError' }))
       self.paused = false
       return Promise.resolve()
-    },
-    pause() {
+    }
+    self.pause = () => {
       self.pauses++
       self.paused = true
-    },
+    }
   }
   return self
 }
@@ -144,9 +146,10 @@ describe('the demo clip', () => {
   test('where motion is welcome it plays and the Pause button is there', () => {
     const c = clip()
     boot({ clips: [c] })
-    expect(c.nextElementSibling.hidden).toBe(false)
+    expect(c.controls).toBe(false)
+    expect(c.nextElementSibling?.hidden).toBe(false)
     expect(c.plays).toBe(1)
-    expect(c.nextElementSibling.textContent).toBe('Pause the demo')
+    expect(c.nextElementSibling?.textContent).toBe('Pause the demo')
   })
 
   test('with reduced motion it never plays, and the button says Play', () => {
@@ -154,14 +157,34 @@ describe('the demo clip', () => {
     boot({ clips: [c], reduce: true })
     expect(c.plays).toBe(0)
     expect(c.paused).toBe(true)
-    expect(c.nextElementSibling.hidden).toBe(false)
-    expect(c.nextElementSibling.textContent).toBe('Play the demo')
+    expect(c.nextElementSibling?.hidden).toBe(false)
+    expect(c.nextElementSibling?.textContent).toBe('Play the demo')
+    c.nextElementSibling?.click()
+    expect(c.plays).toBe(1)
+    expect(c.paused).toBe(false)
   })
 
-  test('a browser that cannot report the preference is treated as welcoming motion', () => {
+  test('without matchMedia it keeps native controls and never autoplays', () => {
     const c = clip()
     boot({ clips: [c], reduce: null })
-    expect(c.plays).toBe(1)
+    expect(c.plays).toBe(0)
+    expect(c.controls).toBe(true)
+    expect(c.nextElementSibling?.hidden).toBe(true)
+  })
+
+  test('without the video API it keeps native controls and does not initialize the toggle', () => {
+    const c = clip(false, { videoApi: false })
+    boot({ clips: [c] })
+    expect(c.plays).toBe(0)
+    expect(c.controls).toBe(true)
+    expect(c.nextElementSibling?.hidden).toBe(true)
+  })
+
+  test('without the custom control it keeps native controls and does not autoplay', () => {
+    const c = clip(false, { customControl: false })
+    boot({ clips: [c] })
+    expect(c.plays).toBe(0)
+    expect(c.controls).toBe(true)
   })
 
   test('a change of the preference while the page is open is followed', () => {
@@ -176,14 +199,14 @@ describe('the demo clip', () => {
   test('the button pauses and plays, and a pause by the reader survives scrolling away and back', () => {
     const c = clip()
     const { intersect } = boot({ clips: [c] })
-    c.nextElementSibling.click()
+    c.nextElementSibling?.click()
     expect(c.paused).toBe(true)
-    expect(c.nextElementSibling.textContent).toBe('Play the demo')
+    expect(c.nextElementSibling?.textContent).toBe('Play the demo')
     const plays = c.plays
     intersect(false)
     intersect(true)
     expect(c.plays).toBe(plays)
-    c.nextElementSibling.click()
+    c.nextElementSibling?.click()
     expect(c.paused).toBe(false)
   })
 
@@ -200,7 +223,7 @@ describe('the demo clip', () => {
     const c = clip(true)
     boot({ clips: [c] })
     await flush()
-    expect(c.nextElementSibling.hidden).toBe(false)
-    expect(c.nextElementSibling.textContent).toBe('Play the demo')
+    expect(c.nextElementSibling?.hidden).toBe(false)
+    expect(c.nextElementSibling?.textContent).toBe('Play the demo')
   })
 })

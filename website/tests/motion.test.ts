@@ -114,6 +114,15 @@ function rulesOf(text: string, chain: string[] = []): Array<{ selector: string; 
 describe('the motion in the stylesheet', () => {
   const rules = rulesOf(css)
 
+  test('prose tables scroll inside the page and inline code can wrap on narrow screens', () => {
+    const tables = rules.find((rule) => rule.selector === '.prose table')
+    const inlineCode = rules.find((rule) => rule.selector === '.prose :not(pre) > code')
+    const proseLinks = rules.find((rule) => rule.selector === '.prose a')
+    expect(tables?.body).toMatch(/max-width:\s*100%/)
+    expect(inlineCode?.body).toMatch(/overflow-wrap:\s*anywhere/)
+    expect(proseLinks?.body).toMatch(/overflow-wrap:\s*anywhere/)
+  })
+
   test('only a script that has armed itself can hide anything, and only when motion is welcome', () => {
     // A closed <details> hides its answer by design (`details[open]` shows it): that is state the reader controls, not a reveal.
     const hiding = rules.filter((r) => !r.selector.includes('::details-content') && (/opacity:\s*0\b/.test(r.body) || /clip-path:\s*inset\(0 0 100%/.test(r.body)))
@@ -226,6 +235,11 @@ describe('the header that stays with you', () => {
     expect(rule('html')?.body).toMatch(/scroll-padding-top:\s*[\d.]+rem/)
   })
 
+  test('header actions can wrap when text zoom makes their labels wider', () => {
+    expect(rule('.header__actions')?.body).toContain('flex-wrap: wrap')
+    expect(rule('.header__actions')?.body).toContain('max-width: 100%')
+  })
+
   test('drops in once on load, only where motion is welcome, and holds still while a page change cross-fades', () => {
     const noPref = ['@media (prefers-reduced-motion: no-preference)']
     expect(rule('.site-header', noPref)?.body).toMatch(/animation:\s*header-in /)
@@ -265,7 +279,7 @@ describe('the markup that carries the motion', () => {
 
   test('the demo clip sits in a media wrapper that is uncovered on load, and keeps its size and its description', () => {
     const body = String(homePage(ctx()).body)
-    expect(body).toMatch(/<div class="hero__media">\s*<video autoplay muted loop playsinline preload="metadata" data-motion poster="[^"]+" width="1920" height="1080" aria-label="A 40-second demo[^"]*">/)
+    expect(body).toMatch(/<div class="hero__media">\s*<video controls muted loop playsinline preload="metadata" data-motion poster="[^"]+" width="1920" height="1080" aria-label="A 40-second demo[^"]*">/)
   })
 
   test('sections, cards, answers and the table wait to be revealed; the chips are a staggered group', () => {
