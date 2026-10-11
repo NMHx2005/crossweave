@@ -68,12 +68,12 @@ describe('the home page', () => {
   test('the comparison is an authored table with a caption and scoped headers', () => {
     expect(body).toContain('<caption>By hand versus crossweave</caption>')
     expect(count(body, /<th scope="col">/g)).toBe(2)
-    expect(count(body, /<th scope="row">/g)).toBe(7)
+    expect(count(body, /<th scope="row">/g)).toBe(en.home.compare.rows.length)
     expect(body).toContain('<td></td>')
   })
 
   test('every question is a details element, the launchers are plain text chips, and the only image is the app', () => {
-    expect(count(body, /<details/g)).toBe(11)
+    expect(count(body, /<details/g)).toBe(en.home.faq.items.length)
     for (const name of en.home.agents.names) expect(body).toContain(`>${name}</li>`)
     expect(count(body, /<img /g)).toBe(1)
   })
@@ -104,7 +104,7 @@ describe('the home page', () => {
   test('the Vietnamese page is the same page in Vietnamese, with its own paths', () => {
     const v = homePage(ctx({ lang: 'vi', content: vi }))
     expect(v.path).toBe('/vi/')
-    expect(text(/<h1>([\s\S]*?)<\/h1>/.exec(String(v.body))?.[1] ?? '').trim()).toBe('Nhiều agent. Một repo. Land cái đứng vững.')
+    expect(text(/<h1>([\s\S]*?)<\/h1>/.exec(String(v.body))?.[1] ?? '').trim()).toBe('Nhiều agent. Một repo. Merge cái đứng vững.')
     expect(String(v.body)).toContain('href="/crossweave/vi/download/"')
     expect(count(String(v.body), /<article class="card"/g)).toBe(12)
     expect(v.meta.alternates).toEqual({ en: '/', vi: '/vi/' })

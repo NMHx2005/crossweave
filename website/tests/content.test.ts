@@ -11,7 +11,8 @@ const both: Array<[string, Content]> = [['en', en], ['vi', vi]]
 /** Every string in a value, with the path it was found at. Functions are called with a sample so their text is checked too. */
 function strings(value: unknown, path = ''): Array<[string, string]> {
   if (typeof value === 'string') return [[path, value]]
-  if (typeof value === 'function') return strings((value as (a: string) => unknown)('v0.0.0'), `${path}()`)
+  // Functions are copy too (a pill, a release line): call them with sample arguments of the shapes they take.
+  if (typeof value === 'function') return strings((value as (...a: unknown[]) => unknown)('v0.0.0', ['one', 'two']), `${path}()`)
   if (Array.isArray(value)) return value.flatMap((v, i) => strings(v, `${path}[${i}]`))
   if (value !== null && typeof value === 'object') return Object.entries(value).flatMap(([k, v]) => strings(v, path === '' ? k : `${path}.${k}`))
   return []
@@ -24,9 +25,9 @@ describe('the two languages are the same page in two voices', () => {
     expect(vi.home.not.items).toHaveLength(en.home.not.items.length)
     expect(en.home.not.items).toHaveLength(5)
     expect(vi.home.compare.rows).toHaveLength(en.home.compare.rows.length)
-    expect(en.home.compare.rows).toHaveLength(7)
+    expect(en.home.compare.rows).toHaveLength(5)
     expect(vi.home.faq.items).toHaveLength(en.home.faq.items.length)
-    expect(en.home.faq.items).toHaveLength(11)
+    expect(en.home.faq.items).toHaveLength(16)
     expect(vi.home.agents.names).toEqual(en.home.agents.names)
   })
 
@@ -42,6 +43,53 @@ describe('the two languages are the same page in two voices', () => {
 
   test('the Vietnamese page does not carry the English headline', () => {
     expect(strings(vi).some(([, s]) => s.includes(en.home.hero.headline))).toBe(false)
+  })
+})
+
+describe('the story-led home page has all its words in both languages', () => {
+  test.each(both)('%s: every feature has a group, one short sentence and a pill label', (_name, content) => {
+    for (const f of content.home.features.items) {
+      expect(['run', 'watch', 'land', 'review'], f.id).toContain(f.group)
+      expect(f.summary.length, `${f.id}: ${f.summary}`).toBeGreaterThan(20)
+      expect(f.summary.length, `${f.id}: ${f.summary}`).toBeLessThanOrEqual(120)
+      expect(f.label.length, f.id).toBeGreaterThan(2)
+      expect(f.label.length, f.id).toBeLessThanOrEqual(30)
+    }
+    for (const group of ['run', 'watch', 'land', 'review'] as const) {
+      expect(content.home.features.items.some((f) => f.group === group), group).toBe(true)
+      expect(content.home.groups.names[group].length, group).toBeGreaterThan(0)
+    }
+  })
+
+  test('the groups are the same in both languages', () => {
+    expect(vi.home.features.items.map((f) => f.group)).toEqual(en.home.features.items.map((f) => f.group))
+  })
+
+  test.each(both)('%s: three steps with a command and a picture description, an audience in two columns, and the pill', (_name, content) => {
+    expect(content.home.how.steps).toHaveLength(3)
+    for (const step of content.home.how.steps) {
+      expect(step.command.length).toBeGreaterThan(2)
+      expect(step.imageAlt.length).toBeGreaterThan(10)
+    }
+    expect(content.home.fit.forItems.length).toBeGreaterThanOrEqual(3)
+    expect(content.home.fit.notItems.length).toBeGreaterThanOrEqual(3)
+    expect(content.home.fit.forItems.length).toBeLessThanOrEqual(5)
+    expect(content.home.pill('v0.6.0', ['a', 'b'])).toContain('v0.6.0')
+    expect(content.home.pill('v0.6.0', ['a', 'b'])).toContain('a, b')
+    expect(content.home.hero.metaRelease('v0.5.0', '30 Sep 2026')).toContain('v0.5.0')
+    expect(content.home.hero.videoTranscript.steps).toHaveLength(5)
+    expect(content.home.hero.videoNote).toContain('v0.6.0')
+  })
+
+  test('the commands the steps show are real', () => {
+    const commands = en.home.how.steps.map((s) => s.command)
+    expect(commands).toEqual(['cw session new api', 'claude', 'cw converge status'])
+    expect(en.home.how.steps[2]?.text).toContain('cw land session api --yes')
+  })
+
+  test('the landing FAQ is careful: a clean checkout, a conflict stops it, uncommitted work is not kept', () => {
+    const answer = en.home.faq.items.find((f) => f.q.includes('landing do'))?.a ?? ''
+    for (const word of ['clean', 'conflict', 'uncommitted', 'squash']) expect(answer, word).toContain(word)
   })
 })
 

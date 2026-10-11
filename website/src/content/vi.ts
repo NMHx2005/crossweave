@@ -5,10 +5,10 @@ const badge = (tag: string): string => `Có trong bản phát hành tới (${tag
 const more = 'Giới hạn và chi tiết'
 
 // Sources and `since` are facts about the repository, not words: they are taken from the English entries so the two languages cannot disagree.
-const base = (id: string): Pick<Feature, 'source' | 'source2' | 'since'> => {
+const base = (id: string): Pick<Feature, 'source' | 'source2' | 'since' | 'group'> => {
   const f = en.home.features.items.find((item) => item.id === id)
   if (f === undefined) throw new Error(`no English feature ${id}`)
-  return { source: f.source, ...(f.source2 === undefined ? {} : { source2: f.source2 }), since: f.since }
+  return { source: f.source, ...(f.source2 === undefined ? {} : { source2: f.source2 }), since: f.since, group: f.group }
 }
 
 const features: Feature[] = [
@@ -20,6 +20,8 @@ const features: Feature[] = [
     ...base('sessions'),
     linkLabel: more,
     nextBadge: badge,
+    summary: 'Mỗi session là một git worktree và một branch riêng, có dải port và một shell của chính bạn.',
+    label: 'session',
   },
   {
     id: 'rail',
@@ -29,6 +31,8 @@ const features: Feature[] = [
     ...base('rail'),
     linkLabel: more,
     nextBadge: badge,
+    summary: 'Một danh sách cho biết session nào đang chạy, đang hỏi hay đã xong, suy ra từ shell.',
+    label: 'thanh bên',
   },
   {
     id: 'checkpoints',
@@ -38,6 +42,8 @@ const features: Feature[] = [
     ...base('checkpoints'),
     linkLabel: more,
     nextBadge: badge,
+    summary: 'Một commit git ẩn quanh mỗi lượt của agent được nhận diện: xem nó đổi gì, lấy lại file.',
+    label: 'checkpoint',
   },
   {
     id: 'comments',
@@ -47,6 +53,8 @@ const features: Feature[] = [
     ...base('comments'),
     linkLabel: more,
     nextBadge: badge,
+    summary: 'Bấm vào một dòng diff, viết ghi chú, và các ghi chú được dán vào shell của session.',
+    label: 'comment trên diff',
   },
   {
     id: 'auto-check',
@@ -56,6 +64,8 @@ const features: Feature[] = [
     ...base('auto-check'),
     linkLabel: more,
     nextBadge: badge,
+    summary: 'Bật lên: lệnh test đã tin cậy chạy khi agent kết thúc lượt, và lỗi có thể báo cho bạn.',
+    label: 'test sau mỗi lượt',
   },
   {
     id: 'sensitive',
@@ -65,6 +75,8 @@ const features: Feature[] = [
     ...base('sensitive'),
     linkLabel: more,
     nextBadge: badge,
+    summary: 'File secret, CI, migration và dependency được gắn nhãn, và Land hỏi trước với secret và CI.',
+    label: 'cờ file rủi ro',
   },
   {
     id: 'land',
@@ -74,6 +86,8 @@ const features: Feature[] = [
     ...base('land'),
     linkLabel: more,
     nextBadge: badge,
+    summary: 'Trial merge chạy nền cho thấy cái nào merge sạch và theo thứ tự nào; cw land dựa trên bằng chứng đó.',
+    label: 'land',
   },
   {
     id: 'compare',
@@ -83,6 +97,8 @@ const features: Feature[] = [
     ...base('compare'),
     linkLabel: more,
     nextBadge: badge,
+    summary: 'Thay đổi của hai session cạnh nhau, file chung được đánh dấu, kèm kết quả test mỗi bên.',
+    label: 'so sánh',
   },
   {
     id: 'composer',
@@ -92,6 +108,8 @@ const features: Feature[] = [
     ...base('composer'),
     linkLabel: more,
     nextBadge: badge,
+    summary: 'Viết prompt một lần và gửi cho nhiều session, có bản xem trước chính xác.',
+    label: 'composer prompt',
   },
   {
     id: 'debug',
@@ -101,6 +119,8 @@ const features: Feature[] = [
     ...base('debug'),
     linkLabel: more,
     nextBadge: badge,
+    summary: 'Phần cuối log lỗi, các dòng lỗi, lỗi console và diff trong một ngăn, sẵn để gửi.',
+    label: 'ngăn debug',
   },
   {
     id: 'browser',
@@ -110,6 +130,8 @@ const features: Feature[] = [
     ...base('browser'),
     linkLabel: more,
     nextBadge: badge,
+    summary: 'Cho agent đọc hoặc điều khiển một ngăn trình duyệt: mặc định tắt, và hỏi trước khi làm.',
+    label: 'ngăn trình duyệt',
   },
   {
     id: 'presets',
@@ -119,6 +141,8 @@ const features: Feature[] = [
     ...base('presets'),
     linkLabel: more,
     nextBadge: badge,
+    summary: 'Một cú bấm khởi động session với launcher, các terminal phụ và một trình duyệt trên port của nó.',
+    label: 'preset',
   },
 ]
 
@@ -134,22 +158,92 @@ export const vi: Content = {
     github: 'GitHub',
     switchTo: 'English',
     switchLabel: 'Chuyển sang tiếng Anh',
+    mainLabel: 'Chính',
+    footerLabel: 'Chân trang',
   },
   home: {
     title: 'crossweave — chạy nhiều agent lập trình trên một repo',
     description:
       'Mỗi session là một git worktree cộng với shell của bạn. Xem ai đang chạy, đang hỏi hay đã xong, trial merge chạy nền, và land cái đứng vững. Miễn phí, MIT, macOS và Linux.',
     hero: {
-      headline: 'Nhiều agent. Một repo. Land cái đứng vững.',
+      headline: 'Nhiều agent. Một repo. Merge cái đứng vững.',
       subtitle:
-        'crossweave cho mỗi agent lập trình một git worktree và một shell riêng, cho bạn thấy cái nào đang chạy, đang hỏi hay đã xong, và trial merge chạy nền để bạn land cái đứng vững.',
+        'crossweave cho mỗi agent lập trình một git worktree và một shell riêng, cho bạn thấy cái nào đang chạy, đang hỏi hay đã xong, và trial merge chạy nền để bạn chỉ land (đưa vào nhánh chính) cái đứng vững. Dành cho lập trình viên đã chạy Claude Code, Codex hoặc Gemini trong nhiều terminal.',
       downloadCta: 'Tải cho macOS',
       installCta: 'Cài CLI',
       githubCta: 'Xem trên GitHub',
       installNote: 'macOS (arm64, x64) và Linux (x64). Cài cw và cwd vào ~/.local/bin và, trên Apple Silicon, cả ứng dụng Cockpit.',
       shotAlt: 'crossweave Cockpit: thanh bên các session ở bên trái — một cái đang chạy, một cái đang hỏi, một cái đã xong — và hai ngăn agent cạnh nhau',
       versionLine: (v) => `Bản phát hành mới nhất ${v} · giấy phép MIT · miễn phí`,
+      installLabel: 'Cài đặt (macOS và Linux)',
+      copyLabel: 'Sao chép',
+      copiedLabel: 'Đã chép',
+      copyFailedLabel: 'Không chép được: hãy chọn dòng lệnh',
+      appCta: 'Tải ứng dụng · macOS, Apple Silicon',
+      metaRelease: (tag, date) => `${tag} · ${date} · `,
+      whatsNew: 'Có gì mới',
+      videoAlt: 'Bản demo 30 giây của crossweave: ba session trên một repository, trạng thái của chúng trên thanh bên, một diff, các trial merge, và một session được land.',
+      videoNote:
+        'Một bản demo có kịch bản trên một dự án bịa ra, quay trên bản đang phát triển (v0.6.0): session, commit và merge là thật, màn hình agent là kịch bản và các dấu trạng thái được gửi bằng cw notify.',
+      videoTranscript: {
+        title: 'Bản demo cho thấy gì',
+        steps: [
+          'Ba session xuất hiện trên thanh bên, mỗi cái một worktree và một shell.',
+          'Màn hình agent đầy dần và các dấu trên thanh bên đổi: một cái đang chạy, một cái đang hỏi, một cái đã xong.',
+          'Con trỏ mở thay đổi của session đã xong; một nhãn file rủi ro hiện ra.',
+          'Trial merge cho thấy hai session merge sạch và một session xung đột.',
+          'Con trỏ land một session và nó rời khỏi thanh bên.',
+        ],
+      },
     },
+    pill: (tag, labels) => `Sắp có ở ${tag}: ${labels.join(', ')} →`,
+    how: {
+      title: 'Cách hoạt động',
+      intro: 'Ba bước, đều trong terminal và shell của chính bạn.',
+      diagramAlt: 'main ở trên, ba branch session rẽ ra từ nó, một trial merge giữa chúng và main, và một session land trở lại main.',
+      steps: [
+        {
+          title: 'Bắt đầu các session',
+          command: 'cw session new api',
+          text: 'Mỗi cái có worktree, branch và dải port riêng, và một shell trong đó.',
+          imageAlt: 'Thanh bên liệt kê ba session mới',
+        },
+        {
+          title: 'Chạy agent của bạn',
+          command: 'claude',
+          text: 'Gõ claude, codex hoặc lệnh của riêng bạn trong từng shell. Thanh bên cho biết ai đang chạy, đang hỏi hay đã xong.',
+          imageAlt: 'Các ngăn agent cạnh nhau với dấu trạng thái trên thanh bên',
+        },
+        {
+          title: 'Land cái đứng vững',
+          command: 'cw converge status',
+          text: 'Trial merge chạy nền và cho thấy cái nào merge sạch và theo thứ tự nào. Rồi bạn land: cw land session api --yes.',
+          imageAlt: 'Bằng chứng trial merge và nút Land trên một session',
+        },
+      ],
+    },
+    groups: {
+      title: 'Bạn nhận được gì',
+      intro: 'Nhóm theo việc bạn đang làm. Mỗi thẻ một câu; giới hạn nằm sau một cú bấm.',
+      names: { run: 'Chạy', watch: 'Theo dõi', land: 'Land', review: 'Duyệt' },
+      limits: 'Giới hạn',
+      fullLimits: 'Giới hạn đầy đủ trên GitHub',
+      coming: (tag) => `Sắp có ở ${tag}`,
+      comingIntro: 'Đã làm xong và merge, chưa có trong bản phát hành đã công bố.',
+    },
+    fit: {
+      title: 'Nó có dành cho bạn không?',
+      forTitle: 'Dành cho bạn nếu',
+      forItems: ['Bạn chạy từ hai agent lập trình trở lên trên một repository.', 'Bạn quen với git và terminal.', 'Bạn muốn thấy trạng thái trong một cái nhìn và land dựa trên bằng chứng.'],
+      notTitle: 'Không dành cho bạn nếu',
+      notItems: [
+        'Bạn cần Windows.',
+        'Bạn muốn một IDE.',
+        'Bạn muốn công cụ tự chọn, sandbox hay giám sát agent.',
+        'Bạn muốn điều khiển từ điện thoại (ứng dụng iOS thuần đang được dự định).',
+      ],
+    },
+    releases: { title: 'Bản phát hành gần đây', developing: (tag) => `Đang phát triển: ${tag}`, all: 'Toàn bộ lịch sử thay đổi' },
     features: {
       title: 'Vòng lặp phát triển của bạn',
       intro: 'Mọi thứ dưới đây đều kết thúc bằng chữ được gõ vào shell của chính bạn. crossweave chứa shell; bạn chạy các agent.',
@@ -192,11 +286,9 @@ export const vi: Content = {
           'Tuỳ bạn nhớ mà đặt.',
           'Mỗi session một dải port, một thư mục cache và tên database hoặc Docker tuỳ chọn (mang tính hợp tác, không ép buộc).',
         ],
-        ['Ai đang cần bạn', 'Lật qua từng cửa sổ.', 'Một thanh bên: đang chạy, đang hỏi, đã xong hoặc thất bại.'],
-        ['Land sẽ mang gì vào', 'git diff, từng branch một.', 'Diff của từng session so với chỗ nó rời base, cộng trial merge chạy nền.'],
-        ['Merge cái nào trước', 'Tuỳ phán đoán của bạn.', 'Thứ tự đề xuất từ các trial merge.'],
-        ['Bản ghi từng lượt của agent', 'Reflog, nếu bạn có commit.', 'Mỗi lượt một checkpoint để xem và khôi phục.'],
-        ['Chọn agent', 'Bạn.', 'Vẫn là bạn: launcher chỉ gõ lệnh bạn đã lưu.'],
+        ['Ai đang cần bạn', 'Lật qua từng cửa sổ.', 'Một thanh bên: đang chạy, đang hỏi, đã xong hoặc thất bại. Trạng thái được suy ra từ hoạt động của terminal; độ chính xác tuỳ agent.'],
+        ['Merge cái nào trước', 'Tuỳ phán đoán của bạn.', 'Trial merge cho thấy cái nào merge sạch và một thứ tự đề xuất. Chúng cho thấy xung đột, không đảm bảo đúng đắn.'],
+        ['Bản ghi từng lượt của agent', 'Reflog, nếu bạn có commit.', 'Mỗi lượt được nhận diện một checkpoint để xem và khôi phục (v0.6.0).'],
       ],
       foot: 'crossweave thêm một daemon và một ứng dụng vào quy trình trên; nếu bạn chỉ chạy hai agent, worktree thường là đủ.',
     },
@@ -246,7 +338,27 @@ export const vi: Content = {
         },
         {
           q: 'Gỡ cài đặt thế nào?',
-          a: 'Trước hết land hoặc giữ lại phần việc bạn cần, và gỡ các hook agent đã cài bằng cw hooks remove claude hoặc cw hooks remove codex. Xoá các session không còn cần bằng cw session rm TÊN --yes (session phải đã kết thúc) hoặc cw gc; việc đó cũng xoá checkpoint của chúng. Cuối cùng, thoát ứng dụng, chạy cw daemon stop trong từng project, rồi xoá cw và cwd khỏi ~/.local/bin, ứng dụng khỏi ~/Applications, thư mục .crossweave của từng project, và settings của bạn trong ~/.crossweave.',
+          a: 'Thoát ứng dụng, dừng daemon của từng project bằng cw daemon stop, xoá các session không còn cần, rồi xoá các file đã cài. Các bước chính xác, theo đúng thứ tự, nằm trong tài liệu cài đặt.',
+        },
+        {
+          q: 'Tôi có cần ứng dụng không, hay CLI là đủ?',
+          a: 'CLI và daemon làm được mọi thứ; Cockpit là giao diện desktop trên chúng, chạy trên macOS Apple Silicon. Trên Linux, hoặc khi không dùng ứng dụng, hãy dùng cw và dashboard terminal (cw tui).',
+        },
+        {
+          q: 'Land làm gì với branch gốc của tôi?',
+          a: 'Nó merge phần việc đã commit của session vào branch gốc trong checkout chính của bạn, mặc định dạng squash (merge và rebase cấu hình được). Checkout phải sạch, session đang chạy cần --force, và xung đột sẽ dừng lại. Sau đó worktree và branch của session bị xoá, nên mọi thứ chưa commit trong worktree đó không được giữ lại.',
+        },
+        {
+          q: 'Nó khác các IDE có agent thế nào?',
+          a: 'IDE có agent là một trình soạn thảo với agent bên trong. crossweave là lớp nằm dưới các công cụ của bạn: cho mỗi công cụ một worktree và shell cô lập, cho thấy trạng thái của chúng và land phần việc của chúng. Nó không thay trình soạn thảo hay chọn agent thay bạn.',
+        },
+        {
+          q: 'Worktree tốn bao nhiêu ổ đĩa?',
+          a: 'Một worktree dùng chung kho đối tượng của repository, nên nó chứa file làm việc của bạn chứ không phải một bản sao lịch sử khác. Thứ phình ra là các dependency cài riêng cho từng worktree (node_modules). Dashboard cho thấy ổ đĩa mỗi session chiếm (là cận dưới khi phép đo còn đang chạy), và cw gc thu hồi các session đã kết thúc.',
+        },
+        {
+          q: 'Vì sao là “crossweave”?',
+          a: 'Các agent của bạn chạy như những sợi dọc song song. crossweave là sợi ngang: sợi chéo buộc chúng lại để tấm vải đứng vững.',
         },
       ],
     },
@@ -288,6 +400,10 @@ export const vi: Content = {
   },
   footer: {
     tagline: 'Chạy nhiều agent trên một repo. Land cái đứng vững.',
+    groups: { product: 'Sản phẩm', project: 'Dự án' },
+    builtBy: 'Một lập trình viên làm để dùng hằng ngày. Lỗi và ý tưởng: GitHub Issues.',
+    security: 'Bảo mật',
+    contributing: 'Đóng góp',
     license: 'Giấy phép MIT',
     issues: 'Issues',
     version: (v) => `Bản phát hành ${v}`,

@@ -241,7 +241,7 @@ describe('the markup that carries the motion', () => {
   test('sections, cards, answers and the table wait to be revealed; the chips are a staggered group', () => {
     const body = String(homePage(ctx()).body)
     expect([...body.matchAll(/<article class="card" data-reveal /g)]).toHaveLength(12)
-    expect([...body.matchAll(/<details data-reveal>/g)]).toHaveLength(11)
+    expect([...body.matchAll(/<details data-reveal>/g)]).toHaveLength(en.home.faq.items.length)
     expect(body).toContain('<ul class="chips" data-reveal="group">')
     for (const name of en.home.agents.names) expect(body).toContain(`<li class="reveal-item">${name}</li>`)
     expect(body).toContain('class="section__title" data-reveal')

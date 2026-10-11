@@ -13,6 +13,18 @@ export interface Feature {
   /** The release that first shipped it, e.g. `v0.6.0`: a feature newer than the latest published release is badged. */
   since: string
   nextBadge(tag: string): string
+  /** Where the feature sits on the home page, and its one sentence (the `text` and `qualifier` live behind the card's Limits). */
+  group: 'run' | 'watch' | 'land' | 'review'
+  summary: string
+  /** Two or three words, for the announcement pill. */
+  label: string
+}
+
+export interface Step {
+  title: string
+  command: string
+  text: string
+  imageAlt: string
 }
 
 export interface Content {
@@ -27,6 +39,8 @@ export interface Content {
     github: string
     switchTo: string
     switchLabel: string
+    mainLabel: string
+    footerLabel: string
   }
   readonly home: {
     title: string
@@ -40,7 +54,30 @@ export interface Content {
       installNote: string
       shotAlt: string
       versionLine(version: string): string
+      installLabel: string
+      copyLabel: string
+      copiedLabel: string
+      copyFailedLabel: string
+      appCta: string
+      metaRelease(tag: string, date: string): string
+      whatsNew: string
+      videoAlt: string
+      videoNote: string
+      videoTranscript: { title: string; steps: string[] }
     }
+    pill(tag: string, labels: string[]): string
+    how: { title: string; intro: string; diagramAlt: string; steps: Step[] }
+    groups: {
+      title: string
+      intro: string
+      names: Record<'run' | 'watch' | 'land' | 'review', string>
+      limits: string
+      fullLimits: string
+      coming(tag: string): string
+      comingIntro: string
+    }
+    fit: { title: string; forTitle: string; forItems: string[]; notTitle: string; notItems: string[] }
+    releases: { title: string; developing(tag: string): string; all: string }
     features: { title: string; intro: string; items: Feature[] }
     agents: { title: string; text: string; names: string[]; note: string }
     not: { title: string; intro: string; items: Array<{ title: string; text: string }> }
@@ -63,6 +100,10 @@ export interface Content {
   }
   readonly footer: {
     tagline: string
+    groups: { product: string; project: string }
+    builtBy: string
+    security: string
+    contributing: string
     license: string
     issues: string
     version(v: string): string
