@@ -71,6 +71,21 @@ describe('compareTags and validateRelease', () => {
   })
 })
 
+describe('the dates in the manifest', () => {
+  test('the committed manifest has the date of every published release, and only valid ones', () => {
+    const { dates } = readManifest(REAL)
+    expect(dates).toEqual({ 'v0.2.0': '2026-08-16', 'v0.2.1': '2026-08-19', 'v0.3.0': '2026-09-18', 'v0.4.0': '2026-09-30', 'v0.5.0': '2026-09-30' })
+  })
+
+  test('a malformed date or tag makes the whole manifest invalid, and dates are optional', () => {
+    expect(validateRelease({ ...GOOD, dates: { 'v0.6.0': 'yesterday' } })).toBeNull()
+    expect(validateRelease({ ...GOOD, dates: { latest: '2026-10-12' } })).toBeNull()
+    expect(validateRelease({ ...GOOD, dates: [] })).toBeNull()
+    expect(validateRelease(GOOD)?.dates).toBeUndefined()
+    expect(validateRelease({ ...GOOD, dates: { 'v0.10.0': '2026-10-12', 'v0.9.0': '2026-10-01' } })?.dates).toEqual({ 'v0.9.0': '2026-10-01', 'v0.10.0': '2026-10-12' })
+  })
+})
+
 describe('assetUrl', () => {
   test('is the GitHub release URL for an asset the release has, and null for one it does not', () => {
     expect(assetUrl(GOOD, 'cw-darwin-arm64')).toBe(`${BASE}cw-darwin-arm64`)
@@ -83,7 +98,9 @@ describe('refreshManifest keeps the manifest unless a complete, valid release ar
 
   test('a good release rewrites the file; the same release again changes nothing', async () => {
     expect(await refreshManifest(manifest, { fetcher: respond(api()) })).toBe('updated')
-    expect(readManifest(manifest)).toEqual({ ...GOOD, assets: [...GOOD.assets].sort() })
+    // The new release's date is merged into the dates the manifest already had, in the same write.
+    const written = readManifest(manifest)
+    expect(written).toEqual({ ...GOOD, assets: [...GOOD.assets].sort(), dates: { ...readManifest(REAL).dates, 'v0.6.0': '2026-10-12' } })
     expect(readFileSync(manifest, 'utf8').endsWith('\n')).toBe(true)
     expect(await refreshManifest(manifest, { fetcher: respond(api()) })).toBe('unchanged')
     expect(readdirSync(dir)).toEqual(['release.json'])

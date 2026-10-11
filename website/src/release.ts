@@ -20,6 +20,7 @@ const DOWNLOAD_PREFIX = `${REPO_URL}/releases/download/`
 const API_URL = `https://api.github.com/repos/${REPO}/releases/latest`
 const TAG = /^v(\d+)\.(\d+)\.(\d+)$/
 const PUBLISHED = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/
+const DAY = /^\d{4}-\d{2}-\d{2}$/
 
 export function compareTags(a: string, b: string): number {
   const [x, y] = [TAG.exec(a), TAG.exec(b)]
@@ -38,7 +39,15 @@ export function validateRelease(raw: unknown): Release | null {
   if (typeof tag !== 'string' || !TAG.test(tag)) return null
   if (typeof publishedAt !== 'string' || !PUBLISHED.test(publishedAt)) return null
   if (!Array.isArray(assets) || !assets.every((a) => typeof a === 'string' && ASSET_ALLOW.includes(a))) return null
-  return { tag, publishedAt, assets: [...new Set(assets as string[])].sort() }
+  const rawDates = (raw as Record<string, unknown>)['dates']
+  let dates: Record<string, string> | undefined
+  if (rawDates !== undefined) {
+    if (rawDates === null || typeof rawDates !== 'object' || Array.isArray(rawDates)) return null
+    const entries = Object.entries(rawDates as Record<string, unknown>)
+    if (!entries.every(([key, value]) => TAG.test(key) && typeof value === 'string' && DAY.test(value))) return null
+    dates = Object.fromEntries((entries as Array<[string, string]>).sort(([a], [b]) => compareTags(a, b)))
+  }
+  return { tag, publishedAt, assets: [...new Set(assets as string[])].sort(), ...(dates === undefined ? {} : { dates }) }
 }
 
 export function readManifest(path: string): Release {
@@ -89,11 +98,16 @@ export async function refreshManifest(path: string, opts: { fetcher?: typeof fet
     work.catch(() => undefined) // a late rejection after the deadline must not surface
     // A race, not just an abort signal: a fetcher (or a body stream) that ignores the signal still stops here.
     const deadline = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('timed out')), timeoutMs) })
-    const release = fromApi(await Promise.race([work, deadline]))
-    if (release === null) return 'kept'
-    const next = serialise(release)
+    const fetched = fromApi(await Promise.race([work, deadline]))
+    if (fetched === null) return 'kept'
     let current = ''
     try { current = readFileSync(path, 'utf8') } catch { /* no manifest yet */ }
+    // The dates already recorded stay, and the new release's day joins them: one manifest, so one atomic write.
+    let before: Release | null = null
+    try { before = validateRelease(JSON.parse(current)) } catch { /* an unreadable manifest is replaced */ }
+    const release = validateRelease({ ...fetched, dates: { ...before?.dates, [fetched.tag]: fetched.publishedAt.slice(0, 10) } })
+    if (release === null) return 'kept'
+    const next = serialise(release)
     if (current === next) return 'unchanged'
     writeFileSync(temp, next, { flag: 'wx' })
     renameSync(temp, path)

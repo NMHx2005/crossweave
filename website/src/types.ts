@@ -11,6 +11,8 @@ export interface Release {
   tag: string
   publishedAt: string
   assets: string[]
+  /** The publication date (`YYYY-MM-DD`) of each published release, by tag: the changelog and the recent-releases strip show them. */
+  dates?: Record<string, string>
 }
 
 export interface PageCtx {
