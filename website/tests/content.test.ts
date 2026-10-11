@@ -22,8 +22,6 @@ describe('the two languages are the same page in two voices', () => {
   test('same number of features, limits, table rows, questions and the same launcher names', () => {
     expect(vi.home.features.items.map((f) => f.id)).toEqual(en.home.features.items.map((f) => f.id))
     expect(en.home.features.items).toHaveLength(12)
-    expect(vi.home.not.items).toHaveLength(en.home.not.items.length)
-    expect(en.home.not.items).toHaveLength(5)
     expect(vi.home.compare.rows).toHaveLength(en.home.compare.rows.length)
     expect(en.home.compare.rows).toHaveLength(5)
     expect(vi.home.faq.items).toHaveLength(en.home.faq.items.length)

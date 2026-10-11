@@ -80,11 +80,9 @@ export interface Content {
     releases: { title: string; developing(tag: string): string; all: string }
     features: { title: string; intro: string; items: Feature[] }
     agents: { title: string; text: string; names: string[]; note: string }
-    not: { title: string; intro: string; items: Array<{ title: string; text: string }> }
     compare: { title: string; caption: string; headings: [string, string, string]; rows: Array<[string, string, string]>; foot: string }
-    why: { title: string; text: string }
     faq: { title: string; items: Array<{ q: string; a: string }> }
-    cta: { title: string; text: string }
+    cta: { title: string; text: string; button: string }
   }
   readonly download: {
     title: string

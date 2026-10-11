@@ -16,6 +16,7 @@ const full: Release = {
   assets: ['checksums.txt', 'cockpit-darwin-arm64.dmg', 'cockpit-darwin-arm64.zip', 'cw-darwin-arm64', 'cw-darwin-x64', 'cw-linux-x64', 'cwd-darwin-arm64', 'cwd-darwin-x64', 'cwd-linux-x64', 'install.sh'],
 }
 const ctx = (over: Partial<PageCtx> = {}): PageCtx => ({
+  notes: [],
   lang: 'en',
   content: en,
   urls,
@@ -44,7 +45,6 @@ describe('the home page', () => {
   test('the download button goes to the Download page (where the caveat is), the install line is a plain code block', () => {
     expect(body).toContain('class="btn btn--primary" href="/crossweave/download/"')
     expect(body).toContain('<code class="cmd">curl -fsSL https://raw.githubusercontent.com/NMHx2005/crossweave/main/install.sh | sh</code>')
-    expect(body).toContain('Latest release v0.5.0')
   })
 
   test('twelve feature cards, each with its qualifier and a link to its limitations file on GitHub', () => {
@@ -56,15 +56,6 @@ describe('the home page', () => {
     }
   })
 
-  test('a feature newer than the latest published release is badged, and loses the badge when its release is the latest', () => {
-    const unreleased = en.home.features.items.filter((f) => f.since === 'v0.6.0')
-    expect(unreleased.length).toBeGreaterThan(0)
-    expect(count(body, /class="badge"/g)).toBe(unreleased.length)
-    expect(body).toContain('In the next release (v0.6.0)')
-    const after = String(homePage(ctx({ release: { ...full, tag: 'v0.6.0' } })).body)
-    expect(after).not.toContain('class="badge"')
-  })
-
   test('the comparison is an authored table with a caption and scoped headers', () => {
     expect(body).toContain('<caption>By hand versus crossweave</caption>')
     expect(count(body, /<th scope="col">/g)).toBe(2)
@@ -73,15 +64,16 @@ describe('the home page', () => {
   })
 
   test('every question is a details element, the launchers are plain text chips, and the only image is the app', () => {
-    expect(count(body, /<details/g)).toBe(en.home.faq.items.length)
+    expect(count(body, /<details data-reveal>/g)).toBe(en.home.faq.items.length)
     for (const name of en.home.agents.names) expect(body).toContain(`>${name}</li>`)
-    expect(count(body, /<img /g)).toBe(1)
+    // The hero's picture, and one still for each of the three steps.
+    expect(count(body, /<img /g)).toBe(1 + en.home.how.steps.length)
   })
 
   test('the hero image says its size and is not lazy', () => {
     expect(body).toContain('src="/crossweave/img/cockpit-sessions.png"')
     expect(body).toMatch(/<img [^>]*alt="crossweave Cockpit[^>]*width="1600" height="1000"/)
-    expect(body).not.toMatch(/<img [^>]*loading="lazy"/)
+    expect(/<img class="hero__shot"[^>]*>/.exec(body)?.[0]).not.toContain('loading="lazy"')
   })
 
   test('copy is escaped: markup typed into the content never becomes markup', () => {

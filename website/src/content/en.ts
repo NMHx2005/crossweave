@@ -273,26 +273,6 @@ export const en: Content = {
       names: ['Claude Code', 'Codex', 'Gemini CLI', 'OpenCode', 'Cursor Agent', 'Copilot CLI', 'Aider', 'Amp', 'Qwen Code'],
       note: "Or your own wrapper (cx, a script, a dev server). crossweave does not choose or configure an agent: a launcher types the command you saved into the session's shell and runs it, and you can start with a plain shell instead.",
     },
-    not: {
-      title: 'What it deliberately does not do',
-      intro: 'Each of these was built or considered and left out on purpose.',
-      items: [
-        { title: 'No agent model', text: "There is no picker that chooses an AI for you, no agent adapters and no per-agent launch flags (you edit a launcher's command yourself). The last version with them is v0.3-radar." },
-        {
-          title: 'No collision guard or sandbox',
-          text: 'Collision Radar, Safe Mode and the OS sandbox were removed. The only warning left is a file-level overlap signal, which advises and never blocks.',
-        },
-        {
-          title: 'No browser remote control',
-          text: 'The phone web page and cw gateway were removed (v0.4-remote-web). A native iOS app for remote control is planned, designed from scratch.',
-        },
-        { title: 'No in-app dictation', text: 'Dictation is better served system-wide by a dedicated tool (last version with it: v0.5-voice-input).' },
-        {
-          title: 'No Windows',
-          text: "The daemon uses Bun's pty and unix sockets, so macOS and Linux only; the Cockpit is macOS on Apple Silicon.",
-        },
-      ],
-    },
     compare: {
       title: 'Why not just git worktree and tmux?',
       caption: 'By hand versus crossweave',
@@ -309,10 +289,6 @@ export const en: Content = {
         ['A record of each agent turn', 'The reflog, if you committed.', 'A checkpoint per recognised turn you can inspect and restore (v0.6.0).'],
       ],
       foot: 'crossweave adds a daemon and an app to the workflow above; if you only ever run two agents, plain worktrees are fine.',
-    },
-    why: {
-      title: 'Why “crossweave”?',
-      text: 'Your agents run as parallel warp threads. crossweave is the weft: the cross-thread that binds them so the fabric holds together.',
     },
     faq: {
       title: 'Questions',
@@ -383,6 +359,7 @@ export const en: Content = {
     cta: {
       title: 'Try it on a repository you can afford to experiment on',
       text: 'Two worktrees, two shells, one rail. Follow the quickstart.',
+      button: 'Read the quickstart',
     },
   },
   download: {

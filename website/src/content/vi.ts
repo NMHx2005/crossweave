@@ -255,26 +255,6 @@ export const vi: Content = {
       names: [...en.home.agents.names],
       note: 'Hoặc wrapper của riêng bạn (cx, một script, một dev server). crossweave không chọn hay cấu hình agent: một launcher gõ lệnh bạn đã lưu vào shell của session rồi chạy nó, và bạn cũng có thể bắt đầu bằng một shell thường.',
     },
-    not: {
-      title: 'Những điều nó cố ý không làm',
-      intro: 'Mỗi điều dưới đây từng được làm hoặc cân nhắc rồi cố ý bỏ ra.',
-      items: [
-        { title: 'Không có mô hình agent', text: 'Không có bộ chọn AI thay bạn, không có adapter cho agent và không có cờ khởi chạy riêng cho từng agent (bạn tự sửa lệnh của launcher). Phiên bản cuối còn chúng là v0.3-radar.' },
-        {
-          title: 'Không có chốt chặn va chạm hay sandbox',
-          text: 'Collision Radar, Safe Mode và sandbox của hệ điều hành đã bị gỡ. Cảnh báo duy nhất còn lại là tín hiệu trùng file, chỉ khuyên và không bao giờ chặn.',
-        },
-        {
-          title: 'Không điều khiển từ xa qua trình duyệt',
-          text: 'Trang web trên điện thoại và cw gateway đã bị gỡ (v0.4-remote-web). Một ứng dụng iOS thuần cho điều khiển từ xa đang được dự định, thiết kế lại từ đầu.',
-        },
-        { title: 'Không đọc chính tả trong app', text: 'Đọc chính tả dùng công cụ chuyên dụng trên toàn hệ thống thì tốt hơn (phiên bản cuối còn nó: v0.5-voice-input).' },
-        {
-          title: 'Không có Windows',
-          text: 'Daemon dùng pty và unix socket của Bun, nên chỉ macOS và Linux; Cockpit chạy trên macOS Apple Silicon.',
-        },
-      ],
-    },
     compare: {
       title: 'Sao không chỉ dùng git worktree và tmux?',
       caption: 'Làm tay so với crossweave',
@@ -291,10 +271,6 @@ export const vi: Content = {
         ['Bản ghi từng lượt của agent', 'Reflog, nếu bạn có commit.', 'Mỗi lượt được nhận diện một checkpoint để xem và khôi phục (v0.6.0).'],
       ],
       foot: 'crossweave thêm một daemon và một ứng dụng vào quy trình trên; nếu bạn chỉ chạy hai agent, worktree thường là đủ.',
-    },
-    why: {
-      title: 'Vì sao là “crossweave”?',
-      text: 'Các agent của bạn chạy như những sợi dọc song song. crossweave là sợi ngang: sợi chéo buộc chúng lại để tấm vải đứng vững.',
     },
     faq: {
       title: 'Câu hỏi thường gặp',
@@ -365,6 +341,7 @@ export const vi: Content = {
     cta: {
       title: 'Thử trên một repository bạn dám mang ra thí nghiệm',
       text: 'Hai worktree, hai shell, một thanh bên. Làm theo phần bắt đầu nhanh.',
+      button: 'Đọc phần bắt đầu nhanh',
     },
   },
   download: {

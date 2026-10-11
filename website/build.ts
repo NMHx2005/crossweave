@@ -56,13 +56,13 @@ export async function build(options: BuildOptions): Promise<void> {
   const notarized = options.notarized ?? NOTARIZED
   const sizeOf = (name: string): { width: number; height: number } => imageSize(join(repoRoot, 'website', 'public', 'img', name))
 
-  const base = { urls, release, notarized, imageSize: sizeOf }
-  const ctx = (lang: Lang): PageCtx => ({ ...base, lang, content: CONTENT[lang] })
-
   const releasesDir = join(repoRoot, 'docs', 'releases')
   const notes = readdirSync(releasesDir)
     .filter((name) => /^v\d+\.\d+\.\d+\.md$/.test(name))
     .map((name) => ({ tag: name.replace(/\.md$/, ''), markdown: readFileSync(join(releasesDir, name), 'utf8') }))
+
+  const base = { urls, release, notarized, imageSize: sizeOf }
+  const ctx = (lang: Lang): PageCtx => ({ ...base, lang, content: CONTENT[lang], notes })
 
   const pages: BuiltPage[] = [
     homePage(ctx('en')),

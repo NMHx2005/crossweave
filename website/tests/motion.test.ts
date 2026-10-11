@@ -173,6 +173,7 @@ describe('the motion in the stylesheet', () => {
 
 const urls = makeUrls(loadConfig({}))
 const ctx = (over: Partial<PageCtx> = {}): PageCtx => ({
+  notes: [],
   lang: 'en',
   content: en,
   urls,

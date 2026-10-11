@@ -23,6 +23,8 @@ export interface PageCtx {
   notarized: boolean
   /** The real size of a committed site image (`cockpit-sessions.png`), read from its PNG header by the build. */
   imageSize(name: string): { width: number; height: number }
+  /** The release notes (`docs/releases/v*.md`), for the recent-releases strip and the pill's target. */
+  notes: ReadonlyArray<{ tag: string; markdown: string }>
 }
 
 /** A finished page: where it lives, its head, and its body. The build wraps it in the shell. */
