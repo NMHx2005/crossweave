@@ -48,7 +48,7 @@ covers it, and the root `bun test` runs its tests.
 1. **Home**
    - **Hero:** the headline, a one-line subtitle, two buttons — *Download for macOS* and *Install the CLI* (the `curl … | sh` line, with a copy-free plain
      `<code>` block: no JavaScript) — a GitHub link, the version and licence, and the main screenshot.
-   - **"Your dev loop"** grid of feature cards, each one sentence that carries its own qualifier and one link to its limitations file or docs section (a card in
+   - **"Your dev loop"** grid of feature cards (a card whose feature is newer than the latest published release carries an "In the next release (vX.Y.Z)" badge beside its claim, and loses it by itself when the manifest names that release), each one sentence that carries its own qualifier and one link to its limitations file or docs section (a card in
      the content type has `text`, `qualifier` and `source`, and a test checks that `source` exists): sessions as worktree + shell; one
      rail that says who is working, asking or done; checkpoints around every agent turn; diff comments pasted into the shell; automatic test runs and a failed-test
      alert; sensitive-file flags before landing; trial merges and evidence-gated landing; compare two sessions; prompt composer to many sessions; debug pane;
@@ -78,12 +78,12 @@ covers it, and the root `bun test` runs its tests.
    those headings disappears, so the docs cannot silently go stale. A section runs from its `## ` heading to the next `## ` heading; its heading becomes the page's
    `h1`, sub-headings are promoted one level and get slug ids (duplicates numbered). Before rendering, the README's `<p align="center"><img …></p>` screenshot lines are
    rewritten to markdown images pointing at the site's own copies, repository-relative links (`docs/…`, `src/…`, `apps/…`) are rewritten to
-   `https://github.com/NMHx2005/crossweave/blob/main/…`, and every in-page `#fragment` is checked against the slugs. A markdown construct the renderer does not
-   support fails the build rather than being dropped. A short "Concepts" page (session, worktree, rail, land, evidence) written for the site, and a
+   `https://github.com/NMHx2005/crossweave/blob/main/…`, and every in-page `#fragment` is checked against the slugs. Raw HTML left in a docs source (after the screenshot rewrite) and the constructs the renderer is known not to support (task lists, footnotes,
+   math) fail the build; any other new construct degrades to its text, and a hand-authored golden test over the real README sections makes a visible change loud. A short "Concepts" page (session, worktree, rail, land, evidence) written for the site, and a
    `cw` command list from a committed fixture, `website/src/content/cli-help.txt`, which a test compares with the live `bun src/cli/index.ts --help` output so it cannot drift. Docs stay in English in v1 (translating the README is out of scope; the Vietnamese
    pages say so and link to the English ones).
 4. **Changelog:** every `docs/releases/v*.md`, newest first, rendered from markdown, English only.
-5. **404**, `sitemap.xml`, `robots.txt`, a web manifest-free `<link rel="icon">` from the app icon.
+5. **404** (one bilingual `404.html`), `sitemap.xml`, `robots.txt`, a web manifest-free `<link rel="icon">` from the app icon.
 
 ## Claims discipline
 
@@ -135,14 +135,15 @@ releases page instead of at an asset.
 
 GitHub Pages through the official `actions/upload-pages-artifact` and `actions/deploy-pages` actions. The workflow (`pages.yml`) needs `permissions: contents: read,
 pages: write, id-token: write`, `environment: github-pages`, a `concurrency` group, a pinned Bun (1.3.14), `actions/checkout`, and runs on pushes to `main` that touch
-`website/**`, `docs/releases/**` or `README.md`, on `workflow_dispatch`, and on **`workflow_run`** of the `release` workflow completing (a release published by an
+`website/**`, `docs/releases/**`, `docs/images/**`, `install.sh`, `README.md` or the cockpit token modules, on `workflow_dispatch`, and on **`workflow_run`** of the `release` workflow completing (a release published by an
 action using `GITHUB_TOKEN` does not itself start another workflow, but the completion of the release workflow does).
 
 One function, `url(path)`, builds every internal address (navigation, assets, canonical, Open Graph, hreflang, sitemap) from `SITE_URL` and `SITE_BASE`, which default
 to `https://nmhx2005.github.io` and `/crossweave`. With `SITE_DOMAIN` set the base becomes `/`, a `CNAME` file is written, and `robots.txt` is emitted (a project
 site's `robots.txt` is not read at the origin root, so it is only meaningful on a custom domain). `404.html` lives at the root of the artifact and uses only absolute,
 base-aware resource paths. Writing `CNAME` does not configure DNS or the repository's Pages custom-domain setting; both stay the owner's one-time steps, as does
-Settings → Pages → Source: GitHub Actions. Nothing is pushed or deployed by the assistant.
+Settings → Pages → Source: GitHub Actions. The deploy always builds `main` (a release only triggers a rebuild with the new release data), installs the existing root dependencies, runs the website tests and builds with the
+`base_path` and `origin` that `actions/configure-pages` reports. Nothing is pushed or deployed by the assistant.
 
 ## Security and privacy
 
@@ -159,7 +160,7 @@ Settings → Pages → Source: GitHub Actions. Nothing is pushed or deployed by 
   resource (links to GitHub are fine, `src`/`href rel=stylesheet` to other origins are not).
 - Each page has one `h1`, a `lang`, a `viewport` meta, a title of at most 60 characters, a description, an absolute canonical URL and absolute Open Graph URLs;
   `hreflang` pairs exist only for Home and Download (the pages that have a Vietnamese version) and are reciprocal; each `img` has `alt`, `width` and `height`; ids are
-  unique; headings do not skip levels; tables have a `caption` and `th scope`; the CSP meta is the first element of `<head>`.
+  unique; headings do not skip levels; authored tables have a `caption` and every table has `th scope`; the CSP meta is the first element of `<head>`.
 - The English and Vietnamese content have the same keys (also a type error) and the same number of FAQ items, features and table rows.
 - Docs: the four README headings exist and each docs page is non-empty; the changelog lists every `docs/releases/v*.md`, newest first.
 - Release data: success, a failed fetch, a timeout, an asset missing, a malformed body — all produce a valid page; `NOTARIZED` true and false both render.
