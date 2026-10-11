@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { activityFromEvent } from '../../../../src/domain/activity.js'
 import { projectApi, type LauncherOption, type ListedSession, type TerminalInfo } from '../host/cockpit-api'
 import { nextAttentionSession } from '../lib/attention-jump'
+import { checkAlertBody, checkAlertTitle, createCheckAlerts } from '../lib/check-alert'
 import { responseRows } from '../lib/responses'
 import { QuickPicker, type NewSessionOptions, type NewSessionRequest } from './QuickPicker'
 import { StoppedBar } from './StoppedBar'
@@ -226,6 +227,8 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
   sessionsRef.current = sessions
   /** What the previous load saw; null until the first load (see syncStage). */
   const knownRef = useRef<{ sessionIds: Set<string>; terminalIds: Set<string> } | null>(null)
+  /** Which failed checks this window has told the person about; empty again when the view is remounted, which is also silent (see `seed`). */
+  const checkAlertsRef = useRef(createCheckAlerts())
   /** Sessions whose agent finished while the user looked elsewhere. */
   const [doneIds, setDoneIds] = useState<string[]>([])
   /** Actions that arrived before the first load: they need the session list. */
@@ -265,12 +268,16 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
         const unseen = finished.filter((s) => away || s.id !== focusedIdRef.current)
         if (unseen.length > 0) setDoneIds((ids) => [...new Set([...ids, ...unseen.map((s) => s.id)])])
         if (away && hostRef.current.notify.finish) for (const s of finished) notifyFinished(s)
+        // Taken even when nothing is shown: a failure the person watched fail is not announced later.
+        const failedChecks = checkAlertsRef.current.take(loaded.sessions)
+        if (away && hostRef.current.notify.checkFail) for (const s of failedChecks) notifyCheckFailed(s)
       }
       setSessions(loaded.sessions)
       setSessionsRevision((n) => n + 1)
       const firstLoad = knownRef.current === null
       const known = knownRef.current
       if (firstLoad) {
+        checkAlertsRef.current.seed(loaded.sessions)
         void api.getSettings().then((s) => {
           const saved = (s as { layouts?: unknown } | null)?.layouts
           if (saved && typeof saved === 'object') setLayouts(saved as Record<string, SavedLayout>)
@@ -350,6 +357,23 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
       }
     } catch {
       // notifications unavailable: the rail's mark still says it
+    }
+  }
+
+  function notifyCheckFailed(session: ListedSession): void {
+    try {
+      const note = new Notification(checkAlertTitle(session.name), {
+        body: checkAlertBody(session.check ?? {}),
+        tag: `cw-check-${session.id}`,
+        silent: !hostRef.current.notify.sound,
+      })
+      note.onclick = () => {
+        window.focus()
+        hostRef.current.activate()
+        focusSessionRef.current(session.id)
+      }
+    } catch {
+      // notifications unavailable: the rail's ✗ tests chip still says it
     }
   }
 

@@ -22,6 +22,15 @@ describe('registry', () => {
   })
 })
 
+describe('the failed-check alert row', () => {
+  test('is a Notifications row and is found by what a person would type', () => {
+    expect(findSection('notifications')?.rows.map((r) => r.id)).toContain('notify-check-fail')
+    for (const query of ['tests fail', 'alert test', 'notify failed']) {
+      expect(searchSettings(query).flatMap((g) => g.rows.map((r) => r.id)), query).toContain('notify-check-fail')
+    }
+  })
+})
+
 describe('foldText', () => {
   test('lower-cases and strips diacritics, so Vietnamese can be typed without them', () => {
     expect(foldText('Phím TẮT')).toBe('phim tat')

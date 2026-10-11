@@ -32,6 +32,7 @@ const SIDEBAR_HIDDEN_KEY = 'cw.sidebar-hidden.v1'
 const NOTIFY_SOUND_KEY = 'cw.notify-sound.v1' // gitleaks:allow (a localStorage key name, not a secret)
 const DOCK_BADGE_KEY = 'cw.dock-badge.v1' // gitleaks:allow (a localStorage key name, not a secret)
 const NOTIFY_FINISH_KEY = 'cw.notify-finish.v1' // gitleaks:allow (a localStorage key name, not a secret)
+const NOTIFY_CHECK_FAIL_KEY = 'cw.notify-check-fail.v1' // gitleaks:allow (a localStorage key name, not a secret)
 /**
  * How many projects keep their panes alive in the window. Each live terminal keeps its
  * scrollback; past this, the project shown longest ago lets go of its panes (its
@@ -79,6 +80,7 @@ export function App() {
     sound: readString(NOTIFY_SOUND_KEY) !== '0',
     dockBadge: readString(DOCK_BADGE_KEY) !== '0',
     finish: readString(NOTIFY_FINISH_KEY) !== '0',
+    checkFail: readString(NOTIFY_CHECK_FAIL_KEY) !== '0',
   }))
   /** Settings → Terminal, applied to every pane; undefined is the cockpit's own look. */
   const [terminalLook, setTerminalLook] = useState<TerminalAppearance | undefined>(undefined)
@@ -755,6 +757,7 @@ export function App() {
             writeString(NOTIFY_SOUND_KEY, next.sound ? '1' : '0')
             writeString(DOCK_BADGE_KEY, next.dockBadge ? '1' : '0')
             writeString(NOTIFY_FINISH_KEY, next.finish ? '1' : '0')
+            writeString(NOTIFY_CHECK_FAIL_KEY, next.checkFail ? '1' : '0')
           }}
           onSave={saveSettings}
           onClose={() => {

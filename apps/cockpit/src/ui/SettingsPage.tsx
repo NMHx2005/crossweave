@@ -52,7 +52,7 @@ const EDITORS: Array<{ kind: EditorSetting['kind']; label: string }> = [
  * Saved per user by the daemon, which validates everything again; this form only shows
  * its answer.
  */
-export type NotifyPrefs = { sound: boolean; dockBadge: boolean; finish: boolean }
+export type NotifyPrefs = { sound: boolean; dockBadge: boolean; finish: boolean; checkFail: boolean }
 
 /** Offered first in the pickers when installed; everything else installed follows. */
 const UI_FONTS = ['Inter', 'SF Pro Text', 'SF Pro Display', 'Geist', 'IBM Plex Sans', 'Avenir Next', 'Helvetica Neue', 'JetBrains Mono']
@@ -511,6 +511,9 @@ export function SettingsPage({ initialSection, initialRow, initial, availability
       <SettingsGroup title="When a session needs you" note="When a session waits for you, or its agent finishes, while you look elsewhere (another app, project or tab). These apply right away.">
         <SettingRow id="notify-finish">
           <Switch label="Also when an agent finishes" checked={notify.finish} onChange={(finish) => onNotify({ ...notify, finish })} />
+        </SettingRow>
+        <SettingRow id="notify-check-fail">
+          <Switch label="When tests fail" checked={notify.checkFail} onChange={(checkFail) => onNotify({ ...notify, checkFail })} />
         </SettingRow>
         <SettingRow id="notify-sound">
           <Switch label="Play a sound" checked={notify.sound} onChange={(sound) => onNotify({ ...notify, sound })} />
