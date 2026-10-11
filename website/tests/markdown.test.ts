@@ -93,6 +93,14 @@ describe('headings', () => {
   })
 })
 
+describe('idPrefix', () => {
+  test('keeps the ids of several documents on one page apart', () => {
+    const out = renderMarkdown('## Headline\n\n## Headline', { idPrefix: 'v0-6-0-' })
+    expect(out.headings.map((h) => h.id)).toEqual(['v0-6-0-headline', 'v0-6-0-headline-2'])
+    expect(String(out.html)).toContain('<h2 id="v0-6-0-headline">')
+  })
+})
+
 describe('lintMarkdown', () => {
   test.each([['- [ ] todo'], ['- [x] done'], ['text[^1]'], ['$$x$$'], ['<div>block</div>'], ['  <p align="center">x</p>']])('refuses %j', (source) => {
     expect(() => lintMarkdown(source)).toThrow()

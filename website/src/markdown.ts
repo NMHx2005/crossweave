@@ -11,6 +11,8 @@ export interface RenderOptions {
   /** Maps an image src to a site image with its size, or null to drop it. The default drops every image. */
   rewriteImage?(src: string): ImageInfo | null
   rewriteLink?(href: string): string
+  /** Put before every heading id, so several documents on one page cannot repeat an id. */
+  idPrefix?: string
 }
 
 export interface Rendered {
@@ -44,7 +46,7 @@ function plainText(rendered: string): string {
   return rendered.replace(/<[^>]*>/g, '').replace(/&(?:amp|lt|gt|quot|#39);/g, (e) => ENTITIES[e] ?? e)
 }
 
-function slug(text: string): string {
+export function slugify(text: string): string {
   const base = text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
   return base === '' ? 'section' : base
 }
@@ -60,10 +62,10 @@ export function renderMarkdown(source: string, options: RenderOptions = {}): Ren
   let droppedHtml = 0
 
   const uniqueId = (text: string): string => {
-    const base = slug(text)
+    const base = slugify(text)
     const n = (used.get(base) ?? 0) + 1
     used.set(base, n)
-    return n === 1 ? base : `${base}-${n}`
+    return `${options.idPrefix ?? ''}${n === 1 ? base : `${base}-${n}`}`
   }
 
   const link = (children: string, meta?: Record<string, unknown>): string => {

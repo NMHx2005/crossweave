@@ -1,4 +1,5 @@
 import type { Content } from './content/types'
+import type { PageMeta } from './layout'
 import type { Lang, Urls } from './site'
 
 declare const htmlBrand: unique symbol
@@ -18,6 +19,15 @@ export interface PageCtx {
   urls: Urls
   release: Release
   notarized: boolean
+  /** The real size of a committed site image (`cockpit-sessions.png`), read from its PNG header by the build. */
+  imageSize(name: string): { width: number; height: number }
+}
+
+/** A finished page: where it lives, its head, and its body. The build wraps it in the shell. */
+export interface BuiltPage {
+  path: string
+  meta: PageMeta
+  body: Html
 }
 
 export interface BuildOptions {
