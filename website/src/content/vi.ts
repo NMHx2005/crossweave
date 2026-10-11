@@ -25,16 +25,16 @@ const features: Feature[] = [
     id: 'rail',
     title: 'Một thanh bên, trạng thái trung thực',
     text: 'Mọi session nằm trên một danh sách và cho biết nó đang chạy, đang chờ bạn, đã xong hay thất bại — suy ra từ chính shell, không cần cấu hình gì.',
-    qualifier: 'Suy ra từ chữ trên màn hình, output và cây tiến trình: đáng tin với Claude Code, Codex và Gemini, chỉ gần đúng với các agent khác. cw hooks install làm các dấu hiệu chính xác.',
+    qualifier: 'Suy ra từ chữ trên màn hình, output và cây tiến trình: đáng tin với Claude Code, Codex và Gemini, chỉ gần đúng với các agent khác. cw hooks install claude (hoặc codex) làm chúng chính xác ở những chỗ agent báo cáo.',
     ...base('rail'),
     linkLabel: more,
     nextBadge: badge,
   },
   {
     id: 'checkpoints',
-    title: 'Một checkpoint quanh mỗi lượt của agent',
+    title: 'Một checkpoint quanh các lượt của agent',
     text: 'Khi một agent được nhận diện bắt đầu và kết thúc một lượt, crossweave ghi worktree thành một commit git ẩn. Xem lượt đó đã đổi gì, hoặc lấy lại các file; khôi phục luôn chạy thử trước và để lại một điểm quay về.',
-    qualifier: 'Cần session có worktree riêng và một agent được nhận diện; ranh giới lượt là suy đoán; giữ 50 checkpoint mới nhất.',
+    qualifier: 'Cần session có worktree riêng và một agent được nhận diện; ranh giới lượt là suy đoán và một checkpoint tự động có thể bị bỏ qua; file bị ignore không được ghi; giữ 50 checkpoint mới nhất. Checkpoint là đối tượng git trong repository của bạn, thấy được bằng git log --all và git push --mirror, và chứa cả file không bị ignore như secret.',
     ...base('checkpoints'),
     linkLabel: more,
     nextBadge: badge,
@@ -52,7 +52,7 @@ const features: Feature[] = [
     id: 'auto-check',
     title: 'Chạy test sau mỗi lượt, nếu bạn muốn',
     text: 'Bật lên thì lệnh test bạn đã tin cậy sẽ chạy khi một agent kết thúc lượt có đổi file. Khi lỗi, có thể gửi vào shell (đã che secret) và có thông báo desktop không bao giờ hiện output.',
-    qualifier: 'Mặc định tắt. Nó chạy code agent vừa viết, ngoài mọi sandbox, cho mọi project bạn đã tin cậy lệnh; thông báo đến từ cửa sổ đang mở nên chỉ project nó đang mở mới báo.',
+    qualifier: 'Mặc định tắt. Việc một lượt kết thúc là suy đoán nên một lần chạy có thể bị bỏ sót hoặc lặp lại. Nó chạy code agent vừa viết, ngoài mọi sandbox, cho mọi project bạn đã tin cậy lệnh; thông báo đến từ cửa sổ đang mở nên chỉ project nó đang mở mới báo.',
     ...base('auto-check'),
     linkLabel: more,
     nextBadge: badge,
@@ -61,7 +61,7 @@ const features: Feature[] = [
     id: 'sensitive',
     title: 'Nhìn kỹ hơn những file rủi ro',
     text: 'File có tên giống secret, cấu hình CI và hook, migration và manifest dependency mang một nhãn trong Changes, Checkpoints và Compare, và nút Land của Cockpit hỏi trước với file giống secret và file automation.',
-    qualifier: 'Chỉ dựa vào tên file: có thể bỏ sót một key dán vào file thường và gắn nhãn nhầm file vô hại. cw land và Land all ready không hỏi.',
+    qualifier: 'Chỉ dựa vào tên file: có thể bỏ sót một key dán vào file thường và gắn nhãn nhầm file vô hại. cw land và Land all ready không hỏi, và câu hỏi bị bỏ qua nếu không đọc được diff.',
     ...base('sensitive'),
     linkLabel: more,
     nextBadge: badge,
@@ -69,8 +69,8 @@ const features: Feature[] = [
   {
     id: 'land',
     title: 'Land cái đứng vững',
-    text: 'Các trial merge chạy nền cho biết cái nào merge an toàn và theo thứ tự nào, và cw land dựa trên bằng chứng đó.',
-    qualifier: 'Bằng chứng chỉ có giá trị với base commit mà nó được thử, nên sau một lần land các session còn lại hiện unknown cho đến khi được thử lại.',
+    text: 'Các trial merge chạy nền cho biết session nào merge không xung đột và theo thứ tự nào, và cw land dựa trên bằng chứng đó.',
+    qualifier: 'Bằng chứng chỉ có giá trị với base commit mà nó được thử, nên sau một lần land các session còn lại hiện unknown cho đến khi được thử lại. Nó cho thấy xung đột chứ không đảm bảo đúng đắn, và --force có thể land khi bằng chứng chưa đủ.',
     ...base('land'),
     linkLabel: more,
     nextBadge: badge,
@@ -96,7 +96,7 @@ const features: Feature[] = [
   {
     id: 'debug',
     title: 'Vì sao lỗi, ở một chỗ',
-    text: 'Ngăn Debug gom phần cuối log test lỗi, các dòng lỗi, lỗi console của các ngăn trình duyệt và diff, rồi soạn sẵn để bạn gửi; cw debug in cùng bộ đó để bạn dán cho một AI.',
+    text: 'Ngăn Debug gom phần cuối log test lỗi, các dòng lỗi, lỗi console của các ngăn trình duyệt và diff, rồi soạn sẵn để bạn gửi. cw debug in một bộ tương tự (kết quả check, lỗi của terminal, diffstat và những lời cuối của agent) để bạn dán cho một AI.',
     qualifier: 'Nhận diện dòng lỗi và che secret chỉ là heuristic, không phải đảm bảo.',
     ...base('debug'),
     linkLabel: more,
@@ -159,20 +159,20 @@ export const vi: Content = {
       title: 'Dùng được với các agent bạn đang chạy',
       text: 'Một session mới có thể khởi động bằng một launcher — hoặc chỉ là một shell.',
       names: [...en.home.agents.names],
-      note: 'Hoặc wrapper của riêng bạn (cx, một script, một dev server). crossweave không bao giờ chọn, cấu hình hay khởi chạy agent thay bạn: dòng lệnh được gõ vào shell và bạn có thể sửa nó.',
+      note: 'Hoặc wrapper của riêng bạn (cx, một script, một dev server). crossweave không chọn hay cấu hình agent: một launcher gõ lệnh bạn đã lưu vào shell của session rồi chạy nó, và bạn cũng có thể bắt đầu bằng một shell thường.',
     },
     not: {
       title: 'Những điều nó cố ý không làm',
       intro: 'Mỗi điều dưới đây từng được làm hoặc cân nhắc rồi cố ý bỏ ra.',
       items: [
-        { title: 'Không có mô hình agent', text: 'Không có bộ chọn AI, không có adapter và không có cờ khởi chạy. Phiên bản cuối còn chúng là v0.3-radar.' },
+        { title: 'Không có mô hình agent', text: 'Không có bộ chọn AI thay bạn, không có adapter cho agent và không có cờ khởi chạy riêng cho từng agent (bạn tự sửa lệnh của launcher). Phiên bản cuối còn chúng là v0.3-radar.' },
         {
           title: 'Không có chốt chặn va chạm hay sandbox',
           text: 'Collision Radar, Safe Mode và sandbox của hệ điều hành đã bị gỡ. Cảnh báo duy nhất còn lại là tín hiệu trùng file, chỉ khuyên và không bao giờ chặn.',
         },
         {
           title: 'Không điều khiển từ xa qua trình duyệt',
-          text: 'Trang web trên điện thoại và cw gateway đã bị gỡ (v0.4-remote-web). Điều khiển từ xa sẽ quay lại dưới dạng ứng dụng iOS thuần, thiết kế lại từ đầu.',
+          text: 'Trang web trên điện thoại và cw gateway đã bị gỡ (v0.4-remote-web). Một ứng dụng iOS thuần cho điều khiển từ xa đang được dự định, thiết kế lại từ đầu.',
         },
         { title: 'Không đọc chính tả trong app', text: 'Đọc chính tả dùng công cụ chuyên dụng trên toàn hệ thống thì tốt hơn (phiên bản cuối còn nó: v0.5-voice-input).' },
         {
@@ -196,7 +196,7 @@ export const vi: Content = {
         ['Land sẽ mang gì vào', 'git diff, từng branch một.', 'Diff của từng session so với chỗ nó rời base, cộng trial merge chạy nền.'],
         ['Merge cái nào trước', 'Tuỳ phán đoán của bạn.', 'Thứ tự đề xuất từ các trial merge.'],
         ['Bản ghi từng lượt của agent', 'Reflog, nếu bạn có commit.', 'Mỗi lượt một checkpoint để xem và khôi phục.'],
-        ['Chọn và chạy agent', 'Bạn.', 'Vẫn là bạn: crossweave không bao giờ làm cả hai.'],
+        ['Chọn agent', 'Bạn.', 'Vẫn là bạn: launcher chỉ gõ lệnh bạn đã lưu.'],
       ],
       foot: 'crossweave thêm một daemon và một ứng dụng vào quy trình trên; nếu bạn chỉ chạy hai agent, worktree thường là đủ.',
     },
@@ -220,8 +220,8 @@ export const vi: Content = {
           a: 'Bất cứ thứ gì bạn chạy được trong shell. Có launcher cho Claude Code, Codex, Gemini CLI, OpenCode, Cursor Agent, Copilot CLI, Aider, Amp và Qwen Code, và bạn thêm được launcher riêng. Dấu hiệu trạng thái đáng tin nhất với Claude Code, Codex và Gemini.',
         },
         {
-          q: 'Nó có chọn hay chạy agent thay tôi không?',
-          a: 'Không. Một launcher chỉ gõ một dòng lệnh vào shell để bạn nhìn thấy và sửa. crossweave không chọn, không cấu hình và không giám sát agent.',
+          q: 'Nó có chọn agent thay tôi không?',
+          a: 'Không. Bạn chọn một launcher, hoặc một shell thường, và tự sửa lệnh của từng launcher trong Settings. Khởi động session bằng launcher sẽ gõ lệnh đã lưu đó vào shell và chạy nó. crossweave không chọn, không cấu hình và không giám sát agent.',
         },
         {
           q: 'Code của tôi đi đâu?',
@@ -238,7 +238,7 @@ export const vi: Content = {
         },
         {
           q: 'Cập nhật thế nào?',
-          a: 'Chạy cw update. cw cũng báo cho bạn, nhiều nhất mỗi ngày một lần, khi có bản mới; cw config update-check off tắt việc đó.',
+          a: 'Chạy cw update. cw cũng tự kiểm tra bản mới ở nền (kết quả được lưu trong một ngày) và báo cho bạn khi có; cw config update-check off tắt việc đó.',
         },
         {
           q: 'Test tự động có tự chạy không?',
@@ -246,13 +246,13 @@ export const vi: Content = {
         },
         {
           q: 'Gỡ cài đặt thế nào?',
-          a: 'Trước hết land hoặc giữ lại phần việc bạn cần. Thoát ứng dụng, chạy cw daemon stop trong từng project, và xoá các session không còn cần bằng cw session rm hoặc cw gc (việc đó cũng xoá checkpoint của chúng). Sau đó xoá cw và cwd khỏi ~/.local/bin, ứng dụng khỏi ~/Applications, thư mục .crossweave của từng project, và settings của bạn trong ~/.crossweave.',
+          a: 'Trước hết land hoặc giữ lại phần việc bạn cần, và gỡ các hook agent đã cài bằng cw hooks remove claude hoặc cw hooks remove codex. Xoá các session không còn cần bằng cw session rm TÊN --yes (session phải đã kết thúc) hoặc cw gc; việc đó cũng xoá checkpoint của chúng. Cuối cùng, thoát ứng dụng, chạy cw daemon stop trong từng project, rồi xoá cw và cwd khỏi ~/.local/bin, ứng dụng khỏi ~/Applications, thư mục .crossweave của từng project, và settings của bạn trong ~/.crossweave.',
         },
       ],
     },
     cta: {
       title: 'Thử trên một repository bạn dám mang ra thí nghiệm',
-      text: 'Hai worktree, hai shell, một thanh bên. Phần bắt đầu nhanh mất năm phút.',
+      text: 'Hai worktree, hai shell, một thanh bên. Làm theo phần bắt đầu nhanh.',
     },
   },
   download: {

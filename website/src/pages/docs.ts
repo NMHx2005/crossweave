@@ -1,7 +1,7 @@
 import { lintMarkdown, renderMarkdown, slugify } from '../markdown'
 import { prepareReadmeMarkdown, sectionsOf, shiftHeadings } from '../readme'
 import { REPO_URL, escapeHtml, type Urls } from '../site'
-import { html, type BuiltPage } from '../types'
+import { html, type BuiltPage, type Release } from '../types'
 import { repoFile } from './common'
 
 export interface DocsCtx {
@@ -9,6 +9,8 @@ export interface DocsCtx {
   readme: string
   concepts: string
   cliHelp: string
+  /** The latest published release: these pages follow main, which can be ahead of it. */
+  release: Release
   /** The real size of a committed site image, by file name. */
   imageSize(name: string): { width: number; height: number }
 }
@@ -135,6 +137,7 @@ ${nav}
 </nav>
 <article class="prose">
 <h1>${escapeHtml(page.title)}</h1>
+<p class="docs__notice">These pages describe the main branch. The latest published release is ${escapeHtml(ctx.release.tag)}; features marked “In the next release” on the home page are not in it.</p>
 ${rendered.html}
 </article>
 </div>

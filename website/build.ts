@@ -73,6 +73,7 @@ export async function build(options: BuildOptions): Promise<void> {
       readme: readFileSync(join(repoRoot, 'README.md'), 'utf8'),
       concepts: readFileSync(join(repoRoot, 'website', 'src', 'content', 'concepts.md'), 'utf8'),
       cliHelp: readFileSync(join(repoRoot, 'website', 'src', 'content', 'cli-help.txt'), 'utf8'),
+      release,
       imageSize: sizeOf,
     }),
     changelogPage({ urls, notes, release }),

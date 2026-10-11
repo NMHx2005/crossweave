@@ -12,6 +12,7 @@ const build = (over: Partial<Parameters<typeof docsPages>[0]> = {}) =>
     readme: read('README.md'),
     concepts: read('website/src/content/concepts.md'),
     cliHelp: read('website/src/content/cli-help.txt'),
+    release: { tag: 'v0.5.0', publishedAt: '2026-09-30T10:39:00Z', assets: ['checksums.txt'] },
     imageSize: () => ({ width: 1600, height: 1000 }),
     ...over,
   })
@@ -39,6 +40,10 @@ describe('docsPages', () => {
       expect(count(body, /aria-current="page"/g), p.path).toBe(1)
       expect(body, p.path).toContain(`href="${urls.path(p.path)}" aria-current="page"`)
     }
+  })
+
+  test('every page says it follows main and names the latest published release', () => {
+    for (const p of pages) expect(String(p.body), p.path).toContain('The latest published release is v0.5.0')
   })
 
   test('headings never skip a level and ids do not repeat', () => {

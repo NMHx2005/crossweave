@@ -19,7 +19,7 @@ const features: Feature[] = [
     id: 'rail',
     title: 'One rail, honest status',
     text: 'Every session on one list says whether it is working, waiting for you, done or failed — inferred from the shell itself, with nothing to configure.',
-    qualifier: 'Inferred from screen words, output and the process tree: reliable for Claude Code, Codex and Gemini, approximate for others. cw hooks install makes the marks exact.',
+    qualifier: 'Inferred from screen words, output and the process tree: reliable for Claude Code, Codex and Gemini, approximate for others. cw hooks install claude (or codex) makes them exact where the agent reports them.',
     source: `${SPECS}2026-09-27-deck-grade-ui-known-limitations.md`,
     linkLabel: more,
     since: 'v0.3.0',
@@ -27,9 +27,9 @@ const features: Feature[] = [
   },
   {
     id: 'checkpoints',
-    title: 'A checkpoint around every agent turn',
+    title: 'A checkpoint around agent turns',
     text: 'When a recognised agent starts and finishes a turn, crossweave records the worktree as a hidden git commit. See what a turn changed, or take the files back; a restore is a dry run first and saves a return point.',
-    qualifier: 'Needs a session with its own worktree and a recognised agent; turn boundaries are inferred; the newest 50 are kept.',
+    qualifier: 'Needs a session with its own worktree and a recognised agent; turn boundaries are inferred and an automatic checkpoint can be skipped; ignored files are not included; the newest 50 are kept. Checkpoints are git objects in your repository, visible to git log --all and to git push --mirror, and they include non-ignored files such as secrets.',
     source: `${SPECS}2026-10-10-session-checkpoints-known-limitations.md`,
     linkLabel: more,
     since: 'v0.6.0',
@@ -49,7 +49,7 @@ const features: Feature[] = [
     id: 'auto-check',
     title: 'Tests after every turn, if you ask',
     text: 'Opt in, and your trusted test command runs when an agent ends a turn that changed files. A failure can be sent to the shell with secrets redacted, and raises a desktop alert that never shows the output.',
-    qualifier: 'Off by default. It runs code the agent just wrote, outside any sandbox, for every project whose command you trusted; the alert comes from the open window, so only projects it has open raise it.',
+    qualifier: 'Off by default. Turn ends are inferred, so a run can be missed or repeated. It runs code the agent just wrote, outside any sandbox, for every project whose command you trusted; the alert comes from the open window, so only projects it has open raise it.',
     source: `${SPECS}2026-10-10-auto-check-known-limitations.md`,
     source2: `${SPECS}2026-10-11-settings-polish-check-alert-known-limitations.md`,
     linkLabel: more,
@@ -60,7 +60,7 @@ const features: Feature[] = [
     id: 'sensitive',
     title: 'A second look at risky files',
     text: "Files named like secrets, CI and hook configs, migrations and dependency manifests carry a badge in Changes, Checkpoints and Compare, and the Cockpit's Land button asks first for secret-like and automation files.",
-    qualifier: 'Judged by file name only: it can miss a key pasted into an ordinary file and flag a harmless one. cw land and Land all ready do not ask.',
+    qualifier: 'Judged by file name only: it can miss a key pasted into an ordinary file and flag a harmless one. cw land and Land all ready do not ask, and the question is skipped if the diff cannot be read.',
     source: `${SPECS}2026-10-10-sensitive-files-known-limitations.md`,
     linkLabel: more,
     since: 'v0.6.0',
@@ -69,8 +69,8 @@ const features: Feature[] = [
   {
     id: 'land',
     title: 'Land what holds up',
-    text: 'Background trial merges tell you what is safe to merge and in what order, and cw land is gated on that evidence.',
-    qualifier: 'Evidence is valid only against the base commit it was trialled on, so after a land the others read unknown until they are re-trialled.',
+    text: 'Background trial merges show which sessions merge without conflict and in what order, and cw land is gated on that evidence.',
+    qualifier: 'Evidence is valid only against the base commit it was trialled on, so after a land the others read unknown until they are re-trialled. It shows conflicts, not correctness, and --force can land on incomplete evidence.',
     source: `${SPECS}2026-08-14-known-limitations-digest.md`,
     linkLabel: more,
     since: 'v0.3.0',
@@ -99,7 +99,7 @@ const features: Feature[] = [
   {
     id: 'debug',
     title: 'Why it failed, in one place',
-    text: "A Debug pane gathers the failing test tail, the error lines, the browser panes' console errors and the diff, and drafts them for you to send; cw debug prints the same bundle to paste to an AI.",
+    text: "A Debug pane gathers the failing test tail, the error lines, the browser panes' console errors and the diff, and drafts them for you to send. cw debug prints a similar bundle (the check output, the terminal's errors, a diffstat and the agent's latest words) to paste to an AI.",
     qualifier: 'Error-line detection and secret scrubbing are heuristics, not guarantees.',
     source: `${SPECS}2026-10-01-ai-debug-loop-known-limitations.md`,
     linkLabel: more,
@@ -165,20 +165,20 @@ export const en: Content = {
       title: 'Works with the agents you already run',
       text: 'A new session can start with a launcher — or just a shell.',
       names: ['Claude Code', 'Codex', 'Gemini CLI', 'OpenCode', 'Cursor Agent', 'Copilot CLI', 'Aider', 'Amp', 'Qwen Code'],
-      note: 'Or your own wrapper (cx, a script, a dev server). crossweave never chooses, configures or launches an agent for you: the line is typed into the shell and you can edit it.',
+      note: "Or your own wrapper (cx, a script, a dev server). crossweave does not choose or configure an agent: a launcher types the command you saved into the session's shell and runs it, and you can start with a plain shell instead.",
     },
     not: {
       title: 'What it deliberately does not do',
       intro: 'Each of these was built or considered and left out on purpose.',
       items: [
-        { title: 'No agent model', text: 'There is no picker that chooses an AI, no adapters and no launch flags. The last version with them is v0.3-radar.' },
+        { title: 'No agent model', text: "There is no picker that chooses an AI for you, no agent adapters and no per-agent launch flags (you edit a launcher's command yourself). The last version with them is v0.3-radar." },
         {
           title: 'No collision guard or sandbox',
           text: 'Collision Radar, Safe Mode and the OS sandbox were removed. The only warning left is a file-level overlap signal, which advises and never blocks.',
         },
         {
           title: 'No browser remote control',
-          text: 'The phone web page and cw gateway were removed (v0.4-remote-web). Remote control will come back as a native iOS app, designed from scratch.',
+          text: 'The phone web page and cw gateway were removed (v0.4-remote-web). A native iOS app for remote control is planned, designed from scratch.',
         },
         { title: 'No in-app dictation', text: 'Dictation is better served system-wide by a dedicated tool (last version with it: v0.5-voice-input).' },
         {
@@ -202,7 +202,7 @@ export const en: Content = {
         ['What landing would bring in', 'git diff, branch by branch.', 'A per-session diff against where it left the base, plus background trial merges.'],
         ['Which to merge first', 'Your judgement.', 'A recommended order from the trial merges.'],
         ['A record of each agent turn', 'The reflog, if you committed.', 'A checkpoint per turn you can inspect and restore.'],
-        ['Choosing and running the agent', 'You.', 'Still you: crossweave never does either.'],
+        ['Choosing the agent', 'You.', 'Still you: a launcher only types the command you saved.'],
       ],
       foot: 'crossweave adds a daemon and an app to the workflow above; if you only ever run two agents, plain worktrees are fine.',
     },
@@ -226,8 +226,8 @@ export const en: Content = {
           a: 'Whatever you can run in a shell. There are launchers for Claude Code, Codex, Gemini CLI, OpenCode, Cursor Agent, Copilot CLI, Aider, Amp and Qwen Code, and you can add your own. Status marks are most reliable for Claude Code, Codex and Gemini.',
         },
         {
-          q: 'Does it choose or run the agent for me?',
-          a: 'No. A launcher only types a line into the shell for you to see and edit. crossweave does not pick, configure or supervise an agent.',
+          q: 'Does it choose the agent for me?',
+          a: "No. You pick a launcher, or a plain shell, and you edit each launcher's command in Settings. Starting a session with a launcher types that saved command into the shell and runs it. crossweave does not pick, configure or supervise an agent.",
         },
         {
           q: 'Where does my code go?',
@@ -244,7 +244,7 @@ export const en: Content = {
         },
         {
           q: 'How do I update?',
-          a: 'Run cw update. cw also tells you, at most once a day, when a newer release exists; cw config update-check off turns that off.',
+          a: 'Run cw update. cw also looks for a newer release in the background (the answer is cached for a day) and tells you when one exists; cw config update-check off turns that off.',
         },
         {
           q: 'Does automatic testing run by itself?',
@@ -252,13 +252,13 @@ export const en: Content = {
         },
         {
           q: 'How do I uninstall it?',
-          a: "First land or keep any work you want. Quit the app, run cw daemon stop in each project, and remove sessions you no longer need with cw session rm or cw gc (that also drops their checkpoints). Then delete cw and cwd from ~/.local/bin, the app from ~/Applications, each project's .crossweave folder, and your settings in ~/.crossweave.",
+          a: "First land or keep any work you want, and take back any agent hooks you installed with cw hooks remove claude or cw hooks remove codex. Remove sessions you no longer need with cw session rm NAME --yes (a session must have ended) or cw gc; that also drops their checkpoints. Last, quit the app, run cw daemon stop in each project, and delete cw and cwd from ~/.local/bin, the app from ~/Applications, each project's .crossweave folder, and your settings in ~/.crossweave.",
         },
       ],
     },
     cta: {
       title: 'Try it on a repository you can afford to experiment on',
-      text: 'Two worktrees, two shells, one rail. The quickstart takes five minutes.',
+      text: 'Two worktrees, two shells, one rail. Follow the quickstart.',
     },
   },
   download: {
