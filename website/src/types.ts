@@ -35,6 +35,8 @@ export interface BuildOptions {
   env: Record<string, string | undefined>
   repoRoot: string
   refreshRelease: boolean
+  /** Where the release manifest lives; defaults to `website/release.json` under `repoRoot`. */
+  manifestPath?: string
   fetcher?: typeof fetch
   timeoutMs?: number
   notarized?: boolean
