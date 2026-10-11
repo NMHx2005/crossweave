@@ -14,13 +14,15 @@ export type LandSelectedResult =
 
 /**
  * Evidence-gated land of one named session. Blocked never lands.
- * Unknown lands only after forceUnknown (UI confirm). Never maps that to RPC force.
+ * Unknown evidence and live-stop authorization are separate decisions. Only a confirmed
+ * live-stop choice is passed through as RPC force; forceUnknown never grants it.
  */
 export async function landSelected(opts: {
   getStatus: () => Promise<ConvergeStatus>
-  land: (name: string) => Promise<LandResult>
+  land: (name: string, forceLive?: boolean) => Promise<LandResult>
   name: string
   forceUnknown?: boolean
+  forceLive?: boolean
 }): Promise<LandSelectedResult> {
   let status: ConvergeStatus
   try {
@@ -36,7 +38,8 @@ export async function landSelected(opts: {
   if (!ready && !unknown) return { status: 'failed', error: 'session is not evidence-ready' }
 
   try {
-    await opts.land(opts.name)
+    if (opts.forceLive === true) await opts.land(opts.name, true)
+    else await opts.land(opts.name)
     return { status: 'landed' }
   } catch (err) {
     return { status: 'failed', error: errorMessage(err) }

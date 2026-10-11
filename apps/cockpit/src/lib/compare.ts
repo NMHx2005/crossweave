@@ -5,7 +5,7 @@ export type CompareSide = {
   name: string
   files: CompareRow[]
   totals: { files: number; added: number; deleted: number }
-  uncommitted: number
+  uncommitted: number | null
   truncated: boolean
 }
 export type Comparison = { a: CompareSide; b: CompareSide; shared: string[] }

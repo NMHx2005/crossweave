@@ -90,7 +90,8 @@ export function CompareView({ sessions, leftId, rightId, revision, loadDiff, ver
           <>
             <p class="cockpit-muted cockpit-compare__totals">
               {data.totals.files === 0 ? 'No committed changes yet.' : `${data.totals.files} file${data.totals.files === 1 ? '' : 's'} · +${data.totals.added} −${data.totals.deleted}`}
-              {data.uncommitted > 0 ? ` · ${data.uncommitted} uncommitted (landing takes commits only)` : ''}
+              {data.uncommitted !== null && data.uncommitted > 0 ? ` · ${data.uncommitted} uncommitted (landing takes commits only)` : ''}
+              {data.uncommitted === null ? ' · Uncommitted status unavailable; inspect before landing' : ''}
               {data.truncated ? ' · diff cut at the size limit' : ''}
             </p>
             <SensitiveSummary paths={data.files.map((f: CompareRow) => f.path)} />

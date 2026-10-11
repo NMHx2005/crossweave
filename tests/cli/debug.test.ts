@@ -55,6 +55,11 @@ describe('renderDebug', () => {
     expect(text).toContain('  … 10 more');
   });
 
+  it('keeps an unreadable uncommitted count distinct from a clean worktree', () => {
+    const text = renderDebug(bundle({ diff: { files: [], total: 0, uncommitted: null } }));
+    expect(text).toContain('diff: 0 file(s), +0 −0 in the all shown, uncommitted status unavailable');
+  });
+
   it('latest words join the block; --raw drops the scrubber note', () => {
     const withWords = renderDebug(bundle({ latestWords: 'Plan: split the store\n' }));
     expect(withWords).toContain('latest words: Plan: split the store');

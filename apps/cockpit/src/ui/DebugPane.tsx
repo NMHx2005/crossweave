@@ -97,7 +97,7 @@ export function DebugBundleView({ bundle, error, onSend, browserErrors = [], sta
           <p class="cockpit-debug__empty">nothing to land yet</p>
         ) : (
           <p class="cockpit-debug__diffhead">
-            {capped ? `${bundle.diff.files.length} of ${bundle.diff.total} file(s)` : `${bundle.diff.total} file(s)`}, {bundle.diff.uncommitted} uncommitted
+            {capped ? `${bundle.diff.files.length} of ${bundle.diff.total} file(s)` : `${bundle.diff.total} file(s)`}, {bundle.diff.uncommitted === null ? 'uncommitted status unavailable' : `${bundle.diff.uncommitted} uncommitted`}
           </p>
         )}
         <ul class="cockpit-debug__files">

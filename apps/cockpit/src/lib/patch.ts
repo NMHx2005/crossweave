@@ -4,7 +4,7 @@ export type SessionDiff = {
   patch: string
   truncated: boolean
   /** Files changed in the worktree but not committed; landing does not take them. */
-  uncommitted: number
+  uncommitted: number | null
 }
 
 /** One file's part of a unified diff, for rendering and for jumping to it. */

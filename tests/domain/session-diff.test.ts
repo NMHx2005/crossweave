@@ -51,6 +51,12 @@ describe('sessionDiff', () => {
     expect(sessionDiff(fx.root, 'cw/work', wt).uncommitted).toBe(2);
   });
 
+  it('keeps uncommitted status unknown when the worktree gitdir cannot be read', async () => {
+    const wt = await branchWithWork();
+    writeFileSync(join(wt, '.git'), 'gitdir: /missing/crossweave-worktree');
+    expect(sessionDiff(fx.root, 'cw/work', wt).uncommitted).toBeNull();
+  });
+
   it('is empty for a branch with no commits yet', async () => {
     await $`git branch cw/fresh`.cwd(fx.root).quiet();
     const diff = sessionDiff(fx.root, 'cw/fresh', null);

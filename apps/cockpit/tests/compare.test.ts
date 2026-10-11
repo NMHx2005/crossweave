@@ -76,6 +76,15 @@ describe('compareSessions', () => {
     expect(c.a.uncommitted).toBe(3)
     expect(c.b.uncommitted).toBe(0)
   })
+
+  test('unreadable uncommitted status stays unknown for each comparison side', () => {
+    const c = compareSessions(
+      { name: 'a', diff: { ...diff([]), uncommitted: null } },
+      { name: 'b', diff: diff([]) },
+    )
+    expect(c.a.uncommitted).toBeNull()
+    expect(c.b.uncommitted).toBe(0)
+  })
 })
 
 describe('defaultCompareTarget', () => {

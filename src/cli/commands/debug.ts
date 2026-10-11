@@ -18,7 +18,7 @@ export interface DebugBundle {
   lastActivityAt: number | null;
   check?: DebugCheck;
   errors: DebugErrorLine[];
-  diff: { files: DebugDiffFile[]; total: number; uncommitted: number };
+  diff: { files: DebugDiffFile[]; total: number; uncommitted: number | null };
   latestWords?: string;
 }
 
@@ -50,11 +50,12 @@ export function renderDebug(b: DebugBundle, raw = false): string {
     lines.push(`errors seen in the terminal (heuristic):`);
     for (const e of b.errors) lines.push(`  ${e.line}`);
   }
-  if (b.diff.total > 0 || b.diff.uncommitted > 0) {
+  if (b.diff.total > 0 || b.diff.uncommitted !== 0) {
     const added = b.diff.files.reduce((a, f) => a + f.added, 0);
     const deleted = b.diff.files.reduce((a, f) => a + f.deleted, 0);
     const shown = b.diff.files.length === b.diff.total ? 'all' : `${b.diff.files.length} of ${b.diff.total}`;
-    lines.push(`diff: ${b.diff.total} file(s), +${added} −${deleted} in the ${shown} shown, ${b.diff.uncommitted} uncommitted`);
+    const uncommitted = b.diff.uncommitted === null ? 'uncommitted status unavailable' : `${b.diff.uncommitted} uncommitted`;
+    lines.push(`diff: ${b.diff.total} file(s), +${added} −${deleted} in the ${shown} shown, ${uncommitted}`);
     for (const f of b.diff.files) lines.push(`  ${f.status.padEnd(8)} ${f.path}`);
     if (b.diff.files.length < b.diff.total) lines.push(`  … ${b.diff.total - b.diff.files.length} more`);
   }

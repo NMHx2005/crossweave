@@ -1050,7 +1050,7 @@ export function buildMethods(
         ? latestWords({ home: userHome(), cwd: row.worktreePath })
         : undefined;
       let files: Array<{ path: string; status: string; added: number; deleted: number }> = [];
-      let uncommitted = 0;
+      let uncommitted: number | null = null;
       let total = 0;
       if (hasGit && row.branch !== null) {
         try {
@@ -1313,10 +1313,28 @@ export function buildMethods(
           throw new CrossweaveError('CHECK_REQUIRED', `converge.requireCheck is on and ${target.name} ${why}. Run \`cw check ${target.name}\` first (or pass --skip-check).`);
         }
       }
+      const force = bool(p, 'force', false);
+      const assertLandTreeClean = (): void => {
+        if (!force || target.status !== 'running' || target.branch === null) return;
+        let uncommitted: number | null;
+        try {
+          uncommitted = sessionDiff(projectRoot, target.branch, target.worktreePath, { patch: false }).uncommitted;
+        } catch {
+          uncommitted = null;
+        }
+        if (uncommitted === null) {
+          throw new CrossweaveError('SESSION_STATUS_UNKNOWN', `Could not inspect uncommitted files in ${target.name}; it was left untouched.`);
+        }
+        if (uncommitted > 0) {
+          throw new CrossweaveError('SESSION_UNCOMMITTED', `${target.name} has ${uncommitted} uncommitted file${uncommitted === 1 ? '' : 's'}. Commit or handle them before landing.`);
+        }
+      };
+      // The cockpit preflights before asking, but the shell remains live while the person decides.
+      // Recheck at the daemon boundary so a late write cannot be silently discarded.
+      assertLandTreeClean();
       // Landing removes the worktree the session's shells are sitting in.
       await terminals.closeForSession(target.id);
       errorLines.forget(target.id);
-      const force = bool(p, 'force', false);
       // `landSession` only has raw `SessionRepo` access and cannot reach the running
       // agent process — stopping it here, before landing, is what makes `--force`
       // actually stop a live session rather than just release its leases out from
@@ -1326,6 +1344,9 @@ export function buildMethods(
       // forced land.
       if (force && target.status === 'running') {
         await sessions.kill(workspaceId, target.id, { removeWorktree: false });
+        // A process can write while its stop is in flight. Keep the stopped worktree
+        // and branch if that final status differs from the preflight.
+        assertLandTreeClean();
       }
       // notify() failing/throwing is already caught inside notify() itself (design
       // doc §3.5) — the try/catch here exists ONLY to observe landSession's own
