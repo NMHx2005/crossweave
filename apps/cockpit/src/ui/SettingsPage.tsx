@@ -3,7 +3,7 @@ import type { ComponentChildren } from 'preact'
 import { formatEnvLines, launcherIdFor, parseEnvLines } from '../lib/launchers'
 import { AgentMark, BackIcon } from './icons'
 import { SECTION_ICONS } from './section-icons'
-import { Banner, Segmented, SettingRow, SettingsGroup, Switch } from './SettingsKit'
+import { Segmented, SettingRow, SettingsDetails, SettingsGroup, Switch } from './SettingsKit'
 import { SettingsDashboard } from './SettingsDashboard'
 import type { ChecksSettings, InterfaceAppearance, ModelPrice, PersistenceSettings, TerminalAppearance, UsageSettings, PromptSettings, SessionPreset } from '../../../../src/core/settings.js'
 import { FontPicker, type InstalledFont } from './FontPicker'
@@ -78,7 +78,6 @@ const CURSORS: Array<{ id: NonNullable<TerminalAppearance['cursorStyle']>; label
 ]
 
 
-/** Which news banners the person dismissed: kept in this browser's storage, and the page works without it. */
 /**
  * The version check's own switch. It lives in the global config the CLI shares (not in the settings draft that Save
  * writes), so it applies at once and reads its state from main; until that answers it stays off and disabled.
@@ -95,9 +94,6 @@ function UpdateCheckSwitch() {
       onChange={(next) => { setEnabled(next); void cockpitApi.updateSetEnabled(next) }} />
   )
 }
-
-const BANNER_KEY = 'cw.settings.banner.dashboard.v1'
-const readBannerGone = (): boolean => { try { return window.localStorage.getItem(BANNER_KEY) === '1' } catch { return false } }
 
 const TERMINAL_APPS: Array<{ id: 'ghostty' | 'iterm2'; label: string }> = [
   { id: 'ghostty', label: 'Ghostty' },
@@ -263,11 +259,6 @@ export function SettingsPage({ initialSection, initialRow, initial, availability
     onClose()
   }
 
-  const [bannerGone, setBannerGone] = useState(readBannerGone)
-  const dismissBanner = (): void => {
-    setBannerGone(true)
-    try { window.localStorage.setItem(BANNER_KEY, '1') } catch { /* storage can be full or disabled: the banner just comes back next time */ }
-  }
   const [section, setSection] = useState(() => findSection(initialSection ?? '')?.id ?? SETTINGS_SECTIONS[0]!.id)
   const [query, setQuery] = useState('')
   const [target, setTarget] = useState<string | null>(initialRow ?? null)
@@ -314,7 +305,7 @@ export function SettingsPage({ initialSection, initialRow, initial, availability
     dashboard: <SettingsDashboard />,
     appearance: (
       <>
-        <SettingsGroup title="Fonts" note="Shown as you choose, saved as you choose.">
+        <SettingsGroup title="Fonts">
           <SettingRow id="appearance-ui-font">
             <FontPicker label="Interface font" value={draft.appearance?.uiFont} fonts={fonts} suggestions={UI_FONTS}
               defaultLabel="System (SF Pro)" onChange={(uiFont) => setAppearance({ uiFont })} />
@@ -403,7 +394,7 @@ export function SettingsPage({ initialSection, initialRow, initial, availability
       </>
     ),
     keyboard: (
-      <SettingsGroup note="Change records the next keys you press; the menu updates as it is saved.">
+      <SettingsGroup title="Shortcuts">
         <SettingRow id="keyboard-shortcuts" stacked>
           <ShortcutList keybindings={draft.keybindings}
             onChange={(next) => setDraft((d) => ({ ...d, keybindings: Object.keys(next).length === 0 ? undefined : next }))} />
@@ -414,7 +405,6 @@ export function SettingsPage({ initialSection, initialRow, initial, availability
       <SettingsGroup
         title="Launchers"
         dataSetting="launchers-list"
-        note={<>What a new session can start with. The command is typed into the session's shell, in its worktree; when it exits you are back at the prompt. Your aliases and wrappers work (e.g. <code>cx</code>).</>}
       >
         {draft.launchers.map((l) => {
           const available = availability[l.id]
@@ -508,30 +498,38 @@ export function SettingsPage({ initialSection, initialRow, initial, availability
       </SettingsGroup>
     ),
     notifications: (
-      <SettingsGroup title="When a session needs you" note="When a session waits for you, or its agent finishes, while you look elsewhere (another app, project or tab). These apply right away.">
-        <SettingRow id="notify-finish">
-          <Switch label="Also when an agent finishes" checked={notify.finish} onChange={(finish) => onNotify({ ...notify, finish })} />
-        </SettingRow>
-        <SettingRow id="notify-check-fail">
-          <Switch label="When tests fail" checked={notify.checkFail} onChange={(checkFail) => onNotify({ ...notify, checkFail })} />
-        </SettingRow>
-        <SettingRow id="notify-sound">
-          <Switch label="Play a sound" checked={notify.sound} onChange={(sound) => onNotify({ ...notify, sound })} />
-        </SettingRow>
-        <SettingRow id="notify-dock">
-          <Switch label="Count them on the Dock icon" checked={notify.dockBadge} onChange={(dockBadge) => onNotify({ ...notify, dockBadge })} />
-        </SettingRow>
-        <SettingRow id="notify-updates">
-          <UpdateCheckSwitch />
-        </SettingRow>
-      </SettingsGroup>
+      <>
+        <SettingsGroup title="When a session needs you">
+          <SettingRow id="notify-finish">
+            <Switch label="Also when an agent finishes" checked={notify.finish} onChange={(finish) => onNotify({ ...notify, finish })} />
+          </SettingRow>
+          <SettingRow id="notify-check-fail">
+            <Switch label="When tests fail" checked={notify.checkFail} onChange={(checkFail) => onNotify({ ...notify, checkFail })} />
+          </SettingRow>
+        </SettingsGroup>
+        <SettingsGroup title="How it tells you">
+          <SettingRow id="notify-sound">
+            <Switch label="Play a sound" checked={notify.sound} onChange={(sound) => onNotify({ ...notify, sound })} />
+          </SettingRow>
+          <SettingRow id="notify-dock">
+            <Switch label="Count them on the Dock icon" checked={notify.dockBadge} onChange={(dockBadge) => onNotify({ ...notify, dockBadge })} />
+          </SettingRow>
+        </SettingsGroup>
+        <SettingsGroup title="Updates">
+          <SettingRow id="notify-updates">
+            <UpdateCheckSwitch />
+          </SettingRow>
+        </SettingsGroup>
+      </>
     ),
     presets: (
       <>
-        <SettingsGroup
-          dataSetting="preset-list"
-          note="A preset starts a session in one click from the new-session picker (⌘T): the launcher, an own worktree or not, shells that each run a command, and a Browser pane on the session's leased port. The commands are typed and run for you, so they are yours alone: they live in this settings file, never in a repository."
-        >
+        <SettingsGroup title="Your presets" dataSetting="preset-list">
+          {presets.length === 0 ? (
+            <div class="cockpit-scard__block">
+              <p class="cockpit-muted">No presets yet. A preset is a recipe for a session you start often, for example "Web app": Claude Code in its own worktree, a shell running your dev server, and a Browser pane on the session's port.</p>
+            </div>
+          ) : null}
           <div class="cockpit-scard__block">
             <button type="button" class="cockpit-btn cockpit-btn--sm" disabled={presets.length >= 12}
               onClick={() => setPreset(presets.length, { name: `preset ${presets.length + 1}` })}>Add a preset</button>
@@ -573,7 +571,7 @@ export function SettingsPage({ initialSection, initialRow, initial, availability
       </>
     ),
     prompt: (
-      <SettingsGroup title="Refine" note="The prompt composer (⌘⇧P) writes one prompt and sends it to one or several sessions. Refine is optional: the program below is yours (this app does not choose an AI); it reads the draft and prints a better one, which you read before it goes anywhere. Empty means the composer has no Refine button.">
+      <SettingsGroup title="Refine">
         <SettingRow id="prompt-refine-command">
           <input class="cockpit-settings__command" value={draft.prompt?.refine?.command ?? ''} spellcheck={false} placeholder="claude -p" aria-label="Refine command"
             onInput={(e) => setRefine({ command: (e.target as HTMLInputElement).value })} />
@@ -588,16 +586,26 @@ export function SettingsPage({ initialSection, initialRow, initial, availability
       </SettingsGroup>
     ),
     checks: (
-      <SettingsGroup note="Off by default: a test suite can take minutes of CPU after every agent turn.">
-        <SettingRow id="checks-auto-run">
-          <Switch label="Run checks when an agent finishes a turn" checked={draft.checks?.autoRun === true}
-            onChange={(on) => setDraft((d) => ({ ...d, checks: on ? { autoRun: true } : undefined }))} />
-        </SettingRow>
-      </SettingsGroup>
+      <>
+        <SettingsGroup title="How it works">
+          <SettingRow id="checks-how-runs" label="Runs" description="Your trusted test command (converge.testCommand), in the session's own worktree." />
+          <SettingRow id="checks-how-when" label="When" description="After an agent's turn that changed files, one automatic run at a time." />
+          <SettingRow id="checks-how-shows" label="Shows" description="A ✓ or ✗ tests chip on the session's row; Send test failure to shell pastes the end of the output." />
+        </SettingsGroup>
+        <SettingsGroup title="Automatic runs">
+          <SettingRow id="checks-auto-run">
+            <Switch label="Run checks when an agent finishes a turn" checked={draft.checks?.autoRun === true}
+              onChange={(on) => setDraft((d) => ({ ...d, checks: on ? { autoRun: true } : undefined }))} />
+          </SettingRow>
+          <SettingRow id="checks-notify-link">
+            <button type="button" class="cockpit-btn cockpit-btn--sm" onClick={() => { setQuery(''); setSection('notifications'); setTarget('notify-check-fail') }}>Open Notifications</button>
+          </SettingRow>
+        </SettingsGroup>
+      </>
     ),
     usage: (
       <>
-        <SettingsGroup title="Tokens and cost" note="Tokens the agents in each session have used, read from their own logs (Claude Code, Codex). The logs carry no prices — add yours (USD per million tokens) to see cost; a model without a price shows as tokens.">
+        <SettingsGroup title="Tokens and cost">
           <SettingRow id="usage-show" label="Show usage on the rail" description="Each row's token count (and cost, for a model you priced)">
             <Switch label="Show usage on the rail" checked={draft.usage?.show ?? true}
               onChange={(show) => setDraft({ ...draft, usage: { ...draft.usage, show } })} />
@@ -636,7 +644,10 @@ export function SettingsPage({ initialSection, initialRow, initial, availability
     ),
   }
 
-  const title = findSection(section)?.title
+  const current = findSection(section)
+  const title = current?.title
+  const summary = current?.summary
+  const details = current?.details
   return (
     <div
       class="cockpit-settings-page"
@@ -671,11 +682,6 @@ export function SettingsPage({ initialSection, initialRow, initial, availability
       <main class="cockpit-settings-content" ref={contentRef}>
         <div class="cockpit-settings-content__drag" />
         <div class="cockpit-settings-content__inner">
-          {!bannerGone && !searching && section !== 'dashboard' ? (
-            <Banner title="New: Dashboard" actionLabel="Open Dashboard" onAction={() => setSection('dashboard')} onDismiss={dismissBanner}>
-              See what your sessions and worktrees cost in disk and memory, and what you could stop or delete to lighten the machine.
-            </Banner>
-          ) : null}
           {notSaved !== null ? (
             <p class="cockpit-error cockpit-settings-content__unsaved" role="alert">Not saved — {notSaved}</p>
           ) : null}
@@ -699,7 +705,9 @@ export function SettingsPage({ initialSection, initialRow, initial, availability
           ) : (
             <section>
               <h2 class="cockpit-settings-content__title">{title}</h2>
+              {summary !== undefined && section !== 'dashboard' ? <p class="cockpit-settings-content__lead">{summary}</p> : null}
               {bodies[section]}
+              {details !== undefined && section !== 'dashboard' ? <SettingsDetails>{details}</SettingsDetails> : null}
             </section>
           )}
         </div>

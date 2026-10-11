@@ -3411,22 +3411,6 @@ body,
 .cockpit-segmented__option.is-on { background: var(--cw-surface-active); color: var(--cw-text-bright); }
 .cockpit-segmented__option:disabled { opacity: 0.5; cursor: default; }
 
-.cockpit-sbanner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--cw-space-4);
-  padding: var(--cw-space-3) var(--cw-space-4);
-  background: color-mix(in srgb, var(--cw-accent) 8%, var(--cw-surface));
-  border: var(--cw-hairline) solid color-mix(in srgb, var(--cw-accent) 55%, var(--cw-surface));
-  border-radius: calc(var(--cw-radius-lg) * 1.5);
-}
-
-.cockpit-sbanner__text { display: flex; flex-direction: column; gap: var(--cw-hairline); font-size: var(--cw-fs); color: var(--cw-text); }
-.cockpit-sbanner__text strong { color: var(--cw-text-bright); font-weight: 500; }
-.cockpit-sbanner__text span { font-size: var(--cw-fs-sm); color: var(--cw-text-dim); }
-.cockpit-sbanner__actions { flex: none; display: flex; gap: var(--cw-space-2); }
-
 .cockpit-switch:focus-visible,
 .cockpit-segmented__option:focus-visible,
 .cockpit-settings-nav__item:focus-visible,

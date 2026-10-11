@@ -100,25 +100,3 @@ export function SettingsDetails({ children }: { children: ComponentChildren }) {
     </details>
   )
 }
-
-/** News at the top of a page, dismissible; what was dismissed is the caller's to remember. */
-export function Banner({ title, children, actionLabel, onAction, onDismiss }: {
-  title: string
-  children: ComponentChildren
-  actionLabel?: string
-  onAction?: () => void
-  onDismiss: () => void
-}) {
-  return (
-    <div class="cockpit-sbanner" role="region" aria-label={title}>
-      <div class="cockpit-sbanner__text">
-        <strong>{title}</strong>
-        <span>{children}</span>
-      </div>
-      <div class="cockpit-sbanner__actions">
-        <button type="button" class="cockpit-btn cockpit-btn--sm cockpit-btn--ghost" onClick={onDismiss}>Dismiss</button>
-        {actionLabel !== undefined && onAction !== undefined ? <button type="button" class="cockpit-btn cockpit-btn--sm" onClick={onAction}>{actionLabel}</button> : null}
-      </div>
-    </div>
-  )
-}

@@ -1,6 +1,9 @@
 /** @jsxImportSource preact */
 import { describe, expect, test } from 'bun:test'
 import type { ComponentChildren, VNode } from 'preact'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import * as kit from '../src/ui/SettingsKit'
 import { SettingsDetails } from '../src/ui/SettingsKit'
 
 type Found = { texts: string[]; nodes: VNode<Record<string, unknown>>[] }
@@ -15,6 +18,15 @@ function walk(node: ComponentChildren, out: Found = { texts: [], nodes: [] }): F
 }
 const children = (vnode: VNode<Record<string, unknown>>): VNode<Record<string, unknown>>[] =>
   ([] as ComponentChildren[]).concat(vnode.props['children'] as ComponentChildren).filter((c): c is VNode<Record<string, unknown>> => typeof c === 'object' && c !== null)
+
+describe('the news banner', () => {
+  test('is gone from the kit and from the stylesheet (the page opens on the Dashboard, so a mark for it would never be seen)', () => {
+    expect('Banner' in kit).toBe(false)
+    const css = readFileSync(fileURLToPath(new URL('../src/ui/app.css', import.meta.url)), 'utf8')
+    expect(css).not.toContain('cockpit-sbanner')
+    expect(css).not.toContain('cockpit-snew')
+  })
+})
 
 describe('SettingsDetails', () => {
   test('is a details element with its summary first and the body as a sibling, not inside the summary or a paragraph', () => {
