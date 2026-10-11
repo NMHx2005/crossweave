@@ -1,0 +1,101 @@
+import { describe, expect, test } from 'bun:test'
+import { en } from '../src/content/en'
+import { vi } from '../src/content/vi'
+import { renderDocument, type PageMeta } from '../src/layout'
+import { loadConfig, makeUrls } from '../src/site'
+import { html } from '../src/types'
+
+const urls = makeUrls(loadConfig({}))
+const meta = (over: Partial<PageMeta> = {}): PageMeta => ({
+  lang: 'en',
+  path: '/',
+  title: 'crossweave',
+  description: 'A description.',
+  canonical: urls.abs('/'),
+  alternates: { en: '/', vi: '/vi/' },
+  ogImage: urls.abs('/img/cockpit-sessions.png'),
+  ...over,
+})
+const doc = (m: PageMeta = meta(), content = en): string => String(renderDocument(m, html('<main id="main"><h1>Hi</h1></main>'), { content, urls, version: 'v0.5.0' }))
+
+describe('the head', () => {
+  test('the content security policy is the first thing after the charset, and forbids everything not needed', () => {
+    const head = doc().slice(doc().indexOf('<head>'))
+    // The attribute is entity-escaped; a browser decodes it before it reads the policy.
+    const metas = [...head.matchAll(/<meta [^>]*>/g)].map((m) => m[0].replaceAll('&#39;', "'"))
+    expect(metas[0]).toContain('charset')
+    expect(metas[1]).toContain('http-equiv="Content-Security-Policy"')
+    expect(metas[1]).toContain("default-src 'none'")
+    expect(metas[1]).toContain("img-src 'self' data:")
+    expect(metas[1]).toContain("style-src 'self'")
+    expect(metas[1]).toContain("base-uri 'none'")
+    expect(metas[1]).toContain("form-action 'none'")
+  })
+
+  test('language, viewport, absolute canonical and absolute Open Graph URLs', () => {
+    const out = doc()
+    expect(out).toContain('<html lang="en">')
+    expect(out).toContain('name="viewport" content="width=device-width, initial-scale=1"')
+    expect(out).toContain('<link rel="canonical" href="https://nmhx2005.github.io/crossweave/">')
+    expect(out).toContain('property="og:url" content="https://nmhx2005.github.io/crossweave/"')
+    expect(out).toContain('property="og:image" content="https://nmhx2005.github.io/crossweave/img/cockpit-sessions.png"')
+    expect(out).toContain('name="twitter:card" content="summary_large_image"')
+    expect(doc(meta({ ogImage: null }))).not.toContain('og:image')
+  })
+
+  test('hreflang pairs only when a page has both languages, with an x-default', () => {
+    const out = doc()
+    expect(out).toContain('<link rel="alternate" hreflang="en" href="https://nmhx2005.github.io/crossweave/">')
+    expect(out).toContain('<link rel="alternate" hreflang="vi" href="https://nmhx2005.github.io/crossweave/vi/">')
+    expect(out).toContain('hreflang="x-default"')
+    expect(doc(meta({ alternates: {} }))).not.toContain('hreflang')
+  })
+
+  test('a title or description with markup is text', () => {
+    const out = doc(meta({ title: '<script>x</script>', description: '"><b>' }))
+    expect(out).not.toContain('<script>x')
+    expect(out).toContain('&lt;script&gt;x&lt;/script&gt;')
+  })
+
+  test('noindex only when asked', () => {
+    expect(doc()).not.toContain('noindex')
+    expect(doc(meta({ noindex: true }))).toContain('<meta name="robots" content="noindex">')
+  })
+})
+
+describe('the shell', () => {
+  test('no script anywhere, a skip link first, the stylesheet and icon under the base', () => {
+    const out = doc()
+    expect(out).not.toContain('<script')
+    expect(out.indexOf('class="skip"')).toBeLessThan(out.indexOf('<main'))
+    expect(out).toContain('href="/crossweave/styles.css"')
+    expect(out).toContain('href="/crossweave/icon.png"')
+  })
+
+  test('the language switch links to the same page in the other language, and is absent without a translation', () => {
+    expect(doc()).toContain('href="/crossweave/vi/"')
+    expect(doc(meta({ lang: 'vi', path: '/vi/' }), vi)).toContain('href="/crossweave/"')
+    expect(doc(meta({ alternates: {} }))).not.toContain('class="lang"')
+  })
+
+  test('the navigation is in the page language, marks the current section, and a Vietnamese page says the docs are English', () => {
+    const vietnamese = doc(meta({ lang: 'vi', path: '/vi/download/', alternates: { en: '/download/', vi: '/vi/download/' } }), vi)
+    expect(vietnamese).toContain('href="/crossweave/vi/download/" aria-current="page"')
+    expect(vietnamese).toContain('href="/crossweave/docs/"')
+    expect(vietnamese).toContain(vi.docsNotice)
+    expect(doc()).not.toContain(en.docsNotice)
+  })
+
+  test('the footer carries the version and the licence', () => {
+    const out = doc()
+    expect(out).toContain('Release v0.5.0')
+    expect(out).toContain('MIT licence')
+  })
+
+  test('a custom domain drops the base from every link', () => {
+    const root = makeUrls(loadConfig({ SITE_DOMAIN: 'crossweave.dev' }))
+    const out = String(renderDocument(meta({ canonical: root.abs('/') }), html('<main></main>'), { content: en, urls: root, version: 'v0.5.0' }))
+    expect(out).toContain('href="/styles.css"')
+    expect(out).not.toMatch(/(href|src)="\/crossweave\//)
+  })
+})
