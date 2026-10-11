@@ -49,11 +49,13 @@ tell the cockpit it is done (`cw notify`), a session's work can be tested before
 landing (`cw check`), a shell can arrange the cockpit's panes (`cw pane`) and an agent
 can read and drive a Browser pane (`cw browser`); the cockpit adds a prompt composer,
 side-by-side session comparison, one-click session presets and a session history.
-On `main`, after 0.5.0, comes the **AI debug loop**: `cw hooks install` wires an agent's
+0.6.0 adds the **AI debug loop**: `cw hooks install` wires an agent's
 own hooks to `cw notify` so done/asked marks are exact, `cw debug` prints one compact,
 secret-scrubbed bundle of why a session failed (made to paste into an AI), and the cockpit
 gains a Debug pane, a Responses view for a prompt sent to several sessions, and
-`cw browser errors`. These are unreleased; their running-app (CDP) check is still pending.
+`cw browser errors`. It also adds a **checkpoint around every agent turn** (`cw checkpoint`),
+**comments on a diff** pasted into the session's shell, an opt-in **automatic test run** when
+a turn ends, and **flags on sensitive files** before you land.
 [`docs/PROGRESS.md`](docs/PROGRESS.md) says what is done, what was removed and what is next.
 
 > [!NOTE]
