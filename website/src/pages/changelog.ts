@@ -28,8 +28,9 @@ export function changelogPage(ctx: { urls: Urls; notes: Array<{ tag: string; mar
         },
       })
       if (rendered.droppedHtml > 0) throw new Error(`${tag}: raw HTML in the release notes is not supported`)
-      const published = tag === release.tag ? release.publishedAt.slice(0, 10) : null
       const unreleased = compareTags(tag, release.tag) > 0
+      // A published release shows its day; one the manifest has no day for shows none rather than a guess; an unpublished one never shows a day.
+      const published = unreleased ? null : (release.dates?.[tag] ?? (tag === release.tag ? release.publishedAt.slice(0, 10) : null))
       return `<section class="release" id="${esc(tag.replace(/\./g, '-'))}">
 <h2>${esc(tag)}${published === null ? '' : ` <time datetime="${esc(published)}">${esc(published)}</time>`}${unreleased ? ' <span class="badge">Unreleased</span>' : ''}</h2>
 ${rendered.html}

@@ -180,6 +180,20 @@ describe('recent releases', () => {
   })
 })
 
+describe('structured data', () => {
+  test('says only what is true: free, MIT, macOS and Linux, the latest release, and no rating of any kind', () => {
+    const ld = homePage(ctx()).meta.jsonLd as Record<string, unknown>
+    expect(ld['@type']).toBe('SoftwareApplication')
+    expect(ld['softwareVersion']).toBe('v0.5.0')
+    expect(ld['operatingSystem']).toBe('macOS, Linux')
+    expect(ld['license']).toBe('https://opensource.org/license/mit')
+    expect(ld['offers']).toEqual({ '@type': 'Offer', price: '0', priceCurrency: 'USD' })
+    // No rating and no review: none exists, so none is claimed (the description may use the word, a property may not).
+    for (const key of ['aggregateRating', 'review', 'ratingValue', 'reviewCount']) expect(Object.keys(ld)).not.toContain(key)
+    expect(homePage(ctx({ lang: 'vi', content: vi })).meta.jsonLd?.['url']).toBe('https://nmhx2005.github.io/crossweave/vi/')
+  })
+})
+
 describe('the end', () => {
   test('the closing button says what it does and goes to the quickstart', () => {
     expect(body()).toContain('href="/crossweave/docs/quickstart/">Read the quickstart</a>')

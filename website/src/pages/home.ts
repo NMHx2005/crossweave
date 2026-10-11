@@ -218,6 +218,21 @@ ${faq}
       canonical: urls.abs(path),
       alternates: { en: '/', vi: '/vi/' },
       ogImage: urls.abs('/img/cockpit-sessions.png'),
+      // What a search engine may say about the product: only what is true and checkable. No rating, no review count.
+      jsonLd: {
+        '@context': 'https://schema.org',
+        '@type': 'SoftwareApplication',
+        name: content.siteName,
+        description: c.description,
+        url: urls.abs(path),
+        applicationCategory: 'DeveloperApplication',
+        operatingSystem: 'macOS, Linux',
+        softwareVersion: release.tag,
+        license: 'https://opensource.org/license/mit',
+        downloadUrl: urls.abs('/download/'),
+        sameAs: REPO_URL,
+        offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+      },
     },
   }
 }

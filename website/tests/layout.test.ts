@@ -29,6 +29,7 @@ describe('the head', () => {
     expect(metas[1]).toContain("img-src 'self' data:")
     expect(metas[1]).toContain("style-src 'self'")
     expect(metas[1]).toContain("script-src 'self'")
+    expect(metas[1]).toContain("media-src 'self'")
     expect(metas[1]).toContain("base-uri 'none'")
     expect(metas[1]).toContain("form-action 'none'")
   })
@@ -67,7 +68,7 @@ describe('the head', () => {
 describe('the shell', () => {
   test('one external script and no inline one, a skip link first, the stylesheet and icon under the base', () => {
     const out = doc()
-    expect([...out.matchAll(/<script\b[^>]*>/g)].map((m) => m[0])).toEqual(['<script src="/crossweave/reveal.js" defer>'])
+    expect([...out.matchAll(/<script\b[^>]*>/g)].map((m) => m[0])).toEqual(['<script src="/crossweave/site.js" defer>'])
     expect(out).toContain('<div class="scroll-progress" aria-hidden="true"></div>')
     expect(out.indexOf('class="skip"')).toBeLessThan(out.indexOf('<main'))
     expect(out).toContain('href="/crossweave/styles.css"')
@@ -99,5 +100,66 @@ describe('the shell', () => {
     const out = String(renderDocument(meta({ canonical: root.abs('/') }), html('<main></main>'), { content: en, urls: root, version: 'v0.5.0' }))
     expect(out).toContain('href="/styles.css"')
     expect(out).not.toMatch(/(href|src)="\/crossweave\//)
+  })
+})
+
+describe('the shell, second version', () => {
+  const home = (lang: 'en' | 'vi' = 'en') => {
+    const content = lang === 'en' ? en : vi
+    return String(renderDocument(meta({ lang, path: lang === 'en' ? '/' : '/vi/' }), html('<main id="main"></main>'), { content, urls, version: 'v0.5.0' }))
+  }
+
+  test('the footer has a Product and a Project group, a maker line, and the security and contributing links', () => {
+    const out = home()
+    const footer = /<footer[\s\S]*<\/footer>/.exec(out)?.[0] ?? ''
+    expect(footer).toContain(`aria-label="${en.nav.footerLabel}"`)
+    expect(footer).toContain(`>${en.footer.groups.product}<`)
+    expect(footer).toContain(`>${en.footer.groups.project}<`)
+    expect(footer).toContain('href="/crossweave/docs/security/"')
+    expect(footer).toContain('href="https://github.com/NMHx2005/crossweave/blob/main/CONTRIBUTING.md"')
+    expect(footer).toContain('href="https://github.com/NMHx2005/crossweave/issues"')
+    expect(footer).toContain(en.footer.builtBy)
+  })
+
+  test('the landmarks are named in the page language', () => {
+    expect(home()).toContain(`<nav class="nav" aria-label="${en.nav.mainLabel}">`)
+    expect(home('vi')).toContain(`<nav class="nav" aria-label="${vi.nav.mainLabel}">`)
+    expect(home('vi')).toContain(`aria-label="${vi.nav.footerLabel}"`)
+  })
+
+  test('the header marks GitHub so a phone can leave it to the footer', () => {
+    expect(home()).toContain('class="nav__github"')
+  })
+
+  test('the sharing tags: image size and description, theme colours, the touch icon', () => {
+    const out = String(
+      renderDocument(
+        { ...meta(), ogImageInfo: { width: 1200, height: 630, alt: 'The headline on a dark card' } },
+        html('<main id="main"></main>'),
+        { content: en, urls, version: 'v0.5.0' },
+      ),
+    )
+    expect(out).toContain('property="og:image:width" content="1200"')
+    expect(out).toContain('property="og:image:height" content="630"')
+    expect(out).toContain('property="og:image:alt" content="The headline on a dark card"')
+    expect(out).toContain('name="twitter:image:alt" content="The headline on a dark card"')
+    expect(out).toMatch(/<meta name="theme-color" content="#[0-9a-f]{6}" media="\(prefers-color-scheme: dark\)">/)
+    expect(out).toMatch(/<meta name="theme-color" content="#[0-9a-f]{6}" media="\(prefers-color-scheme: light\)">/)
+    expect(out).toContain('<link rel="apple-touch-icon" href="/crossweave/apple-touch-icon.png">')
+  })
+
+  test('structured data is a data block, valid JSON, escaped, and only where a page asks for it', () => {
+    expect(home()).not.toContain('application/ld+json')
+    const out = String(
+      renderDocument(
+        { ...meta(), jsonLd: { '@context': 'https://schema.org', '@type': 'SoftwareApplication', name: 'x</script><b>' } },
+        html('<main id="main"></main>'),
+        { content: en, urls, version: 'v0.5.0' },
+      ),
+    )
+    const block = /<script type="application\/ld\+json">([\s\S]*?)<\/script>/.exec(out)?.[1] ?? ''
+    expect(JSON.parse(block)['@type']).toBe('SoftwareApplication')
+    expect(block).not.toContain('</script>')
+    expect(block).not.toContain('<b>')
   })
 })

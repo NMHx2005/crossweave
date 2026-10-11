@@ -164,10 +164,17 @@ describe('the changelog', () => {
     expect(count(body, /<h1[ >]/g)).toBe(1)
   })
 
-  test('a tag newer than the latest published release is marked unreleased, and only the published one carries a date', () => {
-    const body = String(changelogPage({ urls, notes, release: { ...full, tag: 'v0.9.0', publishedAt: '2026-09-30T10:39:00Z' } }).body)
+  test('a tag newer than the latest published release is marked unreleased; every published one carries its date', () => {
+    const dated = { ...full, tag: 'v0.9.0', dates: { 'v0.9.0': '2026-09-30', 'v0.10.0': '2026-10-30', 'v0.2.1': '2026-08-19' } }
+    const body = String(changelogPage({ urls, notes, release: dated }).body)
     expect(count(body, /Unreleased/g)).toBe(1)
     expect(body).toContain('<time datetime="2026-09-30">2026-09-30</time>')
+    expect(body).toContain('<time datetime="2026-08-19">2026-08-19</time>')
+    expect(count(body, /<time /g)).toBe(2)
+  })
+
+  test('a date is never invented for a release the manifest does not know', () => {
+    const body = String(changelogPage({ urls, notes, release: { ...full, tag: 'v0.9.0' } }).body)
     expect(count(body, /<time /g)).toBe(1)
   })
 

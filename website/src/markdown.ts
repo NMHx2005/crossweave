@@ -142,6 +142,7 @@ export function lintMarkdown(source: string): void {
     if (/^\s*[-*+]\s+\[[ xX]\]\s/.test(line)) throw new Error(`markdown: task lists are not supported (${where})`)
     if (/\[\^[^\]]+\]/.test(line)) throw new Error(`markdown: footnotes are not supported (${where})`)
     if (/\$\$/.test(line)) throw new Error(`markdown: math is not supported (${where})`)
-    if (/^\s*<\/?[A-Za-z][^>]*>/.test(line)) throw new Error(`markdown: raw HTML is not supported (${where})`)
+    // `<https://example.org>` is an autolink, not a tag.
+    if (/^\s*<\/?[A-Za-z][^>]*>/.test(line) && !/^\s*<[A-Za-z][A-Za-z0-9+.-]*:[^>\s]*>/.test(line)) throw new Error(`markdown: raw HTML is not supported (${where})`)
   })
 }

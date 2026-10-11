@@ -8,7 +8,7 @@ Include what you saw, the version (`cw --version`), your OS, and the smallest st
 the maintainer can read it; this is a small personal project, so there is no service-level promise, but a real vulnerability is taken
 seriously and fixed before it is discussed publicly.
 
-Supported version: the latest release (currently 0.4.x). Earlier versions get no fixes.
+Supported version: the latest release. Earlier versions get no fixes.
 
 ## What crossweave is, and what it is not
 

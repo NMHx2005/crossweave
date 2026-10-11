@@ -44,7 +44,7 @@ code { font-size: 0.9em; }
   color: var(--cw-text-bright);
   border: var(--cw-hairline) solid var(--cw-border-strong);
   border-radius: var(--cw-radius);
-  z-index: 10;
+  z-index: 30;
 }
 .skip:focus { top: var(--s-3); }
 
@@ -63,9 +63,11 @@ code { font-size: 0.9em; }
 
 .site-footer { margin-top: var(--s-7); background: var(--cw-surface-sidebar); color: var(--cw-text-dim); border-top: var(--cw-hairline) solid var(--cw-border); }
 .site-footer .wrap { display: grid; gap: var(--s-4); padding-top: var(--s-5); padding-bottom: var(--s-5); }
+.footer__groups { display: flex; flex-wrap: wrap; gap: var(--s-4) var(--s-7); }
+.footer__group ul { display: grid; gap: var(--s-1); margin: 0; padding: 0; list-style: none; }
+.footer__title { margin: 0 0 var(--s-2); color: var(--cw-text-bright); font-weight: 600; }
 .site-footer a { color: var(--cw-text); }
 .site-footer a:hover { color: var(--cw-accent); }
-.site-footer nav { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-4); }
 .site-footer p { margin: 0; }
 
 /* ---- buttons and the install line ---- */
@@ -263,10 +265,11 @@ code { font-size: 0.9em; }
 .release time { color: var(--cw-text-dim); font-size: 0.9rem; font-weight: 400; }
 
 @media (max-width: 47.99rem) {
-  html { scroll-padding-top: 6rem; }
+  html { scroll-padding-top: 7rem; }
+  .nav a, .site-footer a { display: inline-flex; align-items: center; min-height: 2.75rem; }
+  .nav__github { display: none; }
   .site-header .wrap { gap: var(--s-1) var(--s-4); padding-top: var(--s-2); padding-bottom: var(--s-2); }
   .nav { gap: 0 var(--s-3); font-size: 0.9rem; }
-  .nav a { padding: var(--s-1) 0; }
 }
 
 @media (min-width: 48rem) {
@@ -362,6 +365,8 @@ code { font-size: 0.9em; }
 
   html[data-reveal-ready] [data-reveal]:not([data-reveal="group"]):not(.is-visible) { opacity: 0; translate: 0 2.25rem; }
   html[data-reveal-ready] [data-reveal="group"]:not(.is-visible) .reveal-item { opacity: 0; translate: 0 1.75rem; }
+  /* Something inside is focused (a keyboard user tabbing into a block that is still waiting): show it now, not after its delay. */
+  html[data-reveal-ready] [data-reveal]:not([data-reveal="group"]):not(.is-visible):focus-within { opacity: 1; translate: 0 0; transition-delay: 0s; }
 
   /* Items of a group arrive one after another; cards in a row of three arrive left to right. */
   .reveal-item:nth-child(2) { --d: 0.1s; }

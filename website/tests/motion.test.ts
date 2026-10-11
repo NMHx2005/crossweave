@@ -11,7 +11,7 @@ import { html, type PageCtx } from '../src/types'
 
 const read = (relative: string): string => readFileSync(fileURLToPath(new URL(relative, import.meta.url)), 'utf8')
 const css = read('../src/styles.css').replace(/\/\*[\s\S]*?\*\//g, '')
-const script = read('../public/reveal.js')
+const script = read('../public/site.js')
 
 // ---- the script -------------------------------------------------------------------------------------------------------------------
 
@@ -50,7 +50,7 @@ function run(targets: FakeEl[], withObserver = true): { html: { dataset: Record<
   return { html, observed, unobserved, fire: (target, isIntersecting) => callback([{ target, isIntersecting }]), get options() { return options } }
 }
 
-describe('reveal.js', () => {
+describe('site.js: the reveals', () => {
   test('without IntersectionObserver it arms nothing, so nothing is ever hidden', () => {
     const a = el(2000)
     const out = run([a], false)
@@ -183,6 +183,35 @@ const ctx = (over: Partial<PageCtx> = {}): PageCtx => ({
   ...over,
 })
 const plain = (html: string): string => html.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
+
+describe('keyboard and phone', () => {
+  const rules = rulesOf(css)
+  const find = (selector: string, chainPart = '') => rules.find((r) => r.selector === selector && r.chain.join(' ').includes(chainPart))
+
+  test('the skip link stacks above the sticky header, so a keyboard user can see it', () => {
+    const z = (selector: string): number => Number(/z-index:\s*(\d+)/.exec(find(selector)?.body ?? '')?.[1] ?? 0)
+    expect(z('.skip')).toBeGreaterThan(z('.site-header'))
+  })
+
+  test('a block waiting to be revealed shows at once when something inside it takes focus', () => {
+    const rule = rules.find((r) => r.selector.includes('[data-reveal]') && r.selector.includes(':focus-within'))
+    expect(rule?.body).toMatch(/opacity:\s*1/)
+    expect(rule?.body).toContain('transition-delay: 0s')
+    expect(rule?.selector).toContain('html[data-reveal-ready]')
+  })
+
+  test('on a phone every navigation target is at least 44 px high and GitHub leaves the header', () => {
+    const links = find('.nav a, .site-footer a', 'max-width')
+    expect(links?.body).toContain('min-height: 2.75rem')
+    expect(find('.nav__github', 'max-width')?.body).toContain('display: none')
+    expect(find('.copy')?.body).toContain('min-height: 2.75rem')
+  })
+
+  test('the footer is two groups of links', () => {
+    expect(find('.footer__groups')).toBeDefined()
+    expect(find('.footer__group ul')).toBeDefined()
+  })
+})
 
 describe('the header that stays with you', () => {
   const rules = rulesOf(css)

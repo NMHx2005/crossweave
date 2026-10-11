@@ -11,6 +11,7 @@ const build = (over: Partial<Parameters<typeof docsPages>[0]> = {}) =>
   docsPages({
     urls,
     readme: read('README.md'),
+    security: read('SECURITY.md'),
     concepts: read('website/src/content/concepts.md'),
     cliHelp: read('website/src/content/cli-help.txt'),
     release: { tag: 'v0.5.0', publishedAt: '2026-09-30T10:39:00Z', assets: ['checksums.txt'] },
@@ -22,8 +23,8 @@ const count = (html: string, re: RegExp): number => [...html.matchAll(re)].lengt
 describe('docsPages', () => {
   const pages = build()
 
-  test('seven pages at fixed paths, in English', () => {
-    expect(pages.map((p) => p.path)).toEqual(['/docs/', '/docs/install/', '/docs/quickstart/', '/docs/concepts/', '/docs/cockpit/', '/docs/configuration/', '/docs/commands/'])
+  test('eight pages at fixed paths, in English', () => {
+    expect(pages.map((p) => p.path)).toEqual(['/docs/', '/docs/install/', '/docs/quickstart/', '/docs/concepts/', '/docs/cockpit/', '/docs/configuration/', '/docs/commands/', '/docs/security/'])
     for (const p of pages) {
       expect(p.meta.lang).toBe('en')
       expect(p.meta.alternates).toEqual({})
@@ -31,13 +32,13 @@ describe('docsPages', () => {
     }
   })
 
-  test('each has one h1, real prose, and a sidebar of all seven with the current one marked', () => {
+  test('each has one h1, real prose, and a sidebar of all eight with the current one marked', () => {
     for (const p of pages) {
       const body = String(p.body)
       expect(count(body, /<h1[ >]/g), p.path).toBe(1)
       expect(body.replace(/<[^>]+>/g, '').trim().length, p.path).toBeGreaterThan(200)
       const nav = body.slice(body.indexOf('<nav class="docs__nav"'), body.indexOf('</nav>'))
-      expect(count(nav, /<li><a href="[^"]*docs\/[^"]*"/g), p.path).toBe(7)
+      expect(count(nav, /<li><a href="[^"]*docs\/[^"]*"/g), p.path).toBe(8)
       expect(count(body, /aria-current="page"/g), p.path).toBe(1)
       expect(body, p.path).toContain(`href="${urls.path(p.path)}" aria-current="page"`)
     }
@@ -91,6 +92,48 @@ describe('docsPages', () => {
     const clean = (text: string): string => text.split('\n').map((l) => l.replace(/\s+$/, '')).join('\n').trim()
     const live = clean(run.stdout.toString().split('\n').slice(1).join('\n'))
     expect(clean(read('website/src/content/cli-help.txt'))).toBe(live)
+  })
+})
+
+describe('Security & privacy', () => {
+  const page = String(build().find((p) => p.path === '/docs/security/')?.body)
+
+  test('is the project policy, with its trust table and the private reporting route, under a lead that says what is and is not sent', () => {
+    expect(page).toContain('<h1>Security &amp; privacy</h1>')
+    expect(page).toContain('<th scope="col">Input</th>')
+    expect(page).toContain('https://github.com/NMHx2005/crossweave/security/advisories/new')
+    expect(page).toContain('sends nothing anywhere itself')
+    expect(page).toContain('cw config update-check off')
+    expect(page).toContain('their own network behaviour')
+  })
+
+  test('SECURITY.md no longer names a stale version as the supported one', () => {
+    expect(read('SECURITY.md')).not.toMatch(/currently 0\.\d+\.x/)
+    expect(read('SECURITY.md')).toContain('Supported version: the latest release')
+  })
+
+  test('the real file renders through the site renderer without a lint error, autolinks included', async () => {
+    const { lintMarkdown } = await import('../src/markdown')
+    expect(() => lintMarkdown(read('SECURITY.md'))).not.toThrow()
+    expect(() => lintMarkdown('<https://example.org/x>')).not.toThrow()
+    expect(() => lintMarkdown('<div>x</div>')).toThrow(/raw HTML/)
+  })
+})
+
+describe('Uninstall', () => {
+  const install = String(build().find((p) => p.path === '/docs/install/')?.body)
+
+  test('is the last section of the Install page, in an order that leaves nothing running', () => {
+    expect(install).toContain('id="uninstall"')
+    const steps = install.slice(install.indexOf('id="uninstall"'))
+    const order = ['cw hooks remove claude', 'cw session stop', 'cw session rm NAME --yes', 'cw gc', 'cw daemon stop', '~/.local/bin', '~/.crossweave']
+    let at = -1
+    for (const text of order) {
+      const next = steps.indexOf(text)
+      expect(next, text).toBeGreaterThan(at)
+      at = next
+    }
+    expect(steps).toContain('keeps ended sessions that still hold unlanded work')
   })
 })
 

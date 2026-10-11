@@ -8,6 +8,8 @@ import { repoFile } from './common'
 export interface DocsCtx {
   urls: Urls
   readme: string
+  /** `SECURITY.md`: the policy, reproduced as a page. */
+  security: string
   concepts: string
   cliHelp: string
   /** The latest published release: these pages follow main, which can be ahead of it. */
@@ -49,6 +51,22 @@ function readmeSlugs(readme: string): Set<string> {
   return slugs
 }
 
+const UNINSTALL = `## Uninstall
+
+In this order, so that nothing is left running or half removed:
+
+1. Land or keep any work you want from your sessions.
+2. Take back the agent hooks you installed: \`cw hooks remove claude\` and \`cw hooks remove codex\`.
+3. Stop the sessions you no longer need (\`cw session stop NAME\`), then remove them with \`cw session rm NAME --yes\`, or collect ended ones with \`cw gc\`, which keeps ended sessions that still hold unlanded work. Removing a session deletes its worktree and branch.
+4. Quit the Cockpit, then stop each project's daemon with \`cw daemon stop\`, run inside that project.
+5. Delete \`cw\` and \`cwd\` from \`~/.local/bin\`, the app from \`~/Applications\` (or \`/Applications\`), each project's \`.crossweave\` folder, and your settings in \`~/.crossweave\`.
+`
+
+const SECURITY_LEAD = `crossweave runs on your machine, as you. **It sends nothing anywhere itself and has no telemetry.** Its only network uses are the installer's downloads from GitHub, \`cw update\`, and an optional background check for a newer release (\`cw config update-check off\` turns it off). The programs you run in a session (your agents, a Refine command you name, the pages in a browser pane) have their own network behaviour, which crossweave does not control.
+
+Below is the project's security policy, \`SECURITY.md\`, reproduced.
+`
+
 function commandsMarkdown(help: string): string {
   const usage = help.split('\n').find((l) => l.startsWith('USAGE')) ?? ''
   const rows = parseCommands(help).map((c) => `| \`${c.name}\` | ${c.summary.replace(/\|/g, '\\|')} |`)
@@ -76,12 +94,18 @@ export function docsPages(ctx: DocsCtx): BuiltPage[] {
 
   const pages: DocPage[] = [
     { generated: true, slug: '', title: 'Documentation', description: 'Install, quickstart, concepts and reference for crossweave.', markdown: '' },
-    { slug: 'install', title: 'Install', description: 'Install crossweave on macOS or Linux.', markdown: fromReadme('Install') },
+    { slug: 'install', title: 'Install', description: 'Install crossweave on macOS or Linux, and remove it again.', markdown: `${fromReadme('Install')}\n\n${UNINSTALL}` },
     { slug: 'quickstart', title: 'Quickstart', description: 'Run two sessions on one repository and land them.', markdown: fromReadme('Quickstart') },
     { slug: 'concepts', title: 'Concepts', description: 'Sessions, the rail, landing, checks and checkpoints in a page.', markdown: ctx.concepts },
     { slug: 'cockpit', title: 'The Cockpit app', description: 'The macOS desktop app: the rail, panes, the composer, checks and settings.', markdown: fromReadme('Cockpit (desktop)') },
     { slug: 'configuration', title: 'Configuration', description: 'crossweave.config.json, trust and settings.', markdown: fromReadme('Configuration') },
     { generated: true, slug: 'commands', title: 'Command reference', description: 'The cw commands and what each one is for.', markdown: commandsMarkdown(ctx.cliHelp) },
+    {
+      slug: 'security',
+      title: 'Security & privacy',
+      description: 'What crossweave runs, trusts and sends, and how to report a vulnerability.',
+      markdown: `${SECURITY_LEAD}\n${ctx.security.replace(/^# .*\n+/, '')}`,
+    },
   ]
   const index = pages[0]
   if (index !== undefined) {
