@@ -229,7 +229,8 @@ cd apps/cockpit && bun test && bun run build
 
 Pty and unix-socket tests need to run outside a restricted sandbox. Each cockpit feature also has a
 script under `apps/cockpit/scripts/` that drives the *running app* over CDP on a scratch `HOME`
-(see `apps/cockpit/README.md`). Release notes live in `docs/releases/`.
+(see `apps/cockpit/README.md`). Release notes live in `docs/releases/`. The project website lives in `website/`
+and builds with `bun website/build.ts` (no dependencies; `bun website/serve.ts` previews it).
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the ground rules and the gate, `AGENTS.md` for the map of the code and the decisions
 already made, and `docs/superpowers/plans/` and `docs/superpowers/specs/` for how each milestone was designed and implemented.

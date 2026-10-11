@@ -75,6 +75,7 @@ emptying a table can be blocked even as test data. Write such files with the edi
 | `src/daemon` | RPC method table, session runtime (pty), extra terminals (+ opt-in persistence), convergence scheduler, status inference (`session-status.ts`), command bridge registry, `cw notify` signals (`signal.ts`), session checks (`checks.ts`) |
 | `src/adapters` | the pty and the session shell — the only process a session runs |
 | `src/notify` | desktop notifications for land and convergence, and their throttle |
+| `website` | The public site: one dependency-free Bun build (`website/build.ts`) that renders typed content (English and Vietnamese) and the README's docs sections into static HTML for GitHub Pages; its tokens come from the cockpit's token modules; its tests run with the root `bun test` |
 | `apps/cockpit` | Electron thin client (macOS arm64 v1). `electron/` is the main process (bridge server, browser agent, prompt refine, settings guard); `src/lib/` holds the pure logic (rail, compare, presets, prompt-send, pane-bridge, keymap, load-gate) and `src/ui/` the components; `scripts/` drives the running app over CDP |
 
 ## House conventions that are load-bearing

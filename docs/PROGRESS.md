@@ -51,6 +51,7 @@ usage per session; its own app icon (`apps/cockpit/build/icon.svg`, four warp th
 | **Auto-check settings and "Send test failure to shell"** (2026-10-10): Settings → Checks; the failing tail goes to the shell redacted, no Enter | `2026-10-10-auto-check-known-limitations.md` |
 | **Sensitive-file flags** (2026-10-10): labelled badges and a summary line in Changes, Checkpoints and Compare; Land asks first for secret-like and automation files | `2026-10-10-sensitive-files-known-limitations.md` |
 | **Calmer Settings and a failed-check alert** (2026-10-11, in 0.6.0): a lead, a titled first card and a folded Details in every section, no banner, a steady column; a desktop alert (exit code and time, never the output) when a check fails while the window is away, switch in Notifications | `2026-10-11-settings-polish-check-alert-known-limitations.md` |
+| **Website** (2026-10-11, on branch `feat/website`): a static, dependency-free site in `website/` for GitHub Pages — home (English and Vietnamese), download with an honest not-notarized note, docs built from the README, changelog, a command reference checked against `cw --help` | `2026-10-11-website-known-limitations.md` |
 | **Settings redesigned after Cursor's** and a **Dashboard** (projects, sessions, disk, memory; proposals to clean up, delete or stop idle work — always asks first) | `2026-09-30-settings-dashboard-known-limitations.md` |
 
 ## Removed on purpose (do not reintroduce)
@@ -78,7 +79,7 @@ usage per session; its own app icon (`apps/cockpit/build/icon.svg`, four warp th
 
 ## Changelog (newest first)
 
-- **2026-10-11** — version 0.6.0 prepared (not tagged): release notes `docs/releases/v0.6.0.md`. Then, folded into 0.6.0: the
+- **2026-10-11** — the website (`website/`, on `feat/website`, not deployed). Version 0.6.0 prepared (not tagged): release notes `docs/releases/v0.6.0.md`. Then, folded into 0.6.0: the
   settings page made consistent, a desktop alert when a check fails, and the failure text cleaned before it is redacted (a fix to auto-check).
 - **2026-10-10** — the AI-support series, on `main`: session checkpoints, diff comments sent to the shell,
   opt-in auto-check with "Send test failure to shell", sensitive-file flags in the diff. Cockpit and daemon, schema still v18.
