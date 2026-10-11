@@ -89,3 +89,23 @@ Live on the running site: the clip plays and loops, the poster shows with reduce
 The clip is a scripted demo and says so; its captions are English only; its camera and cursor are drawn by the script, not captured from a person; a 4 MB file is committed to the repository; the stills
 are the same footage; no audio or voice-over; no testimonials, logos, star count or community links because none exist; reduced motion is checked in the stylesheet and the script's stub only, not in a
 browser that can set the preference; Firefox lacks scroll-driven animation and cross-page transitions, which degrade silently.
+
+## G. Revisions after a Codex review of this design (they supersede anything above that disagrees)
+
+- **No claim of exact timing for the app.** The camera, cursor, captions and cards are functions of the authored time and are exact; the app's own motion (spinner, toast, transitions) runs on wall-clock time and is
+  only as exact as a screenshot loop can be. Real work is **gated**: an action carries a completion condition (the rows exist, the commit exists, the evidence reports a conflict) and the render loop waits
+  for it (it stops advancing authored time, and captures nothing while the screen is not changing), so a frame never shows a state the action has not reached. The trial-merge scheduler runs every 5 s, which is why gates exist.
+- **The conflict in the story is real:** two sessions edit the same line of the same file, the script asserts the daemon's own evidence names that pair as conflicting (and that the third is clean) before it shows it.
+- **Honest footage note:** the clip is recorded on the development build (v0.6.0), because it shows a risky-file badge that the published v0.5.0 does not have; the note says so, and that the status marks are sent
+  with `cw notify` (the agent screens are scripted).
+- **Resolution:** device scale 2 at a 1920×1080 viewport (3840×2160 captures), the camera zoom is at most 1.5 so the terminals' canvases are never magnified beyond their backing resolution, and the output is
+  downsampled to 1920×1080. The camera layer's geometry is a contract: `transform: translate(tx, ty) scale(z)` with `transform-origin: 0 0`, the window `position: absolute` and `contain: layout paint`, the cursor and
+  overlay layers `pointer-events: none`, CDP mouse coordinates taken from the target's transformed `getBoundingClientRect()`; menus and dialogs are checked inside the window.
+- **Video control:** the `<video>` ships with `controls`, no `autoplay` and `preload="none"`, so without the script it is a poster and a play control. `site.js` removes `controls` and plays it muted when motion is welcome and
+  the element is on screen (restoring `controls` if the browser refuses), shows a visible Pause/Play button (WCAG 2.2.2), and follows a change of the reduced-motion preference.
+- **One data file for releases:** the dates live in the release manifest itself (`dates: { tag: 'YYYY-MM-DD' }`), so a refresh is still one atomic write.
+- **Copy facts to verify against the code before they are written:** what `cw land` does (strategy is configurable, `--force` does not override conflicts, the base must be clean, the session's worktree is removed and
+  that discards uncommitted files, the command is `cw land session api --yes`), what `cw session rm` needs (an ended or landed session: stop it first) and `cw gc` keeps (ended sessions with unlanded work), that the
+  Dashboard's disk numbers are lower bounds. The FAQ count becomes 16.
+- **Accessibility additions:** `Limits` disclosures carry a visually hidden suffix naming the feature; a failed copy is announced; the English captions are marked `lang="en"` on the Vietnamese page.
+- **Markup rules relaxed exactly once:** the build test allows a `type="application/ld+json"` data block (parsed as JSON) next to the single external script; `lintMarkdown` accepts an autolink such as `<https://…>`.
