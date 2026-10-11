@@ -17,13 +17,16 @@ or dependency changes.
 
 ## Part A — Settings
 
-1. **No banner.** The Dashboard's news becomes a small `New` pill on the Dashboard item of the navigation. Opening the Dashboard marks it
-   seen, using the key the banner used (`cw.settings.banner.dashboard.v1`), so anyone who dismissed the banner does not see the pill. The
+1. **No banner.** The Dashboard's news becomes a small `New` pill on the Dashboard item of the navigation. The pill is plain text inside the item (no second control), and the Dashboard
+   counts as seen whenever it is the open section, however it was reached (the default, a deep link, a search hit). It is marked seen, using the key the banner used (`cw.settings.banner.dashboard.v1`), so anyone who dismissed the banner does not see the pill. The
    `Banner` component, its CSS and its state are removed: nothing else uses them.
 2. **One shape for every section.** The registry gives each section a one-line `summary` that the page shows under its title. A long
    explanation moves into a native `<details>` ("Details") under the card; nothing is hidden that was shown before, it is folded. Row
-   descriptions are shortened to one sentence (at most 140 characters); the words that were cut live in the section's Details.
-   Every section's first card has a group title.
+   descriptions are shortened to one sentence (at most 160 characters); the words that were cut live in the section's Details.
+   Safety facts are never folded: the auto-run row keeps, in view beside its switch, that it runs code the agent just wrote, outside the
+   agent's sandbox, for every project, and is off by default. Details is a sibling of the note (a `<details>` with its `<summary>` first,
+   not inside the `<p>`), keyboard-operable, and a section's search words stay in its registry rows. Every section but the Dashboard
+   (which has its own layout) has a titled first card.
 3. **A steady column.** `scrollbar-gutter: stable` on the content pane, so the column does not move.
 4. **Fuller short sections.**
    - **Notifications** becomes three groups: *When a session needs you* (agent finishes, tests fail), *How it tells you* (sound, Dock count),
@@ -35,36 +38,62 @@ or dependency changes.
 ## Part B — Alert when a check fails
 
 - A new window preference `checkFail` (stored like the others, default **on**) with a row **When tests fail** in Notifications.
-- A pure function `newlyFailedChecks(previous, next)` returns the sessions whose check *just* failed: `check.state === 'fail'` now, and
-  before either the session was unknown to the window (the first load never alerts), its check was not `fail`, or its `at` differs (a new
-  run that failed again). A run still `running` or a verdict that stayed the same alerts nothing.
-- `ProjectView` calls it where it already decides about "finished" and "asking", with the same `away` rule (the window not in front, or the
-  project not the visible one) and the new preference. One notification per session, `tag: cw-check-<id>`, title `<name>: tests failed`.
-- The body is one line of the failing output's end, passed through the same cleaning as "Send test failure to shell" (secrets redacted,
-  escape sequences, control and invisible characters removed) and cut at 140 characters: a notification can show on a locked screen.
+- A pure function `newlyFailedChecks(sessions, notified)` returns the sessions whose check is a finished failure that has not been
+  announced: `check.state === 'fail'`, `check.stale === false`, and `check.at !== notified.get(session.id)`. `notified` is a per-window
+  map from session id to the `at` of the last failing run it was told about. A run still `running`, a pass, a stale verdict and a verdict
+  already announced alert nothing, however many times the list is reloaded, reordered by a late answer, or the verdict disappears and
+  comes back (a daemon restart keeps the same `at`).
+- The first snapshot of a project seeds `notified` with every failure already there and alerts nothing; a `ProjectView` that is remounted
+  starts from that same silence. Later snapshots alert for what is new and record it.
+- `ProjectView` calls it where it already decides about "finished" and "asking", with the same `away` rule and the new preference, and
+  records what it announced even when away is false (a failure seen on screen is not announced later). One notification per session,
+  `tag: cw-check-<id>`, title `<name>: tests failed`.
+- **The body never carries the test output.** It says `exit <code>, <seconds>s` (or `The project's tests failed` when neither is known) and
+  nothing else: a notification can sit on a locked screen or in a notification centre that syncs to other devices, and a scrubber is
+  heuristic. The session name is cleaned of control and invisible characters like any repository text. The output stays one click
+  away, behind "Send test failure to shell".
 - Click: bring the window forward and focus the session, as the other two do.
 - It does not alert for a pass, does not press anything, writes nothing to a shell, and does not tell an automatic run from a manual one.
 
+## Part C — The failure text is cleaned before it is redacted (a fix to feature 3)
+
+A review of this design found that `formatCheckFailure` redacts first and strips invisible characters second, so a secret split by a
+zero-width character (`pass\u200bword=hunter2`) is not matched and becomes readable afterwards; it also leaves BEL, backspace and DEL in
+the pasted text. The order becomes: strip escapes, invisible and control characters (keeping newline and tab), collapse `\r` rewrites,
+then redact, then cut. A regression test fails before the change and passes after it.
+
 ## Tests
 
-- Registry: every section has a non-empty `summary` of at most 100 characters, every row description is at most 140 characters, the ids stay
-  unique, search still finds each row by its label and keywords.
-- `newlyFailedChecks`: first sight, pass to fail, fail unchanged, fail with a new `at`, running, fail to pass, session that left the list.
-- The headline of a failure: secret shapes, escape sequences, a bidi override, an empty tail, a very long line.
-- Component walks: no banner on any section; the pill shows until Dashboard is opened and not after; each section renders its summary and
-  its first group title; Notifications has the new switch and it calls `onNotify`.
-- The tokens test still passes with the new CSS (no literal colours or pixels, AA on the pill).
+- Registry: every section has a non-empty `summary` of at most 100 characters, every row description is at most 160 characters, the ids stay
+  unique, search still finds each row by its label and keywords, and the auto-run row's words still say "outside the agent's sandbox",
+  "every project" and "off by default".
+- `newlyFailedChecks`: pass to fail, fail unchanged, the same failure listed again after a late answer, fail with a new `at`, running, stale,
+  fail to pass, a verdict that disappears and returns with the same `at`, a session that left the list, a session first seen later with a
+  failure; and the seeding of a first snapshot.
+- The failure text (Part C): a secret split by a zero-width character, by a bidi override and by an escape sequence, BEL/backspace/DEL, a very
+  long line, an empty tail, a secret shape alone (regression: red before the reorder).
+- The alert's words: `exit 1, 12.3s`, only a code, only a time, neither; a session name with a newline or a bidi override.
+- Component walks: no banner on any section; the pill shows until Dashboard is opened by any route and not after; each section renders its
+  summary and a titled first group (Dashboard excepted); Details is a sibling of the note with its summary first; Notifications has the new
+  switch and it calls `onNotify`.
+- The tokens test gains the pill on the navigation's normal, hover and active backgrounds in every theme (AA), and still has no literal
+  colours or pixels.
 - Live, on the real app over CDP (`apps/cockpit/scripts/settings-polish-check.ts`): no banner anywhere, the pill, the column does not move
-  between sections, the switch persists across a reload, and a stubbed `Notification` receives exactly one call, with a clean body, when a
-  check fails while the window is away, and none while it is in front.
+  between sections, the switch persists across a reload, and a stubbed `Notification` receives exactly one call, with no test output in it,
+  when a check fails while the window is away, none while it is in front, and none again after a reload.
 
 ## Limitations to record
 
-- The alert exists only while a cockpit window is open on the project (it comes from the window, not the daemon); an older daemon that does
-  not report `check` raises none; one alert per session per failing run, and several sessions failing at once raise several.
-- A stale verdict (the tree moved after the run) is still a failure the first time it is seen after the first load.
+- The alert comes from the window, not the daemon: only projects that have a mounted view raise it (the window keeps a handful live), a
+  failure that happens while a project's view is not mounted is never announced, and an older daemon that does not report `check` raises
+  none. Several sessions failing together raise several alerts. Native delivery and restoring a minimised window are not verified by the
+  tests (the page's `Notification` is stubbed); that is left to the owner's own use.
+- A stale verdict is not announced at all (the person has moved on); a failure that is already stale when first seen is silent.
+- The alert never shows the output, so "what failed" always costs one click.
 - Checks shows no live status; a per-project line ("command trusted / not trusted, last run") needs a daemon method and is left out.
 - Collapsed Details are not searched by their body, only through the row words.
+- The existing "finished" and "asking" alerts share a pre-existing ordering hazard (the load-order guard runs before the terminals are
+  fetched); the new alert is immune because it remembers run identities, the other two are left as they are.
 
 ## Not in scope
 
