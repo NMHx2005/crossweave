@@ -169,3 +169,21 @@ scratch repo) before a run that depends on a new daemon method.
 | `bun run package:smoke` | Verify packaged app + `session.list` |
 | `bun run fidelity:resize` | Viewport→pane→fit→PTY resize plus the keyboard focus ring, against a running app (see the gate above) |
 | `bun test` | Allowlist, daemon-bridge, session-data / fidelity tests, token guards |
+
+## The website's demo clip
+
+`scripts/site-video.ts` films `website/public/media/demo.mp4` from the running app: it puts the window on a flat backdrop, moves a
+camera and a cursor over it from a timeline (data in the script), sends real clicks, and renders frame by frame, so a slow step never
+shows as a stutter. Use a scratch `HOME` and repository, as above (the script refuses anything else), on a port of its own (9334), and
+run it outside a sandbox with `ffmpeg` installed:
+
+```bash
+bun apps/cockpit/scripts/site-video.ts prepare   # the scratch repository and its scene script
+bun apps/cockpit/scripts/site-video.ts reset     # sessions removed, main back to the start tag (before every take)
+bun apps/cockpit/scripts/site-video.ts record    # frames; add --draft for a small, fast take to check the timing
+bun apps/cockpit/scripts/site-video.ts encode    # demo.mp4, poster.jpg, step-1..3.png (from the frames)
+bun apps/cockpit/scripts/site-video.ts og        # the 1200x630 share card (needs the app running)
+```
+
+The commits and merges in the clip are real; the agent screens are scripted and the status marks are sent through the daemon. The
+terminal is filmed with the cockpit's DOM renderer, because its WebGL renderer draws nothing in a capture at a device scale other than 1.
