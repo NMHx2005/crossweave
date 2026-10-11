@@ -91,6 +91,16 @@ export function Segmented<T extends string>({ value, options, onChange, label, d
   )
 }
 
+/** The longer explanation of a section, folded under its cards. A sibling of the notes, never inside one, and never where a safety fact lives. */
+export function SettingsDetails({ children }: { children: ComponentChildren }) {
+  return (
+    <details class="cockpit-sdetails">
+      <summary>Details</summary>
+      <p>{children}</p>
+    </details>
+  )
+}
+
 /** News at the top of a page, dismissible; what was dismissed is the caller's to remember. */
 export function Banner({ title, children, actionLabel, onAction, onDismiss }: {
   title: string

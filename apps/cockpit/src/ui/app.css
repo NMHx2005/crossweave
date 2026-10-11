@@ -3174,6 +3174,8 @@ body,
   flex: 1;
   min-width: 0;
   overflow: auto;
+  /* Room for the scrollbar in every section, so the column does not shift when one needs it and the next does not. */
+  scrollbar-gutter: stable;
   display: flex;
   flex-direction: column;
 }
@@ -3193,6 +3195,27 @@ body,
 
 .cockpit-settings-content__inner > section { display: flex; flex-direction: column; gap: var(--cw-space-4); }
 .cockpit-settings-content__inner > section > * { flex: none; }
+
+.cockpit-settings-content__lead {
+  margin: calc(var(--cw-space-2) * -1) 0 0;
+  padding: 0 var(--cw-space-3);
+  font-size: var(--cw-fs);
+  color: var(--cw-text-dim);
+}
+
+.cockpit-sdetails {
+  padding: 0 var(--cw-space-3);
+  font-size: var(--cw-fs-sm);
+  color: var(--cw-text-dim);
+}
+
+.cockpit-sdetails > summary { cursor: pointer; width: fit-content; }
+
+.cockpit-sdetails > p {
+  margin: var(--cw-space-2) 0 0;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
 
 .cockpit-settings-content__title {
   margin: 0;
@@ -3407,6 +3430,7 @@ body,
 .cockpit-switch:focus-visible,
 .cockpit-segmented__option:focus-visible,
 .cockpit-settings-nav__item:focus-visible,
+.cockpit-sdetails > summary:focus-visible,
 .cockpit-settings-nav__back:focus-visible {
   outline: calc(var(--cw-hairline) * 2) solid var(--cw-accent);
   outline-offset: var(--cw-hairline);

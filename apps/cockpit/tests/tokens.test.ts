@@ -98,6 +98,11 @@ describe('cockpit design tokens — drift', () => {
     expect(XTERM_THEME.red).not.toBe(T['--cw-blocked'])
   })
 
+  it('the settings column keeps its place whether or not a section needs a scrollbar', () => {
+    const rule = css.slice(css.indexOf('.cockpit-settings-content {'))
+    expect(rule.slice(0, rule.indexOf('}'))).toContain('scrollbar-gutter: stable')
+  })
+
   it('the stylesheet uses the same mix weights the contrast test measures', () => {
     const wash = `${Math.round(BADGE_WASH * 100)}%`
     const fill = `${Math.round(BADGE_FILL * 100)}%`
