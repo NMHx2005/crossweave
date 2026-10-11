@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { canSendFailure, formatCheckFailure } from '../src/lib/check-failure'
+import { canSendFailure, formatCheckFailure, plainLine } from '../src/lib/check-failure'
 
 const fail = (over: Partial<Parameters<typeof formatCheckFailure>[0]> = {}): string => formatCheckFailure({ stale: false, ...over })
 const ESC = '\x1b'
@@ -62,6 +62,32 @@ describe('formatCheckFailure', () => {
     expect(body.endsWith('line 399 of the output')).toBe(true)
     expect(body.startsWith('line ')).toBe(true)
     expect(fail({ tail: 'x'.repeat(100_000) }).length).toBeLessThan(2300)
+  })
+})
+
+describe('the order of cleaning and redaction', () => {
+  const VALUE = 'hunter2supersecretvalue'
+
+  test('a key split by a zero-width character is still redacted', () => {
+    expect(fail({ tail: `pass​word=${VALUE}` })).not.toContain(VALUE)
+  })
+
+  test('a key split by a bidi override or by an escape sequence is still redacted', () => {
+    expect(fail({ tail: `pass‮word=${VALUE}` })).not.toContain(VALUE)
+    expect(fail({ tail: `pass${ESC}[0mword=${VALUE}` })).not.toContain(VALUE)
+  })
+
+  test('bell, backspace and delete are removed; newline and tab stay', () => {
+    expect(fail({ tail: 'a\u0007b\u0008c\u007fd\n\te' })).toEndWith('abcd\n\te')
+  })
+})
+
+describe('plainLine', () => {
+  test('one line, no control or invisible characters, cut with an ellipsis', () => {
+    // The bidi override is removed, not replaced by a space: a space would split a key name and defeat redaction.
+    expect(plainLine('a\nb‮c\t d', 20)).toBe('a bc d')
+    expect(plainLine('x'.repeat(30), 10)).toBe(`${'x'.repeat(9)}…`)
+    expect(plainLine('', 10)).toBe('')
   })
 })
 
