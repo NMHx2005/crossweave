@@ -4,10 +4,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DEFAULT_CONFIG } from '../../src/core/config.js';
 import { openDatabase } from '../../src/db/open.js';
+import { SessionRepo } from '../../src/db/repositories/session.js';
 import { buildMethods } from '../../src/daemon/methods.js';
 import { WorkspaceManager } from '../../src/domain/workspace.js';
 import type { SpawnOptions } from '../../src/adapters/types.js';
-import { makeGitFixture, type GitFixture } from '../helpers/git-fixture.js';
+import { commitFile, makeGitFixture, type GitFixture } from '../helpers/git-fixture.js';
 import { claudeProjectDir } from '../../src/domain/agent-logs.js';
 
 let home: string;
@@ -27,21 +28,22 @@ afterEach(async () => {
 
 async function harness() {
   const spawned: Array<{ kind: string; opts: SpawnOptions }> = [];
+  const stopped: string[] = [];
   // Stands in for the user's shell: records what it was asked to run, exits on stop.
   const factory = (kind: string) => ({
     kind, enforcementTier: 'T3' as const,
     spawn(opts: SpawnOptions) {
       spawned.push({ kind, opts });
       const exits: Array<(c: number) => void> = [];
-      return { pid: 1, onData: () => undefined, onExit: (cb: (c: number) => void) => { exits.push(cb); }, write: () => undefined, resize: () => undefined, kill: () => { for (const cb of exits) cb(0); } };
+      return { pid: 1, onData: () => undefined, onExit: (cb: (c: number) => void) => { exits.push(cb); }, write: () => undefined, resize: () => undefined, kill: () => { stopped.push(opts.cwd); for (const cb of exits) cb(0); } };
     },
   });
   const db = openDatabase(join(fx.root, '.crossweave', 'state.db'));
   const ws = new WorkspaceManager(db).init(fx.root);
-  const methods = buildMethods(db, fx.root, factory, DEFAULT_CONFIG);
+  const methods = buildMethods(db, fx.root, factory, DEFAULT_CONFIG, { notifySend: () => undefined });
   const ctx = { notify: () => undefined, onClose: () => undefined };
   const call = async (m: string, p: Record<string, unknown> = {}): Promise<unknown> => methods[m]!({ workspaceId: ws.id, ...p }, ctx);
-  return { db, call, spawned };
+  return { db, call, spawned, stopped };
 }
 
 describe('shell sessions', () => {
@@ -91,6 +93,24 @@ describe('shell sessions', () => {
       expect(spawned).toHaveLength(1);
       expect(await Bun.file(join(row.worktreePath, 'uncommitted.txt')).text()).toBe('keep this work\n');
       await call('session.stop', { idOrName: 'api' });
+    } finally { db.close(); }
+  });
+
+  test('forced land stops a live session retained with the legacy waiting status', async () => {
+    const { db, call, stopped } = await harness();
+    try {
+      const row = await call('session.new', { name: 'api' }) as { id: string; worktreePath: string };
+      await commitFile(row.worktreePath, 'work.txt', 'committed work\n', 'agent work');
+      await call('session.start', { idOrName: 'api' });
+
+      // Older versions stored `waiting` while the session process was still alive.
+      new SessionRepo(db).updateStatus(row.id, 'waiting', 1);
+      expect(await call('session.list')).toMatchObject([{ name: 'api', status: 'waiting' }]);
+
+      const result = await call('land.session', { idOrName: 'api', force: true }) as { status: string };
+
+      expect(result.status).toBe('landed');
+      expect(stopped).toHaveLength(1);
     } finally { db.close(); }
   });
 

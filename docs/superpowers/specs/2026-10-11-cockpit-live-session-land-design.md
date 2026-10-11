@@ -2,17 +2,17 @@
 
 ## Problem
 
-The Cockpit's single-session Land action calls `land.session` without the daemon's `force` option. The daemon refuses a running session with `SESSION_STILL_LIVE`; its trial scheduler classifies only running or idle sessions, so the UI may also need to resolve unknown convergence evidence. The CLI already supports `cw land ... --force`, which stops a running shell before landing.
+The Cockpit's single-session Land action calls `land.session` without the daemon's `force` option. The daemon refuses a running session with `SESSION_STILL_LIVE`; its trial scheduler classifies only running or idle sessions, so the UI may also need to resolve unknown convergence evidence. The CLI already supports `cw land ... --force`, which stops a running shell before landing. Older databases can still retain `waiting` while the session PID is alive.
 
 ## Goal and boundaries
 
-Let a person deliberately stop and land a running session from Cockpit while preserving the current evidence, failed-test and sensitive-file confirmations. Do not change `cw land`, `Land all ready`, or treat an incomplete trial as safe. Do not automatically stop an agent or discard uncommitted session files.
+Let a person deliberately stop and land a running session—or a legacy `waiting` session with a live process—from Cockpit while preserving the current evidence, failed-test and sensitive-file confirmations. Do not change `cw land`, `Land all ready`, or treat an incomplete trial as safe. Do not automatically stop an agent or discard uncommitted session files.
 
 ## Chosen flow
 
-Before any stop, fetch the session diff and inspect its `uncommitted` count. If it is nonzero, explain that the uncommitted work must be committed or handled first and leave the session running. If status cannot be read, fail closed: the current diff helper silently converts a `git status` failure to `0`, so change `SessionDiff.uncommitted` to `number | null` and keep `null` through the RPC/parser; do not treat it as clean. For a clean running session, ask one explicit “Stop and land” confirmation that names the session and says the shell/process ends, only committed work is landed, and the entire worktree is removed after success, including ignored local files. Cancel leaves the session untouched.
+Before any stop, fetch the session diff and inspect its `uncommitted` count. If it is nonzero, explain that the uncommitted work must be committed or handled first and leave the session running. If status cannot be read, fail closed: the current diff helper silently converts a `git status` failure to `0`, so change `SessionDiff.uncommitted` to `number | null` and keep `null` through the RPC/parser; do not treat it as clean. For a clean running or legacy-waiting session, ask one explicit “Stop and land” confirmation that names the session and says the shell/process ends, only committed work is landed, and the entire worktree is removed after success, including ignored local files. Cancel leaves the session untouched.
 
-After the person confirms, use the existing land decision path and pass the daemon's `force: true` only for this explicitly confirmed live-session action. The daemon also checks the worktree status at the RPC boundary before stopping, because the shell can write while the confirmation is open; it checks again after the shell exits and retains the stopped worktree and branch if a late write appeared. Unknown status fails closed at both checks. If convergence is unknown, keep the existing separate “Land anyway” confirmation; both confirmations are required before stop-and-land on unknown evidence. A blocked session remains blocked. Existing check and sensitive-file warnings remain in place. If the daemon reports a new error or status changed during the prompt, show the error and do not retry with stronger flags automatically.
+After the person confirms, use the existing land decision path and pass the daemon's `force: true` only for this explicitly confirmed live-session action. At the daemon boundary, treat both persisted `running` and `waiting` states as potentially live: check the worktree before stopping, stop the tracked process, and check again after it exits. If a late write appeared, retain the stopped worktree and branch. Unknown status fails closed at both checks. If convergence is unknown, keep the existing separate “Land anyway” confirmation; both confirmations are required before stop-and-land on unknown evidence. A blocked session remains blocked. Existing check and sensitive-file warnings remain in place. If the daemon reports a new error or status changed during the prompt, show the error and do not retry with stronger flags automatically.
 
 The `forceUnknown` UI option remains distinct from `force` at the RPC boundary. `Land all ready` stays unchanged and never gains a stop behavior.
 
@@ -24,6 +24,7 @@ The `forceUnknown` UI option remains distinct from `force` at the RPC boundary. 
 - If git cannot report uncommitted state, the UI fails closed and does not stop or land. A clean-state count is never inferred from a failed status command.
 - The stop-and-land confirmation says that the entire worktree is deleted after success, including ignored local files.
 - Confirming with zero uncommitted changes stops the shell and lands only after current convergence evidence permits or the person separately accepts unknown evidence.
+- A legacy `waiting` status with a live process takes the same stop-and-land path as `running`; it never falls through to worktree removal without stopping the process.
 - A blocked session never lands; a failed or stale check and sensitive-file warning retain their existing meanings.
 - A plain idle session follows the existing one-click path.
 - The CLI's `--force`, `--skip-check`, and `cw land all` contracts do not change.

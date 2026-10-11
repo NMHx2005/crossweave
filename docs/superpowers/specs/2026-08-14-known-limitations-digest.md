@@ -36,7 +36,8 @@ bridge first (`2026-09-29-cockpit-command-bridge-known-limitations.md`). Nothing
 button also asks when the last tests failed and when the session touches secret-like or automation files (judged by file *name*
 only); `Land all ready`, `cw land` and other clients do not ask (`2026-10-10-sensitive-files-known-limitations.md`). On the local
 completion branch, live Cockpit Land now requires readable, clean uncommitted status and a separate stop confirmation; the daemon
-rechecks status before and after stopping and keeps the worktree if a late write appears (`2026-10-11-cockpit-live-session-land-known-limitations.md`).
+rechecks status before and after stopping running or legacy `waiting` sessions and keeps the worktree if a late write appears
+(`2026-10-11-cockpit-live-session-land-known-limitations.md`).
 
 **Runtime leases are cooperative, not enforced isolation.** crossweave injects per-session port, Docker, cache and database
 environment values, but a process that ignores them can still use shared resources and collide with another session.
@@ -182,4 +183,4 @@ work closed these previously recorded gaps:
 - `2026-10-11-website-known-limitations.md` — a static, dependency-free site in `website/` (home in English and Vietnamese, download, docs built from the README, changelog, a bilingual 404) built by `bun website/build.ts` and deployed to GitHub Pages by `pages.yml`; claims carry their qualifiers and a badge until their release is published, markdown goes through our own allow-listing renderer, release data comes from a committed manifest. Not notarized (the download page says so); docs and changelog English only; Vietnamese unproofread; the workflow has never run; Pages setup, any domain and the release itself are the owner's steps.
 - `2026-10-11-website-v2-known-limitations.md` — the story-led home, Security & privacy page and scripted Cockpit demo now have launch QA: native video controls remain available without JavaScript, reduced-motion users get no autoplay, and bounded Chromium route/zoom/accessibility checks pass. The Pages workflow pins production sitemap URLs to HTTPS and the local artifact is verified; live Pages verification, Vietnamese human proofreading, exhaustive keyboard traversal, and Safari/Firefox remain open. Notarization is deferred.
 - `2026-10-11-ci-checkpoint-stability-known-limitations.md` — Linux CI is narrowed to engine/site tests at concurrency 1; local serial gates pass, while the remote run is pending integration and the original runner timeouts still need monitoring.
-- `2026-10-11-cockpit-live-session-land-known-limitations.md` — explicit clean live-session stop-and-land with daemon pre/post status checks; unknown convergence stays a separate choice; a write racing shutdown leaves a stopped, preserved worktree; local scratch smoke passed, not yet released.
+- `2026-10-11-cockpit-live-session-land-known-limitations.md` — explicit clean live-session stop-and-land with daemon pre/post status checks for `running` and legacy `waiting`; unknown convergence stays a separate choice; a write racing shutdown leaves a stopped, preserved worktree; local scratch smoke passed, not yet released.
