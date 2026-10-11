@@ -20,12 +20,12 @@
 
 ## Review focus (inputs the spec implies and no task's happy path covers)
 
-1. A secret split by a zero-width character, a bidi override or an escape sequence must still be redacted (Task 1).
+1. A key split by a zero-width character, a bidi override or an escape sequence must still be redacted (Task 1).
 2. The same failing run listed again after an out-of-order load, a daemon restart or a verdict that disappears and returns must alert once (Task 2).
 3. A first snapshot, or a remounted project view, must never alert for a failure that was already there (Task 2, Task 3).
 4. A session name with a newline or a bidi override must not reach the notification title (Task 2).
 5. The auto-run row must keep its safety words visible (Task 4).
-6. The column must not move between a section with a scrollbar and one without (Task 5, live check).
+6. The centred column (`.cockpit-settings-content__inner`) must not move between a section with a scrollbar and one without (Task 5, live check).
 
 ---
 
@@ -59,7 +59,8 @@ describe('the order of cleaning and redaction', () => {
 
 describe('plainLine', () => {
   test('one line, no control or invisible characters, cut with an ellipsis', () => {
-    expect(plainLine('a\nb‮c\t d', 20)).toBe('a b c d')
+    // The bidi override is removed, not replaced by a space: a space would split a key name and defeat redaction.
+    expect(plainLine('a\nb‮c\t d', 20)).toBe('a bc d')
     expect(plainLine('x'.repeat(30), 10)).toBe(`${'x'.repeat(9)}…`)
     expect(plainLine('', 10)).toBe('')
   })
@@ -80,63 +81,73 @@ If the repository's secret scrubber needs a longer or differently shaped value t
 **Interfaces:**
 - Consumes `ListedSession` (`apps/cockpit/src/lib/sessions.ts`: `id`, `name`, `check?: { state, at, ms?, code?, stale }`), `plainLine` (Task 1).
 - Produces:
-  - `createCheckAlerts(): { seed(sessions: readonly ListedSession[]): void; take(sessions: readonly ListedSession[]): ListedSession[] }` — `seed` records every failing, non-stale run as already told; `take` returns the sessions whose check is `fail`, not stale and whose `at` differs from the one recorded for that id, and records them (whether or not the caller shows them).
+  - `createCheckAlerts(): { seed(sessions: readonly ListedSession[]): void; take(sessions: readonly ListedSession[]): ListedSession[] }` — `seed` records every failing, non-stale run as already told; `take` returns the sessions whose check is `fail`, not stale and whose `at` is not among the runs already told for that id (a `Set` per session, so a run told once is never told again however the snapshots are ordered), and records them (whether or not the caller shows them).
   - `checkAlertTitle(name: string): string` → `<plainLine(name, 60)>: tests failed`.
   - `checkAlertBody(check: { code?: number; ms?: number }): string` → `exit 1, 12.3s`, `exit 1`, `12.3s`, or `The project's tests failed`.
 
-- [ ] **Step 1: Failing tests** (`check-alert.test.ts`, cases named in the spec):
+- [ ] **Step 1: Failing tests** (`check-alert.test.ts`, the cases named in the spec plus the ones the plan review found):
 
 ```ts
 import { describe, expect, test } from 'bun:test'
 import { checkAlertBody, checkAlertTitle, createCheckAlerts } from '../src/lib/check-alert'
 import type { ListedSession } from '../src/lib/sessions'
 
-const s = (id: string, check?: Partial<NonNullable<ListedSession['check']>>): ListedSession =>
-  ({ id, name: id, ...(check ? { check: { state: 'fail', at: 1, stale: false, ...check } } : {}) }) as ListedSession
+type Check = NonNullable<ListedSession['check']>
+const withCheck = (id: string, check: Check): ListedSession => ({ id, name: id, check }) as ListedSession
+const failed = (id: string, over: Partial<Check> = {}): ListedSession => withCheck(id, { state: 'fail', at: 1, stale: false, ...over })
+const withoutCheck = (id: string): ListedSession => ({ id, name: id }) as ListedSession
+const ids = (list: ListedSession[]): string[] => list.map((x) => x.id)
 
 describe('createCheckAlerts', () => {
-  test('a pass, a run still going and a stale failure announce nothing', () => {
+  test('a pass, a run still going, a stale failure and a session without a verdict announce nothing', () => {
     const a = createCheckAlerts()
-    expect(a.take([s('a', { state: 'pass' }), s('b', { state: 'running' }), s('c', { stale: true }), s('d')])).toEqual([])
+    expect(a.take([
+      withCheck('a', { state: 'pass', at: 1, stale: false }),
+      withCheck('b', { state: 'running', at: 1, stale: false }),
+      failed('c', { stale: true }),
+      withoutCheck('d'),
+    ])).toEqual([])
   })
   test('a failure is announced once, however often the list repeats it', () => {
     const a = createCheckAlerts()
-    expect(a.take([s('a')]).map((x) => x.id)).toEqual(['a'])
-    expect(a.take([s('a')])).toEqual([])
-    expect(a.take([s('a')])).toEqual([])
+    expect(ids(a.take([failed('a')]))).toEqual(['a'])
+    expect(a.take([failed('a')])).toEqual([])
+    expect(a.take([failed('a')])).toEqual([])
   })
   test('a new run that fails again is announced again', () => {
     const a = createCheckAlerts()
-    a.take([s('a', { at: 1 })])
-    expect(a.take([s('a', { at: 2 })]).map((x) => x.id)).toEqual(['a'])
+    a.take([failed('a', { at: 1 })])
+    expect(ids(a.take([failed('a', { at: 2 })]))).toEqual(['a'])
+  })
+  test('runs arriving out of order never announce a run already told: 1, 2, 1, 2', () => {
+    const a = createCheckAlerts()
+    expect(ids(a.take([failed('a', { at: 1 })]))).toEqual(['a'])
+    expect(ids(a.take([failed('a', { at: 2 })]))).toEqual(['a'])
+    expect(a.take([failed('a', { at: 1 })])).toEqual([])
+    expect(a.take([failed('a', { at: 2 })])).toEqual([])
   })
   test('a verdict that disappears and returns with the same run is not announced again', () => {
     const a = createCheckAlerts()
-    a.take([s('a')])
-    a.take([s('a', undefined)])
-    expect(a.take([s('a')])).toEqual([])
+    a.take([failed('a')])
+    a.take([withoutCheck('a')])
+    expect(a.take([failed('a')])).toEqual([])
   })
   test('what the first snapshot already held is told to nobody; what comes after is', () => {
     const a = createCheckAlerts()
-    a.seed([s('a')])
-    expect(a.take([s('a'), s('b')]).map((x) => x.id)).toEqual(['b'])
+    a.seed([failed('a')])
+    expect(ids(a.take([failed('a'), failed('b')]))).toEqual(['b'])
   })
-  test('an older list arriving late cannot make a told failure new', () => {
+  test('a failure that is stale when first seen is never announced, and a pass between runs forgets nothing', () => {
     const a = createCheckAlerts()
-    a.take([s('a', { at: 2 })])
-    expect(a.take([s('a', { at: 2 })])).toEqual([])
-  })
-  test('a failure that turns stale before it is seen is never announced; a pass in between forgets nothing', () => {
-    const a = createCheckAlerts()
-    expect(a.take([s('a', { stale: true })])).toEqual([])
-    a.take([s('a', { at: 1 })])
-    a.take([s('a', { state: 'pass', at: 2 })])
-    expect(a.take([s('a', { at: 1 })])).toEqual([])
+    expect(a.take([failed('a', { stale: true })])).toEqual([])
+    a.take([failed('a', { at: 1 })])
+    a.take([withCheck('a', { state: 'pass', at: 2, stale: false })])
+    expect(a.take([failed('a', { at: 1 })])).toEqual([])
   })
 })
 
 describe('the words of the alert', () => {
-  test('title and body never carry output, and clean a hostile name', () => {
+  test('title and body never carry output, and a hostile name is cleaned', () => {
     expect(checkAlertTitle('api\n‮secret')).toBe('api secret: tests failed')
     expect(checkAlertBody({ code: 1, ms: 12300 })).toBe('exit 1, 12.3s')
     expect(checkAlertBody({ code: 2 })).toBe('exit 2')
@@ -147,7 +158,7 @@ describe('the words of the alert', () => {
 ```
 
 - [ ] **Step 2:** run → FAIL (module missing).
-- [ ] **Step 3: Implement** `check-alert.ts` with a `Map<string, number>` of told runs, `seed` and `take` as above, importing `plainLine` from `./check-failure` and the `ListedSession` type from `./sessions`. WHY comment on the map: run identity, not adjacent snapshots, because a load that resolves late would otherwise make a told failure look new.
+- [ ] **Step 3: Implement** `check-alert.ts` with a `Map<string, Set<number>>` of told runs, `seed` and `take` as above, importing `plainLine` from `./check-failure` and the `ListedSession` type from `./sessions`. WHY comment on the map: run identity, not adjacent snapshots, because a load that resolves late (1, 2, then 1 again) would otherwise make a told failure look new.
 - [ ] **Step 4:** run → PASS; typecheck.
 - [ ] **Step 5:** commit `feat(cockpit): decide which failed checks deserve a desktop alert`.
 
@@ -191,11 +202,11 @@ describe('the words of the alert', () => {
 
 **Files:** Modify `apps/cockpit/src/ui/SettingsKit.tsx`, `apps/cockpit/src/ui/app.css`; Test `apps/cockpit/tests/settings-kit.test.tsx` (new), `apps/cockpit/tests/tokens.test.ts`.
 
-**Interfaces:** Produces `SettingsDetails({ children })` and `NewPill()` in `SettingsKit.tsx`; removes `Banner`. CSS: `.cockpit-sdetails`, `.cockpit-settings-content__lead`, `.cockpit-snew`, `scrollbar-gutter`.
+**Interfaces:** Produces `SettingsDetails({ children })` in `SettingsKit.tsx`. CSS: `.cockpit-sdetails`, `.cockpit-settings-content__lead`, `scrollbar-gutter`. `Banner` and its CSS stay until Task 6, which is the commit that stops the page using them (deleting them here would break the build between commits).
 
-- [ ] **Step 1: Failing tests** (`settings-kit.test.tsx`, walk helper as in `checkpoints.test.tsx`): `SettingsDetails` renders a `details` element whose first child is a `summary` with the text `Details`, and its body is a sibling of the summary (not a `p` ancestor of it); `NewPill` renders a plain `span` with the text `New` and no button/anchor. In `tokens.test.ts` add, to the per-theme `legibility`, a test `the New pill on the navigation's backgrounds` asserting `contrast(T['--cw-accent'], T[bg]) >= AA_NORMAL` for `--cw-surface-sidebar`, `--cw-surface-hover` and `--cw-surface-active`; if a theme fails, use `--cw-text-bright` for the pill's text and keep `--cw-accent` only for its border, and assert that pair instead. Also assert the stylesheet contains `scrollbar-gutter: stable` inside the `.cockpit-settings-content {` rule and no longer contains `cockpit-sbanner`.
+- [ ] **Step 1: Failing tests.** `settings-kit.test.tsx` (walk helper as in `checkpoints.test.tsx`): `SettingsDetails` renders a `details` element whose first child is a `summary` with the text `Details`, followed by a sibling `p` with the body (the body is not inside the summary and the `details` is not inside a `p`). `tokens.test.ts`: the stylesheet contains `scrollbar-gutter: stable` inside the `.cockpit-settings-content {` rule, and the new summary/lead text colours are the existing `--cw-text-dim` on `--cw-surface` (already AA-checked; add nothing).
 - [ ] **Step 2:** run → FAIL.
-- [ ] **Step 3: Implement.** Delete `Banner` (and its now-unused export) and `.cockpit-sbanner*` rules. Add:
+- [ ] **Step 3: Implement.**
 
 ```tsx
 /** Folded explanation under a section's cards; the safety facts are never put here. */
@@ -207,16 +218,11 @@ export function SettingsDetails({ children }: { children: ComponentChildren }) {
     </details>
   )
 }
-
-/** A small mark for news; plain text so the item it sits in stays one control. */
-export function NewPill() {
-  return <span class="cockpit-snew">New</span>
-}
 ```
 
-CSS: `.cockpit-settings-content { scrollbar-gutter: stable; }` added to the existing rule; `.cockpit-settings-content__lead { margin: 0; padding: 0 var(--cw-space-3); font-size: var(--cw-fs); color: var(--cw-text-dim); }`; `.cockpit-snew { margin-left: auto; padding: 0 var(--cw-space-2); border: var(--cw-hairline) solid var(--cw-accent); border-radius: var(--cw-radius); font-size: var(--cw-fs-sm); color: var(--cw-accent); }`; `.cockpit-sdetails { padding: 0 var(--cw-space-3); font-size: var(--cw-fs-sm); color: var(--cw-text-dim); }`, `.cockpit-sdetails > summary { cursor: pointer; width: fit-content; }`, `.cockpit-sdetails > summary:focus-visible { outline: var(--cw-hairline) solid var(--cw-accent); outline-offset: var(--cw-hairline); }`, `.cockpit-sdetails > p { margin: var(--cw-space-2) 0 0; line-height: 1.45; overflow-wrap: anywhere; }`. If the stylesheet already has a shared focus-ring rule list near line 3409, add the summary there instead.
+CSS: add `scrollbar-gutter: stable;` to the existing `.cockpit-settings-content` rule; `.cockpit-settings-content__lead { margin: 0; padding: 0 var(--cw-space-3); font-size: var(--cw-fs); color: var(--cw-text-dim); }`; `.cockpit-sdetails { padding: 0 var(--cw-space-3); font-size: var(--cw-fs-sm); color: var(--cw-text-dim); }`; `.cockpit-sdetails > summary { cursor: pointer; width: fit-content; }`; `.cockpit-sdetails > summary:focus-visible { outline: var(--cw-hairline) solid var(--cw-accent); outline-offset: var(--cw-hairline); }`; `.cockpit-sdetails > p { margin: var(--cw-space-2) 0 0; line-height: 1.45; overflow-wrap: anywhere; }`. If the stylesheet has a shared focus-ring list near the other `:focus-visible` rules, add the summary there instead of a new rule.
 - [ ] **Step 4:** both test files PASS; `cd apps/cockpit && bun run build`.
-- [ ] **Step 5:** commit `feat(cockpit): settings kit pieces for folded details and a New mark`.
+- [ ] **Step 5:** commit `feat(cockpit): a folded Details piece and a steady column for settings`.
 
 ### Task 6: The page
 
@@ -224,9 +230,9 @@ CSS: `.cockpit-settings-content { scrollbar-gutter: stable; }` added to the exis
 
 **Interfaces:** Consumes Tasks 3–5.
 
-- [ ] **Step 1: Write the live script first** (`apps/cockpit/scripts/settings-polish-check.ts`, modelled on `settings-check.ts` and `sensitive-files-check.ts`; reuse their CDP helpers): it opens Settings from the gear and asserts (a) no `.cockpit-sbanner` in any of the 11 sections; (b) the Dashboard nav item has a `.cockpit-snew` before Dashboard is opened and none after (and none after a reload); (c) every section but Dashboard has a `.cockpit-settings-content__lead` and a `details.cockpit-sdetails`, and its first `.cockpit-sgroup` has a `.cockpit-sgroup__title`; (d) the content column's `getBoundingClientRect().left` is identical across all sections; (e) the Notifications section has a switch labelled `When tests fail` that is on by default, toggling it persists across a reload of the page; (f) the Checks section shows the auto-run row's words (`sandbox`, `every project`) in view (not inside a closed `details`). Notification part: before triggering anything, `window.Notification` is replaced in the page by a stub that records `[title, options]` and `document.hasFocus` is overridden to return false; the script creates a failing check on a scratch session (see `checks-check.ts` for how it makes a trusted failing test command and runs `cw check`), waits for the rail's `✗ tests` chip and asserts the stub got exactly one call whose title ends `: tests failed`, whose body matches `/^exit \d+, [\d.]+s$/` and contains none of the failing output's words; a second failing run (new `at`) gives a second call; reloading the page and waiting gives none; with `document.hasFocus` returning true a new failing run gives none.
+- [ ] **Step 1: Write the live script first** (`apps/cockpit/scripts/settings-polish-check.ts`, modelled on `settings-check.ts` and `checks-check.ts`; reuse their CDP helpers). Safety first: it refuses to run unless `HOME` differs from the real user's home directory, `COCKPIT_PROJECT_ROOT` has a `crossweave.config.json` whose `converge.testCommand` is the sentinel `test -f ok.txt || (echo missing ok.txt; exit 1)` and a `.crossweave` of its own, and a `seed <dir>` subcommand prepares such a repository (it calls the same seed as `demo-shot.ts seed`, then writes the config and commits it) BEFORE the app is started; everything it changes (trust, sessions, the notification preference) is restored in a `finally`. It then asserts: (a) no `.cockpit-sbanner` in any of the 11 sections and no `.cockpit-snew`; (b) every section but Dashboard has a `.cockpit-settings-content__lead` and a `details.cockpit-sdetails`, and its first `.cockpit-sgroup` has a `.cockpit-sgroup__title`; (c) `.cockpit-settings-content__inner`'s `getBoundingClientRect().left` is identical across all sections (that element is the centred column; the outer pane would pass vacuously); (d) the Notifications section has a switch labelled `When tests fail`, on by default; (e) the Checks section shows the words `sandbox` and `every project` in view (not inside a closed `details`) and its `Open Notifications` button lands on the Notifications section with that row in view. Notification part: `Page.addScriptToEvaluateOnNewDocument` installs, on every load, a `Notification` stub that appends `[title, body, tag]` to `window.__alerts` (a counter the script reads and resets) and an `hasFocus` override read from `window.__away`; the script sets `__away = true`, makes a session, trusts the command, runs `cw check` on it (the command fails: `ok.txt` missing) and waits for the rail's `✗ tests` chip; the stub got exactly one call whose title ends `: tests failed`, whose body matches `/^exit \d+, [\d.]+s$/` and does not contain `missing`; a second failing run (a new `at`) gives a second call; a reload (stubs reinstalled, counters fresh) and a wait give none; with `__away = false` a new failing run gives none; with the switch turned off and `__away = true` a new failing run gives none, and the switch is turned back on in the `finally`.
 - [ ] **Step 2: Implement the page.**
-  - Remove `Banner` import, `bannerGone`/`dismissBanner` state and the `<Banner>` block. Keep `BANNER_KEY` and `readBannerGone` renamed `NEWS_KEY`/`readNewsSeen` (same string value). Add `const [newsSeen, setNewsSeen] = useState(readNewsSeen)` and `useEffect(() => { if (section === 'dashboard' && !newsSeen) { setNewsSeen(true); try { localStorage.setItem(NEWS_KEY, '1') } catch { /* ignore */ } } }, [section, newsSeen])`; in the nav item, `{id === 'dashboard' && !newsSeen ? <NewPill /> : null}` after the title span. Delete the now-unused `dismissBanner` write. The page must still work when storage throws.
+  - Remove the news altogether (the Dashboard is no longer news, and the page opens on it, so a mark would vanish before it was seen): delete the `Banner` import, `BANNER_KEY`, `readBannerGone`, the `bannerGone`/`dismissBanner` state and the `<Banner>` block; then delete `Banner` from `SettingsKit.tsx` and the `.cockpit-sbanner*` rules from `app.css`. Add to `settings-kit.test.tsx` a test that `SettingsKit` no longer exports `Banner` and that `app.css` contains no `cockpit-sbanner` or `cockpit-snew`. The stored dismissal key is left behind in people's storage, harmless.
   - Under the title: `<p class="cockpit-settings-content__lead">{findSection(section)?.summary}</p>` and, after `bodies[section]`, `<SettingsDetails>{findSection(section)?.details}</SettingsDetails>` — both skipped for the Dashboard (it has its own layout).
   - Remove the long `note` props that Task 4 moved into `details` (launchers, presets, prompt, usage "Tokens and cost", notifications); keep short ones (Fonts, Keyboard's line moves to details too).
   - Group titles: keyboard `Shortcuts`; presets add-card `Your presets`; checks `Automatic runs`; others already have one.

@@ -17,9 +17,9 @@ or dependency changes.
 
 ## Part A — Settings
 
-1. **No banner.** The Dashboard's news becomes a small `New` pill on the Dashboard item of the navigation. The pill is plain text inside the item (no second control), and the Dashboard
-   counts as seen whenever it is the open section, however it was reached (the default, a deep link, a search hit). It is marked seen, using the key the banner used (`cw.settings.banner.dashboard.v1`), so anyone who dismissed the banner does not see the pill. The
-   `Banner` component, its CSS and its state are removed: nothing else uses them.
+1. **No banner and no mark.** The "New: Dashboard" banner is removed, with its component, its CSS and its state. A "New" mark in its place
+   was considered and rejected: the page opens on the Dashboard, so the mark would be consumed before anyone saw it, and the Dashboard
+   shipped two releases ago. The stored dismissal key is left behind, harmless.
 2. **One shape for every section.** The registry gives each section a one-line `summary` that the page shows under its title. A long
    explanation moves into a native `<details>` ("Details") under the card; nothing is hidden that was shown before, it is folded. Row
    descriptions are shortened to one sentence (at most 160 characters); the words that were cut live in the section's Details.
@@ -73,12 +73,11 @@ then redact, then cut. A regression test fails before the change and passes afte
 - The failure text (Part C): a secret split by a zero-width character, by a bidi override and by an escape sequence, BEL/backspace/DEL, a very
   long line, an empty tail, a secret shape alone (regression: red before the reorder).
 - The alert's words: `exit 1, 12.3s`, only a code, only a time, neither; a session name with a newline or a bidi override.
-- Component walks: no banner on any section; the pill shows until Dashboard is opened by any route and not after; each section renders its
-  summary and a titled first group (Dashboard excepted); Details is a sibling of the note with its summary first; Notifications has the new
-  switch and it calls `onNotify`.
-- The tokens test gains the pill on the navigation's normal, hover and active backgrounds in every theme (AA), and still has no literal
-  colours or pixels.
-- Live, on the real app over CDP (`apps/cockpit/scripts/settings-polish-check.ts`): no banner anywhere, the pill, the column does not move
+- Kit walks: `SettingsDetails` is a `details` with its `summary` first and the body a sibling; `Banner` is gone from the kit and its CSS from
+  the stylesheet. `SettingsPage` itself is not rendered by any unit test (it needs the app's API); its structure (a lead, a titled first
+  group, Details, the new switch) is checked live.
+- The tokens test still has no literal colours or pixels, and the column keeps `scrollbar-gutter: stable`.
+- Live, on the real app over CDP (`apps/cockpit/scripts/settings-polish-check.ts`): no banner anywhere, the column does not move
   between sections, the switch persists across a reload, and a stubbed `Notification` receives exactly one call, with no test output in it,
   when a check fails while the window is away, none while it is in front, and none again after a reload.
 
