@@ -1314,8 +1314,10 @@ export function buildMethods(
         }
       }
       const force = bool(p, 'force', false);
+      // Older databases can retain `waiting` while the session process is still alive.
+      const hasLiveProcess = target.status === 'running' || target.status === 'waiting';
       const assertLandTreeClean = (): void => {
-        if (!force || target.status !== 'running' || target.branch === null) return;
+        if (!force || !hasLiveProcess || target.branch === null) return;
         let uncommitted: number | null;
         try {
           uncommitted = sessionDiff(projectRoot, target.branch, target.worktreePath, { patch: false }).uncommitted;
@@ -1342,7 +1344,7 @@ export function buildMethods(
       // `landSession` to land normally; the row becomes `dead`, so `landSession`'s
       // own `status === 'running'` refusal no longer applies, which is correct for a
       // forced land.
-      if (force && target.status === 'running') {
+      if (force && hasLiveProcess) {
         await sessions.kill(workspaceId, target.id, { removeWorktree: false });
         // A process can write while its stop is in flight. Keep the stopped worktree
         // and branch if that final status differs from the preflight.

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:executing-plans` and complete each task in order. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Allow an explicitly confirmed, clean running session to be stopped and landed from Cockpit without silently discarding uncommitted work.
+**Goal:** Allow an explicitly confirmed, clean running or legacy-waiting session to be stopped and landed from Cockpit without silently discarding uncommitted work.
 
 **Architecture:** Keep the daemon's existing force-stop-and-land behavior. Make `session.diff` preserve unreadable uncommitted state as `null`, then add a Cockpit preflight that blocks dirty or unknown state and a confirmation that authorizes force only for that session. Retain the existing convergence, check, and sensitive-file gates.
 
@@ -15,7 +15,7 @@
 - `cwd` remains the only owner of session processes and database state; Cockpit calls the daemon through its closed bridge.
 - `SessionDiff.uncommitted` is nullable: `null` means git status could not be read and must never be treated as a clean worktree.
 - Do not add dependencies or native modules.
-- A force stop is destructive to the running process and therefore requires an explicit, session-specific confirmation.
+- A force stop is destructive to the running process and therefore requires an explicit, session-specific confirmation. Older rows may say `waiting` while the PID remains live.
 - Never translate confirmation for unknown convergence into RPC `force`; they are separate decisions.
 - Preserve `landSelected` evidence rules and `Land all ready` behavior.
 - Run Cockpit gates sequentially and use the real app/scratch project only for a live UI check.
@@ -153,6 +153,7 @@ Expected: no test other than the explicitly confirmed running-session path recei
 - Test: `tests/daemon/methods-session.test.ts`
 
 - [x] Add a failing RPC test proving dirty work is refused before the live shell is stopped.
+- [x] Add a regression test proving a live process with legacy `waiting` status is stopped before land.
 - [x] Check git status before shell shutdown; unreadable status fails closed.
 - [x] Check status again after shell shutdown and retain the stopped worktree if a write arrived during shutdown.
 - [x] Run the focused daemon session test.

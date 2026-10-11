@@ -72,7 +72,7 @@ usage per session; its own app icon (`apps/cockpit/build/icon.svg`, four warp th
 
 ## Changelog (newest first)
 
-- **2026-10-11** — v0.6.0 is published and the website is live at `https://crossweave.dev/`. The local post-release branch `codex/post-release-completion` stabilizes the Linux CI suite boundary, adds a confirmed and daemon-guarded live-session Land flow, fixes website sitemap/video/responsive/copy issues, and records Chromium checks. It still needs remote CI/Pages verification, Vietnamese human proofreading, and Safari/Firefox coverage. Notarization is deferred. The release also includes the settings polish and failed-check desktop alert.
+- **2026-10-11** — v0.6.0 is published and the website is live at `https://crossweave.dev/`. The local post-release branch `codex/post-release-completion` stabilizes the Linux CI suite boundary, adds a confirmed and daemon-guarded live-session Land flow (including legacy `waiting` processes), fixes website sitemap/video/responsive/copy issues, and records Chromium checks. It still needs remote CI/Pages verification, Vietnamese human proofreading, and Safari/Firefox coverage. Notarization is deferred. The release also includes the settings polish and failed-check desktop alert.
 - **2026-10-10** — the AI-support series, on `main`: session checkpoints, diff comments sent to the shell,
   opt-in auto-check with "Send test failure to shell", sensitive-file flags in the diff. Cockpit and daemon, schema still v18.
 - **2026-10-09** — session panel overview (count chip that lists a row's panes).
