@@ -1,6 +1,6 @@
 # Progress — crossweave
 
-**Last updated:** 2026-10-11
+**Last updated:** 2026-10-11 (post-release completion in local branch `codex/post-release-completion`)
 **Product:** `cw` (CLI), `cwd` (daemon) and the Electron **Cockpit** run N parallel sessions on one repository and land them
 back. A session is a git worktree plus the user's shell in it; what runs there is the user's to type.
 **Where the known gaps are:** `docs/superpowers/specs/2026-08-14-known-limitations-digest.md` (one line per milestone, newest
@@ -51,7 +51,7 @@ usage per session; its own app icon (`apps/cockpit/build/icon.svg`, four warp th
 | **Auto-check settings and "Send test failure to shell"** (2026-10-10): Settings → Checks; the failing tail goes to the shell redacted, no Enter | `2026-10-10-auto-check-known-limitations.md` |
 | **Sensitive-file flags** (2026-10-10): labelled badges and a summary line in Changes, Checkpoints and Compare; Land asks first for secret-like and automation files | `2026-10-10-sensitive-files-known-limitations.md` |
 | **Calmer Settings and a failed-check alert** (2026-10-11, in 0.6.0): a lead, a titled first card and a folded Details in every section, no banner, a steady column; a desktop alert (exit code and time, never the output) when a check fails while the window is away, switch in Notifications | `2026-10-11-settings-polish-check-alert-known-limitations.md` |
-| **Website** (2026-10-11, on branch `feat/website`): a static, dependency-free site in `website/` for GitHub Pages — home (English and Vietnamese), download with an honest not-notarized note, docs built from the README, changelog, a command reference checked against `cw --help` | `2026-10-11-website-known-limitations.md`, `2026-10-11-website-v2-known-limitations.md` |
+| **Website** (2026-10-11, published at `https://crossweave.dev/`): a static, dependency-free site in `website/` for GitHub Pages — home (English and Vietnamese), download with an honest not-notarized note, docs built from the README, changelog, a command reference checked against `cw --help` | `2026-10-11-website-known-limitations.md`, `2026-10-11-website-v2-known-limitations.md` |
 | **Settings redesigned after Cursor's** and a **Dashboard** (projects, sessions, disk, memory; proposals to clean up, delete or stop idle work — always asks first) | `2026-09-30-settings-dashboard-known-limitations.md` |
 
 ## Removed on purpose (do not reintroduce)
@@ -64,23 +64,15 @@ usage per session; its own app icon (`apps/cockpit/build/icon.svg`, four warp th
 
 ## Next
 
-1. **0.6.0 is prepared** (version bump and `docs/releases/v0.6.0.md` on `chore/release-0.6.0`); it becomes real when the owner merges, tags
-   `v0.6.0` and pushes. After installing it the owner restarts the app and, when no session is mid-task, the project daemons (that ends running
-   sessions) so the Dashboard has numbers for existing projects.
-2. Use it for a week and fix what is annoying: run `cw hooks install claude` and try the debug loop, presets and the composer for real.
-   `$CW_SESSION_ID` plus `CW_WORKSPACE_ROOT` now reaches `cw notify` from a restarted session shell and the owning daemon records its signal;
-   the running app showed the status-source/age tooltip, a populated Responses row and the Debug pane's localhost browser errors; Browser access was restored to Off. Real-world capacity still awaits a week of owner usage.
-3. Notarize the app (needs the owner's Apple Developer account and a hardened-runtime pass; the app has its own icon since 0.4.0 but is still signed only with a development certificate).
-4. **Auto-update (owner's word, 2026-10-01: after the Apple Developer account exists).** (a) The corner notice for a newer
-   `vX.Y.Z` release is **built** (2026-10-08, `2026-10-08-hardening-round-2-known-limitations.md`); (b) real "Restart to update"
-   needs a notarized, properly signed app, so it waits for item 3.
-5. Later: a native iOS app for remote control (designed from scratch), a Linux cockpit, per-session one-line summaries on the rail,
+1. Use v0.6.0 for a week and fix what is annoying: run `cw hooks install claude` and try the debug loop, presets and composer for real. Real-world capacity still awaits owner usage.
+2. Finish post-release verification on branch `codex/post-release-completion`: remote CI and Pages runs require integrating/pushing the branch; verify the live sitemap after Pages deploys. Vietnamese human proofreading and Safari/Firefox remain open. The local implementation and checks are recorded in the 2026-10-11 handoff and plans.
+3. **Notarization is deferred** until the owner is ready to revisit the Apple Developer account and hardened-runtime work. Auto-update restart still depends on a properly signed/notarized app.
+4. Later: a native iOS app for remote control (designed from scratch), a Linux cockpit, per-session one-line summaries on the rail,
    an optional "land only when the tests passed" gate.
 
 ## Changelog (newest first)
 
-- **2026-10-11** — the website (`website/`, on `feat/website`, not deployed). Version 0.6.0 prepared (not tagged): release notes `docs/releases/v0.6.0.md`. Then, folded into 0.6.0: the
-  settings page made consistent, a desktop alert when a check fails, and the failure text cleaned before it is redacted (a fix to auto-check).
+- **2026-10-11** — v0.6.0 is published and the website is live at `https://crossweave.dev/`. The local post-release branch `codex/post-release-completion` stabilizes the Linux CI suite boundary, adds a confirmed and daemon-guarded live-session Land flow, fixes website sitemap/video/responsive/copy issues, and records Chromium checks. It still needs remote CI/Pages verification, Vietnamese human proofreading, and Safari/Firefox coverage. Notarization is deferred. The release also includes the settings polish and failed-check desktop alert.
 - **2026-10-10** — the AI-support series, on `main`: session checkpoints, diff comments sent to the shell,
   opt-in auto-check with "Send test failure to shell", sensitive-file flags in the diff. Cockpit and daemon, schema still v18.
 - **2026-10-09** — session panel overview (count chip that lists a row's panes).
