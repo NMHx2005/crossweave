@@ -1,72 +1,59 @@
 # crossweave — known limitations, before you rely on this
 
-Every milestone (M0 through M6b) ships its own `*-known-limitations.md` next
+Every milestone ships its own `*-known-limitations.md` next
 to this file, written at merge time with the specific gaps found and
 deliberately deferred during that milestone's review. This digest doesn't
 replace them — it pulls out the subset that actually matters before you
 point crossweave at a real project, so you don't have to read eight
 documents to find them. Full list, per milestone, at the bottom.
 
-## The ones that change what you should trust it with
+## The ones that change what you should trust it with (current, 2026-10-11)
 
-**Safe Mode has no auth boundary.** `cw workspace safe-mode T3` lets any
-agent self-disable blocking — there's nothing stopping a session from
-turning off its own enforcement. Safe Mode is a *safety net for cooperative
-agents*, not a sandbox against an adversarial one. (M5a)
+**Nothing confines or guards the agent.** Since 2026-09-27 a session is a git worktree plus *your* shell in it. There is no
+Safe Mode, no tier, no Collision Radar and no OS sandbox: whatever you type in that shell (`claude`, `codex`, a script) runs with
+your own rights and can write anywhere you can. The only collision signal left is a file-level **overlap** warning, a signal and never
+a guard (`2026-09-28-overlap-signal-known-limitations.md`). The paragraphs that described the removed layers are kept below under
+"Historical", because the milestone documents still refer to them.
 
-**Safe Mode fails open on infrastructure trouble, inconsistently.** T1
-(ACP — Cursor) fails *closed* on an internal daemon error; T2 (the Claude
-Code hook) fails *open*, deliberately, so a broken daemon or a slow hook
-doesn't hang the agent — but that means a dead daemon downgrades every T2
-block to an allow. Since 2026-09-26 that is no longer silent: the agent is
-told the edit was NOT checked (at most once per worktree per 10 minutes).
-If you're depending on Safe Mode to actually stop a write, check which tier
-you're on. (M5a, M5b, 2026-09-26-audit-fixes-known-limitations.md)
+**`converge.testCommand` and hooks are arbitrary shell, run automatically once trusted.** `cw config trust` (and `cw config trust
+hooks`) must record the current command before crossweave runs it, for `cw land`, `cw check` and `hooks.sessionSetup`. Treat that gate as
+a real trust boundary: do not trust a `crossweave.config.json` you did not write. Since 2026-10-10 the opt-in `checks.autoRun`
+also makes **an agent's finished turn start a run of that trusted command**, outside the agent's control, for every project whose command
+you trusted (`2026-10-10-auto-check-known-limitations.md`). It is off by default.
 
-**Only `Edit`/`Write` tool calls are blocked.** A write made through the `Bash`
-tool — `sed -i`, `> file`, `git checkout -- file`, or a script the agent
-wrote and then ran — is not blocked by any *tier*. The Collision Radar *does* see
-it, but after the fact: `fs.watch` indexes the write (immediately when the
-agent's own PostToolUse hook fires, otherwise on a 500ms debounce), so a
-collision arrives as a retroactive notice, never as a stop. The PreToolUse hook
-reads `Bash` commands too now, but that reading is a guess from the command
-string and it only ever advises — a block stays reserved for a write the daemon
-actually evaluated. Every tier is printed with what it really covers
-(`T2 · Edit|Write`) rather than a bare tier that reads as protection.
-(2026-09-17-tier-coverage-honesty-design.md)
+**Commands you wrote run for you, with no trust step.** Presets, launchers and the composer's Refine command live in
+`~/.crossweave/settings.json`; the cockpit's main process mends those blocks if an older daemon drops them.
 
-**The gap is closed at a different layer, not by the tiers.** Since
-2026-09-18 a session process runs inside an **OS sandbox** (macOS seatbelt;
-since 2026-09-20 also Linux bubblewrap via `bwrap` when present on PATH):
-the write through `Bash` is still not *intercepted*, but it is *impossible*
-outside the session's own worktree — the boundary is on the process, so a
-shell, a script, or a subprocess cannot escape it. Network is denied unless the
-workspace opts in. With no provider (missing `bwrap` on Linux, Windows, or a
-`--no-worktree` session sharing the main checkout) the session runs unconfined
-and the daemon logs that fact. See `2026-09-18-os-sandbox-design.md`.
+**What a session is doing is inferred, not reported.** Working / done / asking come from screen words, output, the bell and the
+process tree; they are reliable for Claude Code, Codex and Gemini and approximate for anything else. `cw notify` and
+`cw hooks install` make the agent say it itself. A "turn ended" for checkpoints and auto-check is the same inference.
 
-**The Cursor path that works is advisory.** `cursor-agent` builds from
-2026.08 removed ACP, so `--agent cursor` (T1) can no longer run — it now fails
-fast with a clear message instead of hanging silently — and `--agent
-cursor-print` (T3) is what actually works: a real PTY-less print-mode run with
-**no permission interception**, so Safe Mode cannot block a write there. (M5b)
+**The command bridge and `cw notify` accept an unauthenticated same-user caller by design.** Safety is per kind, in the cockpit: closed
+namespaces, and the person is asked before anything beyond arranging panes or showing a mark. A same-user process can register on the
+bridge first (`2026-09-29-cockpit-command-bridge-known-limitations.md`). Nothing in the daemon listens beyond its unix socket.
 
-**`converge.testCommand` is arbitrary shell, run automatically once
-trusted.** The `cw config trust` gate exists and must record the current
-command before crossweave will run it. Treat that gate as a real trust
-boundary, not a formality — don't trust a `crossweave.config.json` you
-didn't write yourself. (M4)
+**Landing is evidence-gated, and the question before it is advice.** Landability comes from recorded trial merges. The cockpit's Land
+button also asks when the last tests failed and when the session touches secret-like or automation files (judged by file *name*
+only); `Land all ready`, `cw land` and other clients do not ask (`2026-10-10-sensitive-files-known-limitations.md`).
 
-**Collision Radar only attributes committed lines.** `cw blame` can't tell
-you who's editing something that hasn't been committed yet — mid-flight
-collisions rely on the live hook/watcher path, not `blame`. (M2)
+**Runtime leases are cooperative, not enforced isolation.** crossweave injects per-session port, Docker, cache and database
+environment values, but a process that ignores them can still use shared resources and collide with another session.
 
-**Runtime leases are cooperative, not enforced isolation.** crossweave
-injects per-session port, Docker, cache, and database environment values,
-but an agent or subprocess that ignores those values can still use shared
-resources and collide with another session. Lease visibility helps diagnose
-that risk; the OS sandbox (above) confines *writes*, not ports — it does not
-stop a session from ignoring its leased port and squatting on another's.
+**Checkpoints are git objects in your repository.** `refs/crossweave/checkpoints/...` are hidden from branches but visible to
+`git log --all`; restore moves no branch and refuses before touching anything it would destroy; ignored files are out of scope
+(`2026-10-10-session-checkpoints-known-limitations.md`).
+
+**The cockpit is not Apple-notarized**, and macOS arm64 only.
+
+## Historical: the layers removed on 2026-09-27 (tag `v0.3-radar`)
+
+Kept so the old milestone documents still read correctly. **None of this exists in the current code.**
+
+- **Safe Mode** (M5a) had no auth boundary: any agent could turn off its own enforcement. T1 (ACP, Cursor) failed closed on an
+  internal error, T2 (the Claude Code hook) failed open on purpose, and only `Edit`/`Write` tool calls were blocked, never a write
+  made through `Bash`. The Cursor ACP path was gone from `cursor-agent` 2026.08, and the print-mode path had no interception.
+- **The OS sandbox** (macOS seatbelt, Linux bubblewrap) confined a session's writes to its worktree and denied network by default.
+- **Collision Radar** attributed only committed lines to `cw blame`; mid-flight collisions relied on the live hook/watcher path.
 
 ## Everyday gaps worth knowing, not blocking
 
@@ -96,6 +83,9 @@ stop a session from ignoring its leased port and squatting on another's.
   `2026-09-18-cockpit-daily-driver-known-limitations.md`.
 
 ## Where the roadmap horizons stand (2026-09-21)
+
+> Historical (2026-09-21 to 24). The gateway, E2E sealing, telemetry ping and the Deck bridge described here were removed or
+> superseded on 2026-09-27 (`v0.4-remote-web`); read it as a record, not as the current state.
 
 **Horizon D is wired** (ab8ed61→92bbafd): CI `sandbox-linux` job (ubuntu-latest + bubblewrap) proves `buildBwrapArgs` escape table; `session.data` E2E helpers `src/gateway/e2e.ts` (HKDF + aes-256-gcm via node:crypto, no native) — relay `src/gateway/relay.ts` stays dumb forwarder, ends enforce allowlists. Relay deploy + workspace routing remain deferred. Horizon E adds `workspace.openFile` READ (path containment, 512k cap) + web client `openFile`; Horizon F adds `bwrap` check to `install.sh`. Sprint `eff82d9` adds telemetry opt-in (`src/gateway/telemetry.ts`, per-day file, consent 0600, no code/paths/prompts) and E2E wire (`src/client/rpc-client.ts` decrypts `E2EBlob` chunk when gateway token exists, fallback plaintext).
 
