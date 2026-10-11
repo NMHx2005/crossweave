@@ -26,7 +26,7 @@ export interface DebugBundle {
   diff: {
     files: Array<{ path: string; status: string; added: number; deleted: number }>
     total: number
-    uncommitted: number
+    uncommitted: number | null
   }
   latestWords?: string
 }

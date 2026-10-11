@@ -102,9 +102,9 @@ export function ChangesPane({ sessionName, verdict, revision, loadDiff, onLand, 
             {diff.files.length === 0
               ? 'No committed changes yet.'
               : `${diff.files.length} file${diff.files.length === 1 ? '' : 's'} · +${totals?.added ?? 0} −${totals?.deleted ?? 0}`}
-            {diff.uncommitted > 0
+            {diff.uncommitted !== null && diff.uncommitted > 0
               ? ` · ${diff.uncommitted} uncommitted file${diff.uncommitted === 1 ? '' : 's'} in the worktree (landing takes commits only)`
-              : ''}
+              : diff.uncommitted === null ? ' · Uncommitted status unavailable; commit or inspect the worktree before landing' : ''}
           </p>
           <SensitiveSummary paths={diff.files.map((f) => f.path)} />
           {diff.files.length > 0 ? (

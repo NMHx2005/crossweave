@@ -18,7 +18,7 @@ export interface SessionDiff {
   patch: string;
   truncated: boolean;
   /** Files changed in the worktree but not committed — landing will not take them. */
-  uncommitted: number;
+  uncommitted: number | null;
 }
 
 const DEFAULT_MAX_PATCH_BYTES = 512 * 1024;
@@ -108,12 +108,13 @@ export function sessionDiff(
   }
   const { files, patch, truncated } = diffBetween(projectRoot, from, ref, opts);
 
-  let uncommitted = 0;
+  let uncommitted: number | null = null;
   if (worktreePath !== null && existsSync(worktreePath)) {
     try {
       uncommitted = git(worktreePath, ['status', '--porcelain']).split('\n').filter((l) => l !== '').length;
     } catch {
-      uncommitted = 0;
+      // Unknown is not clean: Land removes the worktree after merging committed changes.
+      uncommitted = null;
     }
   }
   return { files, patch, truncated, uncommitted };

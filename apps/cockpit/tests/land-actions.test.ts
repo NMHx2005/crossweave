@@ -40,6 +40,18 @@ describe('landSelected', () => {
     expect(calls).toEqual([{ name: 'alpha', extra: [] }])
   })
 
+  test('passes live-stop authorization only when explicitly requested', async () => {
+    const calls: Array<{ name: string; extra: unknown[] }> = []
+    const result = await landSelected({
+      getStatus: async () => status({ ready: ['alpha'] }),
+      land: async (name, ...extra) => { calls.push({ name, extra }); return landed },
+      name: 'alpha',
+      forceLive: true,
+    })
+    expect(result).toEqual({ status: 'landed' })
+    expect(calls).toEqual([{ name: 'alpha', extra: [true] }])
+  })
+
   test('does not land a blocked session', async () => {
     let landedName: string | undefined
     const result = await landSelected({
@@ -86,6 +98,18 @@ describe('landSelected', () => {
     expect(calls).toEqual([{ name: 'alpha', extra: [] }])
   })
 
+  test('live-stop authorization alone still asks before unknown evidence', async () => {
+    const calls: Array<{ name: string; extra: unknown[] }> = []
+    const getStatus = async () => status({ unknown: [{ name: 'alpha', reason: 'not checked' }] })
+    const land = async (name: string, ...extra: unknown[]) => { calls.push({ name, extra }); return landed }
+    const first = await landSelected({ getStatus, land, name: 'alpha', forceLive: true })
+    expect(first).toEqual({ status: 'needs_confirm_unknown' })
+    expect(calls).toEqual([])
+    const confirmed = await landSelected({ getStatus, land, name: 'alpha', forceUnknown: true, forceLive: true })
+    expect(confirmed).toEqual({ status: 'landed' })
+    expect(calls).toEqual([{ name: 'alpha', extra: [true] }])
+  })
+
   test('never lands blocked even when forceUnknown is set', async () => {
     let landedName: string | undefined
     const result = await landSelected({
@@ -96,6 +120,19 @@ describe('landSelected', () => {
       },
       name: 'alpha',
       forceUnknown: true,
+    })
+    expect(result).toEqual({ status: 'blocked' })
+    expect(landedName).toBeUndefined()
+  })
+
+  test('never lands blocked even when both confirmations are set', async () => {
+    let landedName: string | undefined
+    const result = await landSelected({
+      getStatus: async () => status({ blocked: [{ name: 'alpha', reason: 'conflict' }] }),
+      land: async (name) => { landedName = name; return landed },
+      name: 'alpha',
+      forceUnknown: true,
+      forceLive: true,
     })
     expect(result).toEqual({ status: 'blocked' })
     expect(landedName).toBeUndefined()

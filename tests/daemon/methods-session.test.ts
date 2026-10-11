@@ -79,6 +79,21 @@ describe('shell sessions', () => {
     } finally { db.close(); }
   });
 
+  test('forced land refuses a live session with uncommitted files before stopping its shell', async () => {
+    const { db, call, spawned } = await harness();
+    try {
+      const row = await call('session.new', { name: 'api' }) as { worktreePath: string };
+      await call('session.start', { idOrName: 'api' });
+      writeFileSync(join(row.worktreePath, 'uncommitted.txt'), 'keep this work\n');
+
+      await expect(call('land.session', { idOrName: 'api', force: true })).rejects.toMatchObject({ code: 'SESSION_UNCOMMITTED' });
+      expect(await call('session.list')).toMatchObject([{ name: 'api', status: 'running' }]);
+      expect(spawned).toHaveLength(1);
+      expect(await Bun.file(join(row.worktreePath, 'uncommitted.txt')).text()).toBe('keep this work\n');
+      await call('session.stop', { idOrName: 'api' });
+    } finally { db.close(); }
+  });
+
   test('the RPCs that existed for agents and the collision guard are gone', async () => {
     const { db } = await harness();
     try {

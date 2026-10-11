@@ -38,6 +38,7 @@ import {
   type ConvergeStatus,
   type LandResult,
 } from '../lib/land-actions'
+import { authorizeLiveLand } from '../lib/live-land'
 import {
   applyPreset,
   closeOthers,
@@ -959,7 +960,7 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
   function landDeps() {
     return {
       getStatus: async () => parseConvergeStatus(await api.convergeStatus()),
-      land: async (name: string): Promise<LandResult> => (await api.landSession(name)) as LandResult,
+      land: async (name: string, forceLive?: boolean): Promise<LandResult> => (await api.landSession(name, forceLive)) as LandResult,
     }
   }
 
@@ -976,19 +977,41 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
   async function landInner(targetId?: string): Promise<void> {
     const target = sessionById(targetId)
     if (!target || landBusy) return
-    // What the person should know before this lands, in ONE question: files that look like credentials or that run commands (judged
+    const diff = target.branch != null
+      ? await api.sessionDiff(target.id).catch(() => null)
+      : null
+    const liveAuthorization = await authorizeLiveLand({
+      uncommitted: diff?.uncommitted ?? null,
+      running: target.status === 'running' || target.status === 'waiting',
+      confirm: () => hostRef.current.askConfirm({
+        title: `Stop and land ${target.name}?`,
+        body: 'This ends the session shell and its running processes. Only committed changes are landed. After a successful land, the entire worktree is deleted, including ignored local files.',
+        confirmLabel: 'Stop and land',
+      }),
+    })
+    if (liveAuthorization === 'needs_commit') {
+      const count = diff?.uncommitted ?? 0
+      hostRef.current.toast(`${target.name} has ${count} uncommitted file${count === 1 ? '' : 's'}. Commit or handle them before landing.`)
+      return
+    }
+    if (liveAuthorization === 'status_unknown') {
+      hostRef.current.toast(`Could not inspect uncommitted files in ${target.name}; it was left untouched.`)
+      return
+    }
+    if (liveAuthorization === 'cancelled') return
+    const forceLive = liveAuthorization === 'confirmed'
+
+    // What the person should know before this lands: files that look like credentials or that run commands (judged
     // by name, from the committed diff), and failing or unfinished tests that still describe this work. A diff that cannot be read
     // asks nothing — a failing look must never be the reason a land is blocked or behaves differently.
-    const files = target.branch != null
-      ? await api.sessionDiff(target.id).then((d) => d.files.map((f) => f.path)).catch(() => [] as string[])
-      : []
+    const files = diff?.files.map((f) => f.path) ?? []
     const warning = combineWarnings(target.name, landSensitiveWarning(target.name, files), landCheckWarning(target.name, target.check))
     if (warning !== undefined && !(await hostRef.current.askConfirm(warning))) return
     setLandBusy(true)
     const toast = hostRef.current.toast
     try {
       const deps = landDeps()
-      let result = await landSelected({ ...deps, name: target.name })
+      let result = await landSelected({ ...deps, name: target.name, forceLive })
       if (result.status === 'needs_confirm_unknown') {
         const reason = converge.unknown.find((entry) => entry.name === target.name)?.reason ?? 'incomplete evidence'
         const ok = await hostRef.current.askConfirm({
@@ -997,7 +1020,7 @@ export function ProjectView({ projectRoot, visible, host }: { projectRoot: strin
           confirmLabel: 'Land anyway',
         })
         if (!ok) return
-        result = await landSelected({ ...deps, name: target.name, forceUnknown: true })
+        result = await landSelected({ ...deps, name: target.name, forceUnknown: true, forceLive })
       }
       if (result.status === 'blocked') {
         const reason = converge.blocked.find((entry) => entry.name === target.name)?.reason
