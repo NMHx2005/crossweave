@@ -1,0 +1,60 @@
+name: pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'website/**'
+      - 'docs/releases/**'
+      - 'docs/images/**'
+      - 'install.sh'
+      - 'README.md'
+      - 'apps/cockpit/src/ui/tokens.ts'
+      - 'apps/cockpit/src/ui/themes.ts'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+  # A release published by an action that uses GITHUB_TOKEN does not itself start another workflow, but the release workflow
+  # finishing does: this is what refreshes the version and the download links after a release.
+  workflow_run:
+    workflows: [release]
+    types: [completed]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      # Always the default branch: a release only refreshes the release data, the site's own source is whatever main holds.
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      # The website's tests import the cockpit's token modules and run `cw --help`, so the repository's own dependencies are needed.
+      - run: bun install --frozen-lockfile
+      - run: bun test website/tests --max-concurrency=1
+      - id: pages
+        uses: actions/configure-pages@v5
+      # An empty base_path (a custom domain) means the site root: loadConfig reads an empty SITE_BASE that way.
+      - run: bun website/build.ts --refresh-release
+        env:
+          SITE_URL: ${{ steps.pages.outputs.origin }}
+          SITE_BASE: ${{ steps.pages.outputs.base_path }}
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: website/dist
+      - id: deployment
+        uses: actions/deploy-pages@v4
