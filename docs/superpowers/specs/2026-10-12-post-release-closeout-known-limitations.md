@@ -8,6 +8,8 @@
 - Safari on macOS loaded the live page, started the demo muted under normal motion, and toggled the Pause/Play control. The repository Website field now points to `https://crossweave.dev/`; README links directly to the site, and no old `github.io` URL was found there.
 - CI runs [38236079238](https://github.com/NMHx2005/crossweave/actions/runs/38236079238), [38236416284](https://github.com/NMHx2005/crossweave/actions/runs/38236416284), and final-main run [38236698694](https://github.com/NMHx2005/crossweave/actions/runs/38236698694) passed both jobs, including the Linux suite with new diagnostic output for a recurring fixture-copy error.
 - After switching the fixture helper to synchronous copy, CI run [38237502724](https://github.com/NMHx2005/crossweave/actions/runs/38237502724) passed Linux typecheck/tests and the Cockpit build/tests.
+- PRs [#3](https://github.com/NMHx2005/crossweave/pull/3), [#4](https://github.com/NMHx2005/crossweave/pull/4), and [#5](https://github.com/NMHx2005/crossweave/pull/5) are merged linearly; final-main CI run [38238096754](https://github.com/NMHx2005/crossweave/actions/runs/38238096754) passed both jobs on `ef93afd`.
+- Latest Pages run [38236698702](https://github.com/NMHx2005/crossweave/actions/runs/38236698702) passed after PR #4. PR #5 changed test support and documentation only, so it did not trigger another Pages deployment.
 
 ## Still open
 
