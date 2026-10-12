@@ -118,17 +118,17 @@ job must not discover those tests without their platform-specific dependencies.
 
 Include activity, detected agent, checkpoint rows, process ancestry and the session shell's descendants in the test error. Do not emit diagnostics on successful runs.
 
-- [ ] **Step 2: Reproduce the focused cases on the Linux runner**
+- [x] **Step 2: Reproduce the focused cases on the Linux runner**
 
-The full Linux job in run `38231615436` found all four PTY failures again. Diagnostics show the fake `claude` is a descendant of the recorded session shell, the daemon detects `claude`, and the session remains `working` with only the start checkpoint at timeout. This rules out a missing shell/agent process; capture descendants in the next run to see what the fake CLI is waiting on. The same run also had one unrelated `ENOENT` copying the shared Git fixture template, so investigate whether test workers race on that fixture before calling the job stable.
+The full Linux job in run `38231615436` found all four PTY failures again. Diagnostics show the fake `claude` is a descendant of the session shell and the daemon detects it, while the session remains `working` with only the start checkpoint. Linux CI uses `/bin/sh` → `dash`: `printf '\\x1b…'` prints a literal backslash sequence, so the fake agent never sends its final ANSI clear-screen sequence. A direct `dash` check produced `5c 78 31 62` for `\\x1b` and `1b` for `\\033`. The fixtures now use portable `\\033` escapes. The diagnostic run `38232700603` showed the fake agent had reached `sleep 60` after its prompt, confirming the script had completed its busy loop, and the fixture-copy `ENOENT` did not recur.
 
-- [ ] **Step 3: Fix the diagnosed cause while preserving the contract**
+- [x] **Step 3: Fix the diagnosed cause while preserving the contract**
 
-If the Linux production path is wrong, write a focused regression test first and repair it. If the runner lacks a required capability, document the evidence and run the tests in CI on a runner that supports real PTYs.
+Changed both fake agent scripts to emit portable POSIX octal ANSI escapes. All five focused checkpoint/auto-check PTY tests pass locally, including the assertions that a completed turn produces a `turn` checkpoint and that trusted checks run only under their existing conditions.
 
 - [ ] **Step 4: Verify targeted cases and full CI**
 
-Run the focused tests locally, the serial root suite and all required CI jobs. Do not claim CI stability until the remote run is green.
+Focused tests pass locally (5/5); `bun run typecheck` passes; the serial root suite passes (2,362/2,362). The remote CI run on the diagnostic-only commit still failed before the fixture change; rerun after the fixture correction and do not claim CI stability until the updated remote run is green.
 
 - [ ] **Step 5: Run the CI workflow on the fix**
 
@@ -140,4 +140,4 @@ Record the root cause, fix commit, local gate results and CI run URL in the hand
 
 **Remote CI run:** [38231615436](https://github.com/NMHx2005/crossweave/actions/runs/38231615436) — Cockpit passed; Linux root suite failed with the four known PTY timeouts plus one transient fixture-copy `ENOENT`. Diagnosis and verification remain open.
 
-**Latest diagnostic commit:** `test: diagnose Linux session auto-check failures` (`6fa1b20`); descendant capture is being added.
+**Latest diagnostic commit:** `test: capture PTY child processes on timeout` (`bfd82d1`). Root-cause fixture correction and local gates are complete; remote CI remains pending.

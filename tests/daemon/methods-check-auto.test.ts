@@ -27,12 +27,12 @@ async function setup(opts: { autoCheck: boolean; trust: boolean }) {
   // Turn one: busy ~4 s, the file lands at 3 s, then an idle prompt. It then waits for a line and runs a second turn that edits nothing.
   writeFileSync(fake, [
     '#!/bin/sh',
-    'busy() { i=0; while [ $i -lt 8 ]; do printf \'\\x1b[2K\\x1b[1m✢ Crunching…\\x1b[0m (1s · esc to interrupt)\\n\'; if [ "$1" = edit ] && [ $i -eq 6 ]; then echo made > agent-made.txt; fi; sleep 0.5; i=$((i+1)); done; }',
+    'busy() { i=0; while [ $i -lt 8 ]; do printf \'\\033[2K\\033[1m✢ Crunching…\\033[0m (1s · esc to interrupt)\\n\'; if [ "$1" = edit ] && [ $i -eq 6 ]; then echo made > agent-made.txt; fi; sleep 0.5; i=$((i+1)); done; }',
     'busy edit',
-    'printf \'\\x1b[2J\\x1b[H> \'',
+    'printf \'\\033[2J\\033[H> \'',
     'read x',
     'busy talk',
-    'printf \'\\x1b[2J\\x1b[H> \'',
+    'printf \'\\033[2J\\033[H> \'',
     'sleep 60',
     '',
   ].join('\n'));

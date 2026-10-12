@@ -18,6 +18,8 @@ The next diagnostic pass records final session activity, detected agent, checkpo
 
 Run `38231615436` confirmed the agent process is present beneath the session shell, detected as `claude`, while activity remains `working` and the only checkpoint is `start`. The next run adds the process descendants so we can tell whether the fake CLI reached its final prompt or is still inside its busy loop. That run also exposed one unrelated `ENOENT` during `cp` of the cached Git template; local repetition of the checkpoint RPC suite passes, so keep this as a separate fixture investigation rather than conflating it with the PTY state.
 
+The cause was the test fixture's use of `printf '\\x1b…'`. Linux's `/bin/sh` is `dash`, whose `printf` prints those bytes literally (`5c 78 31 62`); macOS's shell accepted the extension. As a result, the fake agent's clear-screen sequence was not ANSI, and the visible “esc to interrupt” line never disappeared. `dash printf '\\033…'` emits the expected ESC byte (`1b`), so both PTY fixtures now use the POSIX octal escape. This fixes the test fixture portability without changing product status inference or weakening the assertions. The diagnostic run `38232700603` independently showed the fake CLI already in `sleep 60` after the final prompt, which confirms the script had finished its work and supports this explanation. The isolated fixture-copy `ENOENT` did not recur in that run.
+
 ## Acceptance
 
 - The test still proves a `start`/before snapshot and a `turn`/after snapshot around a recognised agent edit, and still proves ordinary shell output does not create automatic checkpoints.
