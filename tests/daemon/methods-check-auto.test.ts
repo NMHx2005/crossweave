@@ -6,6 +6,7 @@ import { buildMethods } from '../../src/daemon/methods.js';
 import { WorkspaceManager } from '../../src/domain/workspace.js';
 import { loadConfig } from '../../src/core/config.js';
 import { makeGitFixture } from '../helpers/git-fixture.js';
+import { processAncestryFor } from '../helpers/process-diagnostics.js';
 
 /**
  * The whole chain: a fake `claude` edits a file and goes quiet → the status sweep ends the turn → the checkpoint says the tree
@@ -54,13 +55,21 @@ async function setup(opts: { autoCheck: boolean; trust: boolean }) {
   };
   const turnCheckpointed = async (): Promise<boolean> => ((await call('checkpoint.list', { idOrName: 'dev' })).checkpoints as Array<{ kind: string; files: { added: number } }>)
     .some((c) => c.kind === 'turn' && c.files.added === 1);
-  return { call, sweep: () => sweep!, cleanup, listed, startAgent, turnCheckpointed };
+  const diagnostics = async (): Promise<unknown> => ({
+    session: await listed(),
+    checkpoints: await call('checkpoint.list', { idOrName: 'dev' }),
+    processAncestry: processAncestryFor(fake),
+  });
+  return { call, sweep: () => sweep!, cleanup, listed, startAgent, turnCheckpointed, diagnostics };
 }
 
-async function until(pred: () => Promise<boolean>, ms = 30_000): Promise<void> {
+async function until(pred: () => Promise<boolean>, ms = 30_000, diagnostics?: () => Promise<unknown>): Promise<void> {
   const end = Date.now() + ms;
   while (!(await pred())) {
-    if (Date.now() > end) throw new Error('until: timed out');
+    if (Date.now() > end) {
+      const state = diagnostics === undefined ? '' : `\nLast state: ${JSON.stringify(await diagnostics(), null, 2)}`;
+      throw new Error(`until: timed out${state}`);
+    }
     await new Promise((r) => setTimeout(r, 50));
   }
 }
@@ -71,14 +80,14 @@ describe('automatic checks', () => {
     const t = await setup({ autoCheck: true, trust: true });
     try {
       await t.startAgent();
-      await until(async () => { await t.sweep()(); return (await t.listed()).check?.state === 'fail'; });
+      await until(async () => { await t.sweep()(); return (await t.listed()).check?.state === 'fail'; }, 30_000, t.diagnostics);
       const first = (await t.listed()).check;
       expect(first.code).not.toBe(0);
 
       // Turn two edits nothing: the checkpoint dedupes, the session is not owed a run.
       await t.call('session.input', { idOrName: 'dev', data: 'go\n' });
       let sawWorking = false;
-      await until(async () => { await t.sweep()(); const a = (await t.listed()).activity; if (a === 'working') sawWorking = true; return sawWorking && a !== 'working'; });
+      await until(async () => { await t.sweep()(); const a = (await t.listed()).activity; if (a === 'working') sawWorking = true; return sawWorking && a !== 'working'; }, 30_000, t.diagnostics);
       await pause(1500);
       await t.sweep()();
       expect((await t.listed()).check.at).toBe(first.at);
@@ -89,12 +98,12 @@ describe('automatic checks', () => {
     const t = await setup({ autoCheck: false, trust: true });
     try {
       await t.startAgent();
-      await until(async () => { await t.sweep()(); return t.turnCheckpointed(); });
+      await until(async () => { await t.sweep()(); return t.turnCheckpointed(); }, 30_000, t.diagnostics);
       await pause(1500);
       await t.sweep()();
       expect((await t.listed()).check).toBeUndefined();
       await t.call('session.check', { idOrName: 'dev' }); // the positive control
-      await until(async () => (await t.listed()).check?.state === 'fail');
+      await until(async () => (await t.listed()).check?.state === 'fail', 30_000, t.diagnostics);
     } finally { await t.cleanup(); }
   }, 60_000);
 
@@ -102,7 +111,7 @@ describe('automatic checks', () => {
     const t = await setup({ autoCheck: true, trust: false });
     try {
       await t.startAgent();
-      await until(async () => { await t.sweep()(); return t.turnCheckpointed(); });
+      await until(async () => { await t.sweep()(); return t.turnCheckpointed(); }, 30_000, t.diagnostics);
       await pause(1500);
       await t.sweep()();
       expect((await t.listed()).check).toBeUndefined();

@@ -10,15 +10,18 @@ Make the CI gates reflect their existing split: Linux runs the engine and websit
 
 ## Design
 
-The latest CI log records these elapsed times: the checkpoint integration timed out at 25.1 seconds; three auto-check integration cases timed out at 30.1 seconds each; six view tests failed during module loading. The two 2026-10-08 logs each show one Cockpit test failing during module loading, before any timeout. The Linux job runs bare `bun test`, which discovers Cockpit tests although it does not install Cockpit's macOS-only dependencies; a separate macOS job already installs those dependencies and runs the app suite. The bare command also uses Bun's default test concurrency.
+The latest CI log records these elapsed times: the checkpoint integration timed out at 25.1 seconds; three auto-check integration cases timed out at 30.1 seconds each; six view tests failed during module loading. The two 2026-10-08 logs each show one Cockpit test failing during module loading, before any timeout. The Linux job runs bare `bun test`, which discovers Cockpit tests although it does not install Cockpit's macOS-only dependencies; a separate macOS job already installs those dependencies and runs the app suite.
 
-With Bun 1.3.14, the checkpoint integration passed three consecutive local serial runs (6.8–7.3 seconds each), and all three auto-check integration cases passed serially (13.9, 7.9 and 8.1 seconds). The same checkpoint test fails inside the restricted sandbox because the sandbox denies port allocation, then passes outside it; that is an environment limitation, not a product regression. The evidence supports a CI-only fix: scope the Linux command to `tests` and `website/tests`, and run it with `--max-concurrency=1`. Keep the macOS Cockpit test gate unchanged. Do not expand test timeouts or weaken assertions.
+With Bun 1.3.14, the checkpoint integration passed three consecutive local serial runs (6.8–7.3 seconds each), and all three auto-check integration cases passed serially (13.9, 7.9 and 8.1 seconds). The same checkpoint test fails inside the restricted sandbox because the sandbox denies port allocation, then passes outside it. However, the first proposed CI-only fix did not solve the remote failure: run `38200756671` still had the same four PTY-backed timeouts after setting concurrency to 1, and six Cockpit tests still failed to load Preact. A comparison run against unchanged `main` commit `122d43c` (`38111732784`) had the same four timeouts and six Preact failures. This confirms the failure predates the branch, but does not establish whether the Linux PTY behavior is a runner limitation or a product defect. The second cause is clear: Bun treats positional test arguments as path-substring filters, so `tests website/tests` did not restrict discovery.
+
+The next diagnostic pass records final session activity, detected agent, checkpoints and `ps` ancestry when those PTY tests time out. Correct test discovery with `--path-ignore-patterns` for Cockpit, and keep all behavioral assertions. Do not exclude the PTY cases or move them to another runner unless diagnostics demonstrate an environment-specific constraint; if Linux product behavior is wrong, fix it with a regression test.
 
 ## Acceptance
 
 - The test still proves a `start`/before snapshot and a `turn`/after snapshot around a recognised agent edit, and still proves ordinary shell output does not create automatic checkpoints.
 - The focused checkpoint and auto-check tests pass repeatedly with Bun 1.3.14 and concurrency 1.
-- The Linux workflow runs only `tests` and `website/tests` with concurrency 1; the Cockpit suite stays in its macOS job.
+- The Linux workflow explicitly excludes the Cockpit subtree and runs the engine/site suite with concurrency 1; the Cockpit suite stays in its macOS job.
+- The four real-shell automatic-checkpoint/auto-check cases either pass on Linux or have a diagnosed, documented platform boundary while remaining covered by CI on a runner that supports their contract.
 - `bun test --max-concurrency=1` and `bun run typecheck` pass locally.
 - A CI run on the resulting commit passes the root test job; prior 2026-10-08 runs have been classified as same or unrelated.
 - Any remaining environmental limitation is recorded in a known-limitations file and the digest.
