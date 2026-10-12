@@ -114,13 +114,13 @@ job must not discover those tests without their platform-specific dependencies.
 - Diagnostic-only changes if needed: `tests/daemon/methods-checkpoint-auto.test.ts`, `tests/daemon/methods-check-auto.test.ts`
 - Read: `src/daemon/session-status.ts`, `src/daemon/checkpoint-trigger.ts`, `src/daemon/methods.ts`
 
-- [ ] **Step 1: On timeout, report observable session state**
+- [x] **Step 1: On timeout, report observable session state**
 
-Include activity, detected agent, checkpoint rows and the session shell's process ancestry in the test error. Do not emit diagnostics on successful runs.
+Include activity, detected agent, checkpoint rows, process ancestry and the session shell's descendants in the test error. Do not emit diagnostics on successful runs.
 
 - [ ] **Step 2: Reproduce the focused cases on the Linux runner**
 
-Use a CI run of the focused PTY cases and identify whether the shell starts the fake CLI, the daemon detects it, and activity transitions from working to idle/asked.
+The full Linux job in run `38231615436` found all four PTY failures again. Diagnostics show the fake `claude` is a descendant of the recorded session shell, the daemon detects `claude`, and the session remains `working` with only the start checkpoint at timeout. This rules out a missing shell/agent process; capture descendants in the next run to see what the fake CLI is waiting on. The same run also had one unrelated `ENOENT` copying the shared Git fixture template, so investigate whether test workers race on that fixture before calling the job stable.
 
 - [ ] **Step 3: Fix the diagnosed cause while preserving the contract**
 
@@ -138,6 +138,6 @@ Wait for the new GitHub Actions CI run and verify both `test` and `cockpit` jobs
 
 Record the root cause, fix commit, local gate results and CI run URL in the handoff/progress record. Remove the active CI-red item only after the remote run passes.
 
-**Remote CI run:** pending branch integration; no run link exists yet. Local gates are complete.
+**Remote CI run:** [38231615436](https://github.com/NMHx2005/crossweave/actions/runs/38231615436) — Cockpit passed; Linux root suite failed with the four known PTY timeouts plus one transient fixture-copy `ENOENT`. Diagnosis and verification remain open.
 
-**Commit:** `test: stabilize automatic checkpoint integration on CI`
+**Latest diagnostic commit:** `test: diagnose Linux session auto-check failures` (`6fa1b20`); descendant capture is being added.
