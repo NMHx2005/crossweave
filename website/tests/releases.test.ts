@@ -1,11 +1,19 @@
 import { describe, expect, test } from 'bun:test'
 import { readdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { headlineOf, inDevelopment, recentReleases } from '../src/releases'
+import { assertReleaseTagParity, headlineOf, inDevelopment, recentReleases } from '../src/releases'
 import type { Release } from '../src/types'
 
 const notes = (tags: string[]): Array<{ tag: string; markdown: string }> => tags.map((tag) => ({ tag, markdown: `## Headline\n\nNote for ${tag}. A second sentence.\n` }))
 const release = (tag: string, dates: Record<string, string> = {}): Release => ({ tag, publishedAt: '2026-09-30T10:39:00Z', assets: ['checksums.txt'], dates })
+
+describe('release note locales', () => {
+  test('the translated notes have the same tags as the canonical notes', () => {
+    expect(() => assertReleaseTagParity(notes(['v0.3.0', 'v0.4.0']), notes(['v0.4.0', 'v0.3.0']))).not.toThrow()
+    expect(() => assertReleaseTagParity(notes(['v0.3.0', 'v0.4.0']), notes(['v0.3.0']))).toThrow(/v0.4.0/)
+    expect(() => assertReleaseTagParity(notes(['v0.3.0']), notes(['v0.3.0', 'v0.5.0']))).toThrow(/v0.5.0/)
+  })
+})
 
 describe('headlineOf', () => {
   test('the first sentence of the paragraph under Headline, as plain text', () => {
@@ -24,6 +32,11 @@ describe('headlineOf', () => {
     expect(headlineOf('## Điểm nhấn\n\nBản phát hành này giúp công việc an toàn hơn. Câu tiếp theo.', 'Điểm nhấn')).toBe(
       'Bản phát hành này giúp công việc an toàn hơn.',
     )
+  })
+
+  test('accepts Markdown heading whitespace and finds Vietnamese sentence starts', () => {
+    expect(headlineOf('##  Headline   \n\nOne sentence. Ứng dụng đã sẵn sàng.')).toBe('One sentence.')
+    expect(headlineOf('##  Điểm nhấn   \n\nMột câu. Ứng dụng đã sẵn sàng.', 'Điểm nhấn')).toBe('Một câu.')
   })
 
   test('works on every real release note', () => {

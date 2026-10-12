@@ -118,4 +118,4 @@
 - [x] **Step 2: Run root gates sequentially.** Run `bun run typecheck`, wait for it to finish, then `bun test --max-concurrency=1`, wait for it to finish, then `bun run build`. Fix regressions without weakening tests.
 - [x] **Step 3: Build the production website.** Run `SITE_DOMAIN=crossweave.dev bun website/build.ts --out /tmp/crossweave-i18n-build`. Inspect all 22 sitemap URLs, both locale alternates, canonical URLs, language attributes and the four translated release anchors.
 - [x] **Step 4: Review the final diff.** Run `git diff --check`, inspect `git status --short`, and ensure no generated output or files from the original dirty checkout entered this branch.
-- [ ] **Step 5: Commit focused changes.** Use Conventional Commits on `codex/website-full-i18n`; do not commit or push to `main` as part of the implementation.
+- [x] **Step 5: Commit focused changes.** Use Conventional Commits on `codex/website-full-i18n`; do not commit or push to `main` as part of the implementation.

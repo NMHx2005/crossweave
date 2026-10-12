@@ -1,6 +1,20 @@
 import { compareTags } from './release'
 import type { Release } from './types'
 
+/** Fail the static build when a translated release note is missing or has no English counterpart. */
+export function assertReleaseTagParity(
+  english: ReadonlyArray<{ tag: string }>,
+  vietnamese: ReadonlyArray<{ tag: string }>,
+): void {
+  const enTags = [...new Set(english.map((note) => note.tag))].sort()
+  const viTags = [...new Set(vietnamese.map((note) => note.tag))].sort()
+  const missing = enTags.filter((tag) => !viTags.includes(tag))
+  const extra = viTags.filter((tag) => !enTags.includes(tag))
+  if (missing.length > 0 || extra.length > 0) {
+    throw new Error(`Vietnamese release note tags differ from English (missing Vietnamese: ${missing.join(', ') || 'none'}; extra Vietnamese: ${extra.join(', ') || 'none'})`)
+  }
+}
+
 /** Markdown reduced to the words a reader sees: links keep their text, emphasis and code marks go. */
 function plain(markdown: string): string {
   return markdown
@@ -10,10 +24,10 @@ function plain(markdown: string): string {
     .trim()
 }
 
-/** The first sentence of the paragraph under `## Headline`, as plain text; empty when a release note has none. */
+/** The first sentence under the locale's summary heading, as plain text; empty when a release note has none. */
 export function headlineOf(markdown: string, heading = 'Headline'): string {
   const lines = markdown.split('\n')
-  const at = lines.findIndex((l) => l === `## ${heading}`)
+  const at = lines.findIndex((line) => /^##\s+/.test(line) && line.replace(/^##\s+/, '').trim() === heading)
   if (at < 0) return ''
   const paragraph: string[] = []
   for (const line of lines.slice(at + 1)) {
@@ -26,7 +40,7 @@ export function headlineOf(markdown: string, heading = 'Headline'): string {
   }
   const text = plain(paragraph.join(' '))
   // A sentence ends at a full stop followed by a capital or the end: "0.5.0 gives" does not end at its dots.
-  return /^(.+?[.!?])(?=\s+["“(A-Z]|$)/.exec(text)?.[1] ?? text
+  return /^(.+?[.!?])(?=\s+["“(]|\s+\p{Lu}|$)/u.exec(text)?.[1] ?? text
 }
 
 export interface ReleaseEntry {

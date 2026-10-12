@@ -13,6 +13,7 @@ import { downloadPage } from './src/pages/download'
 import { homePage } from './src/pages/home'
 import { notFoundPage } from './src/pages/notfound'
 import { NOTARIZED, readManifest, refreshManifest } from './src/release'
+import { assertReleaseTagParity } from './src/releases'
 import { escapeHtml, loadConfig, makeUrls, type Lang } from './src/site'
 import { themeCss } from './src/theme'
 import type { BuildOptions, BuiltPage, PageCtx } from './src/types'
@@ -66,9 +67,7 @@ export async function build(options: BuildOptions): Promise<void> {
       .filter((name) => /^v\d+\.\d+\.\d+\.md$/.test(name))
       .map((name) => ({ tag: name.replace(/\.md$/, ''), markdown: readFileSync(join(repoRoot, 'website', 'src', 'content', 'vi', 'releases', name), 'utf8') })),
   }
-  const enTags = notesByLang.en.map((note) => note.tag).sort()
-  const viTags = notesByLang.vi.map((note) => note.tag).sort()
-  if (JSON.stringify(enTags) !== JSON.stringify(viTags)) throw new Error(`Vietnamese release notes do not match English tags (English: ${enTags.join(', ')}; Vietnamese: ${viTags.join(', ')})`)
+  assertReleaseTagParity(notesByLang.en, notesByLang.vi)
 
   const base = { urls, release, notarized, imageSize: sizeOf }
   const ctx = (lang: Lang): PageCtx => ({ ...base, lang, content: CONTENT[lang], notes: notesByLang[lang] })
