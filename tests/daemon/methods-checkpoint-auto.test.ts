@@ -24,7 +24,7 @@ async function setup() {
   const fake = join(bin, 'claude');
   // Busy for ~4 s (the file lands at 3 s, long after the start checkpoint), then it repaints an idle prompt and sits alive
   // and silent, as an interactive agent does between turns.
-  writeFileSync(fake, '#!/bin/sh\ni=0\nwhile [ $i -lt 8 ]; do printf \'\\x1b[2K\\x1b[1m✢ Crunching…\\x1b[0m (1s · esc to interrupt)\\n\'; if [ $i -eq 6 ]; then echo made > agent-made.txt; fi; sleep 0.5; i=$((i+1)); done\nprintf \'\\x1b[2J\\x1b[H> \'\nsleep 60\n');
+  writeFileSync(fake, '#!/bin/sh\ni=0\nwhile [ $i -lt 8 ]; do printf \'\\033[2K\\033[1m✢ Crunching…\\033[0m (1s · esc to interrupt)\\n\'; if [ $i -eq 6 ]; then echo made > agent-made.txt; fi; sleep 0.5; i=$((i+1)); done\nprintf \'\\033[2J\\033[H> \'\nsleep 60\n');
   chmodSync(fake, 0o755);
   const ctx = { notify: () => undefined, onClose: () => undefined };
   const call = async (m: string, p: Record<string, unknown> = {}): Promise<any> => methods[m]!({ workspaceId: ws.id, ...p }, ctx);
