@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { cpSync, existsSync, readdirSync, realpathSync, rmSync } from 'node:fs';
+import { readdirSync, realpathSync, rmSync } from 'node:fs';
 import { $ } from 'bun';
 
 export interface GitFixture {
@@ -91,21 +91,20 @@ async function gitTemplate(): Promise<string> {
 export async function makeGitFixture(): Promise<GitFixture> {
   const src = await gitTemplate();
   const root = realpathSync(await mkdtemp(join(tmpdir(), 'cw-git-')));
-  // The template has no worktrees, so its .git holds no absolute paths and copies
-  // cleanly. Anything that adds a worktree to the TEMPLATE would break that.
   try {
-    // Bun's async cp has intermittently reported ENOENT on Linux after the whole tree was copied.
-    cpSync(src, root, { recursive: true });
+    // Git creates an independent object store; filesystem tree copies intermittently
+    // failed partway through .git on Linux, even with synchronous cp.
+    await $`git clone --quiet --no-hardlinks ${src} ${root}`.quiet();
+    await $`git config --local user.email test@crossweave.dev`.cwd(root).quiet();
+    await $`git config --local user.name ${'crossweave test'}`.cwd(root).quiet();
   } catch (cause) {
-    // A Linux CI ENOENT here is intermittent; snapshot both paths before cleanup hides the race.
-    const tree = (path: string): string[] => existsSync(path)
-      ? readdirSync(path, { recursive: true }).map(String).sort()
-      : [];
-    const sourceTree = tree(src);
-    const destinationTree = tree(root);
-    const missingFromDestination = sourceTree.filter((entry) => !destinationTree.includes(entry));
+    try {
+      rmSync(root, { recursive: true, force: true });
+    } catch {
+      // Preserve the clone error; a partial temp fixture is safe to sweep next run.
+    }
     throw new Error(
-      `Could not copy git fixture (pid ${process.pid}; source ${src} [${sourceTree.join(', ')}]; destination ${root} [${destinationTree.join(', ')}]; missing from destination [${missingFromDestination.join(', ')}])`,
+      `Could not clone git fixture (source ${src}; destination ${root})`,
       { cause },
     );
   }
