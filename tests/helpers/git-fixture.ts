@@ -97,10 +97,14 @@ export async function makeGitFixture(): Promise<GitFixture> {
     await cp(src, root, { recursive: true });
   } catch (cause) {
     // A Linux CI ENOENT here is intermittent; snapshot both paths before cleanup hides the race.
-    const sourceEntries = existsSync(src) ? readdirSync(src).join(', ') : '<missing>';
-    const destinationEntries = existsSync(root) ? readdirSync(root).join(', ') : '<missing>';
+    const tree = (path: string): string[] => existsSync(path)
+      ? readdirSync(path, { recursive: true }).map(String).sort()
+      : [];
+    const sourceTree = tree(src);
+    const destinationTree = tree(root);
+    const missingFromDestination = sourceTree.filter((entry) => !destinationTree.includes(entry));
     throw new Error(
-      `Could not copy git fixture (pid ${process.pid}; source ${src} [${sourceEntries}]; destination ${root} [${destinationEntries}])`,
+      `Could not copy git fixture (pid ${process.pid}; source ${src} [${sourceTree.join(', ')}]; destination ${root} [${destinationTree.join(', ')}]; missing from destination [${missingFromDestination.join(', ')}])`,
       { cause },
     );
   }
