@@ -8,6 +8,5 @@ The 2026-10-12 branch run `38200756671` had four PTY-backed integration timeouts
 
 ## Still open
 
-- No CI limitations remain for this change. Run `38233229200` is green for both jobs.
+- The PTY escape failure is fixed and CI run `38233229200` was green, but a separate Linux fixture-copy `ENOENT` recurred during post-release verification. Runs `38234721338` and its failed-job rerun both stopped once at `tests/daemon/methods-checkpoint.test.ts` while copying the tiny Git template; at catch time the source and destination roots and their top-level `.git`/`README.md` entries existed. The underlying nested file/path could not be identified from Bun's error. Recursive source/destination manifests now accompany this exceptional error; run `38236079238` passed the full Linux suite. Treat the copy error as intermittent and unresolved until a failure captures the missing path or a deterministic reproduction exists.
 - PTY and socket tests need host capabilities that the restricted sandbox denies. The full local suite ran outside that sandbox with concurrency 1; sandbox-only failures are not evidence about the change.
-- One fixture-copy `ENOENT` occurred once in a Linux job; it did not recur in the following two remote runs or local full-suite runs.
