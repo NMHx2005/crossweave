@@ -103,7 +103,7 @@ export interface Content {
       comingIntro: string
     }
     fit: { title: string; forTitle: string; forItems: string[]; notTitle: string; notItems: string[] }
-    releases: { title: string; developing(tag: string): string; all: string }
+    releases: { title: string; developing(tag: string): string; all: string; headlineHeading: string }
     features: { title: string; intro: string; items: Feature[] }
     agents: { title: string; text: string; names: string[]; note: string }
     compare: { title: string; caption: string; headings: [string, string, string]; rows: Array<[string, string, string]>; foot: string }
@@ -122,6 +122,7 @@ export interface Content {
     checksums: string
     older: string
   }
+  readonly changelog: { title: string; description: string; introduction: string; unreleased: string }
   readonly footer: {
     tagline: string
     groups: { product: string; project: string }
@@ -132,7 +133,5 @@ export interface Content {
     issues: string
     version(v: string): string
   }
-  /** Shown beside the links from a translated page to the English-only docs and changelog. */
-  readonly docsNotice: string
   readonly notFound: { title: string; text: string; home: string }
 }

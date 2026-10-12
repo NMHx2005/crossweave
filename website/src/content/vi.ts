@@ -245,7 +245,7 @@ export const vi: Content = {
         'Bạn muốn điều khiển từ điện thoại (ứng dụng iOS thuần đang được dự định).',
       ],
     },
-    releases: { title: 'Bản phát hành gần đây', developing: (tag) => `Đang phát triển: ${tag}`, all: 'Toàn bộ lịch sử thay đổi' },
+    releases: { title: 'Bản phát hành gần đây', developing: (tag) => `Đang phát triển: ${tag}`, all: 'Toàn bộ lịch sử thay đổi', headlineHeading: 'Điểm nhấn' },
     features: {
       title: 'Vòng lặp phát triển của bạn',
       intro: 'Mọi thứ dưới đây đều kết thúc bằng chữ được gõ vào shell của chính bạn. crossweave chứa shell; bạn chạy các agent.',
@@ -377,6 +377,12 @@ export const vi: Content = {
     checksums: 'checksums.txt',
     older: 'Mọi bản phát hành và checksum',
   },
+  changelog: {
+    title: 'Lịch sử thay đổi — crossweave',
+    description: 'Những thay đổi trong từng bản phát hành crossweave.',
+    introduction: 'Những thay đổi trong từng bản phát hành. Mục mới nhất chưa phát hành mô tả phiên bản đang được chuẩn bị.',
+    unreleased: 'Chưa phát hành',
+  },
   footer: {
     tagline: 'Chạy nhiều agent trên một repo. Land cái đứng vững.',
     groups: { product: 'Sản phẩm', project: 'Dự án' },
@@ -387,6 +393,5 @@ export const vi: Content = {
     issues: 'Issues',
     version: (v) => `Bản phát hành ${v}`,
   },
-  docsNotice: 'Tài liệu và lịch sử thay đổi bằng tiếng Anh.',
   notFound: { title: 'Không tìm thấy trang', text: 'Trang này không tồn tại.', home: 'Về trang chủ' },
 }

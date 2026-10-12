@@ -36,8 +36,8 @@ interface NavItem {
 function navItems(lang: Lang, content: Content, urls: Urls): NavItem[] {
   const prefix = lang === 'vi' ? '/vi' : ''
   return [
-    { href: urls.path('/docs/'), label: content.nav.docs, match: '/docs/' },
-    { href: urls.path('/changelog/'), label: content.nav.changelog, match: '/changelog/' },
+    { href: urls.path(`${prefix}/docs/`), label: content.nav.docs, match: `${prefix}/docs/` },
+    { href: urls.path(`${prefix}/changelog/`), label: content.nav.changelog, match: `${prefix}/changelog/` },
   ]
 }
 
@@ -84,13 +84,13 @@ export function renderDocument(meta: PageMeta, body: Html, ctx: { content: Conte
   const link = (href: string, label: string): string => `<li><a href="${attr(href)}">${attr(label)}</a></li>`
   const productLinks = [
     link(urls.path(meta.lang === 'vi' ? '/vi/download/' : '/download/'), content.nav.download),
-    link(urls.path('/docs/'), content.nav.docs),
-    link(urls.path('/changelog/'), content.nav.changelog),
+    link(urls.path(meta.lang === 'vi' ? '/vi/docs/' : '/docs/'), content.nav.docs),
+    link(urls.path(meta.lang === 'vi' ? '/vi/changelog/' : '/changelog/'), content.nav.changelog),
   ].join('')
   const projectLinks = [
     link(REPO_URL, content.nav.github),
     link(`${REPO_URL}/issues`, content.footer.issues),
-    link(urls.path('/docs/security/'), content.footer.security),
+    link(urls.path(meta.lang === 'vi' ? '/vi/docs/security/' : '/docs/security/'), content.footer.security),
     link(`${REPO_URL}/blob/main/CONTRIBUTING.md`, content.footer.contributing),
     link(`${REPO_URL}/blob/main/LICENSE`, content.footer.license),
   ].join('')
@@ -144,7 +144,7 @@ ${body}
 </div>
 <div class="footer__bottom">
 <p>${attr(content.footer.builtBy)}</p>
-<p>${attr(content.footer.version(ctx.version))}${meta.lang === 'en' ? '' : ` · ${attr(content.docsNotice)}`}</p>
+<p>${attr(content.footer.version(ctx.version))}</p>
 </div>
 </div>
 </footer>

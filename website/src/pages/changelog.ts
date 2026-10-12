@@ -1,12 +1,18 @@
 import { lintMarkdown, renderMarkdown } from '../markdown'
 import { compareTags } from '../release'
 import { shiftHeadings } from '../readme'
-import type { Urls } from '../site'
+import type { Content } from '../content/types'
+import type { Lang, Urls } from '../site'
 import { html, type BuiltPage, type Release } from '../types'
 import { esc } from './common'
 
-export function changelogPage(ctx: { urls: Urls; notes: Array<{ tag: string; markdown: string }>; release: Release }): BuiltPage {
+export function changelogPage(ctx: { urls: Urls; notes: Array<{ tag: string; markdown: string }>; release: Release; lang?: Lang; content?: Content }): BuiltPage {
   const { urls, release } = ctx
+  const lang = ctx.lang ?? 'en'
+  const copy = ctx.content?.changelog ?? (lang === 'vi'
+    ? { title: 'Lịch sử thay đổi — crossweave', description: 'Những thay đổi trong từng bản phát hành crossweave.', introduction: 'Những thay đổi trong từng bản phát hành. Mục mới nhất chưa phát hành mô tả phiên bản đang được chuẩn bị.', unreleased: 'Chưa phát hành' }
+    : { title: 'Changelog — crossweave', description: 'What changed in each crossweave release.', introduction: 'What changed in each release. The newest, unreleased entry describes the version being prepared.', unreleased: 'Unreleased' })
+  const prefix = lang === 'vi' ? '/vi' : ''
   const sorted = [...ctx.notes].sort((a, b) => compareTags(b.tag, a.tag))
 
   const sections = sorted
@@ -32,7 +38,7 @@ export function changelogPage(ctx: { urls: Urls; notes: Array<{ tag: string; mar
       // A published release shows its day; one the manifest has no day for shows none rather than a guess; an unpublished one never shows a day.
       const published = unreleased ? null : (release.dates?.[tag] ?? (tag === release.tag ? release.publishedAt.slice(0, 10) : null))
       return `<section class="release" id="${esc(tag.replace(/\./g, '-'))}">
-<h2>${esc(tag)}${published === null ? '' : ` <time datetime="${esc(published)}">${esc(published)}</time>`}${unreleased ? ' <span class="badge">Unreleased</span>' : ''}</h2>
+<h2>${esc(tag)}${published === null ? '' : ` <time datetime="${esc(published)}">${esc(published)}</time>`}${unreleased ? ` <span class="badge">${esc(copy.unreleased)}</span>` : ''}</h2>
 ${rendered.html}
 </section>`
     })
@@ -41,23 +47,23 @@ ${rendered.html}
   const body = html(`<main id="main" class="page">
 <div class="wrap">
 <article class="prose">
-<h1>Changelog</h1>
-<p>What changed in each release. The newest, unreleased entry describes the version being prepared.</p>
+<h1>${esc(lang === 'vi' ? 'Lịch sử thay đổi' : 'Changelog')}</h1>
+<p>${esc(copy.introduction)}</p>
 ${sections}
 </article>
 </div>
 </main>`)
 
   return {
-    path: '/changelog/',
+    path: `${prefix}/changelog/`,
     body,
     meta: {
-      lang: 'en',
-      path: '/changelog/',
-      title: 'Changelog — crossweave',
-      description: 'What changed in each crossweave release.',
-      canonical: urls.abs('/changelog/'),
-      alternates: {},
+      lang,
+      path: `${prefix}/changelog/`,
+      title: copy.title,
+      description: copy.description,
+      canonical: urls.abs(`${prefix}/changelog/`),
+      alternates: { en: '/changelog/', vi: '/vi/changelog/' },
       ogImage: urls.abs('/img/cockpit-sessions.png'),
     },
   }

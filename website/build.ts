@@ -58,12 +58,20 @@ export async function build(options: BuildOptions): Promise<void> {
   const sizeOf = (name: string): { width: number; height: number } => imageSize(join(repoRoot, 'website', 'public', 'img', name))
 
   const releasesDir = join(repoRoot, 'docs', 'releases')
-  const notes = readdirSync(releasesDir)
-    .filter((name) => /^v\d+\.\d+\.\d+\.md$/.test(name))
-    .map((name) => ({ tag: name.replace(/\.md$/, ''), markdown: readFileSync(join(releasesDir, name), 'utf8') }))
+  const notesByLang: Record<Lang, Array<{ tag: string; markdown: string }>> = {
+    en: readdirSync(releasesDir)
+      .filter((name) => /^v\d+\.\d+\.\d+\.md$/.test(name))
+      .map((name) => ({ tag: name.replace(/\.md$/, ''), markdown: readFileSync(join(releasesDir, name), 'utf8') })),
+    vi: readdirSync(join(repoRoot, 'website', 'src', 'content', 'vi', 'releases'))
+      .filter((name) => /^v\d+\.\d+\.\d+\.md$/.test(name))
+      .map((name) => ({ tag: name.replace(/\.md$/, ''), markdown: readFileSync(join(repoRoot, 'website', 'src', 'content', 'vi', 'releases', name), 'utf8') })),
+  }
+  const enTags = notesByLang.en.map((note) => note.tag).sort()
+  const viTags = notesByLang.vi.map((note) => note.tag).sort()
+  if (JSON.stringify(enTags) !== JSON.stringify(viTags)) throw new Error(`Vietnamese release notes do not match English tags (English: ${enTags.join(', ')}; Vietnamese: ${viTags.join(', ')})`)
 
   const base = { urls, release, notarized, imageSize: sizeOf }
-  const ctx = (lang: Lang): PageCtx => ({ ...base, lang, content: CONTENT[lang], notes })
+  const ctx = (lang: Lang): PageCtx => ({ ...base, lang, content: CONTENT[lang], notes: notesByLang[lang] })
   const viDocs: VietnameseDocs = {
     copy: viDocsCopy,
     markdown: {
@@ -94,7 +102,8 @@ export async function build(options: BuildOptions): Promise<void> {
     downloadPage(ctx('vi')),
     ...docsPages(docsCtx, 'en'),
     ...docsPages(docsCtx, 'vi'),
-    changelogPage({ urls, notes, release }),
+    changelogPage({ urls, notes: notesByLang.en, release, lang: 'en', content: en }),
+    changelogPage({ urls, notes: notesByLang.vi, release, lang: 'vi', content: vi }),
     notFoundPage({ urls, en, vi }),
   ].sort((a, b) => (a.path < b.path ? -1 : 1))
 

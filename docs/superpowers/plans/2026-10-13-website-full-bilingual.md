@@ -77,14 +77,14 @@
 - Release section IDs remain derived only from the tag, making `#v0-6-0` stable in both languages.
 - `homePage` receives notes in its active locale; recent headlines and release links follow that locale.
 
-- [ ] **Step 1: Add failing translated-release tests.** Require `/vi/changelog/`, translated changelog labels and content, the four matching release tags, identical tag section IDs, and Vietnamese homepage release headlines linking to `/vi/changelog/#...`.
-- [ ] **Step 2: Add a failing headline parser test.** Verify `headlineOf` extracts a summary paragraph following a translated first level-two heading such as `## Điểm nhấn`.
-- [ ] **Step 3: Verify the focused tests fail.** Run `bun test website/tests/build.test.ts website/tests/releases.test.ts --max-concurrency=1`. Expected: the missing Vietnamese route/content and translated heading case fail.
-- [ ] **Step 4: Translate all currently shipped release notes.** Create v0.3.0–v0.6.0 Vietnamese Markdown counterparts; translate prose and visible headings while preserving exact code fences, commands, keys, flags, paths, versions and technical identifiers.
-- [ ] **Step 5: Load both release note sets and validate parity.** In `website/build.ts`, compare English and Vietnamese version-tag sets and fail the build if one is missing or extra.
-- [ ] **Step 6: Add locale-aware changelog rendering.** Add EN/VI title, description, intro and unreleased labels. Translate visible release headings but keep the section element ID tag-based and unchanged.
-- [ ] **Step 7: Localize homepage release summaries.** Let `headlineOf` parse the first level-two summary heading independent of its translated label. Pass locale-specific notes to `homePage`, prefix VI changelog links with `/vi`, and use Vietnamese recent-release headlines.
-- [ ] **Step 8: Run focused tests.** Run `bun test website/tests/build.test.ts website/tests/releases.test.ts --max-concurrency=1`; expected: changelog, release parity and home teaser assertions pass.
+- [x] **Step 1: Add failing translated-release tests.** Require `/vi/changelog/`, translated changelog labels and content, the four matching release tags, identical tag section IDs, and Vietnamese homepage release headlines linking to `/vi/changelog/#...`.
+- [x] **Step 2: Add a failing headline parser test.** Verify `headlineOf` extracts a summary paragraph following a translated first level-two heading such as `## Điểm nhấn`.
+- [x] **Step 3: Verify the focused tests fail.** Run `bun test website/tests/build.test.ts website/tests/releases.test.ts --max-concurrency=1`. Expected: the missing Vietnamese route/content and translated heading case fail.
+- [x] **Step 4: Translate all currently shipped release notes.** Create v0.3.0–v0.6.0 Vietnamese Markdown counterparts; translate prose and visible headings while preserving exact code fences, commands, keys, flags, paths, versions and technical identifiers.
+- [x] **Step 5: Load both release note sets and validate parity.** In `website/build.ts`, compare English and Vietnamese version-tag sets and fail the build if one is missing or extra.
+- [x] **Step 6: Add locale-aware changelog rendering.** Add EN/VI title, description, intro and unreleased labels. Translate visible release headings but keep the section element ID tag-based and unchanged.
+- [x] **Step 7: Localize homepage release summaries.** Let `headlineOf` parse the first level-two summary heading independent of its translated label. Pass locale-specific notes to `homePage`, prefix VI changelog links with `/vi`, and use Vietnamese recent-release headlines.
+- [x] **Step 8: Run focused tests.** Run `bun test website/tests/build.test.ts website/tests/releases.test.ts --max-concurrency=1`; expected: changelog, release parity and home teaser assertions pass.
 
 ### Task 3: Localize the shared shell and enforce complete site parity
 
@@ -102,11 +102,11 @@
 - Header/footer, docs/changelog navigation and switcher use the active locale and preserve the current page where a counterpart exists.
 - Sitemap contains 22 paired indexable pages exactly once and omits the bilingual noindex 404.
 
-- [ ] **Step 1: Add failing shell parity assertions.** Check Vietnamese header and footer links, active nav markers, language switcher, security link, all page-pair canonicals/hreflang, and the complete 22-URL sitemap.
-- [ ] **Step 2: Verify expected failure.** Run `bun test website/tests/build.test.ts --max-concurrency=1`; expected: English-only shell routes and incomplete page-pair assertions fail.
-- [ ] **Step 3: Localize global route helpers and shell links.** Prefix docs/changelog/footer-security destinations with `/vi` for Vietnamese pages; use the page's alternate route for language switching; remove `docsNotice` and the English-only notice text now that translated routes exist.
-- [ ] **Step 4: Keep paired metadata exact.** Assert canonical and `hreflang` values point to existing page files. The home and download pairs retain their current destinations; docs and changelog gain matching VI destinations.
-- [ ] **Step 5: Run the whole website test suite.** Run `bun test website/tests --max-concurrency=1`; expected: all output pages, local links/fragments, route parity, locale labels and sitemap checks pass.
+- [x] **Step 1: Add failing shell parity assertions.** Check Vietnamese header and footer links, active nav markers, language switcher, security link, all page-pair canonicals/hreflang, and the complete 22-URL sitemap.
+- [x] **Step 2: Verify expected failure.** Run `bun test website/tests/build.test.ts --max-concurrency=1`; expected: English-only shell routes and incomplete page-pair assertions fail.
+- [x] **Step 3: Localize global route helpers and shell links.** Prefix docs/changelog/footer-security destinations with `/vi` for Vietnamese pages; use the page's alternate route for language switching; remove `docsNotice` and the English-only notice text now that translated routes exist.
+- [x] **Step 4: Keep paired metadata exact.** Assert canonical and `hreflang` values point to existing page files. The home and download pairs retain their current destinations; docs and changelog gain matching VI destinations.
+- [x] **Step 5: Run the whole website test suite.** Run `bun test website/tests --max-concurrency=1`; expected: all output pages, local links/fragments, route parity, locale labels and sitemap checks pass.
 
 ### Task 4: Document limits and run all required gates
 
@@ -115,7 +115,7 @@
 - Modify: `docs/superpowers/specs/2026-08-14-known-limitations-digest.md`
 
 - [ ] **Step 1: Record remaining limits.** Note that every current route and release note has a Vietnamese counterpart, but independent Vietnamese technical proofreading and synchronization of manually maintained translations remain open.
-- [ ] **Step 2: Run root gates sequentially.** Run `bun run typecheck`, wait for it to finish, then `bun test --max-concurrency=1`, wait for it to finish, then `bun run build`. Fix regressions without weakening tests.
-- [ ] **Step 3: Build the production website.** Run `SITE_DOMAIN=crossweave.dev bun website/build.ts --out /tmp/crossweave-i18n-build`. Inspect all 22 sitemap URLs, both locale alternates, canonical URLs, language attributes and the four translated release anchors.
-- [ ] **Step 4: Review the final diff.** Run `git diff --check`, inspect `git status --short`, and ensure no generated output or files from the original dirty checkout entered this branch.
+- [x] **Step 2: Run root gates sequentially.** Run `bun run typecheck`, wait for it to finish, then `bun test --max-concurrency=1`, wait for it to finish, then `bun run build`. Fix regressions without weakening tests.
+- [x] **Step 3: Build the production website.** Run `SITE_DOMAIN=crossweave.dev bun website/build.ts --out /tmp/crossweave-i18n-build`. Inspect all 22 sitemap URLs, both locale alternates, canonical URLs, language attributes and the four translated release anchors.
+- [x] **Step 4: Review the final diff.** Run `git diff --check`, inspect `git status --short`, and ensure no generated output or files from the original dirty checkout entered this branch.
 - [ ] **Step 5: Commit focused changes.** Use Conventional Commits on `codex/website-full-i18n`; do not commit or push to `main` as part of the implementation.

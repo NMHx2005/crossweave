@@ -20,6 +20,12 @@ describe('headlineOf', () => {
     expect(headlineOf('')).toBe('')
   })
 
+  test('reads a translated summary heading when the caller provides its localized label', () => {
+    expect(headlineOf('## Điểm nhấn\n\nBản phát hành này giúp công việc an toàn hơn. Câu tiếp theo.', 'Điểm nhấn')).toBe(
+      'Bản phát hành này giúp công việc an toàn hơn.',
+    )
+  })
+
   test('works on every real release note', () => {
     const dir = fileURLToPath(new URL('../../docs/releases/', import.meta.url))
     for (const name of readdirSync(dir).filter((f) => /^v\d+\.\d+\.\d+\.md$/.test(f))) {

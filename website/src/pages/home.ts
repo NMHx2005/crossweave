@@ -19,7 +19,7 @@ export function homePage(ctx: PageCtx): BuiltPage {
   const prefix = lang === 'vi' ? '/vi' : ''
   const path = `${prefix}/`
   const c = content.home
-  const changelog = (tag: string): string => urls.path(`/changelog/#${releaseAnchor(tag)}`)
+  const changelog = (tag: string): string => urls.path(`${prefix}/changelog/#${releaseAnchor(tag)}`)
 
   const released = c.features.items.filter((f) => compareTags(f.since, release.tag) <= 0)
   const coming = c.features.items.filter((f) => compareTags(f.since, release.tag) > 0)
@@ -99,7 +99,7 @@ ${coming.map((f) => card(f, 3)).join('\n')}
     .map(([label, hand, us]) => `<tr><th scope="row">${esc(label)}</th><td>${esc(hand)}</td><td>${esc(us)}</td></tr>`)
     .join('\n')
 
-  const recent = recentReleases(ctx.notes, release, 3)
+  const recent = recentReleases(ctx.notes, release, 3, c.releases.headlineHeading)
   const developing = inDevelopment(ctx.notes, release)
   const releaseItems = [
     ...(developing === null ? [] : [`<li class="releases__dev" data-reveal><a href="${esc(changelog(developing))}">${esc(c.releases.developing(developing))}</a></li>`]),

@@ -81,12 +81,14 @@ describe('the shell', () => {
     expect(doc(meta({ alternates: {} }))).not.toContain('class="lang"')
   })
 
-  test('the navigation is in the page language, marks the current section, and a Vietnamese page says the docs are English', () => {
+  test('the navigation and footer stay in the page language and point to matching routes', () => {
     const vietnamese = doc(meta({ lang: 'vi', path: '/vi/download/', alternates: { en: '/download/', vi: '/vi/download/' } }), vi)
     expect(vietnamese).toContain('href="/crossweave/vi/download/" aria-current="page"')
-    expect(vietnamese).toContain('href="/crossweave/docs/"')
-    expect(vietnamese).toContain(vi.docsNotice)
-    expect(doc()).not.toContain(en.docsNotice)
+    expect(vietnamese).toContain('href="/crossweave/vi/docs/"')
+    expect(vietnamese).toContain('href="/crossweave/vi/changelog/"')
+    expect(vietnamese).toContain('href="/crossweave/vi/docs/security/"')
+    expect(vietnamese).not.toContain('Tài liệu và lịch sử thay đổi bằng tiếng Anh')
+    expect(doc()).toContain('href="/crossweave/docs/security/"')
   })
 
   test('the footer carries the version and the licence', () => {

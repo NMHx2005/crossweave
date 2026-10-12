@@ -11,9 +11,9 @@ function plain(markdown: string): string {
 }
 
 /** The first sentence of the paragraph under `## Headline`, as plain text; empty when a release note has none. */
-export function headlineOf(markdown: string): string {
+export function headlineOf(markdown: string, heading = 'Headline'): string {
   const lines = markdown.split('\n')
-  const at = lines.findIndex((l) => /^##\s+Headline\s*$/.test(l))
+  const at = lines.findIndex((l) => l === `## ${heading}`)
   if (at < 0) return ''
   const paragraph: string[] = []
   for (const line of lines.slice(at + 1)) {
@@ -36,12 +36,12 @@ export interface ReleaseEntry {
 }
 
 /** The latest published releases, newest first by semantic version: nothing above the manifest's tag has been published. */
-export function recentReleases(notes: ReadonlyArray<{ tag: string; markdown: string }>, release: Release, limit: number): ReleaseEntry[] {
+export function recentReleases(notes: ReadonlyArray<{ tag: string; markdown: string }>, release: Release, limit: number, heading = 'Headline'): ReleaseEntry[] {
   return notes
     .filter((n) => compareTags(n.tag, release.tag) <= 0)
     .sort((a, b) => compareTags(b.tag, a.tag))
     .slice(0, limit)
-    .map((n) => ({ tag: n.tag, date: release.dates?.[n.tag] ?? null, headline: headlineOf(n.markdown) }))
+    .map((n) => ({ tag: n.tag, date: release.dates?.[n.tag] ?? null, headline: headlineOf(n.markdown, heading) }))
 }
 
 /** The newest release note above the latest published release, if any: what is being prepared. */

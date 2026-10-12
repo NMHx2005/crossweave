@@ -23,7 +23,7 @@ export interface PageCtx {
   notarized: boolean
   /** The real size of a committed site image (`cockpit-sessions.png`), read from its PNG header by the build. */
   imageSize(name: string): { width: number; height: number }
-  /** The release notes (`docs/releases/v*.md`), for the recent-releases strip and the pill's target. */
+  /** The release notes for this locale, used by the recent-releases strip and development pill. */
   notes: ReadonlyArray<{ tag: string; markdown: string }>
 }
 

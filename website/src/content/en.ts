@@ -263,7 +263,7 @@ export const en: Content = {
         'You want to drive it from a phone (a native iOS app is planned).',
       ],
     },
-    releases: { title: 'Recent releases', developing: (tag) => `In development: ${tag}`, all: 'Full changelog' },
+    releases: { title: 'Recent releases', developing: (tag) => `In development: ${tag}`, all: 'Full changelog', headlineHeading: 'Headline' },
     features: {
       title: 'Your dev loop',
       intro: 'Everything below ends in text typed into your own shell. crossweave hosts the shell; you run the agents.',
@@ -395,6 +395,12 @@ export const en: Content = {
     checksums: 'checksums.txt',
     older: 'All releases and checksums',
   },
+  changelog: {
+    title: 'Changelog — crossweave',
+    description: 'What changed in each crossweave release.',
+    introduction: 'What changed in each release. The newest, unreleased entry describes the version being prepared.',
+    unreleased: 'Unreleased',
+  },
   footer: {
     tagline: 'Run many agents on one repo. Land what holds up.',
     groups: { product: 'Product', project: 'Project' },
@@ -405,6 +411,5 @@ export const en: Content = {
     issues: 'Issues',
     version: (v) => `Release ${v}`,
   },
-  docsNotice: 'The documentation and the changelog are in English.',
   notFound: { title: 'Page not found', text: 'That page does not exist.', home: 'Back to the home page' },
 }

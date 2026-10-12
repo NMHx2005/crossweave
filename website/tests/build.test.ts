@@ -58,6 +58,7 @@ describe('what a build writes', () => {
 
   test('the sitemap lists every indexable page once, with absolute URLs, and not the 404', () => {
     const urls = [...read(project, 'sitemap.xml').matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1])
+    expect(urls).toHaveLength(22)
     expect(urls).toHaveLength(pages.length - 1)
     expect(new Set(urls).size).toBe(urls.length)
     expect(urls.every((u) => u?.startsWith('https://nmhx2005.github.io/crossweave/'))).toBe(true)
@@ -92,6 +93,59 @@ describe('every page', () => {
       expect(html).toContain(`hreflang="vi" href="https://nmhx2005.github.io${route}"`)
       expect(html).toContain(`<h1>${headings[index]}</h1>`)
       expect(html).not.toContain('These pages describe the main branch.')
+    }
+  })
+
+  test('the Vietnamese changelog, release anchors and home teaser stay in Vietnamese', () => {
+    const viPage = 'vi/changelog/index.html'
+    expect(existsSync(join(project, viPage)), viPage).toBe(true)
+    const html = read(project, viPage)
+    const english = read(project, 'changelog/index.html')
+    const releaseIds = (page: string): string[] => [...page.matchAll(/<section class="release" id="([^"]+)">/g)].map((m) => m[1] ?? '')
+
+    expect(html).toContain('<html lang="vi">')
+    expect(html).toContain('<h1>Lịch sử thay đổi</h1>')
+    expect(html).toContain('Những thay đổi trong từng bản phát hành')
+    expect(html).toContain('id="v0-6-0"')
+    expect(html).toContain('0.6.0 giúp vòng làm việc với agent lập trình an toàn và nhanh hơn')
+    expect(releaseIds(html)).toEqual(releaseIds(english))
+    expect(html).toContain('hreflang="en" href="https://nmhx2005.github.io/crossweave/changelog/"')
+    expect(html).toContain('hreflang="vi" href="https://nmhx2005.github.io/crossweave/vi/changelog/"')
+
+    const viHome = read(project, 'vi/index.html')
+    expect(viHome).toContain('href="/crossweave/vi/changelog/#v0-5-0"')
+    expect(viHome).toContain('0.5.0 bổ sung cho Cockpit trang Settings')
+  })
+
+  test('the Vietnamese shell, language switch and sitemap cover every paired route', () => {
+    const viDocs = read(project, 'vi/docs/security/index.html')
+    expect(viDocs).toContain('<a href="/crossweave/vi/docs/" aria-current="page">Tài liệu</a>')
+    expect(viDocs).toContain('<a href="/crossweave/vi/changelog/">Lịch sử thay đổi</a>')
+    expect(viDocs).toContain('href="/crossweave/docs/security/" hreflang="en" lang="en"')
+    expect(viDocs).toContain('<a href="/crossweave/vi/docs/security/">Bảo mật</a>')
+    expect(viDocs).not.toContain('Tài liệu và lịch sử thay đổi bằng tiếng Anh')
+
+    const viChangelog = read(project, 'vi/changelog/index.html')
+    expect(viChangelog).toContain('<a href="/crossweave/vi/changelog/" aria-current="page">Lịch sử thay đổi</a>')
+    expect(viChangelog).toContain('href="/crossweave/changelog/" hreflang="en" lang="en"')
+
+    const routes = [
+      ['', 'vi/'], ['download/', 'vi/download/'], ['changelog/', 'vi/changelog/'],
+      ...['', 'install/', 'quickstart/', 'concepts/', 'cockpit/', 'configuration/', 'commands/', 'security/']
+        .map((slug) => [`docs/${slug}`, `vi/docs/${slug}`] as const),
+    ]
+    const sitemap = read(project, 'sitemap.xml')
+    for (const [enRoute, viRoute] of routes) {
+      const enFile = enRoute === '' ? 'index.html' : `${enRoute}index.html`
+      const viFile = `${viRoute}index.html`
+      const en = read(project, enFile)
+      const viPage = read(project, viFile)
+      expect(en).toContain(`rel="canonical" href="https://nmhx2005.github.io/crossweave/${enRoute}"`)
+      expect(en).toContain(`hreflang="vi" href="https://nmhx2005.github.io/crossweave/${viRoute}"`)
+      expect(viPage).toContain(`rel="canonical" href="https://nmhx2005.github.io/crossweave/${viRoute}"`)
+      expect(viPage).toContain(`hreflang="en" href="https://nmhx2005.github.io/crossweave/${enRoute}"`)
+      expect(sitemap).toContain(`<loc>https://nmhx2005.github.io/crossweave/${enRoute}</loc>`)
+      expect(sitemap).toContain(`<loc>https://nmhx2005.github.io/crossweave/${viRoute}</loc>`)
     }
   })
 
@@ -174,7 +228,7 @@ describe('every page', () => {
   test('hreflang appears on every page pair and points at files that exist', () => {
     const docs = ['', 'install/', 'quickstart/', 'concepts/', 'cockpit/', 'configuration/', 'commands/', 'security/']
       .flatMap((slug) => [`docs/${slug === '' ? '' : slug}index.html`, `vi/docs/${slug === '' ? '' : slug}index.html`])
-    const translatedPages = new Set(['index.html', 'vi/index.html', 'download/index.html', 'vi/download/index.html', ...docs])
+    const translatedPages = new Set(['index.html', 'vi/index.html', 'download/index.html', 'vi/download/index.html', 'changelog/index.html', 'vi/changelog/index.html', ...docs])
     for (const page of pages) {
       const html = read(project, page)
       const has = html.includes('hreflang="en"')
