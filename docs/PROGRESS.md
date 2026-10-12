@@ -1,6 +1,6 @@
 # Progress — crossweave
 
-**Last updated:** 2026-10-11 (post-release completion in local branch `codex/post-release-completion`)
+**Last updated:** 2026-10-12 (post-release completion merged; Pages verified)
 **Product:** `cw` (CLI), `cwd` (daemon) and the Electron **Cockpit** run N parallel sessions on one repository and land them
 back. A session is a git worktree plus the user's shell in it; what runs there is the user's to type.
 **Where the known gaps are:** `docs/superpowers/specs/2026-08-14-known-limitations-digest.md` (one line per milestone, newest
@@ -65,14 +65,14 @@ usage per session; its own app icon (`apps/cockpit/build/icon.svg`, four warp th
 ## Next
 
 1. Use v0.6.0 for a week and fix what is annoying: run `cw hooks install claude` and try the debug loop, presets and composer for real. Real-world capacity still awaits owner usage.
-2. Finish post-release verification in PR [#3](https://github.com/NMHx2005/crossweave/pull/3): both CI jobs pass on `aed0d29` (run `38233229200`). Merge the approved linear branch, then verify the live Pages sitemap and page metadata after deployment. Vietnamese human proofreading and Safari/Firefox remain open; see the 2026-10-12 handoff.
+2. Get a separate Vietnamese-fluent human proofread and finish the browser playback matrix; Safari's normal-motion autoplay and Pause/Play pass, while Firefox is unavailable. See the 2026-10-12 handoff.
 3. **Notarization is deferred** until the owner is ready to revisit the Apple Developer account and hardened-runtime work. Auto-update restart still depends on a properly signed/notarized app.
 4. Later: a native iOS app for remote control (designed from scratch), a Linux cockpit, per-session one-line summaries on the rail,
    an optional "land only when the tests passed" gate.
 
 ## Changelog (newest first)
 
-- **2026-10-12** — Post-release PR [#3](https://github.com/NMHx2005/crossweave/pull/3) fixes the Linux `dash` PTY fixtures, adds the confirmed daemon-guarded live-session Land flow, and fixes website sitemap/video/responsive/copy issues. CI run `38233229200` passes Linux and macOS Cockpit jobs. Live Pages verification after merge, Vietnamese human proofreading, and Safari/Firefox remain open. Notarization is deferred.
+- **2026-10-12** — Post-release PR [#3](https://github.com/NMHx2005/crossweave/pull/3) fixes the Linux `dash` PTY fixtures, adds the confirmed daemon-guarded live-session Land flow, and fixes website sitemap/video/responsive/copy issues. CI run `38233978753` passes Linux and macOS Cockpit jobs; Pages run `38234215498` passes and the live HTTPS metadata is verified. Safari's normal-motion autoplay and Pause/Play pass a manual smoke check; Firefox and the rest of the Safari playback matrix are open. Independent Vietnamese proofread is pending. Notarization is deferred.
 - **2026-10-11** — v0.6.0 is published and the website is live at `https://crossweave.dev/`. The release also includes the settings polish and failed-check desktop alert.
 - **2026-10-10** — the AI-support series, on `main`: session checkpoints, diff comments sent to the shell,
   opt-in auto-check with "Send test failure to shell", sensitive-file flags in the diff. Cockpit and daemon, schema still v18.

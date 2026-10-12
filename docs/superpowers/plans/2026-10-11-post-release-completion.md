@@ -55,9 +55,9 @@
 
 - [x] Make sitemap URLs, canonical URLs and the robots reference use HTTPS on the production domain; retain project-site base-path tests.
 - [x] Make video controls work without JavaScript and prevent autoplay when reduced motion is requested.
-- [ ] Have a Vietnamese-fluent reviewer proofread visible website copy and preserve EN/VI parity.
+- [ ] Have an independent Vietnamese-fluent human reviewer proofread visible website copy and preserve EN/VI parity; the code-side clarity pass is not a human sign-off.
 - [x] Perform and record the bounded browser/accessibility checks; report unavailable browsers as untested.
-- [ ] Pass the website tests and verify the deployed artifact after Pages succeeds.
+- [x] Pass the website tests and verify the deployed artifact after Pages succeeds (`38234215498`; live sitemap, robots reference, canonical and hreflang are HTTPS).
 - [x] Defer search, RSS, theme switching, `llms.txt`, translated docs and feature pages until usage or feedback warrants them.
 
 **Exit condition:** the deployed sitemap is correct, video behavior meets the progressive/reduced-motion contract, proofread status is clear, and browser results are recorded.
@@ -70,15 +70,16 @@
 - Modify: relevant dated known-limitations files and `docs/superpowers/specs/2026-08-14-known-limitations-digest.md`.
 
 - [x] Remove statements that 0.6.0 is unreleased or the website is undeployed.
-- [x] Record local and remote CI results, live-session land behavior, sitemap/video fixes, proofreading status, and browser checks.
+- [x] Record local and remote CI results, live-session land behavior, live sitemap/video fixes, proofreading status, and browser checks.
 - [x] Keep notarization listed as deferred, not as a release blocker.
 - [x] Review all remaining known limitations against the shipped code and leave unresolved items explicitly open.
 - [x] Run `git diff --check` and review the final status before handoff.
 
-**Exit condition:** `PROGRESS.md`, handoff and digest agree with `main`, the published release and the live site, and distinguish local branch verification from remote steps still waiting on integration.
+**Exit condition:** `PROGRESS.md`, handoff and digest agree with `main`, the published release and the live site, and distinguish verified work from independent human review and browser checks still open.
 
 ### Follow-up outside this roadmap
 
-The handoff also notes the GitHub repository Website field and README links that still use the old `github.io` address. The Website field is an owner-controlled GitHub setting; editing the README and committing that change to `main` needs the project's explicit approval. Keep these as a separate follow-up unless the owner authorizes them.
+- [x] Set the GitHub repository Website field to `https://crossweave.dev/` and verify it with `gh repo view`.
+- [x] Search `README.md` for old `github.io` URLs; none remain. Add a direct link to the production website.
 
-**Completion:** Execute Tasks 1–4 in order. Each sub-plan ends in its own commit; integrate only by approved fast-forward, then verify the final `main` CI and Pages runs. Do not mark unfinished browser checks or unavailable review as complete.
+**Completion:** The implementation and release integration are complete; current-state records reflect verified behavior. PR #3 is integrated linearly, final CI and Pages runs are green, live metadata is checked, and the owner-controlled website field is correct. Independent human proofreading and the full Safari/Firefox playback matrix remain open and are not reported as complete.
