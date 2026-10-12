@@ -124,7 +124,7 @@ Run `SITE_DOMAIN=crossweave.dev bun website/build.ts`, then serve the generated 
 
 Review `/`, `/vi/`, `/download/`, `/vi/download/`, `/docs/`, `/changelog/` and `/docs/security/` at 320 px, 375 px, 768 px and 1280 px widths, including 200% text zoom. Check for horizontal overflow, obscured header content, clipped video controls and broken navigation.
 
-- [ ] **Step 3: Check keyboard, color schemes and motion**
+- [x] **Step 3: Check keyboard, color schemes and motion**
 
 Use keyboard only to reach every navigation item, video control, copy button and disclosure; verify visible focus and sensible skip-link behavior. Check dark and light schemes. With reduced motion enabled, confirm no automatic video playback or reveal animation.
 
@@ -146,6 +146,6 @@ After the approved change reaches `main`, wait for the Pages workflow. Fetch the
 
 Remove completed website limitations, keep untested browser cases listed as unfinished, and add new findings to the dated website limitation file and digest. Do not add Docs search, RSS, a theme toggle, `llms.txt`, translated docs or feature pages in this milestone.
 
-**Still pending:** human Vietnamese proofread, exhaustive keyboard traversal, Safari/Firefox, and live Pages verification after branch integration.
+**Still pending:** human Vietnamese proofread and live Pages verification after branch integration. Chromium keyboard/playback checks are complete; Safari and Firefox remain untested in this environment and are recorded as limitations below.
 
 **Commit:** `fix(website): use HTTPS sitemap and accessible video fallback`
