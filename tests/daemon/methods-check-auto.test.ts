@@ -6,7 +6,7 @@ import { buildMethods } from '../../src/daemon/methods.js';
 import { WorkspaceManager } from '../../src/domain/workspace.js';
 import { loadConfig } from '../../src/core/config.js';
 import { makeGitFixture } from '../helpers/git-fixture.js';
-import { processAncestryFor } from '../helpers/process-diagnostics.js';
+import { processAncestryFor, processTreeFor } from '../helpers/process-diagnostics.js';
 
 /**
  * The whole chain: a fake `claude` edits a file and goes quiet → the status sweep ends the turn → the checkpoint says the tree
@@ -59,6 +59,7 @@ async function setup(opts: { autoCheck: boolean; trust: boolean }) {
     session: await listed(),
     checkpoints: await call('checkpoint.list', { idOrName: 'dev' }),
     processAncestry: processAncestryFor(fake),
+    processTree: processTreeFor(Number((await listed()).pid)),
   });
   return { call, sweep: () => sweep!, cleanup, listed, startAgent, turnCheckpointed, diagnostics };
 }

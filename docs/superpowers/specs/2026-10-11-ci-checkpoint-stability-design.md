@@ -16,6 +16,8 @@ With Bun 1.3.14, the checkpoint integration passed three consecutive local seria
 
 The next diagnostic pass records final session activity, detected agent, checkpoints and `ps` ancestry when those PTY tests time out. Correct test discovery with `--path-ignore-patterns` for Cockpit, and keep all behavioral assertions. Do not exclude the PTY cases or move them to another runner unless diagnostics demonstrate an environment-specific constraint; if Linux product behavior is wrong, fix it with a regression test.
 
+Run `38231615436` confirmed the agent process is present beneath the session shell, detected as `claude`, while activity remains `working` and the only checkpoint is `start`. The next run adds the process descendants so we can tell whether the fake CLI reached its final prompt or is still inside its busy loop. That run also exposed one unrelated `ENOENT` during `cp` of the cached Git template; local repetition of the checkpoint RPC suite passes, so keep this as a separate fixture investigation rather than conflating it with the PTY state.
+
 ## Acceptance
 
 - The test still proves a `start`/before snapshot and a `turn`/after snapshot around a recognised agent edit, and still proves ordinary shell output does not create automatic checkpoints.

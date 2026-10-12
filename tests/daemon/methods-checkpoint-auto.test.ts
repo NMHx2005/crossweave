@@ -6,7 +6,7 @@ import { buildMethods } from '../../src/daemon/methods.js';
 import { WorkspaceManager } from '../../src/domain/workspace.js';
 import { DEFAULT_CONFIG } from '../../src/core/config.js';
 import { makeGitFixture } from '../helpers/git-fixture.js';
-import { processAncestryFor } from '../helpers/process-diagnostics.js';
+import { processAncestryFor, processTreeFor } from '../helpers/process-diagnostics.js';
 
 /**
  * The whole chain: a fake `claude` typed into the session's own shell works, writes a file and then sits quietly (as an interactive agent
@@ -40,6 +40,7 @@ async function setup() {
     session: await listed(),
     checkpoints: await call('checkpoint.list', { idOrName: 'dev' }),
     processAncestry: processAncestryFor(fake),
+    processTree: processTreeFor(Number((await listed())?.pid)),
   });
   return { call, sweep: () => sweep, cleanup, fx, diagnostics };
 }
