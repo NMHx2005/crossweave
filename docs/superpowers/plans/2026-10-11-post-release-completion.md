@@ -32,7 +32,7 @@
 - [x] Read the latest failing job logs and compare both 2026-10-08 failures.
 - [x] Diagnose before editing; preserve the automatic-checkpoint integration contract.
 - [x] Pass the focused test repeatedly, `bun run typecheck`, and `bun test --max-concurrency=1`.
-- [ ] Wait for a successful GitHub Actions run before marking CI debt complete.
+- [x] Wait for a successful GitHub Actions run before marking CI debt complete (`38233229200`, both jobs pass).
 - [x] Record any remaining runner limitation and update current progress.
 
 **Exit condition:** the failure cause is recorded and CI's root test job passes on the fix.
@@ -70,7 +70,7 @@
 - Modify: relevant dated known-limitations files and `docs/superpowers/specs/2026-08-14-known-limitations-digest.md`.
 
 - [x] Remove statements that 0.6.0 is unreleased or the website is undeployed.
-- [x] Record local CI results, remote CI status (pending; no run link yet), live-session land behavior, sitemap/video fixes, proofreading status, and browser checks.
+- [x] Record local and remote CI results, live-session land behavior, sitemap/video fixes, proofreading status, and browser checks.
 - [x] Keep notarization listed as deferred, not as a release blocker.
 - [x] Review all remaining known limitations against the shipped code and leave unresolved items explicitly open.
 - [x] Run `git diff --check` and review the final status before handoff.

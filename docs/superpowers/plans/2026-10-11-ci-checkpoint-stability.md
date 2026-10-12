@@ -126,18 +126,18 @@ The full Linux job in run `38231615436` found all four PTY failures again. Diagn
 
 Changed both fake agent scripts to emit portable POSIX octal ANSI escapes. All five focused checkpoint/auto-check PTY tests pass locally, including the assertions that a completed turn produces a `turn` checkpoint and that trusted checks run only under their existing conditions.
 
-- [ ] **Step 4: Verify targeted cases and full CI**
+- [x] **Step 4: Verify targeted cases and full CI**
 
-Focused tests pass locally (5/5); `bun run typecheck` passes; the serial root suite passes (2,362/2,362). The remote CI run on the diagnostic-only commit still failed before the fixture change; rerun after the fixture correction and do not claim CI stability until the updated remote run is green.
+Focused tests pass locally (5/5); `bun run typecheck` passes; the serial root suite passes (2,362/2,362). CI run `38233229200` passes both jobs on `aed0d29`: the Linux root suite and the macOS Cockpit build/tests.
 
-- [ ] **Step 5: Run the CI workflow on the fix**
+- [x] **Step 5: Run the CI workflow on the fix**
 
-Wait for the new GitHub Actions CI run and verify both `test` and `cockpit` jobs. The deliverable is incomplete until the root job succeeds remotely.
+GitHub Actions run `38233229200` completed successfully: `test` (Linux root suite) and `cockpit` (macOS build and tests) both pass.
 
 - [x] **Step 6: Refresh project status**
 
 Record the root cause, fix commit, local gate results and CI run URL in the handoff/progress record. Remove the active CI-red item only after the remote run passes.
 
-**Remote CI run:** [38231615436](https://github.com/NMHx2005/crossweave/actions/runs/38231615436) — Cockpit passed; Linux root suite failed with the four known PTY timeouts plus one transient fixture-copy `ENOENT`. Diagnosis and verification remain open.
+**Remote CI run:** [38233229200](https://github.com/NMHx2005/crossweave/actions/runs/38233229200) — both jobs pass on `aed0d29`.
 
-**Latest diagnostic commit:** `test: capture PTY child processes on timeout` (`bfd82d1`). Root-cause fixture correction and local gates are complete; remote CI remains pending.
+**Fix commit:** `test: use portable ANSI escapes in PTY fixtures` (`aed0d29`). Root cause, local gates and remote CI are complete.
