@@ -7,10 +7,11 @@
 - Pages run [38234215498](https://github.com/NMHx2005/crossweave/actions/runs/38234215498) passed. Live `robots.txt`, all 12 sitemap entries, homepage canonical, and EN/VI/x-default alternates use HTTPS on `crossweave.dev`.
 - Safari on macOS loaded the live page, started the demo muted under normal motion, and toggled the Pause/Play control. The repository Website field now points to `https://crossweave.dev/`; README links directly to the site, and no old `github.io` URL was found there.
 - CI runs [38236079238](https://github.com/NMHx2005/crossweave/actions/runs/38236079238), [38236416284](https://github.com/NMHx2005/crossweave/actions/runs/38236416284), and final-main run [38236698694](https://github.com/NMHx2005/crossweave/actions/runs/38236698694) passed both jobs, including the Linux suite with new diagnostic output for a recurring fixture-copy error.
+- After switching the fixture helper to synchronous copy, CI run [38237502724](https://github.com/NMHx2005/crossweave/actions/runs/38237502724) passed Linux typecheck/tests and the Cockpit build/tests.
 
 ## Still open
 
 - Ask an independent Vietnamese-fluent human to proofread `website/src/content/vi.ts`. The code-side clarity review does not count as that sign-off.
 - Firefox is not installed in the available app inventory. Firefox playback is untested. Safari reduced-motion and JavaScript-disabled playback were not repeated manually; those contracts are covered by tests.
 - Apple notarization remains deferred by the owner.
-- A separate Linux CI flake remained unresolved on this commit: four attempts (the initial run and rerun of `38234721338`, `38235758485`, and `38237062012`) failed at one Git-fixture `cp()` with `ENOENT`. The last showed identical full source and destination trees when it threw. A follow-up now tries synchronous copy; its CI result will determine whether this is resolved. See `2026-10-11-ci-checkpoint-stability-known-limitations.md`.
+- Four Linux runs failed at an asynchronous Git-fixture copy even though the last had identical source and destination trees. Replacing it with `cpSync` passed the full CI suite at `38237502724`; the exceptional recursive diagnostics remain if the symptom returns. See `2026-10-11-ci-checkpoint-stability-known-limitations.md`.
