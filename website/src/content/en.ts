@@ -182,7 +182,7 @@ export const en: Content = {
   home: {
     title: 'crossweave — run many coding agents on one repo',
     description:
-      'Each session is a git worktree plus your shell. See who is working, asking or done, trial-merge in the background, and land the one that holds up. Free, MIT, macOS and Linux.',
+      'Run coding agents in parallel on one repo. Crossweave gives each a Git worktree and shell, tracks progress, and trial-merges before you land. Free, MIT.',
     hero: {
       headline: 'Many agents. One repo. Land what holds up.',
       subtitle:

@@ -74,6 +74,17 @@ describe('what a build writes', () => {
 describe('every page', () => {
   const basePath = '/crossweave/'
 
+  test('every indexable page has a concise search description', () => {
+    const missingOrLong: string[] = []
+    for (const page of pages) {
+      const html = read(project, page)
+      if (html.includes('<meta name="robots" content="noindex">')) continue
+      const description = /<meta name="description" content="([^"]*)">/.exec(html)?.[1]
+      if (description === undefined || description.length > 160) missingOrLong.push(page)
+    }
+    expect(missingOrLong).toEqual([])
+  })
+
   test('every internal link and resource resolves to a file, and every fragment to an id', () => {
     const missing: string[] = []
     for (const page of pages) {

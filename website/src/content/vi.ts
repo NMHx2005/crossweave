@@ -164,7 +164,7 @@ export const vi: Content = {
   home: {
     title: 'crossweave — chạy nhiều agent lập trình trên một repo',
     description:
-      'Mỗi session là một git worktree cộng với shell của bạn. Xem ai đang chạy, đang hỏi hay đã xong, trial merge chạy nền, và land cái đứng vững. Miễn phí, MIT, macOS và Linux.',
+      'Chạy nhiều agent lập trình trên một repo. crossweave cấp worktree và shell, theo dõi tiến độ, rồi thử merge trước khi bạn chọn phần để land. Miễn phí, MIT.',
     hero: {
       headline: 'Nhiều agent. Một repo. Merge cái đứng vững.',
       subtitle:
