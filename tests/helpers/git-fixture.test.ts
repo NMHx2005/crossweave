@@ -1,9 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { mkdtemp, mkdir, rm } from 'node:fs/promises';
+import { describe, it, expect, beforeEach, afterEach, test } from 'bun:test';
+import { mkdtemp, mkdir, rm, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { sweepStaleTemplates } from './git-fixture.js';
+import { $ } from 'bun';
+import { commitFile, makeGitFixture, sweepStaleTemplates } from './git-fixture.js';
 
 let scratch: string;
 
@@ -37,4 +38,22 @@ describe('sweepStaleTemplates', () => {
 
     expect(existsSync(other)).toBe(true);
   });
+});
+
+test('git fixtures have independent working trees and histories', async () => {
+  const first = await makeGitFixture();
+  let second: Awaited<ReturnType<typeof makeGitFixture>> | undefined;
+
+  try {
+    second = await makeGitFixture();
+    const secondHead = await $`git rev-parse HEAD`.cwd(second.root).quiet().text();
+    await commitFile(first.root, 'first-only.txt', 'first\n', 'first fixture change');
+
+    expect(await readFile(`${first.root}/first-only.txt`, 'utf8')).toBe('first\n');
+    expect(existsSync(`${second.root}/first-only.txt`)).toBe(false);
+    expect(await $`git rev-parse HEAD`.cwd(second.root).quiet().text()).toBe(secondHead);
+  } finally {
+    await first.cleanup();
+    if (second) await second.cleanup();
+  }
 });

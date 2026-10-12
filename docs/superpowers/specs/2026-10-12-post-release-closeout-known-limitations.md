@@ -10,10 +10,11 @@
 - After switching the fixture helper to synchronous copy, CI run [38237502724](https://github.com/NMHx2005/crossweave/actions/runs/38237502724) passed Linux typecheck/tests and the Cockpit build/tests.
 - PRs [#3](https://github.com/NMHx2005/crossweave/pull/3), [#4](https://github.com/NMHx2005/crossweave/pull/4), and [#5](https://github.com/NMHx2005/crossweave/pull/5) are merged linearly; final-main CI run [38238096754](https://github.com/NMHx2005/crossweave/actions/runs/38238096754) passed both jobs on `ef93afd`.
 - Latest Pages run [38236698702](https://github.com/NMHx2005/crossweave/actions/runs/38236698702) passed after PR #4. PR #5 changed test support and documentation only, so it did not trigger another Pages deployment.
+- PR [#6](https://github.com/NMHx2005/crossweave/pull/6) merged as `7ed3a13`. Main CI run [38238889755](https://github.com/NMHx2005/crossweave/actions/runs/38238889755) then reproduced `ENOENT` during `cpSync`, this time with `.git` only partly present at the destination. The helper now uses `git clone --no-hardlinks`; all three helper tests, typecheck and the full local suite (2,363 passed) pass. CI verification for this follow-up is pending.
 
 ## Still open
 
 - Ask an independent Vietnamese-fluent human to proofread `website/src/content/vi.ts`. The code-side clarity review does not count as that sign-off.
 - Firefox is not installed in the available app inventory. Firefox playback is untested. Safari reduced-motion and JavaScript-disabled playback were not repeated manually; those contracts are covered by tests.
 - Apple notarization remains deferred by the owner.
-- Four Linux runs failed at an asynchronous Git-fixture copy even though the last had identical source and destination trees. Replacing it with `cpSync` passed the full CI suite at `38237502724`; the exceptional recursive diagnostics remain if the symptom returns. See `2026-10-11-ci-checkpoint-stability-known-limitations.md`.
+- Git fixture creation previously failed intermittently in Bun filesystem copies: async copy could fail after completing, and main CI run `38238889755` caught synchronous copy failing partway through `.git`. The helper now delegates repository creation to `git clone --no-hardlinks`; CI for the new approach is pending. See `2026-10-11-ci-checkpoint-stability-known-limitations.md`.
