@@ -1,6 +1,6 @@
 # Progress — crossweave
 
-**Last updated:** 2026-10-12 (post-release completion merged; Pages verified)
+**Last updated:** 2026-10-12 (post-release completion merged; final-main CI verified)
 **Product:** `cw` (CLI), `cwd` (daemon) and the Electron **Cockpit** run N parallel sessions on one repository and land them
 back. A session is a git worktree plus the user's shell in it; what runs there is the user's to type.
 **Where the known gaps are:** `docs/superpowers/specs/2026-08-14-known-limitations-digest.md` (one line per milestone, newest
@@ -72,7 +72,7 @@ usage per session; its own app icon (`apps/cockpit/build/icon.svg`, four warp th
 
 ## Changelog (newest first)
 
-- **2026-10-12** — Post-release PR [#3](https://github.com/NMHx2005/crossweave/pull/3) fixes the Linux `dash` PTY fixtures, adds the confirmed daemon-guarded live-session Land flow, and fixes website sitemap/video/responsive/copy issues. CI run `38233978753` passes Linux and macOS Cockpit jobs; Pages run `38234215498` passes and the live HTTPS metadata is verified. Four later attempts exposed an intermittent async Git-fixture copy `ENOENT`, with the last showing identical source/destination trees. PR #5 switches to synchronous copy; CI `38237502724` passes the full Linux suite and Cockpit checks. Safari's normal-motion autoplay and Pause/Play pass a manual smoke check; Firefox and the rest of the Safari playback matrix are open. Independent Vietnamese proofread is pending. Notarization is deferred.
+- **2026-10-12** — Post-release PR [#3](https://github.com/NMHx2005/crossweave/pull/3) fixes the Linux `dash` PTY fixtures, adds the confirmed daemon-guarded live-session Land flow, and fixes website sitemap/video/responsive/copy issues; PR [#4](https://github.com/NMHx2005/crossweave/pull/4) records the public website in the README, and PR [#5](https://github.com/NMHx2005/crossweave/pull/5) fixes intermittent Git-fixture copy failures with synchronous copy. Final-main CI run `38238096754` passes both jobs; Pages run `38236698702` passes and live HTTPS metadata is verified. Four earlier attempts exposed async copy `ENOENT`, with the last showing identical source/destination trees; diagnostics remain in the helper. Safari's normal-motion autoplay and Pause/Play pass a manual smoke check; Firefox and the rest of the Safari playback matrix are open. Independent Vietnamese proofread is pending. Notarization is deferred.
 - **2026-10-11** — v0.6.0 is published and the website is live at `https://crossweave.dev/`. The release also includes the settings polish and failed-check desktop alert.
 - **2026-10-10** — the AI-support series, on `main`: session checkpoints, diff comments sent to the shell,
   opt-in auto-check with "Send test failure to shell", sensitive-file flags in the diff. Cockpit and daemon, schema still v18.
