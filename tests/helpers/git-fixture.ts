@@ -1,7 +1,7 @@
 import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { readdirSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, readdirSync, realpathSync, rmSync } from 'node:fs';
 import { $ } from 'bun';
 
 export interface GitFixture {
@@ -93,7 +93,17 @@ export async function makeGitFixture(): Promise<GitFixture> {
   const root = realpathSync(await mkdtemp(join(tmpdir(), 'cw-git-')));
   // The template has no worktrees, so its .git holds no absolute paths and copies
   // cleanly. Anything that adds a worktree to the TEMPLATE would break that.
-  await cp(src, root, { recursive: true });
+  try {
+    await cp(src, root, { recursive: true });
+  } catch (cause) {
+    // A Linux CI ENOENT here is intermittent; snapshot both paths before cleanup hides the race.
+    const sourceEntries = existsSync(src) ? readdirSync(src).join(', ') : '<missing>';
+    const destinationEntries = existsSync(root) ? readdirSync(root).join(', ') : '<missing>';
+    throw new Error(
+      `Could not copy git fixture (pid ${process.pid}; source ${src} [${sourceEntries}]; destination ${root} [${destinationEntries}])`,
+      { cause },
+    );
+  }
   return { root, cleanup: () => rm(root, { recursive: true, force: true }) };
 }
 
