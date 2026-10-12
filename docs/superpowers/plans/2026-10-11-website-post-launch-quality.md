@@ -128,7 +128,7 @@ Review `/`, `/vi/`, `/download/`, `/vi/download/`, `/docs/`, `/changelog/` and `
 
 Use keyboard only to reach every navigation item, video control, copy button and disclosure; verify visible focus and sensible skip-link behavior. Check dark and light schemes. With reduced motion enabled, confirm no automatic video playback or reveal animation.
 
-- [x] **Step 4: Check playback and fallback in browsers available**
+- [ ] **Step 4: Check playback and fallback in the full browser matrix** — Chromium baseline passes. Safari's live normal-motion autoplay and Pause/Play pass a manual smoke check; Safari reduced-motion, off-screen and no-JavaScript behavior were not repeated manually. Firefox is unavailable and remains untested.
 
 Test current Safari and Firefox when available, plus Chromium for baseline; test muted autoplay under normal motion, explicit Play under reduced motion, Pause, off-screen pause, and JavaScript-disabled native controls. Record browser and OS versions. Mark unavailable browsers as untested.
 
@@ -146,6 +146,6 @@ After the approved change reaches `main`, wait for the Pages workflow. Fetch the
 
 Remove completed website limitations, keep untested browser cases listed as unfinished, and add new findings to the dated website limitation file and digest. Do not add Docs search, RSS, a theme toggle, `llms.txt`, translated docs or feature pages in this milestone.
 
-**Still pending:** human Vietnamese proofread and live Pages verification after branch integration. Chromium keyboard/playback checks are complete; Safari and Firefox remain untested in this environment and are recorded as limitations below.
+**Still pending:** independent Vietnamese human proofread and the full Safari/Firefox playback matrix. Pages deployment and live HTTPS metadata are verified. Chromium keyboard/playback checks are complete; Safari has a partial manual smoke check; Firefox remains unavailable and untested.
 
 **Commit:** `fix(website): use HTTPS sitemap and accessible video fallback`

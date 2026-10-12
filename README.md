@@ -1,5 +1,7 @@
 # crossweave
 
+Website: [crossweave.dev](https://crossweave.dev/)
+
 Your agents run as parallel warp threads. **crossweave is the weft** — the
 cross-thread that binds them so the fabric holds together.
 
