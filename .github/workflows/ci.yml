@@ -24,7 +24,7 @@ jobs:
       # Keep the Linux gate on the engine/site suites. Cockpit's Preact tests need
       # its macOS-only dependencies and already run in the dedicated job below.
       # PTY-backed daemon tests share host resources, so keep their sweep timing stable.
-      - run: bun test tests website/tests --max-concurrency=1
+      - run: bun test tests website/tests --max-concurrency=1 --path-ignore-patterns 'apps/cockpit/**'
 
   cockpit:
     # The app is macOS-only ("os": ["darwin"] in its package.json), so it is built

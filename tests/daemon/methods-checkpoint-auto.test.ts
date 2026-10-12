@@ -6,6 +6,7 @@ import { buildMethods } from '../../src/daemon/methods.js';
 import { WorkspaceManager } from '../../src/domain/workspace.js';
 import { DEFAULT_CONFIG } from '../../src/core/config.js';
 import { makeGitFixture } from '../helpers/git-fixture.js';
+import { processAncestryFor } from '../helpers/process-diagnostics.js';
 
 /**
  * The whole chain: a fake `claude` typed into the session's own shell works, writes a file and then sits quietly (as an interactive agent
@@ -34,13 +35,22 @@ async function setup() {
     db.close();
     await fx.cleanup();
   };
-  return { call, sweep: () => sweep, cleanup, fx };
+  const listed = async (): Promise<Record<string, unknown> | undefined> => ((await call('session.list')) as Array<Record<string, unknown>>).find((s) => s.name === 'dev');
+  const diagnostics = async (): Promise<unknown> => ({
+    session: await listed(),
+    checkpoints: await call('checkpoint.list', { idOrName: 'dev' }),
+    processAncestry: processAncestryFor(fake),
+  });
+  return { call, sweep: () => sweep, cleanup, fx, diagnostics };
 }
 
-async function until(pred: () => Promise<boolean>, ms = 25_000): Promise<void> {
+async function until(pred: () => Promise<boolean>, ms = 25_000, diagnostics?: () => Promise<unknown>): Promise<void> {
   const end = Date.now() + ms;
   while (!(await pred())) {
-    if (Date.now() > end) throw new Error('until: timed out');
+    if (Date.now() > end) {
+      const state = diagnostics === undefined ? '' : `\nLast state: ${JSON.stringify(await diagnostics(), null, 2)}`;
+      throw new Error(`until: timed out${state}`);
+    }
     await new Promise((r) => setTimeout(r, 50));
   }
 }
@@ -66,7 +76,7 @@ describe('automatic checkpoints', () => {
         await sweep();
         const list = await rows();
         return list.length >= 2 && list[0]?.kind === 'turn' && list[0].files.added === 1;
-      });
+      }, 25_000, t.diagnostics);
       const list = await rows();
       expect(list[list.length - 1]?.files.added).toBe(0); // the "before"
       expect(list[0]?.files.added).toBe(1); // what the agent wrote during the turn
