@@ -1,13 +1,14 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { docsPages, parseCommands } from '../src/pages/docs'
+import { viDocsCopy } from '../src/content/vi/docs-copy'
 import { loadConfig, makeUrls } from '../src/site'
 import { fileURLToPath } from 'node:url'
 
 const root = fileURLToPath(new URL('../../', import.meta.url))
 const read = (path: string): string => readFileSync(`${root}${path}`, 'utf8')
 const urls = makeUrls(loadConfig({}))
-const build = (over: Partial<Parameters<typeof docsPages>[0]> = {}) =>
+const build = (over: Partial<Parameters<typeof docsPages>[0]> = {}, lang: 'en' | 'vi' = 'en') =>
   docsPages({
     urls,
     readme: read('README.md'),
@@ -16,19 +17,54 @@ const build = (over: Partial<Parameters<typeof docsPages>[0]> = {}) =>
     cliHelp: read('website/src/content/cli-help.txt'),
     release: { tag: 'v0.5.0', publishedAt: '2026-09-30T10:39:00Z', assets: ['checksums.txt'] },
     imageSize: () => ({ width: 1600, height: 1000 }),
+    viDocs: {
+      copy: viDocsCopy,
+      markdown: {
+        install: read('website/src/content/vi/docs/install.md'),
+        quickstart: read('website/src/content/vi/docs/quickstart.md'),
+        concepts: read('website/src/content/vi/docs/concepts.md'),
+        cockpit: read('website/src/content/vi/docs/cockpit.md'),
+        configuration: read('website/src/content/vi/docs/configuration.md'),
+        security: read('website/src/content/vi/docs/security.md'),
+      },
+      securityLead: read('website/src/content/vi/docs/security-lead.md'),
+    },
     ...over,
-  })
+  }, lang)
 const count = (html: string, re: RegExp): number => [...html.matchAll(re)].length
 
 describe('docsPages', () => {
   const pages = build()
 
+  test('Vietnamese documentation has the same route set with localized titles and page metadata', () => {
+    const pagesVi = build({}, 'vi')
+    expect(pagesVi.map((p) => p.path)).toEqual(pages.map((p) => `/vi${p.path}`))
+    expect(pagesVi.map((p) => p.meta.lang)).toEqual(pages.map(() => 'vi'))
+    expect(pagesVi.map((p) => p.meta.title)).not.toEqual(pages.map((p) => p.meta.title))
+    expect(pagesVi[0]?.meta.alternates).toEqual({ en: '/docs/', vi: '/vi/docs/' })
+  })
+
   test('eight pages at fixed paths, in English', () => {
     expect(pages.map((p) => p.path)).toEqual(['/docs/', '/docs/install/', '/docs/quickstart/', '/docs/concepts/', '/docs/cockpit/', '/docs/configuration/', '/docs/commands/', '/docs/security/'])
     for (const p of pages) {
       expect(p.meta.lang).toBe('en')
-      expect(p.meta.alternates).toEqual({})
+      expect(p.meta.alternates).toEqual({ en: p.path, vi: `/vi${p.path}` })
       expect(p.meta.title.length, p.path).toBeLessThanOrEqual(60)
+    }
+  })
+
+  test('Vietnamese docs use the same route set and render translated copy', () => {
+    const translated = build({}, 'vi')
+    expect(translated.map((p) => p.path)).toEqual(pages.map((p) => `/vi${p.path}`))
+    expect(translated.map((p) => p.meta.lang)).toEqual(pages.map(() => 'vi'))
+    expect(translated.map((p) => p.meta.alternates)).toEqual(pages.map((p) => ({ en: p.path, vi: `/vi${p.path}` })))
+    expect(translated.map((p) => /<h1>([^<]+)<\/h1>/.exec(String(p.body))?.[1])).toEqual([
+      'Tài liệu', 'Cài đặt', 'Bắt đầu nhanh', 'Khái niệm', 'Ứng dụng Cockpit', 'Cấu hình', 'Tham chiếu lệnh', 'Bảo mật và quyền riêng tư',
+    ])
+    for (const page of translated) {
+      expect(String(page.body), page.path).toContain('Các trang này mô tả nhánh main.')
+      expect(String(page.body), page.path).not.toContain('These pages describe the main branch.')
+      expect(String(page.body), page.path).toContain('aria-label="Tài liệu"')
     }
   })
 

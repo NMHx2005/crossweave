@@ -1,7 +1,8 @@
 import { scanFences } from '../fences'
 import { lintMarkdown, renderMarkdown, slugify } from '../markdown'
 import { prepareReadmeMarkdown, sectionsOf, shiftHeadings } from '../readme'
-import { REPO_URL, escapeHtml, type Urls } from '../site'
+import { REPO_URL, escapeHtml, type Lang, type Urls } from '../site'
+import type { VietnameseDocs } from '../content/types'
 import { html, type BuiltPage, type Release } from '../types'
 import { repoFile } from './common'
 
@@ -12,6 +13,7 @@ export interface DocsCtx {
   security: string
   concepts: string
   cliHelp: string
+  viDocs: VietnameseDocs
   /** The latest published release: these pages follow main, which can be ahead of it. */
   release: Release
   /** The real size of a committed site image, by file name. */
@@ -67,23 +69,32 @@ const SECURITY_LEAD = `crossweave runs on your machine, as you. **It sends nothi
 Below is the project's security policy, \`SECURITY.md\`, reproduced.
 `
 
-function commandsMarkdown(help: string): string {
+function commandsMarkdown(help: string, translated?: VietnameseDocs['copy']['commands']): string {
   const usage = help.split('\n').find((l) => l.startsWith('USAGE')) ?? ''
-  const rows = parseCommands(help).map((c) => `| \`${c.name}\` | ${c.summary.replace(/\|/g, '\\|')} |`)
+  const commands = parseCommands(help)
+  if (translated !== undefined) {
+    const current = new Set(commands.map((command) => command.name))
+    const missing = [...current].filter((name) => translated.summaries[name] === undefined)
+    const stale = Object.keys(translated.summaries).filter((name) => !current.has(name))
+    if (missing.length > 0 || stale.length > 0) {
+      throw new Error(`Vietnamese command reference is out of sync (missing: ${missing.join(', ') || 'none'}; stale: ${stale.join(', ') || 'none'})`)
+    }
+  }
+  const rows = commands.map((c) => `| \`${c.name}\` | ${(translated?.summaries[c.name] ?? c.summary).replace(/\|/g, '\\|')} |`)
   return [
-    '`cw` is one program with subcommands. `cw <command> --help` explains each of them; this page lists what the top-level help prints.',
+    translated?.introduction ?? '`cw` is one program with subcommands. `cw <command> --help` explains each of them; this page lists what the top-level help prints.',
     '',
     '```',
     usage.replace(/^USAGE\s+/, ''),
     '```',
     '',
-    '| Command | What it does |',
+    `| ${translated?.commandLabel ?? 'Command'} | ${translated?.summaryLabel ?? 'What it does'} |`,
     '|---|---|',
     ...rows,
   ].join('\n')
 }
 
-export function docsPages(ctx: DocsCtx): BuiltPage[] {
+export function docsPages(ctx: DocsCtx, lang: Lang = 'en'): BuiltPage[] {
   const { urls } = ctx
   const sections = sectionsOf(ctx.readme, ['Install', 'Quickstart', 'Cockpit (desktop)', 'Configuration'])
   const fromReadme = (name: string): string => {
@@ -92,38 +103,65 @@ export function docsPages(ctx: DocsCtx): BuiltPage[] {
     return shiftHeadings(prepared, -1)
   }
 
-  const pages: DocPage[] = [
-    { generated: true, slug: '', title: 'Documentation', description: 'Install, quickstart, concepts and reference for crossweave.', markdown: '' },
-    { slug: 'install', title: 'Install', description: 'Install crossweave on macOS or Linux, and remove it again.', markdown: `${fromReadme('Install')}\n\n${UNINSTALL}` },
-    { slug: 'quickstart', title: 'Quickstart', description: 'Run two sessions on one repository and land them.', markdown: fromReadme('Quickstart') },
-    { slug: 'concepts', title: 'Concepts', description: 'Sessions, the rail, landing, checks and checkpoints in a page.', markdown: ctx.concepts },
-    { slug: 'cockpit', title: 'The Cockpit app', description: 'The macOS desktop app: the rail, panes, the composer, checks and settings.', markdown: fromReadme('Cockpit (desktop)') },
-    { slug: 'configuration', title: 'Configuration', description: 'crossweave.config.json, trust and settings.', markdown: fromReadme('Configuration') },
-    { generated: true, slug: 'commands', title: 'Command reference', description: 'The cw commands and what each one is for.', markdown: commandsMarkdown(ctx.cliHelp) },
-    {
-      slug: 'security',
-      title: 'Security & privacy',
-      description: 'What crossweave runs, trusts and sends, and how to report a vulnerability.',
-      markdown: `${SECURITY_LEAD}\n${ctx.security.replace(/^# .*\n+/, '')}`,
-    },
-  ]
+  const pages: DocPage[] =
+    lang === 'en'
+      ? [
+          { generated: true, slug: '', title: 'Documentation', description: 'Install, quickstart, concepts and reference for crossweave.', markdown: '' },
+          { slug: 'install', title: 'Install', description: 'Install crossweave on macOS or Linux, and remove it again.', markdown: `${fromReadme('Install')}\n\n${UNINSTALL}` },
+          { slug: 'quickstart', title: 'Quickstart', description: 'Run two sessions on one repository and land them.', markdown: fromReadme('Quickstart') },
+          { slug: 'concepts', title: 'Concepts', description: 'Sessions, the rail, landing, checks and checkpoints in a page.', markdown: ctx.concepts },
+          { slug: 'cockpit', title: 'The Cockpit app', description: 'The macOS desktop app: the rail, panes, the composer, checks and settings.', markdown: fromReadme('Cockpit (desktop)') },
+          { slug: 'configuration', title: 'Configuration', description: 'crossweave.config.json, trust and settings.', markdown: fromReadme('Configuration') },
+          { generated: true, slug: 'commands', title: 'Command reference', description: 'The cw commands and what each one is for.', markdown: commandsMarkdown(ctx.cliHelp) },
+          {
+            slug: 'security',
+            title: 'Security & privacy',
+            description: 'What crossweave runs, trusts and sends, and how to report a vulnerability.',
+            markdown: `${SECURITY_LEAD}\n${ctx.security.replace(/^# .*\n+/, '')}`,
+          },
+        ]
+      : (() => {
+          const vi = ctx.viDocs
+          return [
+          { generated: true, slug: '', ...vi.copy.overview, markdown: '' },
+          ...(['install', 'quickstart', 'concepts', 'cockpit', 'configuration'] as const).map((slug) => ({
+            slug,
+            ...vi.copy.pages[slug],
+            markdown: vi.markdown[slug],
+          })),
+          {
+            generated: true,
+            slug: 'commands',
+            ...vi.copy.commands,
+            markdown: commandsMarkdown(ctx.cliHelp, vi.copy.commands),
+          },
+          {
+            slug: 'security',
+            ...vi.copy.pages.security,
+            markdown: `${vi.securityLead}\n\n${vi.markdown.security}`,
+          },
+          ]
+        })()
   const index = pages[0]
   if (index !== undefined) {
     index.markdown = [
-      'crossweave runs many sessions on one repository, each a git worktree plus your shell, and lands them back. These pages are the README and the reference, on the site.',
+      lang === 'en' ? 'crossweave runs many sessions on one repository, each a git worktree plus your shell, and lands them back. These pages are the README and the reference, on the site.' : ctx.viDocs.copy.overview.introduction,
       '',
-      ...pages.slice(1).map((p) => `- [${p.title}](${urls.path(`/docs/${p.slug}/`)}): ${p.description}`),
+      ...pages.slice(1).map((p) => `- [${p.title}](${urls.path(`${lang === 'vi' ? '/vi' : ''}/docs/${p.slug}/`)}): ${p.description}`),
       '',
-      `The source of truth is the repository: [README](${REPO_URL}#readme), and the limitations of every feature are written next to its design in \`docs/superpowers/specs/\`.`,
+      lang === 'en'
+        ? `The source of truth is the repository: [README](${REPO_URL}#readme), and the limitations of every feature are written next to its design in \`docs/superpowers/specs/\`.`
+        : `${ctx.viDocs.copy.overview.sourceNote} [README](${REPO_URL}#readme)`,
     ].join('\n')
   }
 
   // Pass 1: the ids each page will have, so a link to another page's heading can be resolved before anything is rendered for good.
   const ids = new Map<string, Set<string>>(pages.map((p) => [p.slug, new Set(renderMarkdown(p.markdown).headings.map((h) => h.id))]))
   const global = readmeSlugs(ctx.readme)
+  const prefix = lang === 'vi' ? '/vi' : ''
 
   const render = (page: DocPage): BuiltPage => {
-    const here = `/docs/${page.slug === '' ? '' : `${page.slug}/`}`
+    const here = `${prefix}/docs/${page.slug === '' ? '' : `${page.slug}/`}`
     const rendered = renderMarkdown(page.markdown, {
       rewriteLink(href) {
         if (/^(https?:|mailto:)/.test(href)) return href
@@ -131,7 +169,7 @@ export function docsPages(ctx: DocsCtx): BuiltPage[] {
         if (href.startsWith('#')) {
           const fragment = href.slice(1)
           if (ids.get(page.slug)?.has(fragment) === true) return href
-          for (const [slug, set] of ids) if (set.has(fragment)) return `${urls.path(`/docs/${slug === '' ? '' : `${slug}/`}`)}#${fragment}`
+          for (const [slug, set] of ids) if (set.has(fragment)) return `${urls.path(`${prefix}/docs/${slug === '' ? '' : `${slug}/`}`)}#${fragment}`
           if (global.has(fragment)) return `${REPO_URL}#${fragment}`
           throw new Error(`docs${here}: the link ${href} points at nothing`)
         }
@@ -146,34 +184,36 @@ export function docsPages(ctx: DocsCtx): BuiltPage[] {
 
     const nav = pages
       .map((p) => {
-        const href = urls.path(`/docs/${p.slug === '' ? '' : `${p.slug}/`}`)
-        return `<li><a href="${escapeHtml(href)}"${p.slug === page.slug ? ' aria-current="page"' : ''}>${escapeHtml(p.slug === '' ? 'Overview' : p.title)}</a></li>`
+        const href = urls.path(`${prefix}/docs/${p.slug === '' ? '' : `${p.slug}/`}`)
+        const label = p.slug === '' && lang === 'vi' ? ctx.viDocs.copy.sidebarOverview : p.slug === '' ? 'Overview' : p.title
+        return `<li><a href="${escapeHtml(href)}"${p.slug === page.slug ? ' aria-current="page"' : ''}>${escapeHtml(label)}</a></li>`
       })
       .join('\n')
+    const navLabel = lang === 'vi' ? ctx.viDocs.copy.overview.title : 'Documentation'
 
     return {
       path: here,
       body: html(`<main id="main" class="page">
 <div class="wrap docs">
-<nav class="docs__nav" aria-label="Documentation">
+<nav class="docs__nav" aria-label="${escapeHtml(navLabel)}">
 <ul>
 ${nav}
 </ul>
 </nav>
 <article class="prose">
 <h1>${escapeHtml(page.title)}</h1>
-<p class="docs__notice">These pages describe the main branch. The latest published release is ${escapeHtml(ctx.release.tag)}; features marked “In the next release” on the home page are not in it.</p>
+<p class="docs__notice">${escapeHtml(lang === 'en' ? `These pages describe the main branch. The latest published release is ${ctx.release.tag}; features marked “In the next release” on the home page are not in it.` : ctx.viDocs.copy.currentNotice(ctx.release.tag))}</p>
 ${rendered.html}
 </article>
 </div>
 </main>`),
       meta: {
-        lang: 'en',
+        lang,
         path: here,
-        title: page.slug === '' ? 'Documentation — crossweave' : `${page.title} — crossweave docs`,
+        title: lang === 'en' ? (page.slug === '' ? 'Documentation — crossweave' : `${page.title} — crossweave docs`) : `${page.title} — tài liệu crossweave`,
         description: page.description,
         canonical: urls.abs(here),
-        alternates: {},
+        alternates: { en: `/docs/${page.slug === '' ? '' : `${page.slug}/`}`, vi: `/vi/docs/${page.slug === '' ? '' : `${page.slug}/`}` },
         ogImage: urls.abs('/img/cockpit-sessions.png'),
       },
     }

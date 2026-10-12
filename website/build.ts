@@ -2,8 +2,9 @@ import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { en } from './src/content/en'
-import type { Content } from './src/content/types'
+import type { Content, VietnameseDocs } from './src/content/types'
 import { vi } from './src/content/vi'
+import { viDocsCopy } from './src/content/vi/docs-copy'
 import { imageSize } from './src/images'
 import { renderDocument } from './src/layout'
 import { changelogPage } from './src/pages/changelog'
@@ -63,21 +64,36 @@ export async function build(options: BuildOptions): Promise<void> {
 
   const base = { urls, release, notarized, imageSize: sizeOf }
   const ctx = (lang: Lang): PageCtx => ({ ...base, lang, content: CONTENT[lang], notes })
+  const viDocs: VietnameseDocs = {
+    copy: viDocsCopy,
+    markdown: {
+      install: readFileSync(join(repoRoot, 'website', 'src', 'content', 'vi', 'docs', 'install.md'), 'utf8'),
+      quickstart: readFileSync(join(repoRoot, 'website', 'src', 'content', 'vi', 'docs', 'quickstart.md'), 'utf8'),
+      concepts: readFileSync(join(repoRoot, 'website', 'src', 'content', 'vi', 'docs', 'concepts.md'), 'utf8'),
+      cockpit: readFileSync(join(repoRoot, 'website', 'src', 'content', 'vi', 'docs', 'cockpit.md'), 'utf8'),
+      configuration: readFileSync(join(repoRoot, 'website', 'src', 'content', 'vi', 'docs', 'configuration.md'), 'utf8'),
+      security: readFileSync(join(repoRoot, 'website', 'src', 'content', 'vi', 'docs', 'security.md'), 'utf8'),
+    },
+    securityLead: readFileSync(join(repoRoot, 'website', 'src', 'content', 'vi', 'docs', 'security-lead.md'), 'utf8'),
+  }
+  const docsCtx = {
+    urls,
+    readme: readFileSync(join(repoRoot, 'README.md'), 'utf8'),
+    security: readFileSync(join(repoRoot, 'SECURITY.md'), 'utf8'),
+    concepts: readFileSync(join(repoRoot, 'website', 'src', 'content', 'concepts.md'), 'utf8'),
+    cliHelp: readFileSync(join(repoRoot, 'website', 'src', 'content', 'cli-help.txt'), 'utf8'),
+    release,
+    imageSize: sizeOf,
+    viDocs,
+  }
 
   const pages: BuiltPage[] = [
     homePage(ctx('en')),
     homePage(ctx('vi')),
     downloadPage(ctx('en')),
     downloadPage(ctx('vi')),
-    ...docsPages({
-      urls,
-      readme: readFileSync(join(repoRoot, 'README.md'), 'utf8'),
-      security: readFileSync(join(repoRoot, 'SECURITY.md'), 'utf8'),
-      concepts: readFileSync(join(repoRoot, 'website', 'src', 'content', 'concepts.md'), 'utf8'),
-      cliHelp: readFileSync(join(repoRoot, 'website', 'src', 'content', 'cli-help.txt'), 'utf8'),
-      release,
-      imageSize: sizeOf,
-    }),
+    ...docsPages(docsCtx, 'en'),
+    ...docsPages(docsCtx, 'vi'),
     changelogPage({ urls, notes, release }),
     notFoundPage({ urls, en, vi }),
   ].sort((a, b) => (a.path < b.path ? -1 : 1))

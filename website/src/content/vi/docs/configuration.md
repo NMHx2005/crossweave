@@ -1,0 +1,3 @@
+Cài đặt theo repository nằm trong `crossweave.config.json` ở thư mục gốc repo: dải port, giới hạn dung lượng đĩa, cách cấp lease cho database và `converge.testCommand` (phải được tin cậy tường minh bằng `cw config trust` trước khi crossweave chạy vì đây là shell command tùy ý).
+
+Cài đặt theo người dùng nằm trong `~/.crossweave/settings.json`: editor mở file bằng Cmd+click, launcher, layout đã lưu, giao diện, phím tắt, lưu trạng thái terminal (`persistence.terminals`, mặc định tắt), lệnh tinh chỉnh composer (`prompt.refine`) và preset session. Preset và lệnh tinh chỉnh là chương trình do **bạn** viết; nội dung trong repository không thể tự thêm chúng.

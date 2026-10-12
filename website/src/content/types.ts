@@ -27,6 +27,30 @@ export interface Step {
   imageAlt: string
 }
 
+export type LocalizedDocSlug = 'install' | 'quickstart' | 'concepts' | 'cockpit' | 'configuration' | 'commands' | 'security'
+export type MarkdownDocSlug = Exclude<LocalizedDocSlug, 'commands'>
+
+export interface VietnameseDocsCopy {
+  overview: { title: string; description: string; introduction: string; sourceNote: string }
+  pages: Record<Exclude<LocalizedDocSlug, 'commands'>, { title: string; description: string }>
+  commands: {
+    title: string
+    description: string
+    introduction: string
+    commandLabel: string
+    summaryLabel: string
+    summaries: Record<string, string>
+  }
+  sidebarOverview: string
+  currentNotice(tag: string): string
+}
+
+export interface VietnameseDocs {
+  copy: VietnameseDocsCopy
+  markdown: Record<MarkdownDocSlug, string>
+  securityLead: string
+}
+
 export interface Content {
   readonly lang: Lang
   readonly htmlLang: string

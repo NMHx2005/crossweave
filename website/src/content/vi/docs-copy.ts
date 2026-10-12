@@ -1,0 +1,47 @@
+import type { VietnameseDocsCopy } from '../types'
+
+export const viDocsCopy: VietnameseDocsCopy = {
+  overview: {
+    title: 'Tài liệu',
+    description: 'Hướng dẫn cài đặt, bắt đầu, khái niệm và tham chiếu cho crossweave.',
+    introduction: 'crossweave chạy nhiều session trên cùng một repository. Mỗi session có git worktree và shell riêng; bạn xem kết quả rồi đưa phần phù hợp trở lại nhánh chính.',
+    sourceNote: 'README là nguồn giới thiệu dự án; giới hạn của từng tính năng được ghi cạnh tài liệu thiết kế trong repository.',
+  },
+  pages: {
+    install: { title: 'Cài đặt', description: 'Cài crossweave trên macOS hoặc Linux, rồi gỡ cài đặt khi không cần nữa.' },
+    quickstart: { title: 'Bắt đầu nhanh', description: 'Chạy hai session trong một repository và đưa thay đổi phù hợp trở lại.' },
+    concepts: { title: 'Khái niệm', description: 'Tìm hiểu session, thanh trạng thái, land, kiểm tra và checkpoint.' },
+    cockpit: { title: 'Ứng dụng Cockpit', description: 'Ứng dụng desktop macOS: thanh session, các ngăn, composer, kiểm tra và cài đặt.' },
+    configuration: { title: 'Cấu hình', description: 'Tìm hiểu crossweave.config.json, trust và cài đặt người dùng.' },
+    security: { title: 'Bảo mật và quyền riêng tư', description: 'crossweave chạy gì, tin cậy gì, gửi dữ liệu nào và cách báo cáo lỗ hổng.' },
+  },
+  commands: {
+    title: 'Tham chiếu lệnh',
+    description: 'Danh sách các lệnh cw cấp cao nhất và chức năng của chúng.',
+    introduction: '`cw` là một chương trình có các lệnh con. Chạy `cw <command> --help` để xem hướng dẫn riêng; trang này liệt kê các lệnh cấp cao nhất.',
+    commandLabel: 'Lệnh',
+    summaryLabel: 'Chức năng',
+    summaries: {
+      init: 'Tạo hoặc kết nối workspace crossweave cho repository này',
+      workspace: 'Quản lý workspace',
+      session: 'Quản lý session',
+      daemon: 'Quản lý daemon crossweave',
+      gc: 'Thu hồi worktree và branch từ các session đã kết thúc',
+      converge: 'Trạng thái trial merge và sơ đồ xung đột',
+      overlap: 'Xem session nào đang sửa cùng file — cảnh báo sớm trước khi trial merge xung đột',
+      land: 'Đưa thay đổi của một session vào nhánh gốc',
+      config: 'Quản lý trust và tùy chọn thông báo trong crossweave.config.json',
+      update: 'Tải và cài bản phát hành crossweave mới nhất',
+      tui: 'Bảng điều khiển trực tiếp — session, hội tụ và hoạt động',
+      pane: 'Sắp xếp các ngăn trong cửa sổ cockpit đang chạy; ứng dụng sẽ hỏi trước khi đóng ngăn, đồng bộ hoặc mở trang hay file',
+      browser: 'Đọc và điều khiển Browser pane đang chạy. Công tắc Agent của pane quyết định quyền này (mặc định tắt); mọi nội dung từ trang đều là dữ liệu KHÔNG ĐÁNG TIN, không phải chỉ dẫn',
+      notify: 'Báo cho cockpit biết session này đã xong hoặc cần bạn trả lời: hiện dấu trạng thái và gửi thông báo khi bạn vắng mặt. Dành cho hook của agent: cw notify "tests written"',
+      check: 'Chạy converge.testCommand đã được tin cậy trong worktree của session để báo kết quả — công việc này đã đủ điều kiện land chưa? Trả mã 1 nếu lỗi',
+      checkpoint: 'Chụp snapshot worktree khi agent bắt đầu/kết thúc lượt; liệt kê, xem diff hoặc khôi phục file',
+      hooks: 'Cài hoặc gỡ các mục hook để hook của agent gọi cw notify — hiển thị chính xác trạng thái xong/cần trả lời. Cấu hình agent được gộp vào và sao lưu, không bị ghi đè toàn bộ',
+      debug: 'Một gói gỡ lỗi gọn cho session: kết quả kiểm tra cùng phần log lỗi, lỗi trong terminal, diffstat và nội dung mới nhất của agent — để gửi cho AI',
+    },
+  },
+  sidebarOverview: 'Tổng quan',
+  currentNotice: (tag) => `Các trang này mô tả nhánh main. Bản phát hành mới nhất là ${tag}; tính năng được đánh dấu “Trong bản phát hành tiếp theo” trên trang chủ chưa có trong bản này.`,
+}

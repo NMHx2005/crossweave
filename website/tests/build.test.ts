@@ -74,6 +74,27 @@ describe('what a build writes', () => {
 describe('every page', () => {
   const basePath = '/crossweave/'
 
+  test('documentation has a Vietnamese counterpart for every English page', () => {
+    const slugs = ['', 'install', 'quickstart', 'concepts', 'cockpit', 'configuration', 'commands', 'security']
+    const headings = ['Tài liệu', 'Cài đặt', 'Bắt đầu nhanh', 'Khái niệm', 'Ứng dụng Cockpit', 'Cấu hình', 'Tham chiếu lệnh', 'Bảo mật và quyền riêng tư']
+
+    for (const [index, slug] of slugs.entries()) {
+      const suffix = slug === '' ? '' : `${slug}/`
+      const viPage = `vi/docs/${suffix}index.html`
+      expect(existsSync(join(project, viPage)), viPage).toBe(true)
+      const html = read(project, viPage)
+      const route = `${basePath}vi/docs/${suffix}`
+      const enRoute = `${basePath}docs/${suffix}`
+
+      expect(html).toContain('<html lang="vi">')
+      expect(html).toContain(`<link rel="canonical" href="https://nmhx2005.github.io${route}">`)
+      expect(html).toContain(`hreflang="en" href="https://nmhx2005.github.io${enRoute}"`)
+      expect(html).toContain(`hreflang="vi" href="https://nmhx2005.github.io${route}"`)
+      expect(html).toContain(`<h1>${headings[index]}</h1>`)
+      expect(html).not.toContain('These pages describe the main branch.')
+    }
+  })
+
   test('every indexable page has a concise search description', () => {
     const missingOrLong: string[] = []
     for (const page of pages) {
@@ -150,11 +171,14 @@ describe('every page', () => {
     }
   })
 
-  test('hreflang appears only on Home and Download, and points at files that exist', () => {
+  test('hreflang appears on every page pair and points at files that exist', () => {
+    const docs = ['', 'install/', 'quickstart/', 'concepts/', 'cockpit/', 'configuration/', 'commands/', 'security/']
+      .flatMap((slug) => [`docs/${slug === '' ? '' : slug}index.html`, `vi/docs/${slug === '' ? '' : slug}index.html`])
+    const translatedPages = new Set(['index.html', 'vi/index.html', 'download/index.html', 'vi/download/index.html', ...docs])
     for (const page of pages) {
       const html = read(project, page)
       const has = html.includes('hreflang="en"')
-      const translated = ['index.html', 'vi/index.html', 'download/index.html', 'vi/download/index.html'].includes(page)
+      const translated = translatedPages.has(page)
       expect(has, page).toBe(translated)
       for (const m of html.matchAll(/hreflang="[^"]+" href="https:\/\/nmhx2005\.github\.io\/crossweave\/([^"]*)"/g)) {
         const path = m[1] ?? ''
