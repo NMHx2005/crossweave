@@ -41,29 +41,36 @@ export function downloadPage(ctx: PageCtx): BuiltPage {
     .map((name) => `<a href="${esc(assetUrl(release, name) ?? RELEASES_URL)}">${esc(name)}</a>`)
     .join(' · ')
 
+  const published = release.dates?.[release.tag] ?? release.publishedAt.slice(0, 10)
   const body = html(`<main id="main" class="page">
-<div class="wrap">
-<h1>${esc(c.headline)}</h1>
-<div class="stack">
-<p>${esc(c.intro)} <strong>${esc(release.tag)}</strong></p>
-<section data-reveal>
+<div class="wrap download">
+<header class="download-release" data-release="${esc(release.tag)}">
+<div><p class="eyebrow">${esc(c.latestRelease)}</p><h1>${esc(c.headline)}</h1><p>${esc(c.intro)}</p></div>
+<p class="download-release__version"><span>${esc(c.version)}</span><strong>${esc(release.tag)}</strong><time datetime="${esc(published)}">${esc(published)}</time></p>
+</header>
+<div class="download-grid">
+<section class="download-card download-card--recommended" data-reveal>
+<p class="download-card__eyebrow">${esc(c.recommended)}</p>
 <h2>${esc(c.cockpit.title)}</h2>
 <p>${esc(c.cockpit.text)}</p>
 <div class="actions">${link('cockpit-darwin-arm64.dmg', c.cockpit.dmg, 'btn btn--primary')}${link('cockpit-darwin-arm64.zip', c.cockpit.zip)}</div>
 </section>
-${notice}
-<section data-reveal>
+<section class="download-card download-card--cli" data-reveal>
 <h2>${esc(c.cli.title)}</h2>
 <p>${esc(c.cli.text)}</p>
 <code class="cmd">${esc(c.cli.installLine)}</code>
 <p>${esc(c.cli.requires)}</p>
+</section>
+</div>
+${notice}
+<section class="download-assets" data-reveal>
+<h2>${esc(c.otherPlatforms)}</h2>
 <p>${esc(c.cli.manual)}</p>
 <ul>
 ${files}
 </ul>
 <p>${extras} · <a href="${esc(RELEASES_URL)}">${esc(c.older)}</a></p>
 </section>
-</div>
 </div>
 </main>`)
 

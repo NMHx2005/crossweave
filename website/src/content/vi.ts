@@ -351,6 +351,10 @@ export const vi: Content = {
     description: 'Tải crossweave Cockpit cho macOS hoặc cài CLI trên macOS và Linux. Miễn phí, MIT.',
     headline: 'Tải crossweave',
     intro: 'Bản phát hành mới nhất: phiên bản bên dưới. Mọi file đều có checksum; installer tự kiểm tra giúp bạn.',
+    latestRelease: 'Bản phát hành mới nhất',
+    version: 'Phiên bản',
+    recommended: 'Đề xuất',
+    otherPlatforms: 'Nền tảng khác',
     cockpit: {
       title: 'Cockpit cho macOS (Apple Silicon)',
       text: 'Ứng dụng desktop. Ảnh đĩa là cách cài kéo-vào-Applications quen thuộc; file zip là cùng ứng dụng đó.',
@@ -382,7 +386,9 @@ export const vi: Content = {
     description: 'Những thay đổi trong từng bản phát hành crossweave.',
     introduction: 'Những thay đổi trong từng bản phát hành. Mục mới nhất chưa phát hành mô tả phiên bản đang được chuẩn bị.',
     unreleased: 'Chưa phát hành',
+    releaseIndex: 'Điều hướng bản phát hành',
   },
+  docs: { onThisPage: 'Trong trang này' },
   footer: {
     tagline: 'Chạy nhiều agent trên một repo. Land cái đứng vững.',
     groups: { product: 'Sản phẩm', project: 'Dự án' },

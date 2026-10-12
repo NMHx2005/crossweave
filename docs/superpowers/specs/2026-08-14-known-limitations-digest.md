@@ -61,6 +61,7 @@ Kept so the old milestone documents still read correctly. **None of this exists 
 ## Everyday gaps worth knowing, not blocking
 
 - **Website sitemap (observed live 2026-10-11; fixed 2026-10-12):** Pages run `38234215498` published the HTTPS fix, and live `robots.txt`, all 12 sitemap URLs, homepage canonical, and hreflang alternates have been checked. Chromium's seven-route keyboard and playback checks pass; Safari normal-motion autoplay and Pause/Play pass a manual smoke check; Firefox and Safari reduced-motion/no-JavaScript playback remain untested. Independent Vietnamese human proofreading remains pending (`2026-10-11-website-v2-known-limitations.md`).
+- **Website developer pages (2026-10-13):** Download, Docs and Changelog now have EN/VI release and section navigation; docs search/version snapshots and changelog filtering/pagination are absent. Chrome visual review covered desktop and 390px mobile layouts; Firefox/Safari and independent Vietnamese technical proofreading remain pending (`2026-10-13-professional-subpages-known-limitations.md`).
 - Desktop notifications are **macOS only**; other platforms get a silent
   no-op, not a degraded warning. (M6b)
 - Notification click-through needs `terminal-notifier` (an optional

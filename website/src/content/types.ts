@@ -115,6 +115,10 @@ export interface Content {
     description: string
     headline: string
     intro: string
+    latestRelease: string
+    version: string
+    recommended: string
+    otherPlatforms: string
     cockpit: { title: string; text: string; dmg: string; zip: string }
     cli: { title: string; text: string; installLine: string; manual: string; requires: string }
     notNotarized: { title: string; text: string; commandNote: string; installerNote: string }
@@ -122,7 +126,8 @@ export interface Content {
     checksums: string
     older: string
   }
-  readonly changelog: { title: string; description: string; introduction: string; unreleased: string }
+  readonly docs: { onThisPage: string }
+  readonly changelog: { title: string; description: string; introduction: string; unreleased: string; releaseIndex: string }
   readonly footer: {
     tagline: string
     groups: { product: string; project: string }

@@ -2,6 +2,8 @@ import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { docsPages, parseCommands } from '../src/pages/docs'
 import { viDocsCopy } from '../src/content/vi/docs-copy'
+import { en } from '../src/content/en'
+import { vi } from '../src/content/vi'
 import { loadConfig, makeUrls } from '../src/site'
 import { fileURLToPath } from 'node:url'
 
@@ -11,6 +13,7 @@ const urls = makeUrls(loadConfig({}))
 const build = (over: Partial<Parameters<typeof docsPages>[0]> = {}, lang: 'en' | 'vi' = 'en') =>
   docsPages({
     urls,
+    docsLabels: { en: en.docs, vi: vi.docs },
     readme: read('README.md'),
     security: read('SECURITY.md'),
     concepts: read('website/src/content/concepts.md'),
@@ -91,6 +94,21 @@ describe('docsPages', () => {
       for (let i = 1; i < levels.length; i++) expect((levels[i] ?? 0) - (levels[i - 1] ?? 0), p.path).toBeLessThanOrEqual(1)
       const ids = [...body.matchAll(/ id="([^"]+)"/g)].map((m) => m[1])
       expect(new Set(ids).size, p.path).toBe(ids.length)
+    }
+  })
+
+  test('renders a localized on-page contents list whose links target article headings', () => {
+    for (const lang of ['en', 'vi'] as const) {
+      for (const page of build({}, lang)) {
+        const body = String(page.body)
+        const label = lang === 'en' ? 'On this page' : 'Trong trang này'
+        const ids = new Set([...body.matchAll(/<h[2-6][^>]* id="([^"]+)"/g)].map((match) => match[1]))
+        const toc = /<nav class="docs__toc"[\s\S]*?<\/nav>/.exec(body)?.[0] ?? ''
+        if (ids.size > 0) expect(toc, page.path).toContain(`aria-label="${label}"`)
+        else expect(toc, page.path).toBe('')
+        for (const href of toc.matchAll(/href="#([^"]+)"/g)) expect(ids.has(href[1]), `${page.path}: ${href[1]}`).toBe(true)
+        expect((toc.match(/href="#/g) ?? []).length, page.path).toBe(ids.size)
+      }
     }
   })
 

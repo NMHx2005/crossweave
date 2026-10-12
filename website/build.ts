@@ -85,6 +85,7 @@ export async function build(options: BuildOptions): Promise<void> {
   }
   const docsCtx = {
     urls,
+    docsLabels: { en: en.docs, vi: vi.docs },
     readme: readFileSync(join(repoRoot, 'README.md'), 'utf8'),
     security: readFileSync(join(repoRoot, 'SECURITY.md'), 'utf8'),
     concepts: readFileSync(join(repoRoot, 'website', 'src', 'content', 'concepts.md'), 'utf8'),

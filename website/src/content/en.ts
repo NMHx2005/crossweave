@@ -369,6 +369,10 @@ export const en: Content = {
     description: 'Download the crossweave Cockpit for macOS or install the CLI on macOS and Linux. Free, MIT.',
     headline: 'Download crossweave',
     intro: 'Latest release: the version below. Every file is checksummed; the installer verifies them for you.',
+    latestRelease: 'Latest release',
+    version: 'Version',
+    recommended: 'Recommended',
+    otherPlatforms: 'Other platforms',
     cockpit: {
       title: 'Cockpit for macOS (Apple Silicon)',
       text: 'The desktop app. The disk image is the usual drag-to-Applications install; the zip is the same app.',
@@ -400,7 +404,9 @@ export const en: Content = {
     description: 'What changed in each crossweave release.',
     introduction: 'What changed in each release. The newest, unreleased entry describes the version being prepared.',
     unreleased: 'Unreleased',
+    releaseIndex: 'Release navigation',
   },
+  docs: { onThisPage: 'On this page' },
   footer: {
     tagline: 'Run many agents on one repo. Land what holds up.',
     groups: { product: 'Product', project: 'Project' },

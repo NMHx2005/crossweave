@@ -159,6 +159,19 @@ describe('the download page', () => {
     expect(page.meta.alternates).toEqual({ en: '/download/', vi: '/vi/download/' })
     expect(downloadPage(ctx({ lang: 'vi', content: vi })).path).toBe('/vi/download/')
   })
+
+  test('presents the latest release first and separates recommended app install from CLI assets in both languages', () => {
+    const english = body()
+    const vietnamese = String(downloadPage(ctx({ lang: 'vi', content: vi })).body)
+    for (const [markup, locale] of [[english, 'en'], [vietnamese, 'vi']] as const) {
+      expect(markup).toContain('class="download-release"')
+      expect(markup).toContain('data-release="v0.5.0"')
+      expect(markup).toContain('class="download-card download-card--recommended"')
+      expect(markup).toContain('class="download-assets"')
+      expect(markup).toContain(locale === 'en' ? 'Recommended' : 'Đề xuất')
+      expect(markup).toContain(locale === 'en' ? 'Other platforms' : 'Nền tảng khác')
+    }
+  })
 })
 
 describe('the changelog', () => {
@@ -176,6 +189,18 @@ describe('the changelog', () => {
     const ids = [...body.matchAll(/ id="([^"]+)"/g)].map((m) => m[1])
     expect(new Set(ids).size).toBe(ids.length)
     expect(count(body, /<h1[ >]/g)).toBe(1)
+  })
+
+  test('provides a localized release index that links to every stable release section', () => {
+    for (const lang of ['en', 'vi'] as const) {
+      const body = String(changelogPage({ urls, notes, release: { ...full, tag: 'v0.9.0' }, lang, content: lang === 'vi' ? vi : en }).body)
+      expect(body).toContain(`aria-label="${lang === 'en' ? 'Release navigation' : 'Điều hướng bản phát hành'}"`)
+      for (const tag of ['v0.10.0', 'v0.9.0', 'v0.2.1']) {
+        const id = tag.replace(/\./g, '-')
+        expect(body).toContain(`href="#${id}"`)
+        expect(body).toContain(`id="${id}"`)
+      }
+    }
   })
 
   test('a tag newer than the latest published release is marked unreleased; every published one carries its date', () => {

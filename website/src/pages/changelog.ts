@@ -10,8 +10,8 @@ export function changelogPage(ctx: { urls: Urls; notes: Array<{ tag: string; mar
   const { urls, release } = ctx
   const lang = ctx.lang ?? 'en'
   const copy = ctx.content?.changelog ?? (lang === 'vi'
-    ? { title: 'Lịch sử thay đổi — crossweave', description: 'Những thay đổi trong từng bản phát hành crossweave.', introduction: 'Những thay đổi trong từng bản phát hành. Mục mới nhất chưa phát hành mô tả phiên bản đang được chuẩn bị.', unreleased: 'Chưa phát hành' }
-    : { title: 'Changelog — crossweave', description: 'What changed in each crossweave release.', introduction: 'What changed in each release. The newest, unreleased entry describes the version being prepared.', unreleased: 'Unreleased' })
+    ? { title: 'Lịch sử thay đổi — crossweave', description: 'Những thay đổi trong từng bản phát hành crossweave.', introduction: 'Những thay đổi trong từng bản phát hành. Mục mới nhất chưa phát hành mô tả phiên bản đang được chuẩn bị.', unreleased: 'Chưa phát hành', releaseIndex: 'Điều hướng bản phát hành' }
+    : { title: 'Changelog — crossweave', description: 'What changed in each crossweave release.', introduction: 'What changed in each release. The newest, unreleased entry describes the version being prepared.', unreleased: 'Unreleased', releaseIndex: 'Release navigation' })
   const prefix = lang === 'vi' ? '/vi' : ''
   const sorted = [...ctx.notes].sort((a, b) => compareTags(b.tag, a.tag))
 
@@ -43,14 +43,20 @@ ${rendered.html}
 </section>`
     })
     .join('\n')
+  const index = `<nav class="changelog__index" aria-label="${esc(copy.releaseIndex)}"><p class="changelog__index-title">${esc(copy.releaseIndex)}</p><ul>${sorted.map(({ tag }) => `<li><a href="#${esc(tag.replace(/\./g, '-'))}">${esc(tag)}</a></li>`).join('')}</ul></nav>`
 
   const body = html(`<main id="main" class="page">
 <div class="wrap">
-<article class="prose">
+<header class="changelog__header">
 <h1>${esc(lang === 'vi' ? 'Lịch sử thay đổi' : 'Changelog')}</h1>
 <p>${esc(copy.introduction)}</p>
+</header>
+<div class="changelog-layout">
+${index}
+<article class="prose">
 ${sections}
 </article>
+</div>
 </div>
 </main>`)
 

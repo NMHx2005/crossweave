@@ -2,12 +2,13 @@ import { scanFences } from '../fences'
 import { lintMarkdown, renderMarkdown, slugify } from '../markdown'
 import { prepareReadmeMarkdown, sectionsOf, shiftHeadings } from '../readme'
 import { REPO_URL, escapeHtml, type Lang, type Urls } from '../site'
-import type { VietnameseDocs } from '../content/types'
+import type { Content, VietnameseDocs } from '../content/types'
 import { html, type BuiltPage, type Release } from '../types'
 import { repoFile } from './common'
 
 export interface DocsCtx {
   urls: Urls
+  docsLabels: Record<Lang, Content['docs']>
   readme: string
   /** `SECURITY.md`: the policy, reproduced as a page. */
   security: string
@@ -190,6 +191,12 @@ export function docsPages(ctx: DocsCtx, lang: Lang = 'en'): BuiltPage[] {
       })
       .join('\n')
     const navLabel = lang === 'vi' ? ctx.viDocs.copy.overview.title : 'Documentation'
+    const tocHeadings = rendered.headings.filter((heading) => heading.level > 1)
+    const tocLabel = ctx.docsLabels[lang].onThisPage
+    const toc = tocHeadings.length === 0 ? '' : `<nav class="docs__toc" aria-label="${escapeHtml(tocLabel)}">
+<p class="docs__toc-title">${escapeHtml(tocLabel)}</p>
+<ul>${tocHeadings.map((heading) => `<li class="docs__toc-item docs__toc-item--h${heading.level}"><a href="#${escapeHtml(heading.id)}">${escapeHtml(heading.text)}</a></li>`).join('')}</ul>
+</nav>`
 
     return {
       path: here,
@@ -205,6 +212,7 @@ ${nav}
 <p class="docs__notice">${escapeHtml(lang === 'en' ? `These pages describe the main branch. The latest published release is ${ctx.release.tag}; features marked “In the next release” on the home page are not in it.` : ctx.viDocs.copy.currentNotice(ctx.release.tag))}</p>
 ${rendered.html}
 </article>
+${toc}
 </div>
 </main>`),
       meta: {
