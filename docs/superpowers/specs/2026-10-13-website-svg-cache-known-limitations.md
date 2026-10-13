@@ -8,5 +8,5 @@
 ## Limitations
 
 - A page already open in a tab will not update until it is refreshed. Old cached HTML remains paired with the old stable stylesheet URL; newly built HTML requests the newly fingerprinted URL.
-- This addresses CSS/HTML version skew. JavaScript, images and video retain their existing URL and cache behavior.
+- The stylesheet is fingerprinted, and the workflow explainer script now has its own content fingerprint (`2026-10-13-website-script-cache-known-limitations.md`). Images and video retain their existing URL and cache behavior.
 - The fingerprint is a cache invalidator, not an integrity or authenticity mechanism; HTTPS and the hosting platform provide transport integrity.

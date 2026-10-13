@@ -16,7 +16,7 @@ const meta = (over: Partial<PageMeta> = {}): PageMeta => ({
   ogImage: urls.abs('/img/cockpit-sessions.png'),
   ...over,
 })
-const doc = (m: PageMeta = meta(), content = en): string => String(renderDocument(m, html('<main id="main"><h1>Hi</h1></main>'), { content, urls, version: 'v0.5.0', styleFingerprint: 'layout-test' }))
+const doc = (m: PageMeta = meta(), content = en): string => String(renderDocument(m, html('<main id="main"><h1>Hi</h1></main>'), { content, urls, version: 'v0.5.0', styleFingerprint: 'layout-test', scriptFingerprint: 'script-test' }))
 
 describe('the head', () => {
   test('the content security policy is the first thing after the charset, and forbids everything not needed', () => {
@@ -68,7 +68,7 @@ describe('the head', () => {
 describe('the shell', () => {
   test('one external script and no inline one, a skip link first, the stylesheet and icon under the base', () => {
     const out = doc()
-    expect([...out.matchAll(/<script\b[^>]*>/g)].map((m) => m[0])).toEqual(['<script src="/crossweave/site.js" defer>'])
+    expect([...out.matchAll(/<script\b[^>]*>/g)].map((m) => m[0])).toEqual(['<script src="/crossweave/site.js?v=script-test" defer>'])
     expect(out).toContain('<div class="scroll-progress" aria-hidden="true"></div>')
     expect(out.indexOf('class="skip"')).toBeLessThan(out.indexOf('<main'))
     expect(out).toContain('href="/crossweave/styles.css?v=layout-test"')
@@ -99,8 +99,9 @@ describe('the shell', () => {
 
   test('a custom domain drops the base from every link', () => {
     const root = makeUrls(loadConfig({ SITE_DOMAIN: 'crossweave.dev' }))
-    const out = String(renderDocument(meta({ canonical: root.abs('/') }), html('<main></main>'), { content: en, urls: root, version: 'v0.5.0', styleFingerprint: 'layout-test' }))
+    const out = String(renderDocument(meta({ canonical: root.abs('/') }), html('<main></main>'), { content: en, urls: root, version: 'v0.5.0', styleFingerprint: 'layout-test', scriptFingerprint: 'script-test' }))
     expect(out).toContain('href="/styles.css?v=layout-test"')
+    expect(out).toContain('src="/site.js?v=script-test"')
     expect(out).not.toMatch(/(href|src)="\/crossweave\//)
   })
 })
@@ -108,7 +109,7 @@ describe('the shell', () => {
 describe('the shell, second version', () => {
   const home = (lang: 'en' | 'vi' = 'en') => {
     const content = lang === 'en' ? en : vi
-    return String(renderDocument(meta({ lang, path: lang === 'en' ? '/' : '/vi/' }), html('<main id="main"></main>'), { content, urls, version: 'v0.5.0', styleFingerprint: 'layout-test' }))
+    return String(renderDocument(meta({ lang, path: lang === 'en' ? '/' : '/vi/' }), html('<main id="main"></main>'), { content, urls, version: 'v0.5.0', styleFingerprint: 'layout-test', scriptFingerprint: 'script-test' }))
   }
 
   test('the footer has a Product and a Project group, a maker line, and the security and contributing links', () => {
@@ -138,7 +139,7 @@ describe('the shell, second version', () => {
       renderDocument(
         { ...meta(), ogImageInfo: { width: 1200, height: 630, alt: 'The headline on a dark card' } },
         html('<main id="main"></main>'),
-        { content: en, urls, version: 'v0.5.0', styleFingerprint: 'layout-test' },
+        { content: en, urls, version: 'v0.5.0', styleFingerprint: 'layout-test', scriptFingerprint: 'script-test' },
       ),
     )
     expect(out).toContain('property="og:image:width" content="1200"')
@@ -156,7 +157,7 @@ describe('the shell, second version', () => {
       renderDocument(
         { ...meta(), jsonLd: { '@context': 'https://schema.org', '@type': 'SoftwareApplication', name: 'x</script><b>' } },
         html('<main id="main"></main>'),
-        { content: en, urls, version: 'v0.5.0', styleFingerprint: 'layout-test' },
+        { content: en, urls, version: 'v0.5.0', styleFingerprint: 'layout-test', scriptFingerprint: 'script-test' },
       ),
     )
     const block = /<script type="application\/ld\+json">([\s\S]*?)<\/script>/.exec(out)?.[1] ?? ''

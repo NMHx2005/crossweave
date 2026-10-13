@@ -79,6 +79,14 @@ describe('what a build writes', () => {
     expect(read(project, 'vi/index.html')).toContain(`href="/crossweave/styles.css?v=${fingerprint}"`)
     expect(read(custom, 'index.html')).toContain(`href="/styles.css?v=${fingerprint}"`)
   })
+
+  test('pages key the script URL to the exact JavaScript emitted by that build', () => {
+    const script = read(custom, 'site.js')
+    const fingerprint = createHash('sha256').update(script).digest('hex').slice(0, 16)
+    expect(read(project, 'index.html')).toContain(`src="/crossweave/site.js?v=${fingerprint}"`)
+    expect(read(project, 'vi/index.html')).toContain(`src="/crossweave/site.js?v=${fingerprint}"`)
+    expect(read(custom, 'index.html')).toContain(`src="/site.js?v=${fingerprint}"`)
+  })
 })
 
 describe('every page', () => {
@@ -199,7 +207,7 @@ describe('every page', () => {
       expect(html, page).not.toMatch(/\ssrc="https?:/)
       // One external script, and at most one JSON data block (it is never executed): nothing inline and executable.
       const scripts = [...html.matchAll(/<script\b[^>]*>/g)].map((m) => m[0]).filter((tag) => tag !== '<script type="application/ld+json">')
-      expect(scripts, page).toEqual(['<script src="/crossweave/site.js" defer>'])
+      expect(scripts, page).toEqual([expect.stringMatching(/^<script src="\/crossweave\/site\.js\?v=[a-f0-9]{16}" defer>$/)])
       for (const m of html.matchAll(/<script(?![^>]*\ssrc=)([^>]*)>([\s\S]*?)<\/script>/g)) {
         expect(m[1], page).toBe(' type="application/ld+json"')
         expect(() => JSON.parse(m[2] ?? ''), page).not.toThrow()

@@ -1,6 +1,6 @@
 # Progress — crossweave
 
-**Last updated:** 2026-10-13 (stylesheet cache keys follow exact emitted CSS content)
+**Last updated:** 2026-10-13 (stylesheet and script cache keys follow exact emitted asset content)
 **Product:** `cw` (CLI), `cwd` (daemon) and the Electron **Cockpit** run N parallel sessions on one repository and land them
 back. A session is a git worktree plus the user's shell in it; what runs there is the user's to type.
 **Where the known gaps are:** `docs/superpowers/specs/2026-08-14-known-limitations-digest.md` (one line per milestone, newest
@@ -72,6 +72,7 @@ usage per session; its own app icon (`apps/cockpit/build/icon.svg`, four warp th
 
 ## Changelog (newest first)
 
+- **2026-10-13** — Website follow-up fingerprints the generated `site.js` URL from the exact emitted script bytes, fixing stale cached JavaScript that could leave the homepage's hover explanation inactive after a release. Website build verifies one hash across EN/VI and all routes. Live pointer interaction will be checked after Pages deploy. See `docs/superpowers/specs/2026-10-13-website-script-cache-known-limitations.md`.
 - **2026-10-13** — Website cache fix `3f55445` fingerprints the emitted theme-plus-site stylesheet in every page URL, preventing stale CSS from leaving new SVG cards and labels black. Pages run [38328432704](https://github.com/NMHx2005/crossweave/actions/runs/38328432704) and main CI run [38328432710](https://github.com/NMHx2005/crossweave/actions/runs/38328432710) pass; the live stylesheet URL was checked against its CSS digest. The static asset path, design and runtime stay unchanged; see `2026-10-13-website-svg-cache-known-limitations.md` and the SVG cache plan.
 - **2026-10-13** — Website follow-up `201fff0` adds the localized workflow explorer on the homepage and completes EN/VI coverage for every current indexable route and v0.3.0–v0.6.0. Pages run [38326210859](https://github.com/NMHx2005/crossweave/actions/runs/38326210859) deployed successfully; main CI run [38326210857](https://github.com/NMHx2005/crossweave/actions/runs/38326210857) passed. Copy review corrected technical nuance around trusted commands, stale checks, Land evidence and related release wording. Desktop/mobile Chromium, keyboard, touch, reduced-motion and no-JavaScript fallbacks were checked; a second human Vietnamese proofread and the remaining Safari/Firefox matrix are still open. See `docs/HANDOFF-2026-10-13.md`.
 

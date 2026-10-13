@@ -41,7 +41,7 @@ function navItems(lang: Lang, content: Content, urls: Urls): NavItem[] {
   ]
 }
 
-export function renderDocument(meta: PageMeta, body: Html, ctx: { content: Content; urls: Urls; version: string; styleFingerprint: string }): Html {
+export function renderDocument(meta: PageMeta, body: Html, ctx: { content: Content; urls: Urls; version: string; styleFingerprint: string; scriptFingerprint: string }): Html {
   const { content, urls } = ctx
   const other: Lang = meta.lang === 'en' ? 'vi' : 'en'
   const otherPath = meta.alternates[other]
@@ -117,7 +117,7 @@ ${meta.noindex === true ? '<meta name="robots" content="noindex">' : ''}
 <link rel="icon" href="${attr(urls.path('/icon.png'))}" type="image/png">
 <link rel="apple-touch-icon" href="${attr(urls.path('/apple-touch-icon.png'))}">
 <link rel="stylesheet" href="${attr(`${urls.path('/styles.css')}?v=${ctx.styleFingerprint}`)}">
-${jsonLd}<script src="${attr(urls.path('/site.js'))}" defer></script>
+${jsonLd}<script src="${attr(`${urls.path('/site.js')}?v=${ctx.scriptFingerprint}`)}" defer></script>
 </head>
 <body>
 <a class="skip" href="#main">${attr(content.nav.skip)}</a>

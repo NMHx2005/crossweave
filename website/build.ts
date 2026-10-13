@@ -53,6 +53,8 @@ export async function build(options: BuildOptions): Promise<void> {
   const urls = makeUrls(config)
   const styles = `${themeCss()}${readFileSync(join(repoRoot, 'website', 'src', 'styles.css'), 'utf8')}`
   const styleFingerprint = createHash('sha256').update(styles).digest('hex').slice(0, 16)
+  const siteScript = readFileSync(join(repoRoot, 'website', 'public', 'site.js'), 'utf8')
+  const scriptFingerprint = createHash('sha256').update(siteScript).digest('hex').slice(0, 16)
   const manifestPath = options.manifestPath ?? join(repoRoot, 'website', 'release.json')
 
   if (options.refreshRelease) await refreshManifest(manifestPath, { fetcher: options.fetcher, timeoutMs: options.timeoutMs })
@@ -117,7 +119,7 @@ export async function build(options: BuildOptions): Promise<void> {
   }
 
   for (const page of pages) {
-    write(fileFor(page.path), renderDocument(page.meta, page.body, { content: CONTENT[page.meta.lang], urls, version: release.tag, styleFingerprint }))
+    write(fileFor(page.path), renderDocument(page.meta, page.body, { content: CONTENT[page.meta.lang], urls, version: release.tag, styleFingerprint, scriptFingerprint }))
   }
 
   write('styles.css', styles)
