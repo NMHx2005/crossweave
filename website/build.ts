@@ -51,6 +51,8 @@ export async function build(options: BuildOptions): Promise<void> {
   const { repoRoot, out } = options
   const config = loadConfig(options.env)
   const urls = makeUrls(config)
+  const styles = `${themeCss()}${readFileSync(join(repoRoot, 'website', 'src', 'styles.css'), 'utf8')}`
+  const styleFingerprint = createHash('sha256').update(styles).digest('hex').slice(0, 16)
   const manifestPath = options.manifestPath ?? join(repoRoot, 'website', 'release.json')
 
   if (options.refreshRelease) await refreshManifest(manifestPath, { fetcher: options.fetcher, timeoutMs: options.timeoutMs })
@@ -115,10 +117,10 @@ export async function build(options: BuildOptions): Promise<void> {
   }
 
   for (const page of pages) {
-    write(fileFor(page.path), renderDocument(page.meta, page.body, { content: CONTENT[page.meta.lang], urls, version: release.tag }))
+    write(fileFor(page.path), renderDocument(page.meta, page.body, { content: CONTENT[page.meta.lang], urls, version: release.tag, styleFingerprint }))
   }
 
-  write('styles.css', `${themeCss()}${readFileSync(join(repoRoot, 'website', 'src', 'styles.css'), 'utf8')}`)
+  write('styles.css', styles)
   const publicDir = join(repoRoot, 'website', 'public')
   for (const file of listFiles(publicDir)) write(file, readFileSync(join(publicDir, file)))
 

@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { createHash } from 'node:crypto'
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -69,6 +70,14 @@ describe('what a build writes', () => {
     const css = read(project, 'styles.css')
     expect(css.startsWith(':root{color-scheme:dark light;')).toBe(true)
     expect(css).toContain('.hero')
+  })
+
+  test('pages key the stylesheet URL to the exact CSS emitted by that build', () => {
+    const css = read(custom, 'styles.css')
+    const fingerprint = createHash('sha256').update(css).digest('hex').slice(0, 16)
+    expect(read(project, 'index.html')).toContain(`href="/crossweave/styles.css?v=${fingerprint}"`)
+    expect(read(project, 'vi/index.html')).toContain(`href="/crossweave/styles.css?v=${fingerprint}"`)
+    expect(read(custom, 'index.html')).toContain(`href="/styles.css?v=${fingerprint}"`)
   })
 })
 
@@ -172,7 +181,9 @@ describe('every page', () => {
           continue
         }
         if (!target.startsWith(basePath)) { missing.push(`${page}: ${target} is not under the base`); continue }
-        const [path, fragment] = target.slice(basePath.length).split('#') as [string, string | undefined]
+        const withoutFragment = target.slice(basePath.length).split('#')[0] ?? ''
+        const path = withoutFragment.split('?')[0] ?? ''
+        const fragment = target.includes('#') ? target.slice(target.indexOf('#') + 1) : undefined
         const file = path === '' || path.endsWith('/') ? `${path}index.html` : path
         if (!existsSync(join(project, file))) { missing.push(`${page}: ${target}`); continue }
         if (fragment !== undefined && file.endsWith('.html') && !read(project, file).includes(` id="${fragment}"`)) missing.push(`${page}: ${target}`)
@@ -252,7 +263,7 @@ describe('every page', () => {
 
   test('the 404 works from any depth: its resources are absolute and under the base', () => {
     const html = read(project, '404.html')
-    expect(html).toContain('href="/crossweave/styles.css"')
+    expect(html).toMatch(/href="\/crossweave\/styles\.css\?v=[0-9a-f]{16}"/)
     expect(html).toContain('noindex')
   })
 })

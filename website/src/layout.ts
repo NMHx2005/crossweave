@@ -41,7 +41,7 @@ function navItems(lang: Lang, content: Content, urls: Urls): NavItem[] {
   ]
 }
 
-export function renderDocument(meta: PageMeta, body: Html, ctx: { content: Content; urls: Urls; version: string }): Html {
+export function renderDocument(meta: PageMeta, body: Html, ctx: { content: Content; urls: Urls; version: string; styleFingerprint: string }): Html {
   const { content, urls } = ctx
   const other: Lang = meta.lang === 'en' ? 'vi' : 'en'
   const otherPath = meta.alternates[other]
@@ -116,7 +116,7 @@ ${meta.noindex === true ? '<meta name="robots" content="noindex">' : ''}
 <meta name="theme-color" content="${attr(THEME_NAMES.light['--cw-surface'] ?? '')}" media="(prefers-color-scheme: light)">
 <link rel="icon" href="${attr(urls.path('/icon.png'))}" type="image/png">
 <link rel="apple-touch-icon" href="${attr(urls.path('/apple-touch-icon.png'))}">
-<link rel="stylesheet" href="${attr(urls.path('/styles.css'))}">
+<link rel="stylesheet" href="${attr(`${urls.path('/styles.css')}?v=${ctx.styleFingerprint}`)}">
 ${jsonLd}<script src="${attr(urls.path('/site.js'))}" defer></script>
 </head>
 <body>

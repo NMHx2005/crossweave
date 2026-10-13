@@ -277,7 +277,7 @@ describe('the header that stays with you', () => {
       renderDocument(
         { lang: 'en', path: '/', title: 't', description: 'd', canonical: urls.abs('/'), alternates: {}, ogImage: null },
         html('<main id="main"></main>'),
-        { content: en, urls, version: 'v0.5.0' },
+        { content: en, urls, version: 'v0.5.0', styleFingerprint: 'motion-test' },
       ),
     )
     const header = /<header class="site-header">([\s\S]*?)<\/header>/.exec(out)?.[1] ?? ''

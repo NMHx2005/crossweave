@@ -1,6 +1,6 @@
 # Progress — crossweave
 
-**Last updated:** 2026-10-13 (bilingual site, homepage storytelling, and copy QA completed on the release follow-up branch)
+**Last updated:** 2026-10-13 (stylesheet cache keys follow exact emitted CSS content)
 **Product:** `cw` (CLI), `cwd` (daemon) and the Electron **Cockpit** run N parallel sessions on one repository and land them
 back. A session is a git worktree plus the user's shell in it; what runs there is the user's to type.
 **Where the known gaps are:** `docs/superpowers/specs/2026-08-14-known-limitations-digest.md` (one line per milestone, newest
@@ -72,6 +72,7 @@ usage per session; its own app icon (`apps/cockpit/build/icon.svg`, four warp th
 
 ## Changelog (newest first)
 
+- **2026-10-13** — Website cache follow-up fingerprints the emitted theme-plus-site stylesheet in every page URL. It fixes the stale-CSS/new-SVG mismatch that left cards and labels black in some browsers after deploy. The static asset path, design and runtime stay unchanged; see `2026-10-13-website-svg-cache-known-limitations.md` and the SVG cache plan.
 - **2026-10-13** — Website follow-up `201fff0` adds the localized workflow explorer on the homepage and completes EN/VI coverage for every current indexable route and v0.3.0–v0.6.0. Pages run [38326210859](https://github.com/NMHx2005/crossweave/actions/runs/38326210859) deployed successfully; main CI run [38326210857](https://github.com/NMHx2005/crossweave/actions/runs/38326210857) passed. Copy review corrected technical nuance around trusted commands, stale checks, Land evidence and related release wording. Desktop/mobile Chromium, keyboard, touch, reduced-motion and no-JavaScript fallbacks were checked; a second human Vietnamese proofread and the remaining Safari/Firefox matrix are still open. See `docs/HANDOFF-2026-10-13.md`.
 
 - **2026-10-12** — Post-release PR [#3](https://github.com/NMHx2005/crossweave/pull/3) fixes the Linux `dash` PTY fixtures, adds the confirmed daemon-guarded live-session Land flow, and fixes website sitemap/video/responsive/copy issues; PR [#4](https://github.com/NMHx2005/crossweave/pull/4) records the public website in the README. PR [#5](https://github.com/NMHx2005/crossweave/pull/5) switched Git-fixture creation to synchronous copy, but final-main run `38238889755` showed that could also fail partway through `.git`; PR [#7](https://github.com/NMHx2005/crossweave/pull/7) replaces filesystem copy with `git clone --no-hardlinks` and passes local typecheck, all 2,363 tests, and PR CI run `38240382394`. Final-main run `38238096754` and Pages run `38236698702` passed before that follow-up. Live HTTPS metadata is verified. Safari's normal-motion autoplay and Pause/Play pass a manual smoke check; Firefox and the rest of the Safari playback matrix are open. Independent Vietnamese proofread is pending. Notarization is deferred.
