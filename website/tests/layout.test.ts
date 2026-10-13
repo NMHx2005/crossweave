@@ -29,6 +29,7 @@ describe('the head', () => {
     expect(metas[1]).toContain("img-src 'self' data:")
     expect(metas[1]).toContain("style-src 'self'")
     expect(metas[1]).toContain("script-src 'self'")
+    expect(metas[1]).toContain("connect-src 'self'")
     expect(metas[1]).toContain("media-src 'self'")
     expect(metas[1]).toContain("base-uri 'none'")
     expect(metas[1]).toContain("form-action 'none'")

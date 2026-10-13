@@ -60,6 +60,108 @@ interface FakeExplorer {
   fire(type: string, event: Record<string, unknown>): void
 }
 
+interface FakeSearchElement {
+  hidden: boolean
+  value: string
+  textContent: string
+  className: string
+  href: string
+  id?: string
+  disabled?: boolean
+  options?: Array<{ value: string }>
+  children: FakeSearchElement[]
+  listeners: Record<string, Listener[]>
+  getAttribute(name: string): string | null
+  addEventListener(type: string, fn: Listener): void
+  fire(type: string, event?: Record<string, unknown>): void
+  appendChild(node: FakeSearchElement): void
+  replaceChildren(): void
+}
+
+interface FakeSearchRoot extends FakeSearchElement {
+  querySelector(selector: string): FakeSearchElement | null
+}
+
+function searchElement(attrs: Record<string, string> = {}): FakeSearchElement {
+  const self: FakeSearchElement = {
+    hidden: false,
+    value: '',
+    textContent: '',
+    className: '',
+    href: '',
+    children: [],
+    listeners: {},
+    getAttribute: (name) => attrs[name] ?? null,
+    addEventListener: (type, fn) => (self.listeners[type] ??= []).push(fn),
+    fire: (type, event = {}) => (self.listeners[type] ?? []).forEach((fn) => fn(event)),
+    appendChild: (node) => void self.children.push(node),
+    replaceChildren: () => { self.children = [] },
+  }
+  return self
+}
+
+function searchRoot(): FakeSearchRoot {
+  const form = searchElement()
+  const query = searchElement()
+  const version = searchElement()
+  version.value = 'current'
+  version.options = [{ value: 'current' }, { value: 'v0.6.0' }, { value: 'all' }]
+  const status = searchElement()
+  const results = searchElement()
+  const attrs: Record<string, string> = {
+    'data-search-index': '/docs-search.json',
+    'data-lang': 'en',
+    'data-empty': 'Enter a search.',
+    'data-no-results': 'No match.',
+    'data-error': 'Search unavailable.',
+    'data-count-one': '{count} result',
+    'data-count-many': '{count} results',
+    'data-english-source': 'English snapshot',
+  }
+  const root = searchElement(attrs) as FakeSearchRoot
+  root.hidden = true
+  root.querySelector = (selector) => ({
+    form,
+    'input[type="search"]': query,
+    'select[name="version"]': version,
+    '[data-search-status]': status,
+    '[data-search-results]': results,
+  } as Record<string, FakeSearchElement>)[selector] ?? null
+  return Object.assign(root, { form, query, version, status, results }) as FakeSearchRoot
+}
+
+function changelogRoot(): FakeSearchRoot {
+  const root = searchElement({
+    'data-no-results': 'No matching releases.',
+    'data-page-template': 'Page {page} of {pages} · {count} releases',
+    'data-result-template': '{count} releases',
+  }) as FakeSearchRoot
+  const controls: Record<string, FakeSearchElement> = {
+    form: searchElement(),
+    'input[type="search"]': searchElement(),
+    'select[name="version"]': searchElement(),
+    'select[name="type"]': searchElement(),
+    '[data-changelog-status]': searchElement(),
+    '[data-page-status]': searchElement(),
+    '[data-page-previous]': searchElement(),
+    '[data-page-next]': searchElement(),
+  }
+  const version = controls['select[name="version"]']
+  const category = controls['select[name="type"]']
+  if (!version || !category) throw new Error('test control fixtures are incomplete')
+  version.value = 'all'
+  version.options = [{ value: 'all' }, { value: 'v0.6.0' }, { value: 'v0.5.0' }, { value: 'v0.4.0' }, { value: 'v0.3.0' }]
+  category.value = 'all'
+  category.options = [{ value: 'all' }, { value: 'new' }, { value: 'fixed' }, { value: 'removed' }]
+  root.hidden = true
+  root.querySelector = (selector) => controls[selector] ?? null
+  return Object.assign(root, { controls }) as FakeSearchRoot
+}
+
+function release(tag: string, id: string, categories: string, text: string): FakeSearchElement {
+  return Object.assign(searchElement({ 'data-version': tag, 'data-categories': categories, 'data-search': text }), { id })
+}
+
 function diagramTarget(detail: string): FakeDiagramTarget {
   const self: FakeDiagramTarget = {
     inside: true,
@@ -116,10 +218,26 @@ function clip(rejectPlay = false, opts: { videoApi?: boolean; customControl?: bo
   return self
 }
 
-function boot(opts: { buttons?: FakeButton[]; clips?: FakeClip[]; explorers?: FakeExplorer[]; clipboard?: { writeText(text: string): Promise<void> } | null; reduce?: boolean | null }) {
+function boot(opts: {
+  buttons?: FakeButton[]
+  clips?: FakeClip[]
+  explorers?: FakeExplorer[]
+  searches?: FakeSearchRoot[]
+  searchData?: unknown
+  searchFailure?: boolean
+  changelog?: FakeSearchRoot
+  releaseSections?: FakeSearchElement[]
+  releaseLinks?: FakeSearchElement[]
+  startUrl?: string
+  clipboard?: { writeText(text: string): Promise<void> } | null
+  reduce?: boolean | null
+}) {
   const timers: Array<() => void> = []
   const mediaListeners: Listener[] = []
   const media = { matches: opts.reduce === true, addEventListener: (_t: string, fn: Listener) => void mediaListeners.push(fn) }
+  const location = { href: opts.startUrl ?? (opts.changelog ? 'https://site.test/changelog/' : 'https://site.test/docs/?q=old&version=v0.6.0'), origin: 'https://site.test' }
+  const historyCalls: Array<{ mode: string; href: string }> = []
+  const windowListeners: Record<string, Listener[]> = {}
   let observerCallback: (entries: Array<{ isIntersecting: boolean }>) => void = () => undefined
   class Observer {
     constructor(cb: typeof observerCallback) {
@@ -132,6 +250,16 @@ function boot(opts: { buttons?: FakeButton[]; clips?: FakeClip[]; explorers?: Fa
     innerHeight: 800,
     IntersectionObserver: Observer,
     setTimeout: (fn: () => void) => void timers.push(fn),
+    URL,
+    location,
+    history: {
+      pushState: (_state: unknown, _title: string, href: URL) => { location.href = String(href); historyCalls.push({ mode: 'push', href: String(href) }) },
+      replaceState: (_state: unknown, _title: string, href: URL) => { location.href = String(href); historyCalls.push({ mode: 'replace', href: String(href) }) },
+    },
+    addEventListener: (type: string, fn: Listener) => (windowListeners[type] ??= []).push(fn),
+    fetch: (_url: string, _init: unknown) => opts.searchFailure
+      ? Promise.reject(new Error('offline'))
+      : Promise.resolve({ ok: true, json: async () => opts.searchData ?? [] }),
     navigator: opts.clipboard === null ? {} : { clipboard: opts.clipboard ?? { writeText: async () => undefined } },
     matchMedia: opts.reduce === null ? undefined : () => media,
   }
@@ -141,11 +269,26 @@ function boot(opts: { buttons?: FakeButton[]; clips?: FakeClip[]; explorers?: Fa
       if (selector === 'button.copy[data-copy]') return opts.buttons ?? []
       if (selector === 'video[data-motion]') return opts.clips ?? []
       if (selector === '[data-diagram-explorer]') return opts.explorers ?? []
+      if (selector === '[data-docs-search]') return opts.searches ?? []
+      if (selector === '[data-changelog]') return opts.changelog ? [opts.changelog] : []
+      if (selector === '[data-release]') return opts.releaseSections ?? []
+      if (selector === '.changelog__index a[href^="#"]') return opts.releaseLinks ?? []
       return []
     },
+    createElement: (tagName: string) => Object.assign(searchElement(), { tagName }),
+    getElementById: (id: string) => (opts.releaseSections ?? []).find((section) => section.id === id) ?? null,
   }
   new Function('window', 'document', script)(win, doc)
-  return { timers, media, mediaListeners, setReduce: (v: boolean) => { media.matches = v; mediaListeners.forEach((fn) => fn()) }, intersect: (isIntersecting: boolean) => observerCallback([{ isIntersecting }]) }
+  return {
+    timers,
+    media,
+    mediaListeners,
+    historyCalls,
+    windowListeners,
+    location,
+    setReduce: (v: boolean) => { media.matches = v; mediaListeners.forEach((fn) => fn()) },
+    intersect: (isIntersecting: boolean) => observerCallback([{ isIntersecting }]),
+  }
 }
 
 const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0))
@@ -180,6 +323,93 @@ describe('the copy button', () => {
     await flush()
     expect(b.nextElementSibling.textContent).toBe('Could not copy')
     expect(b.textContent).toBe('Copy')
+  })
+})
+
+describe('Docs search', () => {
+  test('loads the local index, restores URL state, renders safe results and follows filter state', async () => {
+    const root = searchRoot()
+    const { historyCalls, location } = boot({
+      searches: [root],
+      searchData: [
+        { lang: 'en', version: 'current', title: 'Configuration', section: 'Named ports', href: '/docs/configuration/#named-ports', text: 'Reserve a port for each session.' },
+        { lang: 'en', version: 'v0.6.0', title: '<img src=x>', section: 'Old worktrees', href: '/docs/versions/v0.6.0/#worktrees', text: 'A repository can have isolated worktrees.' },
+      ],
+    })
+    await flush()
+    expect(root.hidden).toBe(false)
+    expect(root.querySelector('input[type="search"]')?.value).toBe('old')
+    expect(root.querySelector('select[name="version"]')?.value).toBe('v0.6.0')
+    const query = root.querySelector('input[type="search"]')
+    const version = root.querySelector('select[name="version"]')
+    expect(root.querySelector('[data-search-status]')?.textContent).toBe('1 result')
+    if (!query || !version) throw new Error('search controls are missing')
+    query.value = 'isolated worktrees'
+    query.fire('input')
+    expect(root.querySelector('[data-search-status]')?.textContent).toBe('1 result')
+    const item = root.querySelector('[data-search-results]')?.children[0]
+    expect(item?.children[0]?.href).toBe('/docs/versions/v0.6.0/#worktrees')
+    expect(item?.children[0]?.textContent).toBe('Old worktrees')
+    expect(item?.children[0]?.textContent).not.toContain('<img')
+    expect(historyCalls.at(-1)?.mode).toBe('replace')
+    expect(new URL(location.href).searchParams.get('q')).toBe('isolated worktrees')
+    version.value = 'current'
+    version.fire('change')
+    expect(root.querySelector('[data-search-status]')?.textContent).toBe('No match.')
+    root.querySelector('form')?.fire('submit', { preventDefault: () => undefined })
+    expect(historyCalls.at(-1)?.mode).toBe('push')
+  })
+
+  test('shows a localized failure without changing the static documentation', async () => {
+    const root = searchRoot()
+    const { } = boot({ searches: [root], searchFailure: true })
+    await flush()
+    expect(root.hidden).toBe(false)
+    expect(root.querySelector('form')?.hidden).toBe(true)
+    expect(root.querySelector('[data-search-status]')?.textContent).toBe('Search unavailable.')
+  })
+})
+
+describe('Changelog explorer', () => {
+  test('pages releases, restores query state, and moves to an anchored release', () => {
+    const root = changelogRoot()
+    const sections = [
+      release('v0.6.0', 'v0-6-0', 'new fixed', 'parallel sessions and worktrees'),
+      release('v0.5.0', 'v0-5-0', 'new', 'cockpit settings'),
+      release('v0.4.0', 'v0-4-0', 'removed', 'remote control'),
+      release('v0.3.0', 'v0-3-0', 'fixed', 'lease reliability'),
+    ]
+    const lastLink = searchElement({ href: '#v0-3-0' })
+    const { historyCalls, location, windowListeners } = boot({ changelog: root, releaseSections: sections, releaseLinks: [lastLink], startUrl: 'https://site.test/changelog/#v0-3-0' })
+    const [controls] = [root.querySelector('form'), root.querySelector('input[type="search"]'), root.querySelector('select[name="version"]'), root.querySelector('select[name="type"]')]
+    expect(root.hidden).toBe(false)
+    expect(sections.map((section) => section.hidden)).toEqual([true, true, true, false])
+    expect(root.querySelector('[data-page-status]')?.textContent).toBe('Page 2 of 2 · 4 releases')
+    lastLink.fire('click', { preventDefault: () => undefined })
+    expect(location.href).toContain('#v0-3-0')
+    expect(historyCalls.at(-1)?.mode).toBe('push')
+    root.querySelector('[data-page-previous]')?.fire('click')
+    expect(sections.map((section) => section.hidden)).toEqual([false, false, false, true])
+    const next = root.querySelector('[data-page-next]')
+    next?.fire('click')
+    expect(sections.map((section) => section.hidden)).toEqual([true, true, true, false])
+
+    const query = root.querySelector('input[type="search"]')
+    const version = root.querySelector('select[name="version"]')
+    const category = root.querySelector('select[name="type"]')
+    if (!query || !version || !category || !controls) throw new Error('changelog controls are missing')
+    query.value = 'parallel worktrees'
+    category.value = 'new'
+    category.fire('change')
+    expect(sections.map((section) => section.hidden)).toEqual([false, true, true, true])
+    expect(root.querySelector('[data-page-status]')?.textContent).toBe('Page 1 of 1 · 1 releases')
+    query.value = 'nothing matches'
+    query.fire('input')
+    expect(root.querySelector('[data-changelog-status]')?.textContent).toBe('No matching releases.')
+
+    location.href = historyCalls.filter((call) => call.href.includes('page=2')).at(-1)?.href ?? 'https://site.test/changelog/?page=2'
+    windowListeners.popstate?.forEach((listener) => listener({}))
+    expect(root.querySelector('[data-page-status]')?.textContent).toBe('Page 2 of 2 · 4 releases')
   })
 })
 

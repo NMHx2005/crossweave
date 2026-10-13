@@ -203,6 +203,24 @@ describe('the changelog', () => {
     }
   })
 
+  test('ships complete release notes and localized filter controls with stable category metadata', () => {
+    const english = String(changelogPage({ urls, notes, release: { ...full, tag: 'v0.9.0' }, content: en }).body)
+    const vietnameseNotes = [{ tag: 'v0.9.0', markdown: '## Điểm nhấn\n\nMở rộng phiên.\n\n## Đã sửa — độ tin cậy\n\nSửa lease.' }]
+    const vietnamese = String(changelogPage({ urls, notes: vietnameseNotes, release: full, lang: 'vi', content: vi }).body)
+    expect(english).toContain('data-changelog hidden')
+    expect(english).toContain('data-version="v0.10.0"')
+    expect(english).toContain('data-categories="new"')
+    expect(english).toContain('data-search="Headline Ten. New one"')
+    expect(english).toContain('id="v0-10-0"')
+    expect(english).toContain('value="known-limits">Known limits')
+    expect(vietnamese).toContain('Lọc bản phát hành')
+    expect(vietnamese).toContain('Tìm thay đổi')
+    expect(vietnamese).toContain('value="fixed">Đã sửa')
+    expect(vietnamese).toContain('data-categories="fixed"')
+    expect(vietnamese).not.toMatch(/<section class="release"[^>]*hidden/)
+    expect(vietnamese).toContain('href="#v0-9-0"')
+  })
+
   test('a tag newer than the latest published release is marked unreleased; every published one carries its date', () => {
     const dated = { ...full, tag: 'v0.9.0', dates: { 'v0.9.0': '2026-09-30', 'v0.10.0': '2026-10-30', 'v0.2.1': '2026-08-19' } }
     const body = String(changelogPage({ urls, notes, release: dated }).body)

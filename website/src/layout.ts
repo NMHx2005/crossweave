@@ -23,7 +23,7 @@ export interface PageMeta {
 }
 
 // GitHub Pages cannot send headers, so the policy is a meta tag; it cannot enforce frame-ancestors (the limitations file says so).
-const CSP = "default-src 'none'; img-src 'self' data:; style-src 'self'; script-src 'self'; media-src 'self'; base-uri 'none'; form-action 'none'"
+const CSP = "default-src 'none'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; media-src 'self'; base-uri 'none'; form-action 'none'"
 
 const attr = escapeHtml
 

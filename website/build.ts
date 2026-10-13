@@ -9,6 +9,8 @@ import { imageSize } from './src/images'
 import { renderDocument } from './src/layout'
 import { changelogPage } from './src/pages/changelog'
 import { docsPages } from './src/pages/docs'
+import { buildDocsSearchIndex, docsSearchEntries } from './src/docs-search'
+import { readVersionReadme, versionedDocsPages } from './src/version-snapshots'
 import { downloadPage } from './src/pages/download'
 import { homePage } from './src/pages/home'
 import { notFoundPage } from './src/pages/notfound'
@@ -98,14 +100,31 @@ export async function build(options: BuildOptions): Promise<void> {
     imageSize: sizeOf,
     viDocs,
   }
+  const snapshots = options.snapshots ?? []
+  const archives = versionedDocsPages({ urls, snapshots })
+  const docsEn = docsPages(docsCtx, 'en')
+  const docsVi = docsPages(docsCtx, 'vi')
+  const searchIndexes = new Map<Lang, { path: string; data: string }>()
+  for (const [lang, sources] of [['en', [...docsEn, ...archives]], ['vi', [...docsVi, ...archives]]] as const) {
+    const entries = docsSearchEntries(sources).map((entry) => ({ ...entry, href: urls.path(entry.href) }))
+    const data = buildDocsSearchIndex(entries)
+    const fingerprint = createHash('sha256').update(data).digest('hex').slice(0, 16)
+    searchIndexes.set(lang, { path: `docs-search.${lang}.${fingerprint}.json`, data })
+  }
+  const searchDocsCtx = {
+    ...docsCtx,
+    snapshotTags: snapshots.map(({ tag }) => tag),
+    searchIndexUrl: (lang: Lang): string => urls.path(`/${searchIndexes.get(lang)?.path ?? ''}`),
+  }
 
   const pages: BuiltPage[] = [
     homePage(ctx('en')),
     homePage(ctx('vi')),
     downloadPage(ctx('en')),
     downloadPage(ctx('vi')),
-    ...docsPages(docsCtx, 'en'),
-    ...docsPages(docsCtx, 'vi'),
+    ...docsPages({ ...searchDocsCtx, searchIndexUrl: searchDocsCtx.searchIndexUrl('en') }, 'en'),
+    ...docsPages({ ...searchDocsCtx, searchIndexUrl: searchDocsCtx.searchIndexUrl('vi') }, 'vi'),
+    ...archives,
     changelogPage({ urls, notes: notesByLang.en, release, lang: 'en', content: en }),
     changelogPage({ urls, notes: notesByLang.vi, release, lang: 'vi', content: vi }),
     notFoundPage({ urls, en, vi }),
@@ -123,6 +142,14 @@ export async function build(options: BuildOptions): Promise<void> {
   }
 
   write('styles.css', styles)
+  for (const index of searchIndexes.values()) write(index.path, index.data)
+  for (const snapshot of snapshots) {
+    for (const image of snapshot.images ?? []) {
+      const filename = /^docs\/images\/([\w-]+\.png)$/.exec(image.path)?.[1]
+      if (filename === undefined) throw new Error(`${snapshot.tag}: unsupported snapshot image path`)
+      write(`img/versions/${snapshot.tag}/${filename}`, image.data)
+    }
+  }
   const publicDir = join(repoRoot, 'website', 'public')
   for (const file of listFiles(publicDir)) write(file, readFileSync(join(publicDir, file)))
 
@@ -146,10 +173,14 @@ export function treeHashes(dir: string): Record<string, string> {
 if (import.meta.main) {
   const args = process.argv.slice(2)
   const out = args.includes('--out') ? args[args.indexOf('--out') + 1] : undefined
+  const repoRoot = fileURLToPath(new URL('..', import.meta.url)).replace(/\/$/, '')
   await build({
     out: out ?? fileURLToPath(new URL('./dist', import.meta.url)),
     env: process.env,
-    repoRoot: fileURLToPath(new URL('..', import.meta.url)).replace(/\/$/, ''),
+    repoRoot,
     refreshRelease: args.includes('--refresh-release'),
+    snapshots: readdirSync(join(repoRoot, 'docs', 'releases'))
+      .filter((name) => /^v\d+\.\d+\.\d+\.md$/.test(name))
+      .map((name) => readVersionReadme(repoRoot, name.replace(/\.md$/, ''))),
   })
 }

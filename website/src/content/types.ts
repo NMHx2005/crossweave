@@ -139,8 +139,42 @@ export interface Content {
     checksums: string
     older: string
   }
-  readonly docs: { onThisPage: string }
-  readonly changelog: { title: string; description: string; introduction: string; unreleased: string; releaseIndex: string }
+  readonly docs: {
+    onThisPage: string
+    searchLabel: string
+    searchPlaceholder: string
+    searchSource: string
+    searchCurrent: string
+    searchAll: string
+    searchSubmit: string
+    searchHint: string
+    searchEmpty: string
+    searchNoResults: string
+    searchError: string
+    searchResultCount(count: number): string
+    englishSource: string
+    snapshotsTitle: string
+  }
+  readonly changelog: {
+    title: string
+    description: string
+    introduction: string
+    unreleased: string
+    releaseIndex: string
+    filterLabel: string
+    queryLabel: string
+    queryPlaceholder: string
+    versionLabel: string
+    versionAll: string
+    categoryLabel: string
+    categoryAll: string
+    categories: Record<'new' | 'fixed' | 'removed' | 'upgrading' | 'known-limits', string>
+    noResults: string
+    resultTemplate: string
+    pageTemplate: string
+    previous: string
+    next: string
+  }
   readonly footer: {
     tagline: string
     groups: { product: string; project: string }

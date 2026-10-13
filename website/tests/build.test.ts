@@ -7,8 +7,15 @@ import { build, treeHashes } from '../build'
 import { fileURLToPath } from 'node:url'
 
 const repoRoot = fileURLToPath(new URL('../..', import.meta.url)).replace(/\/$/, '')
+const SITE_BASE = '/crossweave/'
 const scratch = mkdtempSync(join(tmpdir(), 'cw-site-'))
-const options = (out: string, env: Record<string, string | undefined> = {}) => ({ out, env, repoRoot, refreshRelease: false })
+const options = (out: string, env: Record<string, string | undefined> = {}) => ({
+  out,
+  env,
+  repoRoot,
+  refreshRelease: false,
+  snapshots: [{ tag: 'v0.6.0', readme: '# crossweave v0.6.0\n\n## Archived\n\nAn old release.\n' }],
+})
 
 const files = (dir: string, prefix = ''): string[] =>
   readdirSync(dir).sort().flatMap((n) => (statSync(join(dir, n)).isDirectory() ? files(join(dir, n), `${prefix}${n}/`) : [`${prefix}${n}`]))
@@ -31,7 +38,7 @@ describe('what a build writes', () => {
     const all = files(project)
     for (const f of [
       'index.html', 'vi/index.html', 'download/index.html', 'vi/download/index.html', 'changelog/index.html', '404.html',
-      'docs/index.html', 'docs/install/index.html', 'docs/quickstart/index.html', 'docs/concepts/index.html', 'docs/cockpit/index.html', 'docs/configuration/index.html', 'docs/commands/index.html',
+      'docs/index.html', 'docs/install/index.html', 'docs/quickstart/index.html', 'docs/concepts/index.html', 'docs/cockpit/index.html', 'docs/configuration/index.html', 'docs/commands/index.html', 'docs/versions/v0.6.0/index.html',
       'styles.css', 'site.js', 'apple-touch-icon.png', 'sitemap.xml', 'icon.png', 'img/cockpit-sessions.png', 'img/cockpit-composer.png', 'img/cockpit-dashboard.png', 'img/cockpit-rail.png',
     ]) expect(all, f).toContain(f)
     expect(all).not.toContain('CNAME')
@@ -49,17 +56,22 @@ describe('what a build writes', () => {
     expect(read(custom, 'index.html')).toContain('<link rel="canonical" href="https://crossweave.dev/">')
     expect(read(custom, 'index.html')).toContain('hreflang="vi" href="https://crossweave.dev/vi/"')
     expect(read(custom, 'vi/index.html')).toContain('<link rel="canonical" href="https://crossweave.dev/vi/">')
+    expect(read(custom, 'docs/versions/v0.6.0/index.html')).toContain('<link rel="canonical" href="https://crossweave.dev/docs/versions/v0.6.0/">')
+    expect(read(custom, 'sitemap.xml')).toContain('<loc>https://crossweave.dev/docs/versions/v0.6.0/</loc>')
+    expect(read(custom, 'docs/versions/v0.6.0/index.html')).toContain('<link rel="canonical" href="https://crossweave.dev/docs/versions/v0.6.0/">')
+    expect(read(custom, 'sitemap.xml')).toContain('<loc>https://crossweave.dev/docs/versions/v0.6.0/</loc>')
   })
 
   test('the Pages build pins its configured production custom domain', () => {
     const workflow = readFileSync(join(repoRoot, '.github/workflows/pages.yml'), 'utf8')
     const buildStep = /- run: bun website\/build\.ts --refresh-release\n([\s\S]*?)(?=\n      - uses:)/.exec(workflow)?.[1] ?? ''
     expect(buildStep).toContain('SITE_DOMAIN: crossweave.dev')
+    expect(readFileSync(join(repoRoot, '.github/workflows/pages.yml'), 'utf8')).toContain('fetch-depth: 0')
   })
 
   test('the sitemap lists every indexable page once, with absolute URLs, and not the 404', () => {
     const urls = [...read(project, 'sitemap.xml').matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1])
-    expect(urls).toHaveLength(22)
+    expect(urls).toHaveLength(23)
     expect(urls).toHaveLength(pages.length - 1)
     expect(new Set(urls).size).toBe(urls.length)
     expect(urls.every((u) => u?.startsWith('https://nmhx2005.github.io/crossweave/'))).toBe(true)
@@ -86,6 +98,29 @@ describe('what a build writes', () => {
     expect(read(project, 'index.html')).toContain(`src="/crossweave/site.js?v=${fingerprint}"`)
     expect(read(project, 'vi/index.html')).toContain(`src="/crossweave/site.js?v=${fingerprint}"`)
     expect(read(custom, 'index.html')).toContain(`src="/site.js?v=${fingerprint}"`)
+  })
+
+  test('Docs search indexes are fingerprinted and point to real page headings in both UI languages', () => {
+    for (const [language, pagePath] of [['en', 'docs/index.html'], ['vi', 'vi/docs/index.html']] as const) {
+      const page = read(project, pagePath)
+      expect(page).toContain(language === 'en' ? 'Search documentation' : 'Tìm trong tài liệu')
+      const href = /data-search-index="([^"]+)"/.exec(page)?.[1]
+      expect(href).toBeDefined()
+      const file = href?.replace(SITE_BASE, '') ?? ''
+      expect(file).toMatch(new RegExp(`^docs-search\\.${language}\\.[a-f0-9]{16}\\.json$`))
+      const data = read(project, file)
+      const fingerprint = createHash('sha256').update(data).digest('hex').slice(0, 16)
+      expect(file).toContain(fingerprint)
+      const entries = JSON.parse(data) as Array<{ lang: string; version: string; href: string; section: string }>
+      expect(entries.some((entry) => entry.version === 'v0.6.0' && entry.href.includes('/docs/versions/v0.6.0/'))).toBe(true)
+      expect(entries.every((entry) => {
+        const url = new URL(entry.href, 'https://site.test')
+        const localPath = url.pathname.replace(SITE_BASE, '')
+        const html = read(project, localPath.endsWith('/') ? `${localPath}index.html` : localPath)
+        return !url.hash || html.includes(`id="${url.hash.slice(1)}"`)
+      })).toBe(true)
+      if (language === 'vi') expect(entries.some((entry) => entry.lang === 'en' && entry.version === 'v0.6.0')).toBe(true)
+    }
   })
 })
 

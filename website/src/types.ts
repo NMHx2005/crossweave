@@ -1,6 +1,7 @@
 import type { Content } from './content/types'
 import type { PageMeta } from './layout'
 import type { Lang, Urls } from './site'
+import type { VersionSnapshot } from './version-snapshots'
 
 declare const htmlBrand: unique symbol
 /** A string that is already HTML. Only renderers and page functions make one, and nothing escapes it again. */
@@ -44,4 +45,6 @@ export interface BuildOptions {
   fetcher?: typeof fetch
   timeoutMs?: number
   notarized?: boolean
+  /** Deterministic historical README inputs; production fills these from release tags. */
+  snapshots?: readonly VersionSnapshot[]
 }

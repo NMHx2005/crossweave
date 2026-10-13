@@ -19,6 +19,8 @@ export interface DocsCtx {
   release: Release
   /** The real size of a committed site image, by file name. */
   imageSize(name: string): { width: number; height: number }
+  searchIndexUrl?: string
+  snapshotTags?: readonly string[]
 }
 
 interface DocPage {
@@ -197,6 +199,17 @@ export function docsPages(ctx: DocsCtx, lang: Lang = 'en'): BuiltPage[] {
 <p class="docs__toc-title">${escapeHtml(tocLabel)}</p>
 <ul>${tocHeadings.map((heading) => `<li class="docs__toc-item docs__toc-item--h${heading.level}"><a href="#${escapeHtml(heading.id)}">${escapeHtml(heading.text)}</a></li>`).join('')}</ul>
 </nav>`
+    const searchCopy = ctx.docsLabels[lang]
+    const search = page.slug !== '' || ctx.searchIndexUrl === undefined ? '' : `<section class="docs-search" data-docs-search hidden data-search-index="${escapeHtml(ctx.searchIndexUrl)}" data-lang="${lang}" data-empty="${escapeHtml(searchCopy.searchEmpty)}" data-no-results="${escapeHtml(searchCopy.searchNoResults)}" data-error="${escapeHtml(searchCopy.searchError)}" data-count-one="${escapeHtml(searchCopy.searchResultCount(1))}" data-count-many="${escapeHtml(searchCopy.searchResultCount(2))}" data-english-source="${escapeHtml(searchCopy.englishSource)}">
+<form class="docs-search__form" role="search">
+<label for="docs-search">${escapeHtml(searchCopy.searchLabel)}</label>
+<div class="docs-search__row"><input id="docs-search" name="q" type="search" placeholder="${escapeHtml(searchCopy.searchPlaceholder)}" autocomplete="off"><label for="docs-search-version">${escapeHtml(searchCopy.searchSource)}</label><select id="docs-search-version" name="version"><option value="current">${escapeHtml(searchCopy.searchCurrent)}</option>${(ctx.snapshotTags ?? []).map((tag) => `<option value="${escapeHtml(tag)}">${escapeHtml(tag)}</option>`).join('')}<option value="all">${escapeHtml(searchCopy.searchAll)}</option></select><button class="btn btn--secondary" type="submit">${escapeHtml(searchCopy.searchSubmit)}</button></div>
+<p class="docs-search__hint">${escapeHtml(searchCopy.searchHint)}</p>
+</form>
+<p class="docs-search__status" data-search-status aria-live="polite"></p>
+<ol class="docs-search__results" data-search-results></ol>
+</section>
+${(ctx.snapshotTags ?? []).length === 0 ? '' : `<nav class="docs-search__snapshots" aria-label="${escapeHtml(searchCopy.snapshotsTitle)}"><h2>${escapeHtml(searchCopy.snapshotsTitle)}</h2><ul>${ctx.snapshotTags?.map((tag) => `<li><a href="${escapeHtml(urls.path(`/docs/versions/${tag}/`))}">${escapeHtml(tag)}</a></li>`).join('')}</ul></nav>`}`
 
     return {
       path: here,
@@ -210,6 +223,7 @@ ${nav}
 <article class="prose">
 <h1>${escapeHtml(page.title)}</h1>
 <p class="docs__notice">${escapeHtml(lang === 'en' ? `These pages describe the main branch. The latest published release is ${ctx.release.tag}; features marked “In the next release” on the home page are not in it.` : ctx.viDocs.copy.currentNotice(ctx.release.tag))}</p>
+${search}
 ${rendered.html}
 </article>
 ${toc}
