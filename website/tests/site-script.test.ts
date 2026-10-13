@@ -45,6 +45,46 @@ interface FakeClip {
   pause?: () => void
 }
 
+interface FakeDiagramTarget {
+  inside: boolean
+  getAttribute(name: string): string | null
+  closest(selector: string): FakeDiagramTarget | null
+}
+
+interface FakeExplorer {
+  output: { textContent: string; getAttribute(name: string): string | null }
+  listeners: Record<string, Listener[]>
+  addEventListener(type: string, fn: Listener): void
+  querySelector(selector: string): FakeExplorer['output'] | null
+  contains(node: unknown): boolean
+  fire(type: string, event: Record<string, unknown>): void
+}
+
+function diagramTarget(detail: string): FakeDiagramTarget {
+  const self: FakeDiagramTarget = {
+    inside: true,
+    getAttribute: (name) => name === 'data-diagram-detail' ? detail : null,
+    closest: (selector) => selector === '[data-diagram-part]' ? self : null,
+  }
+  return self
+}
+
+function explorer(defaultDetail: string): FakeExplorer {
+  const output = {
+    textContent: defaultDetail,
+    getAttribute: (name: string) => name === 'data-default' ? defaultDetail : null,
+  }
+  const self: FakeExplorer = {
+    output,
+    listeners: {},
+    addEventListener: (type, fn) => (self.listeners[type] ??= []).push(fn),
+    querySelector: (selector) => selector === '[data-diagram-description]' ? output : null,
+    contains: (node) => node === self || Boolean(node && typeof node === 'object' && 'inside' in node && node.inside === true),
+    fire: (type, event) => (self.listeners[type] ?? []).forEach((listener) => listener(event)),
+  }
+  return self
+}
+
 function clip(rejectPlay = false, opts: { videoApi?: boolean; customControl?: boolean } = {}): FakeClip {
   const listeners: Listener[] = []
   const toggle: FakeToggle = {
@@ -76,7 +116,7 @@ function clip(rejectPlay = false, opts: { videoApi?: boolean; customControl?: bo
   return self
 }
 
-function boot(opts: { buttons?: FakeButton[]; clips?: FakeClip[]; clipboard?: { writeText(text: string): Promise<void> } | null; reduce?: boolean | null }) {
+function boot(opts: { buttons?: FakeButton[]; clips?: FakeClip[]; explorers?: FakeExplorer[]; clipboard?: { writeText(text: string): Promise<void> } | null; reduce?: boolean | null }) {
   const timers: Array<() => void> = []
   const mediaListeners: Listener[] = []
   const media = { matches: opts.reduce === true, addEventListener: (_t: string, fn: Listener) => void mediaListeners.push(fn) }
@@ -100,6 +140,7 @@ function boot(opts: { buttons?: FakeButton[]; clips?: FakeClip[]; clipboard?: { 
     querySelectorAll: (selector: string) => {
       if (selector === 'button.copy[data-copy]') return opts.buttons ?? []
       if (selector === 'video[data-motion]') return opts.clips ?? []
+      if (selector === '[data-diagram-explorer]') return opts.explorers ?? []
       return []
     },
   }
@@ -225,5 +266,38 @@ describe('the demo clip', () => {
     await flush()
     expect(c.nextElementSibling?.hidden).toBe(false)
     expect(c.nextElementSibling?.textContent).toBe('Play the demo')
+  })
+})
+
+describe('the workflow diagram explainer', () => {
+  test('hover updates detail and leaving the explorer restores its overview', () => {
+    const region = explorer('overview')
+    const target = diagramTarget('api session details')
+    boot({ explorers: [region] })
+    region.fire('pointerover', { target, pointerType: 'mouse' })
+    expect(region.output.textContent).toBe('api session details')
+    region.fire('pointerout', { target, relatedTarget: { inside: false }, pointerType: 'mouse' })
+    expect(region.output.textContent).toBe('overview')
+  })
+
+  test('keyboard focus and Enter or Space keep the focused detail available', () => {
+    const region = explorer('overview')
+    const target = diagramTarget('trial merge details')
+    boot({ explorers: [region] })
+    region.fire('focusin', { target })
+    expect(region.output.textContent).toBe('trial merge details')
+    let prevented = false
+    region.fire('keydown', { target, key: ' ', preventDefault: () => { prevented = true } })
+    expect(prevented).toBe(true)
+    expect(region.output.textContent).toBe('trial merge details')
+  })
+
+  test('touch selection keeps its detail after the synthetic pointer leaves', () => {
+    const region = explorer('overview')
+    const target = diagramTarget('land route details')
+    boot({ explorers: [region] })
+    region.fire('click', { target })
+    region.fire('pointerout', { target, relatedTarget: { inside: false }, pointerType: 'touch' })
+    expect(region.output.textContent).toBe('land route details')
   })
 })

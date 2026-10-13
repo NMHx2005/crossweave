@@ -8,6 +8,6 @@
 
 ## Remaining limits
 
-- Vietnamese technical copy has not received independent native-speaker proofreading. Review command descriptions, security wording and product terminology before treating it as publication-quality localization.
+- A separate human Vietnamese-fluent proofread is still outstanding. An independent AI copy review has corrected wording around trusted commands, stale check results, Land evidence, shared-file summaries, security response timelines, live drag previews and the product-name metaphor; that pass cannot establish publication-quality localization on its own.
 - English README, `SECURITY.md`, CLI help and release notes remain the canonical sources. Vietnamese docs and releases are maintained counterparts; future source edits can make them drift until the matching translation is updated. The release tag parity check detects missing or extra versions, not prose drift.
 - Machine checks verify route coverage, metadata and links, but cannot prove every translated sentence preserves nuance or technical meaning.

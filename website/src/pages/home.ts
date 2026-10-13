@@ -142,7 +142,14 @@ ${c.hero.videoTranscript.steps.map((s) => `<li>${esc(s)}</li>`).join('\n')}
 <div class="wrap">
 <h2 class="section__title" data-reveal>${esc(c.how.title)}</h2>
 <p class="section__intro" data-reveal>${esc(c.how.intro)}</p>
-<div class="diagram-wrap" data-reveal>${diagramSvg(c.how.diagramAlt)}</div>
+<div class="diagram-explorer" data-diagram-explorer>
+<div class="diagram-wrap" data-reveal>${diagramSvg(c.how.diagramAlt, c.how.diagramDetails)}</div>
+<div class="diagram-explorer__copy">
+<p class="diagram-explorer__title">${esc(c.how.diagramDetails.title)}</p>
+<p class="diagram-explorer__description" id="diagram-description" data-diagram-description data-default="${esc(c.how.diagramDetails.overview)}" role="status" aria-live="polite" aria-atomic="true">${esc(c.how.diagramDetails.overview)}</p>
+<p class="diagram-explorer__hint">${esc(c.how.diagramDetails.hint)}</p>
+</div>
+</div>
 <ol class="steps">
 ${steps}
 </ol>

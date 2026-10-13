@@ -22,7 +22,7 @@ cw converge status      # ma trận xung đột từng cặp + thứ tự merge 
 cw land all             # land mọi session đã commit và không xung đột theo thứ tự đó
 ```
 
-Mỗi session có branch và worktree riêng. Hãy commit những thay đổi muốn giữ ngay trong session trước khi land; `cw converge status` cho biết xung đột và đề xuất thứ tự, còn `cw land` vẫn tự trial merge. Nếu project đã tin cậy `converge.testCommand`, chạy `cw config trust` một lần rồi `cw check` trước khi land để xem kết quả trên hàng session. Muốn bắt buộc kiểm tra, đặt `"converge": { "testCommand": "…", "requireCheck": true }`: khi lần kiểm tra gần nhất chưa pass, `cw land` sẽ từ chối (`CHECK_REQUIRED`); `--skip-check` là cách bỏ qua tường minh. Khi session đang chạy, lệnh kiểm tra nhận các giá trị `$PORT`, cache và database riêng của session.
+Mỗi session có branch và worktree riêng. Hãy commit những thay đổi muốn giữ ngay trong session trước khi land; `cw converge status` cho biết xung đột và đề xuất thứ tự, còn `cw land` vẫn tự trial merge. Nếu project đã tin cậy `converge.testCommand`, chạy `cw config trust` một lần rồi `cw check` trước khi land để xem kết quả trên hàng session. Muốn bắt buộc kiểm tra, đặt `"converge": { "testCommand": "…", "requireCheck": true }`: khi kết quả kiểm tra gần nhất không đạt hoặc đã lỗi thời so với thay đổi hiện tại, `cw land` sẽ từ chối (`CHECK_REQUIRED`); `--skip-check` là cách bỏ qua tường minh. Khi session đang chạy, lệnh kiểm tra nhận các giá trị `$PORT`, cache và database riêng của session.
 
 ## Các lệnh dùng thường ngày
 

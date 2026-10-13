@@ -100,6 +100,9 @@ describe('how it works', () => {
   test('an inline diagram that is described, and three numbered steps with a command and a picture each', () => {
     expect(html).toContain('<svg ')
     expect(html).toContain(`aria-label="${en.home.how.diagramAlt}"`)
+    expect(html).toContain('data-diagram-explorer')
+    expect(html).toContain('data-diagram-description')
+    expect(html).toContain('aria-live="polite"')
     expect(count(html, /<li class="step"/g)).toBe(3)
     for (const step of en.home.how.steps) {
       expect(html).toContain(`<code class="step__cmd">${step.command}</code>`)
@@ -109,17 +112,75 @@ describe('how it works', () => {
 })
 
 describe('the diagram', () => {
-  const svg = String(diagramSvg('A described picture'))
+  const svg = String(diagramSvg('A described picture', en.home.how.diagramDetails))
   test('is one labelled graphic with no inline style and no script', () => {
     expect(svg.startsWith('<svg ')).toBe(true)
-    expect(svg).toContain('role="img"')
+    expect(svg).toContain('role="group"')
     expect(svg).toContain('aria-label="A described picture"')
     expect(svg).not.toContain('style=')
     expect(svg).not.toContain('<script')
     expect(svg).not.toMatch(/#[0-9a-fA-F]{3,6}\b/)
   })
   test('escapes its label', () => {
-    expect(String(diagramSvg('"><b>'))).not.toContain('"><b>')
+    expect(String(diagramSvg('"><b>', en.home.how.diagramDetails))).not.toContain('"><b>')
+  })
+
+  test('layers the shared repo, three sessions, trial evidence, blocked outcomes and the land path', () => {
+    expect(svg).toContain('data-layer="repository"')
+    expect([...svg.matchAll(/data-layer="session"/g)]).toHaveLength(3)
+    expect(svg).toContain('data-layer="trial-merge"')
+    expect([...svg.matchAll(/data-result="blocked"/g)]).toHaveLength(2)
+    expect(svg).toContain('data-result="ready"')
+    expect(svg).toContain('data-layer="land"')
+  })
+
+  test('uses flat workflow shapes and marks connector paths for flow animation', () => {
+    expect(svg).not.toContain('dg-card-shadow')
+    expect(svg).not.toContain('dg-window-dot')
+    expect(svg).toContain('dg-flow')
+    expect(svg).toContain('dg-route-base')
+  })
+
+  test('makes every workflow part a named, keyboard-focusable explainer target', () => {
+    const interactive = String(diagramSvg('Workflow', en.home.how.diagramDetails))
+    const parts = [...interactive.matchAll(/data-diagram-part="([^"]+)"/g)].map((match) => match[1]).sort()
+    expect(parts).toEqual(['blocked-docs', 'blocked-web', 'land', 'ready', 'repository', 'routes', 'session-api', 'session-docs', 'session-web', 'trial-merge'])
+    expect(interactive.match(/role="button" tabindex="0"/g)).toHaveLength(parts.length)
+    expect(interactive.match(/<title>/g)).toHaveLength(parts.length)
+    for (const detail of [
+      en.home.how.diagramDetails.routes,
+      en.home.how.diagramDetails.repository,
+      ...Object.values(en.home.how.diagramDetails.sessions),
+      en.home.how.diagramDetails.trialMerge,
+      en.home.how.diagramDetails.ready,
+      en.home.how.diagramDetails.blocked,
+      en.home.how.diagramDetails.land,
+    ]) expect(interactive).toContain(detail)
+  })
+
+  test('escapes localized explainer content before placing it in SVG attributes and titles', () => {
+    const details = { ...en.home.how.diagramDetails, repository: '"><script>alert(1)</script>' }
+    const interactive = String(diagramSvg('Workflow', details))
+    expect(interactive).not.toContain('data-diagram-detail=""><script>')
+    expect(interactive).toContain('data-diagram-detail="&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;"')
+  })
+})
+
+describe('localized diagram explainer copy', () => {
+  test('both locales explain the overview and each category of the diagram', () => {
+    for (const details of [en.home.how.diagramDetails, vi.home.how.diagramDetails]) {
+      expect(details.overview.length).toBeGreaterThan(30)
+      expect(details.routes.length).toBeGreaterThan(30)
+      expect(details.repository.length).toBeGreaterThan(30)
+      expect(details.sessions.api.length).toBeGreaterThan(30)
+      expect(details.sessions.web.length).toBeGreaterThan(30)
+      expect(details.sessions.docs.length).toBeGreaterThan(30)
+      expect(details.trialMerge.length).toBeGreaterThan(30)
+      expect(details.ready.length).toBeGreaterThan(30)
+      expect(details.blocked.length).toBeGreaterThan(30)
+      expect(details.land.length).toBeGreaterThan(30)
+      expect(details.hint.length).toBeGreaterThan(10)
+    }
   })
 })
 

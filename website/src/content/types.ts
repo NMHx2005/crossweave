@@ -51,6 +51,19 @@ export interface VietnameseDocs {
   securityLead: string
 }
 
+export interface DiagramDetails {
+  title: string
+  hint: string
+  overview: string
+  routes: string
+  repository: string
+  sessions: { api: string; web: string; docs: string }
+  trialMerge: string
+  ready: string
+  blocked: string
+  land: string
+}
+
 export interface Content {
   readonly lang: Lang
   readonly htmlLang: string
@@ -92,7 +105,7 @@ export interface Content {
       videoTranscript: { title: string; steps: string[] }
     }
     pill(tag: string, labels: string[]): string
-    how: { title: string; intro: string; diagramAlt: string; steps: Step[] }
+    how: { title: string; intro: string; diagramAlt: string; diagramDetails: DiagramDetails; steps: Step[] }
     groups: {
       title: string
       intro: string

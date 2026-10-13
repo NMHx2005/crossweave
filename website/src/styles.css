@@ -194,29 +194,45 @@ code { font-size: 0.9em; }
 .copy[hidden] { display: none; }
 .hero__meta a { color: var(--cw-accent); }
 
-.diagram-wrap { max-width: 46rem; margin: 0 auto var(--s-6); }
+.diagram-explorer { max-width: 58rem; margin: 0 auto var(--s-6); }
+.diagram-wrap { max-width: 58rem; margin: 0 auto; padding: 0; overflow: hidden; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
 .diagram { display: block; width: 100%; height: auto; }
-.diagram .dg-label { font-size: 0.8125rem; font-weight: 600; }
-.diagram .dg-verdict { font-size: 1rem; font-weight: 700; }
-.diagram path { fill: none; stroke-width: 2; stroke-linecap: round; }
-.diagram path.dg-main { stroke: var(--cw-text-dim); }
-.diagram path.dg-a { stroke: var(--cw-agent-claude); }
-.diagram path.dg-b { stroke: var(--cw-agent-gemini); }
-.diagram path.dg-c { stroke: var(--cw-agent-copilot); }
-.diagram path.dg-try { stroke: var(--cw-text-dim); stroke-width: 1.5; stroke-dasharray: 4 4; }
+.diagram-explorer__copy { display: grid; grid-template-columns: 10rem minmax(0, 1fr); gap: var(--s-1) var(--s-4); margin-top: var(--s-3); padding: var(--s-3) var(--s-4); border-left: 0.125rem solid var(--cw-accent); background: var(--cw-surface-sidebar); }
+.diagram-explorer__title { grid-row: span 2; margin: 0; color: var(--cw-accent); font-size: 0.875rem; font-weight: 700; }
+.diagram-explorer__description { margin: 0; color: var(--cw-text); }
+.diagram-explorer__hint { grid-column: 2; margin: 0; color: var(--cw-text-dim); font-size: 0.8125rem; }
+.diagram [role="button"] { cursor: help; }
+.diagram .dg-repository:hover .dg-repository-card, .diagram .dg-repository:focus-visible .dg-repository-card,
+.diagram .dg-session:hover .dg-session-card, .diagram .dg-session:focus-visible .dg-session-card,
+.diagram .dg-trial:hover .dg-trial-card, .diagram .dg-trial:focus-visible .dg-trial-card { stroke: var(--cw-accent); stroke-width: 1.75; }
+.diagram .dg-result:hover .dg-result-mark, .diagram .dg-result:focus-visible .dg-result-mark { stroke: var(--cw-accent); stroke-width: 2; }
+.diagram .dg-routes:hover .dg-flow, .diagram .dg-routes:focus-visible .dg-flow,
+.diagram .dg-land-flow:hover .dg-flow, .diagram .dg-land-flow:focus-visible .dg-flow { stroke-width: 3.25; }
+.diagram .dg-repository-card, .diagram .dg-session-card, .diagram .dg-trial-card { fill: var(--cw-surface); stroke: var(--cw-border); stroke-width: 1; }
+.diagram .dg-session-rule { fill: none; stroke-width: 2; stroke-linecap: round; }
+.diagram .dg-session-rule.dg-a { stroke: var(--cw-agent-claude); }
+.diagram .dg-session-rule.dg-b { stroke: var(--cw-agent-gemini); }
+.diagram .dg-session-rule.dg-c { stroke: var(--cw-agent-copilot); }
+.diagram .dg-kicker { fill: var(--cw-text-dim); font-size: 0.8125rem; font-weight: 600; letter-spacing: 0.035em; }
+.diagram .dg-label { fill: var(--cw-text-dim); font-size: 0.75rem; font-weight: 500; }
+.diagram .dg-repo-name, .diagram .dg-trial-title, .diagram .dg-session-name { fill: var(--cw-text-bright); font-size: 1.25rem; font-weight: 700; }
+.diagram .dg-result-label { fill: var(--cw-text-bright); font-size: 0.75rem; font-weight: 700; }
+.diagram .dg-session { transform-box: fill-box; transform-origin: center; }
+.diagram .dg-trial-glyph { fill: none; stroke: var(--cw-accent); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.diagram .dg-result-mark { stroke: none; }
+.diagram .dg-ready .dg-result-mark { fill: var(--cw-ready); }
+.diagram .dg-blocked .dg-result-mark { fill: var(--cw-blocked); }
+.diagram .dg-land-text, .diagram .dg-land-label { fill: var(--cw-ready); }
+.diagram path { fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.diagram path.dg-route-base { stroke: var(--cw-border-strong); stroke-width: 1.25; }
+.diagram path.dg-route-base--land { stroke: var(--cw-ready); opacity: 0.38; }
+.diagram path.dg-line.dg-a { stroke: var(--cw-agent-claude); }
+.diagram path.dg-line.dg-b { stroke: var(--cw-agent-gemini); }
+.diagram path.dg-line.dg-c { stroke: var(--cw-agent-copilot); }
+.diagram path.dg-try { stroke: var(--cw-text-dim); stroke-width: 1.5; }
 .diagram path.dg-land { stroke: var(--cw-ready); stroke-width: 2.5; }
-.diagram path.dg-diamond { fill: var(--cw-surface-overlay); stroke: var(--cw-text); }
-.diagram circle { stroke: none; }
-.diagram circle.dg-main { fill: var(--cw-text-dim); }
-.diagram circle.dg-a { fill: var(--cw-agent-claude); }
-.diagram circle.dg-b { fill: var(--cw-agent-gemini); }
-.diagram circle.dg-c { fill: var(--cw-agent-copilot); }
-.diagram text.dg-main { fill: var(--cw-text-dim); }
-.diagram text.dg-a { fill: var(--cw-agent-claude); }
-.diagram text.dg-b { fill: var(--cw-agent-gemini); }
-.diagram text.dg-c { fill: var(--cw-agent-copilot); }
-.diagram text.dg-ok { fill: var(--cw-ready); }
-.diagram text.dg-conflict { fill: var(--cw-blocked); }
+.diagram path.dg-arrow { stroke: var(--cw-ready); stroke-width: 2.5; }
+.diagram path.dg-flow { stroke-dasharray: 7 14; }
 
 .steps { display: grid; gap: var(--s-4); grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr)); padding: 0; margin: 0; list-style: none; }
 .step { display: flex; flex-direction: column; gap: var(--s-3); padding: var(--s-5); background: var(--cw-surface-overlay); border: var(--cw-hairline) solid var(--cw-border); border-radius: var(--cw-radius-lg); }
@@ -357,6 +373,15 @@ code { font-size: 0.9em; }
   .download-grid { grid-template-columns: minmax(0, 1fr); }
 }
 
+@media (max-width: 47.99rem) {
+  .diagram-explorer__copy { grid-template-columns: minmax(0, 1fr); gap: var(--s-1); padding-inline: var(--s-3); }
+  .diagram-explorer__title { grid-row: auto; }
+  .diagram-explorer__hint { grid-column: 1; }
+  .diagram .dg-kicker { font-size: 1.125rem; }
+  .diagram .dg-label, .diagram .dg-result-label { font-size: 1rem; }
+  .diagram .dg-repo-name, .diagram .dg-trial-title { font-size: 1.5rem; }
+}
+
 .prose h1, .page > .wrap > h1 { font-size: clamp(1.75rem, 4vw, 2.5rem); }
 .docs__notice { padding: var(--s-2) var(--s-3); background: var(--cw-surface-overlay); border: var(--cw-hairline) solid var(--cw-border-strong); border-radius: var(--cw-radius); color: var(--cw-text); font-size: 0.9rem; }
 
@@ -401,7 +426,19 @@ code { font-size: 0.9em; }
     from { translate: 0 -100%; opacity: 0; }
     to { translate: 0 0; opacity: 1; }
   }
+  @keyframes route-flow { to { stroke-dashoffset: -42; } }
+  @keyframes story-session-api { from { transform: translateX(-0.5rem); } to { transform: translateX(0); } }
+  @keyframes story-session-web { from { transform: translateY(0.5rem); } to { transform: translateY(0); } }
+  @keyframes story-session-docs { from { transform: translateX(0.5rem); } to { transform: translateX(0); } }
   .site-header { animation: header-in 0.7s var(--ease-out) both; view-transition-name: site-header; }
+
+  /* The SVG already holds the full workflow; view timelines only add a little depth as its session panes enter. */
+  @supports (animation-timeline: view()) {
+    .diagram .dg-session--api { animation: story-session-api 1s var(--ease-out) both; animation-timeline: view(); animation-range: entry 0% cover 42%; }
+    .diagram .dg-session--web { animation: story-session-web 1s var(--ease-out) both; animation-timeline: view(); animation-range: entry 8% cover 50%; }
+    .diagram .dg-session--docs { animation: story-session-docs 1s var(--ease-out) both; animation-timeline: view(); animation-range: entry 16% cover 58%; }
+  }
+  .diagram .dg-flow { animation: route-flow 2.4s linear infinite; }
 
   /* The hero plays once on load, with no script: the words, then the lines under them, then the picture. */
   .hero .word { animation: word-up 1.1s var(--ease-out) both; animation-delay: calc(0.1s + var(--w, 0) * 70ms); }

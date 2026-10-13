@@ -10,7 +10,7 @@ Mỗi session nhận một dải port riêng (`$PORT`), thư mục cache và tù
 
 ## Land và bằng chứng
 
-Daemon chạy trial merge nền giữa các session với branch gốc và với nhau. `cw land` chỉ cho phép land dựa trên bằng chứng đó; bằng chứng chỉ đúng với base commit được dùng lúc thử. Sau khi một session được land, các session còn lại chuyển sang trạng thái *unknown* cho đến lần thử tiếp theo. `cw converge status` cho biết lý do. Tùy chọn `converge.requireCheck` còn từ chối land khi session chưa có lần kiểm tra mới nhất thành công.
+Daemon chạy trial merge nền giữa các session với branch gốc và với nhau. `cw land` chỉ cho phép land dựa trên bằng chứng đó; bằng chứng chỉ đúng với base commit được dùng lúc thử. Sau khi một session được land, các session còn lại chuyển sang trạng thái *unknown* cho đến lần thử tiếp theo. `cw converge status` cho biết lý do. Tùy chọn `converge.requireCheck` còn từ chối land khi session chưa có kết quả kiểm tra đạt còn hiệu lực với thay đổi hiện tại.
 
 ## Kiểm tra
 

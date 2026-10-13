@@ -1,6 +1,6 @@
 ## Báo cáo lỗ hổng
 
-**Đừng tạo issue công khai** để báo vấn đề bảo mật. Hãy dùng kênh báo cáo riêng của GitHub: **Security → Report a vulnerability** tại repository này (<https://github.com/NMHx2005/crossweave/security/advisories/new>). Gửi kèm điều bạn quan sát được, phiên bản (`cw --version`), hệ điều hành và các bước ngắn nhất để tái hiện. Bạn sẽ nhận phản hồi khi maintainer có thể đọc; đây là project cá nhân nhỏ nên không cam kết thời gian dịch vụ, nhưng lỗ hổng thật sẽ được xem xét nghiêm túc và sửa trước khi công bố.
+**Đừng tạo issue công khai** để báo vấn đề bảo mật. Hãy dùng kênh báo cáo riêng của GitHub: **Security → Report a vulnerability** tại repository này (<https://github.com/NMHx2005/crossweave/security/advisories/new>). Gửi kèm điều bạn quan sát được, phiên bản (`cw --version`), hệ điều hành và các bước ngắn nhất để tái hiện. Bạn sẽ nhận phản hồi khi maintainer có thể đọc; đây là project cá nhân nhỏ nên không cam kết thời hạn phản hồi hay xử lý, nhưng lỗ hổng thật sẽ được xem xét nghiêm túc và sửa trước khi công bố.
 
 Phiên bản được hỗ trợ: bản phát hành mới nhất. Các phiên bản cũ không còn nhận bản sửa.
 

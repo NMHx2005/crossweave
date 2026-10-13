@@ -212,6 +212,15 @@ describe('every page', () => {
     }
   })
 
+  test('every indexable page has a non-empty search description of at most 160 characters', () => {
+    for (const page of pages.filter((name) => name !== '404.html')) {
+      const html = read(project, page)
+      const description = /<meta name="description" content="([^"]*)">/.exec(html)?.[1] ?? ''
+      expect(description.length, `${page}: missing description`).toBeGreaterThan(0)
+      expect(description.length, `${page}: description too long`).toBeLessThanOrEqual(160)
+    }
+  })
+
   test('every image states alt, width and height; every table has scoped headers', () => {
     for (const page of pages) {
       const html = read(project, page)

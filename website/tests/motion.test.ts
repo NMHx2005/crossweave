@@ -125,7 +125,7 @@ describe('the motion in the stylesheet', () => {
 
   test('only a script that has armed itself can hide anything, and only when motion is welcome', () => {
     // A closed <details> hides its answer by design (`details[open]` shows it): that is state the reader controls, not a reveal.
-    const hiding = rules.filter((r) => !r.selector.includes('::details-content') && (/opacity:\s*0\b/.test(r.body) || /clip-path:\s*inset\(0 0 100%/.test(r.body)))
+    const hiding = rules.filter((r) => !r.selector.includes('::details-content') && (/opacity:\s*0(?:\s*!important)?\s*;/.test(r.body) || /clip-path:\s*inset\(0 0 100%/.test(r.body)))
     expect(hiding.length).toBeGreaterThan(0)
     for (const r of hiding) {
       expect(r.selector, r.selector).toContain('html[data-reveal-ready]')
@@ -145,7 +145,7 @@ describe('the motion in the stylesheet', () => {
   })
 
   test('keyframes animate only what the compositor can do cheaply (plus the FAQ height)', () => {
-    const allowed = new Set(['opacity', 'transform', 'translate', 'filter', 'clip-path'])
+    const allowed = new Set(['opacity', 'transform', 'translate', 'filter', 'clip-path', 'stroke-dashoffset'])
     for (const m of css.matchAll(/@keyframes\s+([\w-]+)\s*\{/g)) {
       const start = (m.index ?? 0) + m[0].length
       let depth = 1
@@ -170,6 +170,25 @@ describe('the motion in the stylesheet', () => {
     expect(rule?.body).toContain('animation-timeline: scroll(root)')
     expect(rule?.chain.join(' ')).toContain('prefers-reduced-motion: no-preference')
     expect(rules.find((r) => r.selector === '.scroll-progress' && r.chain.length === 0)?.body).toContain('display: none')
+  })
+
+  test('the session layers settle with view progress only as a supported motion enhancement', () => {
+    const layers = rules.filter((r) => r.selector.startsWith('.diagram .dg-session--') && r.body.includes('animation-timeline: view()'))
+    expect(layers).toHaveLength(3)
+    for (const layer of layers) {
+      expect(layer.chain.join(' ')).toContain('prefers-reduced-motion: no-preference')
+      expect(layer.chain.join(' ')).toContain('@supports (animation-timeline: view())')
+      expect(layer.body).toContain('animation-range: entry')
+      expect(layer.body).not.toMatch(/opacity\s*:/)
+    }
+  })
+
+  test('the workflow connector dashes travel continuously when motion is allowed', () => {
+    const flow = rules.find((r) => r.selector.includes('.diagram .dg-flow') && r.body.includes('animation: route-flow'))
+    expect(flow).toBeDefined()
+    expect(flow?.chain.join(' ')).toContain('prefers-reduced-motion: no-preference')
+    expect(flow?.body).toContain('animation: route-flow')
+    expect(css).toMatch(/@keyframes\s+route-flow\s*\{[^}]*to\s*\{\s*stroke-dashoffset:\s*-\d+/)
   })
 
   test('printing shows everything', () => {

@@ -1,11 +1,12 @@
 /*
- * The page is complete without this file. It only adds three things, each of which does nothing if what it needs is missing:
+ * The page is complete without this file. It only adds four things, each of which does nothing if what it needs is missing:
  *
  *  1. Scroll reveals (see "Motion" in styles.css). The stylesheet may hide a `[data-reveal]` block only once
  *     `html[data-reveal-ready]` exists, and this script is the only thing that sets it: a script that fails to load, or a browser
  *     without IntersectionObserver, leaves nothing hidden.
  *  2. A Copy button next to the install line. The button ships `hidden`; it appears only where the clipboard can be written.
- *  3. The demo clip: native controls are the baseline. Only after the custom Pause/Play control and motion preference are ready
+ *  3. The workflow diagram's detail panel, updated from localized SVG targets on hover, focus or tap.
+ *  4. The demo clip: native controls are the baseline. Only after the custom Pause/Play control and motion preference are ready
  *     does this script hide the native controls; it autoplays only where motion is welcome and pauses while off screen.
  */
 ;(function (window, document) {
@@ -68,6 +69,55 @@
             say(button.getAttribute('data-failed') || '')
           },
         )
+      })
+    })
+  }
+
+  function diagramExplorer() {
+    each(document.querySelectorAll('[data-diagram-explorer]'), function (root) {
+      var output = root.querySelector('[data-diagram-description]')
+      if (!output) return
+      var overview = output.getAttribute('data-default') || output.textContent
+
+      function part(node) {
+        return node && typeof node.closest === 'function' ? node.closest('[data-diagram-part]') : null
+      }
+      function show(node) {
+        if (node) output.textContent = node.getAttribute('data-diagram-detail') || overview
+      }
+      function reset() {
+        output.textContent = overview
+      }
+
+      root.addEventListener('pointerover', function (event) {
+        show(part(event.target))
+      })
+      root.addEventListener('pointerout', function (event) {
+        if (event.pointerType === 'touch') return
+        var current = part(event.target)
+        var next = part(event.relatedTarget)
+        if (next) {
+          show(next)
+          return
+        }
+        if (current) reset()
+      })
+      root.addEventListener('focusin', function (event) {
+        show(part(event.target))
+      })
+      root.addEventListener('focusout', function (event) {
+        var next = part(event.relatedTarget)
+        if (next) show(next)
+        else if (part(event.target)) reset()
+      })
+      root.addEventListener('click', function (event) {
+        show(part(event.target))
+      })
+      root.addEventListener('keydown', function (event) {
+        var target = part(event.target)
+        if (!target || (event.key !== 'Enter' && event.key !== ' ')) return
+        event.preventDefault()
+        show(target)
       })
     })
   }
@@ -151,5 +201,6 @@
 
   reveal()
   copy()
+  diagramExplorer()
   video()
 })(window, document)

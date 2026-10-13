@@ -182,7 +182,7 @@ export const en: Content = {
   home: {
     title: 'crossweave — run many coding agents on one repo',
     description:
-      'Run coding agents in parallel on one repo. Crossweave gives each a Git worktree and shell, tracks progress, and trial-merges before you land. Free, MIT.',
+      'Run coding agents in separate git worktrees. Track each session, trial-merge changes in the background, and land what holds up. Free, MIT, macOS and Linux.',
     hero: {
       headline: 'Many agents. One repo. Land what holds up.',
       subtitle:
@@ -220,7 +220,23 @@ export const en: Content = {
     how: {
       title: 'How it works',
       intro: 'Three steps, all of them in your own terminal and shell.',
-      diagramAlt: 'main on top, three session branches leaving it, a trial merge between them and main, and one session landing back into main.',
+      diagramAlt: 'One shared main repository fans out to three session worktrees. Trial merge evidence marks one ready to land and two blocked.',
+      diagramDetails: {
+        title: 'Explore the workflow',
+        hint: 'Hover, focus, or tap a part of the diagram to explore it.',
+        overview: 'One shared main branch feeds three isolated worktrees. Crossweave checks candidate changes with trial merges, then you choose what to land back into main.',
+        routes: 'The colored routes connect the shared repository to separate session worktrees, then carry each session toward trial-merge evidence. The green route shows selected work returning to main.',
+        repository: 'This is the shared repository and base branch. Crossweave starts each session from this point and lands selected changes back here.',
+        sessions: {
+          api: 'The api session has its own Git worktree, branch, port block, and shell. Run Claude Code, Codex, or any command here while main stays available to other sessions.',
+          web: 'The web session is isolated in its own Git worktree, branch, port block, and shell. Its changes can be reviewed and trial-merged without switching the shared main checkout.',
+          docs: 'The docs session has a separate Git worktree, branch, port block, and shell. It can work in parallel with api and web, then join the landing order when its changes are ready.',
+        },
+        trialMerge: 'Crossweave prepares trial merges to check whether candidate changes apply cleanly and to suggest a landing order. A clean merge is conflict evidence, not proof that the code is correct.',
+        ready: 'This session applies cleanly in its trial merge against the current base. Review the changes and explicitly land it; ready does not mean the code has passed tests.',
+        blocked: 'A trial merge found a conflict with the current base or another selected session. Review and resolve the overlap before trying to land it.',
+        land: 'The green route shows selected changes being landed back into main. Crossweave changes main only when you explicitly run cw land for a chosen session.',
+      },
       steps: [
         {
           title: 'Start sessions',

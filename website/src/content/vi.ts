@@ -164,7 +164,7 @@ export const vi: Content = {
   home: {
     title: 'crossweave — chạy nhiều agent lập trình trên một repo',
     description:
-      'Chạy nhiều agent lập trình trên một repo. crossweave cấp worktree và shell, theo dõi tiến độ, rồi thử merge trước khi bạn chọn phần để land. Miễn phí, MIT.',
+      'Chạy agent lập trình trong git worktree riêng. Theo dõi session, trial merge ở chế độ nền, rồi land phần đứng vững. Miễn phí, MIT, macOS và Linux.',
     hero: {
       headline: 'Nhiều agent. Một repo. Merge cái đứng vững.',
       subtitle:
@@ -202,7 +202,23 @@ export const vi: Content = {
     how: {
       title: 'Cách hoạt động',
       intro: 'Ba bước, đều trong terminal và shell của chính bạn.',
-      diagramAlt: 'main ở trên, ba branch session rẽ ra từ nó, một trial merge giữa chúng và main, và một session land trở lại main.',
+      diagramAlt: 'Một repository main chung tách thành ba session worktree. Bằng chứng trial merge cho biết một session sẵn sàng land và hai session bị chặn.',
+      diagramDetails: {
+        title: 'Khám phá luồng làm việc',
+        hint: 'Rê chuột, đưa tiêu điểm bàn phím hoặc chạm vào một phần sơ đồ để xem giải thích.',
+        overview: 'Một nhánh main dùng chung cấp điểm xuất phát cho ba worktree tách biệt. Crossweave thử merge các thay đổi, rồi bạn chọn phần nào được land về main.',
+        routes: 'Các đường màu nối repository chung với từng session riêng, rồi đưa chúng tới bằng chứng trial merge. Đường xanh lá biểu thị thay đổi được chọn để land về main.',
+        repository: 'Đây là repository chung và nhánh nền. Crossweave tạo mỗi session từ đây và land các thay đổi được chọn trở lại đây.',
+        sessions: {
+          api: 'Session api có Git worktree, branch, dải port và shell riêng. Chạy Claude Code, Codex hoặc lệnh bất kỳ ở đây trong khi main vẫn sẵn sàng cho session khác.',
+          web: 'Session web được cô lập trong Git worktree, branch, dải port và shell riêng. Bạn có thể xem lại và trial merge thay đổi mà không cần chuyển checkout main dùng chung.',
+          docs: 'Session docs có Git worktree, branch, dải port và shell riêng. Nó có thể chạy song song với api và web, rồi vào thứ tự land khi thay đổi đã sẵn sàng.',
+        },
+        trialMerge: 'Crossweave tạo trial merge để kiểm tra thay đổi có áp dụng sạch không và gợi ý thứ tự land. Merge sạch chỉ là bằng chứng không xung đột, không chứng minh code đúng.',
+        ready: 'Trial merge cho thấy session này áp dụng sạch trên nhánh nền hiện tại. Hãy xem lại thay đổi và chủ động land; trạng thái sẵn sàng không có nghĩa code đã qua test.',
+        blocked: 'Trial merge phát hiện xung đột với nhánh nền hiện tại hoặc session khác được chọn. Hãy xem và xử lý phần chồng lấn trước khi thử land.',
+        land: 'Đường xanh lá biểu thị các thay đổi được chọn đang được land trở lại main. Crossweave chỉ đổi main khi bạn chủ động chạy cw land cho session đã chọn.',
+      },
       steps: [
         {
           title: 'Bắt đầu các session',
@@ -336,7 +352,7 @@ export const vi: Content = {
         },
         {
           q: 'Vì sao là “crossweave”?',
-          a: 'Các agent của bạn chạy như những sợi dọc song song. crossweave là sợi ngang: sợi chéo buộc chúng lại để tấm vải đứng vững.',
+          a: 'Các agent của bạn chạy như những sợi dọc song song. crossweave là sợi ngang, đan qua các sợi dọc để kết chúng thành một tấm vải bền chắc.',
         },
       ],
     },

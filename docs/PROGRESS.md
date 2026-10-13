@@ -1,6 +1,6 @@
 # Progress — crossweave
 
-**Last updated:** 2026-10-12 (post-release completion merged; final-main CI verified)
+**Last updated:** 2026-10-13 (bilingual site, homepage storytelling, and copy QA completed on the release follow-up branch)
 **Product:** `cw` (CLI), `cwd` (daemon) and the Electron **Cockpit** run N parallel sessions on one repository and land them
 back. A session is a git worktree plus the user's shell in it; what runs there is the user's to type.
 **Where the known gaps are:** `docs/superpowers/specs/2026-08-14-known-limitations-digest.md` (one line per milestone, newest
@@ -51,7 +51,7 @@ usage per session; its own app icon (`apps/cockpit/build/icon.svg`, four warp th
 | **Auto-check settings and "Send test failure to shell"** (2026-10-10): Settings → Checks; the failing tail goes to the shell redacted, no Enter | `2026-10-10-auto-check-known-limitations.md` |
 | **Sensitive-file flags** (2026-10-10): labelled badges and a summary line in Changes, Checkpoints and Compare; Land asks first for secret-like and automation files | `2026-10-10-sensitive-files-known-limitations.md` |
 | **Calmer Settings and a failed-check alert** (2026-10-11, in 0.6.0): a lead, a titled first card and a folded Details in every section, no banner, a steady column; a desktop alert (exit code and time, never the output) when a check fails while the window is away, switch in Notifications | `2026-10-11-settings-polish-check-alert-known-limitations.md` |
-| **Website** (2026-10-11, published at `https://crossweave.dev/`): a static, dependency-free site in `website/` for GitHub Pages — home (English and Vietnamese), download with an honest not-notarized note, docs built from the README, changelog, a command reference checked against `cw --help` | `2026-10-11-website-known-limitations.md`, `2026-10-11-website-v2-known-limitations.md` |
+| **Website** (published at `https://crossweave.dev/`): dependency-free static GitHub Pages site; all indexable routes, download, docs, changelog, releases and command reference have EN/VI versions; home workflow diagram has an explorable, animated 2.5D treatment | `2026-10-11-website-known-limitations.md`, `2026-10-11-website-v2-known-limitations.md`, `2026-10-13-website-full-bilingual-known-limitations.md`, `2026-10-12-homepage-product-storytelling-known-limitations.md` |
 | **Settings redesigned after Cursor's** and a **Dashboard** (projects, sessions, disk, memory; proposals to clean up, delete or stop idle work — always asks first) | `2026-09-30-settings-dashboard-known-limitations.md` |
 
 ## Removed on purpose (do not reintroduce)
@@ -64,13 +64,15 @@ usage per session; its own app icon (`apps/cockpit/build/icon.svg`, four warp th
 
 ## Next
 
-1. Use v0.6.0 for a week and fix what is annoying: run `cw hooks install claude` and try the debug loop, presets and composer for real. Real-world capacity still awaits owner usage.
-2. Get a separate Vietnamese-fluent human proofread and finish the browser playback matrix; Safari's normal-motion autoplay and Pause/Play pass, while Firefox is unavailable. See the 2026-10-12 handoff.
+1. Use v0.6.0 for a week and fix what is annoying: run `cw hooks install claude` and try the debug loop, presets and composer for real. Automated tests cannot replace real owner usage.
+2. Get a separate Vietnamese-fluent human proofread and finish the browser playback matrix; Safari's normal-motion autoplay and Pause/Play pass, while Firefox is unavailable. The 2026-10-13 handoff records the checks completed in this follow-up.
 3. **Notarization is deferred** until the owner is ready to revisit the Apple Developer account and hardened-runtime work. Auto-update restart still depends on a properly signed/notarized app.
 4. Later: a native iOS app for remote control (designed from scratch), a Linux cockpit, per-session one-line summaries on the rail,
    an optional "land only when the tests passed" gate.
 
 ## Changelog (newest first)
+
+- **2026-10-13** — Website follow-up adds the localized workflow explorer on the homepage and completes EN/VI coverage for every current indexable route and v0.3.0–v0.6.0. Copy review corrected technical nuance around trusted commands, stale checks, Land evidence and related release wording. Desktop/mobile Chromium, keyboard, touch, reduced-motion and no-JavaScript fallbacks were checked; a second human Vietnamese proofread and the remaining Safari/Firefox matrix are still open. See `docs/HANDOFF-2026-10-13.md`.
 
 - **2026-10-12** — Post-release PR [#3](https://github.com/NMHx2005/crossweave/pull/3) fixes the Linux `dash` PTY fixtures, adds the confirmed daemon-guarded live-session Land flow, and fixes website sitemap/video/responsive/copy issues; PR [#4](https://github.com/NMHx2005/crossweave/pull/4) records the public website in the README. PR [#5](https://github.com/NMHx2005/crossweave/pull/5) switched Git-fixture creation to synchronous copy, but final-main run `38238889755` showed that could also fail partway through `.git`; PR [#7](https://github.com/NMHx2005/crossweave/pull/7) replaces filesystem copy with `git clone --no-hardlinks` and passes local typecheck, all 2,363 tests, and PR CI run `38240382394`. Final-main run `38238096754` and Pages run `38236698702` passed before that follow-up. Live HTTPS metadata is verified. Safari's normal-motion autoplay and Pause/Play pass a manual smoke check; Firefox and the rest of the Safari playback matrix are open. Independent Vietnamese proofread is pending. Notarization is deferred.
 - **2026-10-11** — v0.6.0 is published and the website is live at `https://crossweave.dev/`. The release also includes the settings polish and failed-check desktop alert.
