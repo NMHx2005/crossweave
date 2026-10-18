@@ -87,12 +87,23 @@ export function combineObservers(
   };
 }
 
+/**
+ * What a re-attaching client needs from a session's screen. A TUI gets a serialized
+ * repaint (its output is diffed cells, so a truncated byte tail cannot rebuild it);
+ * a plain shell keeps the byte tail, which is its actual scrollback.
+ */
+export interface ScreenReplay {
+  isTui(sessionId: string): boolean;
+  snapshot(sessionId: string): Promise<string | undefined>;
+}
+
 export class SessionRuntime {
   private readonly running = new Map<string, RunningSession>();
 
   constructor(
     private readonly onExit: (sessionId: string, code: number) => void,
     private readonly observer?: RuntimeObserver,
+    private readonly replay?: ScreenReplay,
   ) {}
 
   /** The shell pid of every running session, for the process-tree agent sweep. */
@@ -188,10 +199,22 @@ export class SessionRuntime {
     return entry === undefined ? undefined : { cols: entry.cols, rows: entry.rows };
   }
 
-  subscribe(sessionId: string, name: string, ctx: MethodContext): void {
+  /**
+   * Replays what this session shows to a client that just attached. A TUI gets the
+   * serialized screen (see `ScreenReplay`); a shell gets its byte scrollback, exactly
+   * as before. Returns a promise only for the TUI path, so the shell replay keeps
+   * happening during `session.attach` (clients register their handler first).
+   */
+  subscribe(sessionId: string, name: string, ctx: MethodContext): void | Promise<void> {
     const entry = this.require(sessionId, name);
-    // Attaching again (a client re-opening a session) replays the scrollback but must
-    // not stack another close handler on the same connection each time.
+    if (this.replay?.isTui(sessionId) === true) return this.subscribeTui(sessionId, entry, ctx);
+    this.attach(entry, ctx);
+    this.replayScrollback(entry, ctx);
+  }
+
+  private attach(entry: RunningSession, ctx: MethodContext): void {
+    // Attaching again (a client re-opening a session) replays the screen but must not
+    // stack another close handler on the same connection each time.
     if (!entry.subscribers.has(ctx)) {
       entry.subscribers.add(ctx);
       ctx.onClose(() => {
@@ -202,10 +225,32 @@ export class SessionRuntime {
     // Before the replay, on a re-attach too: the scrollback already holds whatever this
     // ctx had pending, so a later timer flush would print it a second time.
     entry.out.clear(ctx);
-    if (entry.scrollback.length > 0) {
-      const payload = this.dataPayload(entry.session, entry.scrollback);
-      if (payload !== undefined) ctx.notify('session.data', payload);
+  }
+
+  private replayScrollback(entry: RunningSession, ctx: MethodContext): void {
+    if (entry.scrollback.length === 0) return;
+    const payload = this.dataPayload(entry.session, entry.scrollback);
+    if (payload !== undefined) ctx.notify('session.data', payload);
+  }
+
+  private async subscribeTui(sessionId: string, entry: RunningSession, ctx: MethodContext): Promise<void> {
+    let snapshot: string | undefined;
+    try {
+      snapshot = await this.replay?.snapshot(sessionId);
+    } catch {
+      // A screen that cannot serialize is no reason to leave the client blank; the
+      // byte tail below is the old behaviour and still shows something.
+      snapshot = undefined;
     }
+    // The subscriber joins after the snapshot, so output that arrived meanwhile is not
+    // delivered twice. The screen parsed it before serializing, so it is in the snapshot.
+    this.attach(entry, ctx);
+    if (snapshot !== undefined && snapshot !== '') {
+      const payload = this.dataPayload(entry.session, `\x1bc${snapshot}`);
+      if (payload !== undefined) ctx.notify('session.data', payload);
+      return;
+    }
+    this.replayScrollback(entry, ctx);
   }
 
   /**

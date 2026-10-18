@@ -83,6 +83,12 @@ function notifyAll(subscribers: Iterable<MethodContext>, method: string, params:
  * it is closed, when its session's worktree is about to be removed
  * (`closeForSession`), or with the daemon (`closeAll`).
  */
+/** The screen of an extra pane, for the same re-attach replay as a session's. */
+export interface TerminalReplay {
+  isTui(terminalId: string): boolean;
+  snapshot(terminalId: string): Promise<string | undefined>;
+}
+
 export class TerminalRegistry {
   private readonly open_ = new Map<string, OpenTerminal>();
 
@@ -93,6 +99,7 @@ export class TerminalRegistry {
     private readonly persist?: PersistDeps,
     /** Told everything a pane's shell does, for status inference. See TerminalObserver. */
     private readonly observer?: TerminalObserver,
+    private readonly replay?: TerminalReplay,
   ) {}
 
   /** True while the daemon is going down: terminals ending then are kept for the next start. */
@@ -185,8 +192,15 @@ export class TerminalRegistry {
     return [...this.open_.values()].filter((t) => t.workspaceId === workspaceId).map((t) => this.info(t));
   }
 
-  subscribe(terminalId: string, ctx: MethodContext): TerminalInfo {
+  subscribe(terminalId: string, ctx: MethodContext): TerminalInfo | Promise<TerminalInfo> {
     const entry = this.require(terminalId);
+    if (this.replay?.isTui(terminalId) === true) return this.subscribeTui(terminalId, entry, ctx);
+    this.attach(entry, ctx);
+    this.replayScrollback(entry, ctx);
+    return this.info(entry);
+  }
+
+  private attach(entry: OpenTerminal, ctx: MethodContext): void {
     if (!entry.subscribers.has(ctx)) {
       entry.subscribers.add(ctx);
       ctx.onClose(() => {
@@ -197,9 +211,29 @@ export class TerminalRegistry {
     // Before the replay, on a re-attach too: the scrollback already holds whatever this
     // ctx had pending, so a later timer flush would print it a second time.
     entry.out.clear(ctx);
-    if (entry.scrollback.length > 0) {
-      const payload = this.payload(entry, entry.scrollback);
+  }
+
+  private replayScrollback(entry: OpenTerminal, ctx: MethodContext): void {
+    if (entry.scrollback.length === 0) return;
+    const payload = this.payload(entry, entry.scrollback);
+    if (payload !== undefined) ctx.notify('terminal.data', payload);
+  }
+
+  private async subscribeTui(terminalId: string, entry: OpenTerminal, ctx: MethodContext): Promise<TerminalInfo> {
+    let snapshot: string | undefined;
+    try {
+      snapshot = await this.replay?.snapshot(terminalId);
+    } catch {
+      snapshot = undefined;
+    }
+    // Join after the snapshot: output that arrived meanwhile is already in it (or in
+    // the fallback tail), so the client never receives the same frame twice.
+    this.attach(entry, ctx);
+    if (snapshot !== undefined && snapshot !== '') {
+      const payload = this.payload(entry, `\x1bc${snapshot}`);
       if (payload !== undefined) ctx.notify('terminal.data', payload);
+    } else {
+      this.replayScrollback(entry, ctx);
     }
     return this.info(entry);
   }
