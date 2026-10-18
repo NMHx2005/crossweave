@@ -1,4 +1,17 @@
+import { SerializeAddon } from '@xterm/addon-serialize';
 import { Terminal } from '@xterm/headless';
+
+/** How many lines of recent history a re-attaching client gets with the screen. */
+export const SNAPSHOT_SCROLLBACK = 500;
+
+/**
+ * A TUI announces itself by switching to the alternate screen, turning on synchronized
+ * output, or taking the mouse. A plain shell enables none of these; bracketed paste
+ * (`?2004h`) is deliberately not here because readline turns it on.
+ */
+const TUI_MODE = /\x1b\[\?(?:47|1047|1049|2026|1000|1002|1003)h/;
+/** An escape sequence can be split across chunks; keep enough tail to see one. */
+const MODE_TAIL = 32;
 
 /**
  * What a session's terminal shows right now, kept by replaying its output into a
@@ -6,17 +19,49 @@ import { Terminal } from '@xterm/headless';
  * say whether it is busy: Claude Code redraws its status line while it waits for you
  * (output, yet idle), and Codex repaints only the cells that changed (so the words
  * "esc to interrupt" are sent once, then only the timer beside them).
+ *
+ * It is also the source of the re-attach replay: `snapshot()` serializes the screen
+ * instead of handing back a truncated byte tail (see `SessionRuntime.subscribe`).
  */
 export class AgentScreen {
   private readonly term: Terminal;
+  private readonly serializer = new SerializeAddon();
+  private tui = false;
+  private modeTail = '';
 
   constructor(cols = 80, rows = 24) {
-    // No scrollback: only the visible screen matters, and the daemon holds many.
-    this.term = new Terminal({ cols, rows, scrollback: 0, allowProposedApi: true });
+    // A bounded scrollback lets a re-attach restore recent history, not just the
+    // viewport; it is small enough for the daemon to hold one per live session.
+    this.term = new Terminal({ cols, rows, scrollback: SNAPSHOT_SCROLLBACK, allowProposedApi: true });
+    this.term.loadAddon(this.serializer);
   }
 
   write(chunk: string): void {
+    if (!this.tui) {
+      const probe = this.modeTail + chunk;
+      if (TUI_MODE.test(probe)) this.tui = true;
+      this.modeTail = probe.slice(-MODE_TAIL);
+    }
     this.term.write(chunk);
+  }
+
+  /** True once this screen has shown a full-screen TUI (not a plain shell). */
+  get isTui(): boolean {
+    return this.tui;
+  }
+
+  /**
+   * A full VT repaint of this screen, for a client that just attached.
+   *
+   * The runtime's 64 KB byte tail is not a screen: it can start mid-escape and it can
+   * splice two processes together, which leaves the stale cells a diff renderer
+   * (opencode) never repaints. This is the screen itself, so it is always coherent.
+   * Waits for xterm's write queue first, so the newest output is included.
+   */
+  async snapshot(): Promise<string | undefined> {
+    if (!this.tui) return undefined;
+    await new Promise<void>((resolve) => this.term.write('', resolve));
+    return this.serializer.serialize({ scrollback: SNAPSHOT_SCROLLBACK });
   }
 
   resize(cols: number, rows: number): void {

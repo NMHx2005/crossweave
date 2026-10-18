@@ -235,6 +235,30 @@ describe('session runtime', () => {
     second.close();
   });
 
+  // A TUI (mouse tracking here, as opencode enables) writes diffed cells; replaying a
+  // truncated byte tail into a fresh terminal leaves stale cells it never repaints.
+  // The re-attach must replay the screen the activity tracker already keeps.
+  it('replays a TUI screen snapshot instead of the truncated byte tail', async () => {
+    await client.call('session.new', { workspaceId, name: 'tui', worktree: true });
+    await client.call('session.start', { workspaceId, idOrName: 'tui' });
+    await client.call('session.attach', { workspaceId, idOrName: 'tui' });
+    await client.call('session.input', { workspaceId, idOrName: 'tui', data: '\x1b[?1000hTUI-MARKER\n' });
+    await new Promise((r) => setTimeout(r, 150));
+
+    let late = '';
+    const second = await DaemonClient.connect(socketPath);
+    second.onNotification((method, params) => {
+      if (method === 'session.data') late += (params as { chunk: string }).chunk;
+    });
+    await second.call('session.attach', { workspaceId, idOrName: 'tui' });
+    await waitFor(() => late.includes('TUI-MARKER'));
+
+    // The snapshot is a full repaint (reset first); the old byte tail had no prefix.
+    expect(late.startsWith('\x1bc')).toBe(true);
+    expect(late).toContain('TUI-MARKER');
+    second.close();
+  });
+
   it('refuses to start an already running session', async () => {
     await client.call('session.new', { workspaceId, name: 'auth', worktree: true });
     await client.call('session.start', { workspaceId, idOrName: 'auth' });

@@ -277,7 +277,12 @@ export function buildMethods(
     // A shell that exits on its own (`exit`, a crash) is a status change no RPC
     // announced; every client kept showing it `running` until something else redrew.
     broadcastRegistry.broadcast('tui.invalidate', {});
-  }, combineObservers(activity, setupExitWatcher, { output: (sessionId, chunk) => errorLines.observe(sessionId, chunk) }));
+  }, combineObservers(activity, setupExitWatcher, { output: (sessionId, chunk) => errorLines.observe(sessionId, chunk) }), {
+    // A TUI is diffed cells on the alternate screen or inline; a truncated byte tail
+    // cannot rebuild it. Replay the screen the tracker already keeps instead.
+    isTui: (sessionId) => activity.isTui(sessionId),
+    snapshot: (sessionId) => activity.snapshot(sessionId),
+  });
   sessions.onKill = (id) => runtime.stop(id);
 
   /**
@@ -371,6 +376,10 @@ export function buildMethods(
       terminalAgents.delete(terminalId);
       terminalSessions.delete(terminalId);
     },
+  }, {
+    // Same replay rule as a session: the pane's screen, not a truncated tail.
+    isTui: (terminalId) => activity.isTerminalTui(terminalId),
+    snapshot: (terminalId) => activity.terminalSnapshot(terminalId),
   });
   // A daemon that was stopped left its terminals' rows behind when persistence was on: reopen them.
   if (opts.startBackgroundJobs === true) {
@@ -1157,9 +1166,9 @@ export function buildMethods(
       return start(p);
     },
 
-    'session.attach': (p, ctx) => {
+    'session.attach': async (p, ctx) => {
       const row = sessions.resolve(str(p, 'workspaceId'), str(p, 'idOrName'));
-      runtime.subscribe(row.id, row.name, ctx);
+      await runtime.subscribe(row.id, row.name, ctx);
       return { ok: true, sessionId: row.id, name: row.name };
     },
 

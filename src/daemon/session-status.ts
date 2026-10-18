@@ -181,6 +181,25 @@ export class ActivityTracker {
     this.tracks.get(id)?.screen.resize(cols, rows);
   }
 
+  /** True when this session's screen has shown a full-screen TUI, not a plain shell. */
+  isTui(id: string): boolean {
+    return this.tracks.get(id)?.screen.isTui ?? false;
+  }
+
+  /** A coherent repaint of the session's screen, for a client that just attached. */
+  snapshot(id: string): Promise<string | undefined> {
+    return this.tracks.get(id)?.screen.snapshot() ?? Promise.resolve(undefined);
+  }
+
+  /** The same two questions for an extra Terminal pane. */
+  isTerminalTui(terminalId: string): boolean {
+    return this.childTracks.get(terminalId)?.screen.isTui ?? false;
+  }
+
+  terminalSnapshot(terminalId: string): Promise<string | undefined> {
+    return this.childTracks.get(terminalId)?.screen.snapshot() ?? Promise.resolve(undefined);
+  }
+
   /** `data` is what was typed; without it the input is assumed to submit something (the conservative reading). */
   input(id: string, data?: string): void {
     const t = this.tracks.get(id);

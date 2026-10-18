@@ -1,6 +1,6 @@
 {
   "name": "crossweave",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Run N parallel coding sessions on one repo — a git worktree plus your shell each — with per-session ports, background trial merges and evidence-gated landing",
   "license": "MIT",
   "type": "module",
@@ -20,6 +20,7 @@
   "dependencies": {
     "@opentui/core": "0.5.3",
     "@opentui/keymap": "0.5.3",
+    "@xterm/addon-serialize": "0.14.0",
     "@xterm/headless": "6.0.0",
     "citty": "^0.2.2",
     "simple-git": "^3.36.0",
