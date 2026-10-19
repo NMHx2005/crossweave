@@ -123,6 +123,28 @@ describe('shell sessions', () => {
       }
     } finally { db.close(); }
   });
+
+  // `cw session resume` sends `env: {...process.env}` as the session's own, so a
+  // client running in a terminal that exports NO_COLOR (Apple Terminal's profiles do)
+  // greyed out every agent it started. The launcher's own env is merged after this
+  // and may still set it — that is a person choosing a colour, not a terminal
+  // describing itself.
+  test("a client's NO_COLOR does not reach the session's shell, but a launcher's does", async () => {
+    const { db, call, spawned } = await harness();
+    try {
+      await call('session.new', { name: 'colour' });
+      await call('session.resume', {
+        idOrName: 'colour',
+        env: { NO_COLOR: '1', NODE_DISABLE_COLORS: '1', FORCE_COLOR: '0', KEEP_ME: 'yes' },
+      });
+      const shellEnv = spawned[0]!.opts['env'];
+      expect(shellEnv.NO_COLOR).toBeUndefined();
+      expect(shellEnv.NODE_DISABLE_COLORS).toBeUndefined();
+      expect(shellEnv.FORCE_COLOR).toBeUndefined();
+      expect(shellEnv.KEEP_ME).toBe('yes');
+      await call('session.stop', { idOrName: 'colour' });
+    } finally { db.close(); }
+  });
 });
 
 describe('session.diff', () => {

@@ -17,6 +17,7 @@ import { collectGarbage, collectOrphans } from '../domain/gc.js';
 import { EventLedger } from '../domain/ledger.js';
 import { reconcile } from '../domain/reconciliation.js';
 import { assertContained, crossweaveDir } from '../core/paths.js';
+import { withoutNoColourSwitch } from '../core/shell-env.js';
 import { ConvergenceScheduler } from './convergence-scheduler.js';
 import { MergeTrialRepo, isPairwiseTrial } from '../db/repositories/merge-trial.js';
 import { baseConflictFiles, commitsAhead } from '../convergence/trial.js';
@@ -150,6 +151,14 @@ function readBaseBranch(projectRoot: string): string | null {
   }
 }
 
+/**
+ * The environment a client asked the session to have.
+ *
+ * A client forwards its own environment (the CLI sends `{...process.env}`), so this is
+ * one of the two doors the launcher's `NO_COLOR` can arrive by — see shell-env.ts.
+ * Dropped here rather than in the shell's own loop because a launcher's env is merged
+ * onto this one afterwards, and that one is a person choosing a session's colour.
+ */
 function clientEnv(p: Record<string, unknown>): Record<string, string> {
   const raw = p.env;
   if (typeof raw !== 'object' || raw === null) return {};
@@ -157,7 +166,7 @@ function clientEnv(p: Record<string, unknown>): Record<string, string> {
   for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
     if (typeof v === 'string') out[k] = v;
   }
-  return out;
+  return withoutNoColourSwitch(out);
 }
 
 export function buildMethods(
